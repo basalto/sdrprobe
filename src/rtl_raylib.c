@@ -2532,8 +2532,6 @@ static void handle_settings_input(struct app *app) {
                          panel.y + panel.height - 55.0f, 92.0f, 34.0f };
     Rectangle apply = { panel.x + panel.width - 120.0f,
                         panel.y + panel.height - 55.0f, 92.0f, 34.0f };
-    Rectangle calibrate = { panel.x + 28.0f,
-                            panel.y + panel.height - 55.0f, 176.0f, 34.0f };
 
     int character;
     while ((character = GetCharPressed()) != 0) {
@@ -2587,11 +2585,6 @@ static void handle_settings_input(struct app *app) {
         app->settings_open = 0;
         return;
     }
-    if (clicked(calibrate)) {
-        app->settings_open = 0;
-        open_calibration(app);
-        return;
-    }
     if (clicked(apply) || IsKeyPressed(KEY_ENTER)) {
         if (apply_settings(app) == 0)
             app->settings_open = 0;
@@ -2635,8 +2628,6 @@ static void draw_settings(const struct app *app) {
                          panel.y + panel.height - 55.0f, 92.0f, 34.0f };
     Rectangle apply = { panel.x + panel.width - 120.0f,
                         panel.y + panel.height - 55.0f, 92.0f, 34.0f };
-    Rectangle calibrate = { panel.x + 28.0f,
-                            panel.y + panel.height - 55.0f, 176.0f, 34.0f };
     char gain[64];
 
     DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
@@ -2699,11 +2690,15 @@ static void draw_settings(const struct app *app) {
                  16, (Color){ 255, 105, 100, 255 });
     draw_button(cancel, "Cancel", 0);
     draw_button(apply, "Apply", 1);
-    draw_button(calibrate, "Cellular calibration", 0);
 }
 
 static Rectangle settings_button(void) {
     return (Rectangle){ (float)GetScreenWidth() - 130.0f, 16.0f,
+                        108.0f, 34.0f };
+}
+
+static Rectangle calibration_button(void) {
+    return (Rectangle){ (float)GetScreenWidth() - 130.0f, 58.0f,
                         108.0f, 34.0f };
 }
 
@@ -3179,6 +3174,8 @@ static int run_gui(struct app *app) {
             break;
         } else if (clicked(settings_button()) || IsKeyPressed(KEY_S)) {
             open_settings(app);
+        } else if (clicked(calibration_button()) || IsKeyPressed(KEY_C)) {
+            open_calibration(app);
         }
 
         double now = GetTime();
@@ -3252,6 +3249,7 @@ static int run_gui(struct app *app) {
             else
                 draw_waterfall(app, 0);
             draw_button(settings_button(), "Settings", 0);
+            draw_button(calibration_button(), "Calibration", 0);
             if (app->settings_open)
                 draw_settings(app);
         }

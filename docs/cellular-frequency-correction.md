@@ -13,7 +13,8 @@ power, antenna gain, or cellular timing.
 ## Current Application Support
 
 `rtl_raylib` includes an interactive cellular calibration screen reached from
-**Settings → Cellular calibration**. The screen displays selectors for 2G, 4G,
+the **Calibration** button (below **Settings**, or the `c` key). The screen
+displays selectors for 2G, 4G,
 and 5G, but the current measurement implementation supports only:
 
 - Technology: 2G GSM.
@@ -76,7 +77,7 @@ live receiver and a sample rate of at least 1 MS/s.
   --gain 32.8 --ppm 0
 ```
 
-3. Open **Settings**, then **Cellular calibration**.
+3. Press the **Calibration** button (below **Settings**, or the `c` key).
 4. Select **2G**. The screen reports **Band: GSM 900**.
 5. Enter a known downlink ARFCN from 1 through 124. Locally useful examples
    identified during development were:
