@@ -29,8 +29,9 @@ DSP into a generic core (`src/sdr_dsp.c`/`.h`) and per-technology plugins
   and, for a live receiver, gain while running; it also toggles the default-on
   spectrum/waterfall DC-spike filter. The HUD reports noise, estimated SNR,
   clipping, and full-scale headroom for gain selection. Up/Down manually
-  narrow/widen the active chart's scale. Settings also opens GSM 900 cellular
-  calibration for ARFCN 1-124, including expected/measured carrier markers and
+  narrow/widen the active chart's scale. The Calibration button (or `c`), below
+  Settings, opens GSM 900 cellular calibration for ARFCN 1-124, including
+  expected/measured carrier markers and
   a stability-gated PPM suggestion.
 - Built binaries and the DSP check executables are gitignored (not tracked);
   `make` writes them to the repo root and `make clean` removes them.
