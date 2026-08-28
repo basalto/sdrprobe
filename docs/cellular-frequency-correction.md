@@ -575,6 +575,33 @@ The implementation and remaining follow-ups (a waterfall tone marker and a UI
 toggle) are described in
 [fcch-tone-detection-plan.md](./fcch-tone-detection-plan.md).
 
+## Calibration Health Indicator And Drift Re-Check
+
+A circle in the top-right of the base views reports whether the applied PPM is
+backed by a GSM calibration:
+
+- **grey** — never GSM-calibrated, or the PPM was changed manually in Settings;
+- **green** — the applied PPM came from a stable **FCCH-tone** lock (a
+  centroid-only Apply PPM stays grey);
+- **amber** — a drift re-check is in progress;
+- **red** — a re-check measured drift beyond the threshold.
+
+Because the receiver is normally tuned away from any GSM channel, drift cannot be
+observed passively. The optional **Settings → "Auto GSM drift check"** (default
+off) enables a periodic verification: every `DRIFT_CHECK_INTERVAL_SECONDS`
+(300 s) `update_drift_check()` saves the current view frequency, retunes to the
+calibrated ARFCN, settles, measures the FCCH residual over a short window, and
+retunes back. If the residual's robust center reaches `DRIFT_MAX_PPM` (2.0 PPM)
+the circle turns red and a HUD banner plus a stderr line report the drift; the
+correction is only reported, never re-applied. The re-check runs only while a
+valid FCCH-backed calibration exists and no calibration/scan/settings overlay
+owns the tuning.
+
+The re-check deliberately interrupts the live view for a few seconds each cycle;
+that trade-off, and why the check must retune rather than observe passively, are
+recorded in
+[docs/adr/0006-gsm-drift-indicator.md](./adr/0006-gsm-drift-indicator.md).
+
 
 ## PPM Sign And Suggested Correction
 
