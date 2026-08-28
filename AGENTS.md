@@ -32,7 +32,11 @@ DSP into a generic core (`src/sdr_dsp.c`/`.h`) and per-technology plugins
   narrow/widen the active chart's scale. The Calibration button (or `c`), below
   Settings, opens GSM 900 cellular calibration for ARFCN 1-124, including
   expected/measured carrier markers and
-  a stability-gated PPM suggestion.
+  a stability-gated PPM suggestion. A top-right circle shows calibration health
+  (grey uncalibrated, green FCCH-backed lock, amber checking, red drift); the
+  optional Settings "Auto GSM drift check" periodically retunes to the
+  calibrated ARFCN to re-verify and warns on drift (see
+  `docs/adr/0006-gsm-drift-indicator.md`).
 - Built binaries and the DSP check executables are gitignored (not tracked);
   `make` writes them to the repo root and `make clean` removes them.
 

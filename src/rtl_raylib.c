@@ -43,6 +43,28 @@
 #define SCAN_STEP_PROBE_SECONDS 0.45
 #define SCAN_SENTINEL_DBFS (-300.0f)
 #define SCAN_BCCH_MIN_CONF 0.85f
+#define DRIFT_CHECK_INTERVAL_SECONDS 300.0
+#define DRIFT_CHECK_SETTLE_SECONDS 2.0
+#define DRIFT_CHECK_MEASURE_SECONDS 3.0
+#define DRIFT_MAX_PPM 2.0
+#define DRIFT_MIN_MEASUREMENTS 8
+#define DRIFT_RECENT 64
+
+/* Calibration-health indicator states. UNKNOWN must be 0 (zero-initialised). */
+enum cal_health {
+    CAL_HEALTH_UNKNOWN = 0, /* grey: never GSM-calibrated, or PPM changed manually */
+    CAL_HEALTH_GOOD,        /* green: applied PPM backed by a stable FCCH lock */
+    CAL_HEALTH_DRIFT,       /* red: a periodic re-check found drift */
+    CAL_HEALTH_CHECKING     /* amber: a re-check is in progress */
+};
+
+/* Phases of one background drift re-check. */
+enum drift_phase {
+    DRIFT_IDLE = 0,
+    DRIFT_SETTLE,
+    DRIFT_MEASURE
+};
+
 
 enum gain_request_kind {
     GAIN_REQUEST_MAX,
@@ -232,6 +254,25 @@ struct app {
     float scan_power[125];
     float scan_bcch_conf[125];
     int scan_selected_arfcn;
+
+    /* Calibration-health indicator and background drift re-check. */
+    int auto_drift_check;          /* Settings toggle: enable periodic re-check */
+    int settings_auto_drift;       /* Settings-panel working copy */
+    int gsm_cal_valid;             /* an FCCH-backed GSM calibration exists */
+    uint32_t gsm_cal_expected_hz;  /* calibrated carrier */
+    uint32_t gsm_cal_tune_hz;      /* receiver center used for the re-check */
+    int gsm_cal_ppm;               /* PPM applied at calibration */
+    int gsm_cal_arfcn;             /* channel, for the notice text */
+    int drift_health;              /* enum cal_health */
+    int drift_health_prev;         /* restored if a re-check is inconclusive */
+    double drift_ppm;              /* last measured residual drift */
+    double drift_last_check_at;
+    char drift_notice[160];
+    int drift_phase;               /* enum drift_phase */
+    double drift_phase_started_at;
+    uint32_t drift_saved_frequency; /* view frequency to return to */
+    double drift_recent_ppm[DRIFT_RECENT];
+    int drift_recent_count;
 };
 
 static volatile sig_atomic_t signal_stop_requested = 0;
@@ -1935,6 +1976,7 @@ static void open_settings(struct app *app) {
     }
     app->settings_error[0] = '\0';
     app->settings_remove_dc = app->remove_dc;
+    app->settings_auto_drift = app->auto_drift_check;
     app->settings_open = 1;
 }
 
@@ -1950,6 +1992,15 @@ static int apply_settings(struct app *app) {
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "PPM must be a signed integer from -1000 to 1000");
         return -1;
+    }
+
+    app->auto_drift_check = app->settings_auto_drift;
+    /* A manual PPM change is no longer FCCH-backed: drop to grey. */
+    if (app->gsm_cal_valid && ppm != app->gsm_cal_ppm) {
+        app->gsm_cal_valid = 0;
+        app->drift_health = CAL_HEALTH_UNKNOWN;
+        app->drift_notice[0] = '\0';
+        app->drift_phase = DRIFT_IDLE;
     }
 
     if (!app->receiver_mode) {
@@ -2503,9 +2554,93 @@ static void update_scan(struct app *app) {
     app->scan_step_started_at = GetTime();
 }
 
+/* Periodically verify the applied PPM against the calibrated GSM carrier. Each
+   check briefly retunes to the calibrated channel, measures the FCCH residual,
+   then retunes back to the view frequency, so it only runs when enabled, a
+   valid FCCH-backed calibration exists, and no overlay owns the tuning. See
+   docs/adr/0006-gsm-drift-indicator.md. */
+static void update_drift_check(struct app *app, int have_block) {
+    if (!app->auto_drift_check || !app->gsm_cal_valid || !app->receiver_mode)
+        return;
+    if (app->calibration_open || app->scan_open || app->settings_open)
+        return;
+
+    double now = GetTime();
+
+    if (app->drift_phase == DRIFT_IDLE) {
+        if (now - app->drift_last_check_at < DRIFT_CHECK_INTERVAL_SECONDS)
+            return;
+        app->drift_saved_frequency = app->applied_frequency;
+        app->drift_health_prev = app->drift_health;
+        if (retune_receiver(app, app->gsm_cal_tune_hz, app->gsm_cal_ppm) < 0) {
+            app->drift_last_check_at = now; /* retry next interval */
+            return;
+        }
+        app->drift_recent_count = 0;
+        app->drift_phase = DRIFT_SETTLE;
+        app->drift_phase_started_at = now;
+        app->drift_health = CAL_HEALTH_CHECKING;
+        return;
+    }
+
+    if (app->drift_phase == DRIFT_SETTLE) {
+        if (now - app->drift_phase_started_at >= DRIFT_CHECK_SETTLE_SECONDS) {
+            app->drift_phase = DRIFT_MEASURE;
+            app->drift_phase_started_at = now;
+        }
+        return;
+    }
+
+    /* DRIFT_MEASURE */
+    if (have_block && app->spectrum_ready &&
+        app->drift_recent_count < DRIFT_RECENT) {
+        struct gsm_fcch_result fcch;
+        double target = (double)app->gsm_cal_expected_hz -
+                        (double)app->applied_frequency + GSM_FCCH_TONE_HZ;
+        if (gsm_fcch_detect(app->i_samples, app->q_samples, app->pair_count,
+                            app->applied_sample_rate, target, 50000.0,
+                            &fcch)) {
+            double carrier = (double)app->applied_frequency +
+                             fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
+            app->drift_recent_ppm[app->drift_recent_count++] =
+                (carrier - (double)app->gsm_cal_expected_hz) /
+                (double)app->gsm_cal_expected_hz * 1000000.0;
+        }
+    }
+    if (now - app->drift_phase_started_at < DRIFT_CHECK_MEASURE_SECONDS)
+        return;
+
+    retune_receiver(app, app->drift_saved_frequency, app->gsm_cal_ppm);
+    app->drift_phase = DRIFT_IDLE;
+    app->drift_last_check_at = GetTime();
+
+    if (app->drift_recent_count >= DRIFT_MIN_MEASUREMENTS) {
+        double center = 0.0;
+        double spread = 0.0;
+        robust_center_spread(app->drift_recent_ppm, app->drift_recent_count,
+                             &center, &spread);
+        app->drift_ppm = center;
+        if (fabs(center) >= DRIFT_MAX_PPM) {
+            app->drift_health = CAL_HEALTH_DRIFT;
+            snprintf(app->drift_notice, sizeof(app->drift_notice),
+                     "Frequency drift %+.1f PPM on ARFCN %d -- recalibrate",
+                     center, app->gsm_cal_arfcn);
+            fprintf(stderr, "GSM drift check: %+.2f PPM on ARFCN %d\n",
+                    center, app->gsm_cal_arfcn);
+        } else {
+            app->drift_health = CAL_HEALTH_GOOD;
+            app->drift_notice[0] = '\0';
+        }
+    } else {
+        /* Inconclusive (tone not found); keep the prior state, retry later. */
+        app->drift_health = app->drift_health_prev;
+    }
+}
+
+
 static Rectangle settings_panel(void) {
     float width = 520.0f;
-    float height = 330.0f;
+    float height = 380.0f;
     return (Rectangle){ ((float)GetScreenWidth() - width) * 0.5f,
                         ((float)GetScreenHeight() - height) * 0.5f,
                         width, height };
@@ -2528,6 +2663,8 @@ static void handle_settings_input(struct app *app) {
                             panel.y + 164.0f, 42.0f, 38.0f };
     Rectangle dc_toggle = { panel.x + 28.0f, panel.y + 218.0f,
                             22.0f, 22.0f };
+    Rectangle drift_toggle = { panel.x + 28.0f, panel.y + 250.0f,
+                               22.0f, 22.0f };
     Rectangle cancel = { panel.x + panel.width - 224.0f,
                          panel.y + panel.height - 55.0f, 92.0f, 34.0f };
     Rectangle apply = { panel.x + panel.width - 120.0f,
@@ -2581,6 +2718,8 @@ static void handle_settings_input(struct app *app) {
     }
     if (clicked(dc_toggle))
         app->settings_remove_dc = !app->settings_remove_dc;
+    if (clicked(drift_toggle))
+        app->settings_auto_drift = !app->settings_auto_drift;
     if (clicked(cancel)) {
         app->settings_open = 0;
         return;
@@ -2624,6 +2763,8 @@ static void draw_settings(const struct app *app) {
                             panel.y + 164.0f, 42.0f, 38.0f };
     Rectangle dc_toggle = { panel.x + 28.0f, panel.y + 218.0f,
                             22.0f, 22.0f };
+    Rectangle drift_toggle = { panel.x + 28.0f, panel.y + 250.0f,
+                               22.0f, 22.0f };
     Rectangle cancel = { panel.x + panel.width - 224.0f,
                          panel.y + panel.height - 55.0f, 92.0f, 34.0f };
     Rectangle apply = { panel.x + panel.width - 120.0f,
@@ -2685,8 +2826,22 @@ static void draw_settings(const struct app *app) {
              (int)dc_toggle.x + 32, (int)dc_toggle.y + 2, 17,
              (Color){ 205, 218, 226, 255 });
 
+    DrawRectangleRec(drift_toggle, (Color){ 5, 10, 16, 255 });
+    DrawRectangleLinesEx(drift_toggle, 1.0f, (Color){ 255, 174, 62, 255 });
+    if (app->settings_auto_drift) {
+        DrawLineEx((Vector2){ drift_toggle.x + 4.0f, drift_toggle.y + 11.0f },
+                   (Vector2){ drift_toggle.x + 9.0f, drift_toggle.y + 17.0f },
+                   2.0f, (Color){ 255, 205, 91, 255 });
+        DrawLineEx((Vector2){ drift_toggle.x + 9.0f, drift_toggle.y + 17.0f },
+                   (Vector2){ drift_toggle.x + 19.0f, drift_toggle.y + 5.0f },
+                   2.0f, (Color){ 255, 205, 91, 255 });
+    }
+    DrawText("Auto GSM drift check (periodic re-tune)",
+             (int)drift_toggle.x + 32, (int)drift_toggle.y + 2, 17,
+             (Color){ 205, 218, 226, 255 });
+
     if (app->settings_error[0])
-        DrawText(app->settings_error, (int)panel.x + 28, (int)panel.y + 247,
+        DrawText(app->settings_error, (int)panel.x + 28, (int)panel.y + 289,
                  16, (Color){ 255, 105, 100, 255 });
     draw_button(cancel, "Cancel", 0);
     draw_button(apply, "Apply", 1);
@@ -2803,6 +2958,26 @@ static void handle_calibration_input(struct app *app) {
                      sizeof(app->calibration_status),
                      "Applied %+d PPM; measuring residual error",
                      app->applied_ppm);
+            /* The health indicator turns green only for an FCCH-backed lock;
+               record the calibrated channel so drift can be re-checked. */
+            if (app->calibration_source == CALIBRATION_SOURCE_FCCH) {
+                int arfcn = 0;
+                parse_int(app->calibration_channel, &arfcn);
+                app->gsm_cal_valid = 1;
+                app->gsm_cal_expected_hz = app->calibration_expected_hz;
+                app->gsm_cal_tune_hz = app->calibration_tune_hz;
+                app->gsm_cal_ppm = app->applied_ppm;
+                app->gsm_cal_arfcn = arfcn;
+                app->drift_health = CAL_HEALTH_GOOD;
+                app->drift_ppm = 0.0;
+                app->drift_notice[0] = '\0';
+                app->drift_phase = DRIFT_IDLE;
+                app->drift_last_check_at = GetTime();
+            } else {
+                app->gsm_cal_valid = 0;
+                app->drift_health = CAL_HEALTH_UNKNOWN;
+                app->drift_notice[0] = '\0';
+            }
         }
     }
     if (clicked(back) || IsKeyPressed(KEY_ESCAPE))
@@ -3105,6 +3280,40 @@ static void adjust_active_scale(struct app *app, int zoom_in) {
     }
 }
 
+static void draw_health_indicator(const struct app *app) {
+    float cx = (float)GetScreenWidth() - 152.0f;
+    float cy = 33.0f;
+    Color color;
+    switch (app->drift_health) {
+    case CAL_HEALTH_GOOD:
+        color = (Color){ 99, 228, 170, 255 };
+        break;
+    case CAL_HEALTH_DRIFT:
+        color = (Color){ 235, 90, 90, 255 };
+        break;
+    case CAL_HEALTH_CHECKING:
+        color = (Color){ 250, 190, 74, 255 };
+        break;
+    default:
+        color = (Color){ 110, 122, 133, 255 };
+        break;
+    }
+    const char *cap = "GSM cal";
+    DrawText(cap, (int)(cx - 12.0f - (float)MeasureText(cap, 16)),
+             (int)cy - 8, 16, (Color){ 150, 170, 184, 255 });
+    DrawCircle((int)cx, (int)cy, 9.0f, color);
+    DrawCircleLines((int)cx, (int)cy, 9.0f, (Color){ 12, 19, 28, 255 });
+
+    if (app->drift_health == CAL_HEALTH_CHECKING) {
+        char text[96];
+        snprintf(text, sizeof(text),
+                 "Checking GSM drift on ARFCN %d...", app->gsm_cal_arfcn);
+        DrawText(text, 22, 178, 17, (Color){ 250, 190, 74, 255 });
+    } else if (app->drift_health == CAL_HEALTH_DRIFT && app->drift_notice[0]) {
+        DrawText(app->drift_notice, 22, 178, 17, (Color){ 255, 120, 120, 255 });
+    }
+}
+
 static int run_gui(struct app *app) {
     struct slot_snapshot snapshot;
     int result = 0;
@@ -3229,6 +3438,7 @@ static int run_gui(struct app *app) {
             update_scan(app);
             update_calibration_measurement(app);
         }
+        update_drift_check(app, spectrum_updated);
         update_scatter(app, now,
                        have_new && app->view == VIEW_SCATTER);
 
@@ -3250,6 +3460,7 @@ static int run_gui(struct app *app) {
                 draw_waterfall(app, 0);
             draw_button(settings_button(), "Settings", 0);
             draw_button(calibration_button(), "Calibration", 0);
+            draw_health_indicator(app);
             if (app->settings_open)
                 draw_settings(app);
         }
