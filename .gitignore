@@ -1,0 +1,16 @@
+# Built binaries and test executables (produced by `make`; `make clean` removes
+# them). Nothing built belongs in version control.
+/rtl_init
+/rtl_tui
+/rtl_raylib
+/sdr_dsp_test
+/gsm_dsp_test
+
+# Object files and other compiler output.
+*.o
+*.obj
+
+# Editor/OS noise.
+*.swp
+*~
+.DS_Store
