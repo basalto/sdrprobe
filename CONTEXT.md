@@ -32,6 +32,10 @@ _Avoid_: Message stream, packet stream
 A contiguous portion of a sample stream handled as one acquisition unit.
 _Avoid_: Packet, message, frame
 
+**Latest block**:
+The single most-recent sample block handed from acquisition to rendering, overwritten rather than queued so the display always shows the freshest data.
+_Avoid_: Queue, ring buffer, backlog
+
 **Magnitude**:
 The signal strength derived from an I/Q pair without retaining its phase.
 _Avoid_: Power, amplitude byte
@@ -117,6 +121,42 @@ _Avoid_: Channel index, band slot
 **Measured carrier**:
 The frequency estimated from an isolated calibration signal, compared against its expected frequency to derive a correction.
 _Avoid_: Detected peak, tuned frequency
+
+**Crystal error**:
+The receiver oscillator's proportional frequency error, expressed in parts per million, that a frequency correction compensates; it varies with temperature and is specific to one device.
+_Avoid_: Drift, PPM (the correction), clock skew
+
+**BCCH**:
+The GSM broadcast-control carrier; the continuously transmitted reference carrier that a calibration locks to, and the only one that carries an FCCH.
+_Avoid_: Control channel, beacon
+
+**FCCH**:
+The GSM Frequency Correction Channel: an all-zeros burst that appears as a pure tone a fixed offset above its BCCH carrier, giving a precise, unbiased carrier reference.
+_Avoid_: Sync burst, pilot
+
+**Coherence**:
+A zero-to-one measure of how tone-like a window of samples is, near one for a pure tone and near zero for modulation or noise; used as the confidence that a reference tone was found.
+_Avoid_: Correlation, match score
+
+**Channel power scan**:
+A retuning sweep across a band that charts each channel's received power and flags the channels carrying a reference tone, to help choose a calibration channel.
+_Avoid_: Spectrum sweep, survey
+
+**Power centroid**:
+A power-weighted mean frequency across a channel, used as the fallback carrier estimate when no reference tone is present.
+_Avoid_: Peak frequency, average
+
+**Guard-band floor**:
+A robust local noise reference taken from the band beside a channel, against which a carrier's strength is judged.
+_Avoid_: Noise floor (global), baseline
+
+**Prominence**:
+How far a candidate carrier stands above its guard-band floor, in decibels; too small a prominence rejects the carrier.
+_Avoid_: Peak height, amplitude
+
+**Correction uncertainty**:
+The standard error of the recent-residual center, in parts per million; the quantity a stable lock requires to fall below a threshold before the correction is trusted.
+_Avoid_: Spread, standard deviation, error bar
 
 ### DSP architecture
 

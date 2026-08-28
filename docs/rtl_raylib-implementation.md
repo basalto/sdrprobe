@@ -419,15 +419,20 @@ supports 2G GSM 900 only and marks the others unavailable.
 - The waterfall marks expected and measured carrier positions.
 
 Measurement uses coarse peak acquisition within +/-100 kHz of the expected
-carrier, then a power-weighted centroid within +/-30 kHz of that peak. The
-noise estimate is a robust percentile from adjacent guard bands. Flat spectra,
-weak prominence, and boundary candidates are rejected.
+carrier, then a power-weighted centroid within +/-50 kHz of that peak. When the
+BCCH's FCCH pure tone is present it refines the carrier instead of the centroid.
+The noise estimate is a robust percentile from adjacent guard bands. Flat
+spectra, weak prominence, and boundary candidates are rejected.
 
 Discard the first two seconds after tuning. Enable Apply PPM only after at
 least eight seconds, at least 32 accepted measurements, at least 8 dB
-prominence, and recent standard deviation no greater than 3 PPM. Applying a
-correction restarts measurement to show residual error. Back restores the
-pre-calibration center frequency while retaining an applied PPM correction.
+prominence, and a correction uncertainty (standard error of the median residual)
+no greater than 1 PPM. See
+[docs/adr/0004-calibration-stability-gate.md](./adr/0004-calibration-stability-gate.md)
+for why the gate tests the standard error of a robust center rather than raw
+standard deviation. Applying a correction restarts measurement to show residual
+error. Back restores the pre-calibration center frequency while retaining an
+applied PPM correction.
 
 This is a power-center estimate, not a GSM decoder or proof that the selected
 carrier is a BCCH. Confirm the ARFCN independently and compare residual error
