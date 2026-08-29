@@ -3223,29 +3223,7 @@ static void draw_gsm(struct app *app) {
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
         Rectangle wf = gsm_burst_rect();
 
-        /* SCH decode readout, printed above the top chart area. */
-        if (app->gsm_sch_valid) {
-            const struct gsm_sch_result *sch = &app->gsm_sch;
-            struct gsm_sch_tracker *trk = &app->gsm_tracker;
-            int d_fn = app->gsm_opt_tracker ? trk->display_fn : sch->frame_number;
-            int d_t1 = app->gsm_opt_tracker ? trk->voted_t1 : sch->t1;
-            snprintf(text, sizeof(text),
-                     "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
-                     sch->bsic, sch->ncc, sch->bcc, d_fn, d_t1,
-                     sch->t2, sch->t3, (double)sch->confidence,
-                     (app->gsm_opt_tracker && trk->locked) ? "  [LOCKED]" : "");
-            DrawText(text, (int)wf.x, (int)wf.y - 22, 18,
-                     (Color){ 120, 230, 255, 255 });
-        } else if (app->recording) {
-            snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
-                     app->record_path, app->record_bytes / 1e6);
-            DrawText(text, (int)wf.x, (int)wf.y - 22, 18,
-                     (Color){ 255, 202, 105, 255 });
-        } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
-            DrawText("SCH   searching for a synchronisation burst...", (int)wf.x,
-                     (int)wf.y - 22, 18, (Color){ 151, 174, 188, 255 });
-        }
-
+        /* SCH readout moved below Burst Analysis charts */
         if (app->gsm_analysis_mode) {
             /* Burst Analysis Chart replaces Waterfall */
             float gap = 10.0f;
@@ -3301,6 +3279,30 @@ static void draw_gsm(struct app *app) {
                      (int)wf.x, (int)wf.y - 18, 16, (Color){ 151, 174, 188, 255 });
             draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
         }
+
+        /* SCH decode readout, printed above the top chart area. */
+        if (app->gsm_sch_valid) {
+            const struct gsm_sch_result *sch = &app->gsm_sch;
+            struct gsm_sch_tracker *trk = &app->gsm_tracker;
+            int d_fn = app->gsm_opt_tracker ? trk->display_fn : sch->frame_number;
+            int d_t1 = app->gsm_opt_tracker ? trk->voted_t1 : sch->t1;
+            snprintf(text, sizeof(text),
+                     "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
+                     sch->bsic, sch->ncc, sch->bcc, d_fn, d_t1,
+                     sch->t2, sch->t3, (double)sch->confidence,
+                     (app->gsm_opt_tracker && trk->locked) ? "  [LOCKED]" : "");
+            DrawText(text, (int)wf.x, (int)wf.y - 22, 18,
+                     (Color){ 120, 230, 255, 255 });
+        } else if (app->recording) {
+            snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
+                     app->record_path, app->record_bytes / 1e6);
+            DrawText(text, (int)wf.x, (int)wf.y - 22, 18,
+                     (Color){ 255, 202, 105, 255 });
+        } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
+            DrawText("SCH   searching for a synchronisation burst...", (int)wf.x,
+                     (int)wf.y - 22, 18, (Color){ 151, 174, 188, 255 });
+        }
+
 
         /* Channel Power Scan Chart on bottom left */
         Rectangle sc = gsm_scan_rect();
