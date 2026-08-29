@@ -324,6 +324,7 @@ struct app {
 
     /* GSM SCH decode of the inspected channel. */
     struct gsm_sch_result gsm_sch;
+    struct gsm_sch_symbols gsm_sch_symbols;
     int gsm_sch_valid;
     double gsm_sch_time;
 
@@ -2927,8 +2928,25 @@ static Rectangle gsm_scan_rect(void) {
     float width = (float)GetScreenWidth();
     float top = 144.0f;
     float span = (float)GetScreenHeight() - top - 40.0f;
-    return (Rectangle){ 82.0f, top + span * 0.54f, width - 112.0f,
-                        span * 0.40f };
+    float y = top + span * 0.54f;
+    float h = span * 0.40f;
+    /* Leave a square constellation panel on the right. */
+    float right = width - 30.0f;
+    float side = h;
+    float scan_w = (right - side - 24.0f) - 82.0f;
+    if (scan_w < 200.0f)
+        scan_w = 200.0f;
+    return (Rectangle){ 82.0f, y, scan_w, h };
+}
+
+static Rectangle gsm_constellation_rect(void) {
+    float width = (float)GetScreenWidth();
+    float top = 144.0f;
+    float span = (float)GetScreenHeight() - top - 40.0f;
+    float y = top + span * 0.54f;
+    float h = span * 0.40f;
+    float right = width - 30.0f;
+    return (Rectangle){ right - h, y, h, h };
 }
 
 static int gsm_scan_arfcn_at(Vector2 point, Rectangle rect) {
@@ -2971,9 +2989,12 @@ static void update_gsm_sch(struct app *app) {
         return;
     double offset = app->gsm_selected_hz - (double)app->applied_frequency;
     struct gsm_sch_result result;
+    struct gsm_sch_symbols symbols;
     if (gsm_sch_decode(app->i_samples, app->q_samples, app->pair_count,
-                       (double)app->applied_sample_rate, offset, &result)) {
+                       (double)app->applied_sample_rate, offset, &result,
+                       &symbols)) {
         app->gsm_sch = result;
+        app->gsm_sch_symbols = symbols;
         app->gsm_sch_valid = 1;
         app->gsm_sch_time = GetTime();
     }
@@ -3109,6 +3130,18 @@ static void draw_gsm(struct app *app) {
         app->scan_selected_arfcn
     };
     sdrgui_scan_chart(&params);
+
+    /* Decode constellation beside the scan chart: the SCH burst's demodulated
+       symbols, two clusters (one per bit) when the decode is clean. */
+    Rectangle cst = gsm_constellation_rect();
+    const struct gsm_sch_symbols *sym = &app->gsm_sch_symbols;
+    struct sdrgui_constellation_params cparams = {
+        cst, sym->x, sym->y, sym->bit,
+        app->gsm_sch_valid ? sym->count : 0, "SCH decoded symbols",
+        app->scan_selected_arfcn > 0 ? "waiting for a synchronisation burst..."
+                                     : "select a channel to inspect"
+    };
+    sdrgui_constellation(&cparams);
 }
 
 static void handle_gsm_input(struct app *app) {
