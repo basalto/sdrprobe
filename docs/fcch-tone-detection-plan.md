@@ -97,7 +97,7 @@ observed_ppm = (carrier_RF − expected) / expected × 1e6
    - Noise-only blocks are rejected.
    - A tone outside the search window is rejected.
 
-### Phase 2 — Application integration (`src/rtl_raylib.c`)
+### Phase 2 — Application integration (`src/sdrprobe.c`)
 
 **Implemented as centroid-primary with FCCH refinement** (a small deviation from
 the originally proposed FCCH-primary/centroid-fallback ordering).

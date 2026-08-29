@@ -1268,7 +1268,7 @@ static void draw_base_hud(const struct app *app,
                  app->applied_gain_tenths / 10.0);
     }
 
-    DrawText("rtl_raylib signal visualizer", 22, 16, 24,
+    DrawText("sdrprobe signal visualizer", 22, 16, 24,
              (Color){ 225, 236, 245, 255 });
     DrawText("1 magnitude   2 spectrum   3 I/Q scatter   4 waterfall   Up/Down scale   Esc quit",
              22, 47, 17, (Color){ 127, 151, 170, 255 });
@@ -2701,7 +2701,7 @@ static int run_gui(struct app *app) {
     int result = 0;
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(1100, 720, "rtl_raylib signal visualizer");
+    InitWindow(1100, 720, "sdrprobe signal visualizer");
     if (!IsWindowReady()) {
         fprintf(stderr, "Failed to create raylib window.\n");
         return -1;

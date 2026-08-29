@@ -1,4 +1,4 @@
-# liquid-dsp assessment for `rtl_raylib`
+# liquid-dsp assessment for `sdrprobe`
 
 ## Recommendation
 
@@ -8,7 +8,7 @@ package and a normalization adapter. More importantly, adoption would directly
 contradict the current specification: DSP must be self-contained, external DSP
 dependencies are out of scope, deterministic checks must link only `-lm`, and
 raylib must remain the GUI target's only new package
-([spec](./rtl_raylib-implementation.md#makefile-integration)).
+([spec](./sdrprobe-implementation.md#makefile-integration)).
 
 If that boundary is deliberately changed later, use liquid-dsp's **low-level
 FFT plan plus `fft_shift`**, while retaining explicit local Hann coefficients,

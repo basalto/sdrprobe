@@ -5,8 +5,9 @@ CC?=gcc
 SRC=src
 TESTS=tests
 VENDOR=vendor
+BUILD=build
 
-all: rtl_raylib
+all: sdrprobe
 
 DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h
@@ -15,28 +16,32 @@ GUI_HDR=$(SRC)/sdrgui.h
 RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 
 # The vendored raygui header is not -Wall -W clean; compile it in isolation.
-raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
+# The one intermediate object lives under $(BUILD)/ to keep the root tidy.
+$(BUILD)/raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
+	@mkdir -p $(BUILD)
 	$(CC) -O2 $(RAYGUI_FLAGS) -w -c $(SRC)/raygui_impl.c -o $@
 
-rtl_raylib: $(SRC)/rtl_raylib.c $(DSP_SRC) $(DSP_HDR) $(GUI_SRC) $(GUI_HDR) \
-		raygui_impl.o
+sdrprobe: $(SRC)/sdrprobe.c $(DSP_SRC) $(DSP_HDR) $(GUI_SRC) $(GUI_HDR) \
+		$(BUILD)/raygui_impl.o
 	$(CC) $(CFLAGS) $(RAYGUI_FLAGS) -pthread \
-		-o $@ $(SRC)/rtl_raylib.c $(DSP_SRC) $(GUI_SRC) raygui_impl.o \
+		-o $@ $(SRC)/sdrprobe.c $(DSP_SRC) $(GUI_SRC) $(BUILD)/raygui_impl.o \
 		$(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs raylib) -pthread
 
 # Per-technology hardware-free DSP checks. Each technology's checks build and
 # run in isolation so they are easy to inspect and extend; check-dsp runs all.
 # Test sources live in $(TESTS)/ and include the DSP headers from $(SRC)/.
 check-sdr-dsp: $(TESTS)/sdr_dsp_test.c $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
-	$(CC) $(CFLAGS) -I$(SRC) -o sdr_dsp_test \
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/sdr_dsp_test \
 		$(TESTS)/sdr_dsp_test.c $(SRC)/sdr_dsp.c -lm
-	./sdr_dsp_test
+	./$(BUILD)/sdr_dsp_test
 
 check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
-	$(CC) $(CFLAGS) -I$(SRC) -o gsm_dsp_test \
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_dsp_test \
 		$(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/sdr_dsp.c -lm
-	./gsm_dsp_test
+	./$(BUILD)/gsm_dsp_test
 
 check-dsp: check-sdr-dsp check-gsm-dsp
 
@@ -44,6 +49,6 @@ check-dsp: check-sdr-dsp check-gsm-dsp
 check-raylib-dsp: check-dsp
 
 clean:
-	rm -f rtl_raylib sdr_dsp_test gsm_dsp_test raygui_impl.o
+	rm -rf sdrprobe $(BUILD)
 
 .PHONY: all check-sdr-dsp check-gsm-dsp check-dsp check-raylib-dsp clean

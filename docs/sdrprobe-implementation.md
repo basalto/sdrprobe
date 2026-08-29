@@ -1,15 +1,15 @@
-# Implementation: `rtl_raylib` Signal Visualizer
+# Implementation: `sdrprobe` Signal Visualizer
 
 ## Status
 
 This document is the implementation and verification contract for the
-`rtl_raylib` executable, now the repository's sole application. (The earlier
+`sdrprobe` executable, now the repository's sole application. (The earlier
 `rtl_init` one-shot probe and `rtl_tui` terminal visualizer, referenced
 historically below, have since been removed.)
 
 ## Purpose
 
-`rtl_raylib` is a live and capture-backed visualizer for raw RTL-SDR sample
+`sdrprobe` is a live and capture-backed visualizer for raw RTL-SDR sample
 streams. It provides four views:
 
 1. **Magnitude view**: peak magnitude over time.
@@ -40,7 +40,7 @@ decode transmitted messages.
 ## Command Line
 
 ```text
-rtl_raylib [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
+sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
              [--gain max|auto|dB] [--ppm signed_integer]
              [--file capture.bin]
 ```
@@ -78,7 +78,7 @@ pacing. `--gain` is invalid because gain cannot change recorded samples.
 
 ### New files
 
-- `src/rtl_raylib.c`: CLI, signal sources, latest-block handoff, raylib lifecycle,
+- `src/sdrprobe.c`: CLI, signal sources, latest-block handoff, raylib lifecycle,
   view state, drawing, and orderly shutdown.
 - `src/sdr_dsp.h` / `src/sdr_dsp.c`: generic SDR DSP core — raw I/Q conversion, magnitude
   reduction, Hann windowing, radix-2 complex FFT, and spectrum calculation.
@@ -90,7 +90,7 @@ pacing. `--gain` is invalid because gain cannot change recorded samples.
 
 ### Updated files
 
-- `Makefile`: add optional `rtl_raylib` and the `check-sdr-dsp`/`check-gsm-dsp`
+- `Makefile`: add optional `sdrprobe` and the `check-sdr-dsp`/`check-gsm-dsp`
   (aggregated by `check-dsp`, aliased `check-raylib-dsp`) targets without
   changing what default `make` builds.
 - `AGENTS.md`: describe the new implementation specification.
@@ -438,17 +438,17 @@ after application.
 
 ## Makefile Integration
 
-Default `make` builds `rtl_raylib`, so raylib and librtlsdr development headers
+Default `make` builds `sdrprobe`, so raylib and librtlsdr development headers
 are required. The DSP checks link only the hardware-free core:
 
 ```make
 SRC=src
 TESTS=tests
 
-rtl_raylib: $(SRC)/rtl_raylib.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c \
+sdrprobe: $(SRC)/sdrprobe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c \
 		$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h
 	$(CC) $(CFLAGS) $(shell pkg-config --cflags raylib) -pthread \
-		-o $@ $(SRC)/rtl_raylib.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c \
+		-o $@ $(SRC)/sdrprobe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c \
 		$(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs raylib) -pthread
 
 check-sdr-dsp: $(TESTS)/sdr_dsp_test.c $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
@@ -466,23 +466,23 @@ check-dsp: check-sdr-dsp check-gsm-dsp
 check-raylib-dsp: check-dsp
 ```
 
-Extend `clean` to remove `rtl_raylib`, `sdr_dsp_test`, and `gsm_dsp_test`. The
+Extend `clean` to remove `sdrprobe`, `sdr_dsp_test`, and `gsm_dsp_test`. The
 DSP checks must not include raylib headers or require raylib through pkg-config.
 
 Raylib remains the only new package required to build the GUI target:
 
 ```sh
 pkg-config --cflags --libs raylib
-make rtl_raylib
+make sdrprobe
 ```
 
 ## Verification
 
 ### Build and playback
 
-1. `make` builds `rtl_raylib` (requires raylib + librtlsdr dev headers).
+1. `make` builds `sdrprobe` (requires raylib + librtlsdr dev headers).
 2. `make clean` removes all project and test executables.
-3. `rtl_raylib --file testfiles/modes1.bin` runs paced, hardware-free playback.
+3. `sdrprobe --file testfiles/modes1.bin` runs paced, hardware-free playback.
 
 ### Deterministic DSP checks
 
@@ -501,7 +501,7 @@ make rtl_raylib
 ### Hardware-free GUI
 
 ```sh
-./rtl_raylib --file testfiles/modes1.bin
+./sdrprobe --file testfiles/modes1.bin
 ```
 
 Verify that playback loops, advances at approximately 2 million I/Q pairs per

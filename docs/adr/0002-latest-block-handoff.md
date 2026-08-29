@@ -6,14 +6,14 @@ accepted
 
 ## Context and decision
 
-`rtl_raylib` acquires 256 KB sample blocks on a worker thread (the librtlsdr
+`sdrprobe` acquires 256 KB sample blocks on a worker thread (the librtlsdr
 async callback or the file-playback pacer) and renders on the main thread. The
 handoff is **one mutex-guarded, overwriteable slot** — the most recent block —
 not a FIFO/ring buffer. If the renderer has not consumed the previous block,
 `publish_block` overwrites it and increments a dropped-block counter;
 `consume_latest` copies a block only when its generation differs from the last
 one it read (see `struct latest_block`, `publish_block`, `consume_latest` in
-`src/rtl_raylib.c`).
+`src/sdrprobe.c`).
 
 ## Considered options
 

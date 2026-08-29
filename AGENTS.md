@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`rtl_raylib` is a raylib SDR visualizer and GSM 900 frequency-calibration probe
+`sdrprobe` is a raylib SDR visualizer and GSM 900 frequency-calibration probe
 for RTL-SDR receivers, modeled after dump1090's `modesInitRTLSDR()` acquisition.
 Its DSP is split into a generic core (`src/sdr_dsp.c`/`.h`) and per-technology
 plugins (`src/gsm_dsp.c`/`.h`), and its UI into an SDR component layer
@@ -8,13 +8,13 @@ plugins (`src/gsm_dsp.c`/`.h`), and its UI into an SDR component layer
 
 ## Build & run
 
-- `make` — builds `rtl_raylib` via pkg-config; requires librtlsdr and raylib
+- `make` — builds `sdrprobe` via pkg-config; requires librtlsdr and raylib
   development headers installed.
 - `make check-raylib-dsp` — builds and runs deterministic, hardware-free DSP
   checks; it does not require raylib. This is an alias for `make check-dsp`,
   which runs the per-technology checks `check-sdr-dsp` (generic core) and
   `check-gsm-dsp` (GSM plugin); each can be built and run on its own.
-- `./rtl_raylib [--frequency Hz|K|M|G] [--sample-rate S/s] [--gain max|auto|dB] [--ppm N]`
+- `./sdrprobe [--frequency Hz|K|M|G] [--sample-rate S/s] [--gain max|auto|dB] [--ppm N]`
   opens magnitude, spectrum, I/Q scatter, and waterfall views. It needs a real
   RTL-SDR dongle by default; `--file capture.bin` (e.g.
   `testfiles/modes1.bin`) enables paced, looping hardware-free playback. Keys
@@ -56,7 +56,7 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   `docs/adr/0001-technology-plugin-dsp-architecture.md`.
 - `src/sdrgui.h` / `src/sdrgui.c` — reusable SDR visual components (plots,
   waterfall, scan chart, health circle, cursor readouts) taking plain
-  data/geometry, not `struct app`. Prefix `sdrgui_`. `rtl_raylib` composes these
+  data/geometry, not `struct app`. Prefix `sdrgui_`. `sdrprobe` composes these
   plus generic widgets; the presentation split is recorded in
   `docs/adr/0007-gui-presentation-layer.md`.
 - `vendor/raygui.h` + `src/raygui_impl.c` — the vendored raygui immediate-mode
@@ -66,11 +66,11 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` — the deterministic,
   hardware-free DSP checks (`make check-sdr-dsp` / `check-gsm-dsp`).
 - `testfiles/modes1.bin` — raw 8-bit I/Q capture at 2 MS/s, for
-  hardware-free testing; read by `rtl_raylib --file`.
+  hardware-free testing; read by `sdrprobe --file`.
 - `docs/ARCHITECTURE.md` — deep dive on dump1090 (threads, buffer overlap,
   CPR decoding). Reference only: the dump1090 source is NOT in this repo.
-- `docs/rtl_raylib-implementation.md` — implementation and verification
-  contract for the `rtl_raylib` probe.
+- `docs/sdrprobe-implementation.md` — implementation and verification
+  contract for the `sdrprobe` probe.
 
 ## Agent skills
 
