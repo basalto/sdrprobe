@@ -2,7 +2,9 @@
 
 ## Status
 
-accepted
+deprecated — `rtl_tui` and its magnitude-only `tui` seam were removed from the
+codebase; `rtl_raylib` and its raw-I/Q seam are the only remaining renderer.
+This record is kept for history.
 
 ## Context and decision
 
