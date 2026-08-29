@@ -1,6 +1,6 @@
 # 01 — Expand Plugin API for Visualization Data
 
-Status: reviewer
+Status: resolved
 Blocked by: (none)
 
 Expand `struct gsm_sch_symbols` in `src/gsm_dsp.h` to carry the new visualization data. We are passing this struct anyway; adding ~300 floats is trivial and avoids recalculation.

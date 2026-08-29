@@ -1,6 +1,6 @@
 # 03 — Wire Burst Analysis into GSM View
 
-Status: reviewer
+Status: resolved
 Blocked by: 02
 
 In `src/sdrprobe.c`:
