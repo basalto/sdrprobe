@@ -244,6 +244,15 @@ and predict the next burst's number; it is not a scheduler or a clock.
 _Avoid_: Clock, timer, scheduler
 ```
 
+### 5.5 Findings from initial implementation
+
+Phases 1 (front-end), 2a (soft Viterbi without channel estimation), and 3 (tracking) were implemented. The diagnostic probe against `testfiles/gsm_arfcn_69.bin` showed:
+1. **Raw error improvement:** The soft Viterbi and front-end filter increased the number of correctly parsed bursts from 22/31 to 25/31.
+2. **ISI floor remains:** Despite the soft metric, single-burst `T1` values still swing (1634 vs 1890). The simple correlation metric (`s·Im`) treats ISI as noise, meaning clean bursts with hostile bit patterns still incur single-bit errors that slip past the 10-bit parity.
+3. **Tracker effectiveness:** The multi-burst frame-number lock (Phase 3) completely hides these sporadic errors from the user. It successfully votes `T1 = 1890` and predicts the forward timeline, creating a stable, locked display.
+
+**Next Step:** To perfect the raw single-burst decoding, Phase 2b (MLSE Channel Estimation) must be implemented. This means solving for `h` and using it in the Viterbi branch metric instead of the simple `s·Im` correlation.
+
 ## 6. Phasing
 
 | Phase | Deliverable | Expected effect |

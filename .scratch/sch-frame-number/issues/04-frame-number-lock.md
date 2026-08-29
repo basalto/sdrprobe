@@ -1,6 +1,6 @@
 # 04 — Multi-burst frame-number lock (optional, app layer)
 
-Status: reviewer
+Status: resolved
 Blocked by: 02
 
 Add an application-layer `struct gsm_sch_tracker` (keep `gsm_sch_decode()` pure,

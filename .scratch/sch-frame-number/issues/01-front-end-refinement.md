@@ -1,6 +1,6 @@
 # 01 — Front-end refinement (fine CFO, matched filter, sub-phase timing)
 
-Status: reviewer
+Status: resolved
 Blocked by: (none)
 
 Sharpen the SCH front end before the soft receiver, in `src/gsm_dsp.c`:
