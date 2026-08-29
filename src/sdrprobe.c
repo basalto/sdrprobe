@@ -3137,7 +3137,7 @@ static void record_block(struct app *app) {
 }
 
 static Rectangle gsm_opt_button(int index) {
-    return (Rectangle){ 96.0f + (float)index * 72.0f, 128.0f, 66.0f, 20.0f };
+    return (Rectangle){ 396.0f + (float)index * 72.0f, 134.0f, 66.0f, 20.0f };
 }
 
 static void draw_gsm(struct app *app) {
@@ -3149,7 +3149,7 @@ static void draw_gsm(struct app *app) {
                 app->recording ? "Recording..." : "Record 2s",
                 app->recording);
                 
-    DrawText("Features:", 22, 130, 15, (Color){ 151, 174, 188, 255 });
+    DrawText("Features:", 322, 136, 15, (Color){ 151, 174, 188, 255 });
     draw_button(gsm_opt_button(0), "Filter", app->gsm_opt_filter);
     draw_button(gsm_opt_button(1), "FnCFO", app->gsm_opt_finecfo);
     draw_button(gsm_opt_button(2), "Trellis", app->gsm_opt_trellis);
