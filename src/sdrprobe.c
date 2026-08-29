@@ -2947,13 +2947,13 @@ static Rectangle gsm_back_to_scan_button(void) {
 
 static Rectangle gsm_waterfall_rect(void) {
     float width = (float)GetScreenWidth();
-    float span = (float)GetScreenHeight() - 164.0f - 40.0f;
-    return (Rectangle){ 82.0f, 164.0f, width - 112.0f, span * 0.44f };
+    float span = (float)GetScreenHeight() - 176.0f - 40.0f;
+    return (Rectangle){ 82.0f, 176.0f, width - 112.0f, span * 0.44f };
 }
 
 static Rectangle gsm_scan_rect(void) {
     float width = (float)GetScreenWidth();
-    float top = 164.0f;
+    float top = 176.0f;
     float span = (float)GetScreenHeight() - top - 40.0f;
     float y = top + span * 0.44f + 82.0f; /* gap for wf caption and sch text */
     float h = span * 0.56f - 82.0f;
@@ -2968,18 +2968,18 @@ static Rectangle gsm_scan_rect(void) {
 
 static Rectangle gsm_burst_rect(void) {
     float width = (float)GetScreenWidth();
-    float span = (float)GetScreenHeight() - 164.0f - 40.0f;
-    return (Rectangle){ 82.0f, 164.0f, width - 112.0f, span * 0.44f };
+    float span = (float)GetScreenHeight() - 176.0f - 40.0f;
+    return (Rectangle){ 82.0f, 176.0f, width - 112.0f, span * 0.44f };
 }
 
 static Rectangle gsm_view_toggle_button(void) {
     float width = (float)GetScreenWidth();
-    return (Rectangle){ width - 180.0f, 84.0f, 150.0f, 30.0f };
+    return (Rectangle){ width - 180.0f, 66.0f, 150.0f, 26.0f };
 }
 
 static Rectangle gsm_constellation_rect(void) {
     float width = (float)GetScreenWidth();
-    float top = 164.0f;
+    float top = 176.0f;
     float span = (float)GetScreenHeight() - top - 40.0f;
     float y = top + span * 0.44f + 82.0f;
     float h = span * 0.56f - 82.0f;
