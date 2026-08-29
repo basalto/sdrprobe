@@ -2970,9 +2970,8 @@ static Rectangle gsm_burst_rect(void) {
     return (Rectangle){ 82.0f, 164.0f, width - 112.0f, span * 0.44f };
 }
 
-static Rectangle gsm_burst_chart_toggle(int index) {
-    Rectangle br = gsm_burst_rect();
-    return (Rectangle){ br.x + (float)index * 96.0f, br.y - 32.0f, 86.0f, 22.0f };
+static Rectangle gsm_view_toggle_button(void) {
+    return (Rectangle){ 322.0f, 84.0f, 150.0f, 30.0f };
 }
 
 static Rectangle gsm_constellation_rect(void) {
@@ -3159,6 +3158,7 @@ static Rectangle gsm_opt_button(int index) {
 static void draw_gsm(struct app *app) {
     char text[320];
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
+        draw_button(gsm_view_toggle_button(), app->gsm_analysis_mode ? "View: Waterfall" : "View: Burst", 0);
         draw_button(gsm_back_to_scan_button(), "Back to Scan", 1);
     } else {
         draw_button(gsm_scan_button(),
@@ -3220,55 +3220,61 @@ static void draw_gsm(struct app *app) {
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
         Rectangle wf = gsm_burst_rect();
 
-        /* Burst Analysis Chart replaces Waterfall */
-        const char *toggles[3] = {"Corr", "Soft", "Phase"};
-        for(int i=0; i<3; i++) {
-            draw_button(gsm_burst_chart_toggle(i), toggles[i], app->gsm_analysis_mode == i);
-        }
+        if (app->gsm_analysis_mode) {
+            /* Burst Analysis Chart replaces Waterfall */
+            float gap = 10.0f;
+            float w3 = (wf.width - 2.0f * gap) / 3.0f;
+            Rectangle r_corr = { wf.x, wf.y, w3, wf.height };
+            Rectangle r_soft = { wf.x + w3 + gap, wf.y, w3, wf.height };
+            Rectangle r_phase = { wf.x + 2.0f * (w3 + gap), wf.y, w3, wf.height };
 
-        struct sdrgui_burst_chart_params bparams = {
-            wf, NULL, 0, SDRGUI_BURST_LINE, 0.0f, 1.0f, "",
-            "waiting for a synchronisation burst..."
-        };
-        const struct gsm_sch_symbols *sym = &app->gsm_sch_symbols;
+            struct sdrgui_burst_chart_params bparams = {
+                r_corr, NULL, 0, SDRGUI_BURST_LINE, -1.0f, 1.0f, "Timing Correlation Landscape",
+                "waiting for a synchronisation burst..."
+            };
+            const struct gsm_sch_symbols *sym = &app->gsm_sch_symbols;
 
-        if (app->gsm_sch_valid && sym->count > 0) {
-            if (app->gsm_analysis_mode == 0) {
+            if (app->gsm_sch_valid && sym->count > 0) {
                 bparams.data = sym->corr;
                 bparams.count = sym->count;
-                bparams.type = SDRGUI_BURST_LINE;
-                bparams.y_min = -1.0f;
-                bparams.y_max = 1.0f;
-                bparams.title = "Timing Correlation Landscape";
-            } else if (app->gsm_analysis_mode == 1) {
+                sdrgui_burst_chart(&bparams);
+
+                bparams.plot = r_soft;
                 bparams.data = sym->soft_mag;
-                bparams.count = sym->count;
                 bparams.type = SDRGUI_BURST_BAR;
                 bparams.y_min = 0.0f;
-                /* Find max for scaling */
                 float mx = 0.1f;
                 for(int i=0; i<sym->count; i++) {
                     if (sym->soft_mag[i] > mx) mx = sym->soft_mag[i];
                 }
                 bparams.y_max = mx * 1.1f;
                 bparams.title = "Soft Symbol Magnitudes (|Im|)";
-            } else {
+                sdrgui_burst_chart(&bparams);
+
+                bparams.plot = r_phase;
                 bparams.data = sym->phase;
-                bparams.count = sym->count;
                 bparams.type = SDRGUI_BURST_LINE;
                 bparams.y_min = -3.14159f;
-                /* Find bounds */
-                float mn = 0.0f, mx = 0.0f;
+                float mn = 0.0f, mx_p = 0.0f;
                 for(int i=0; i<sym->count; i++) {
                     if (sym->phase[i] < mn) mn = sym->phase[i];
-                    if (sym->phase[i] > mx) mx = sym->phase[i];
+                    if (sym->phase[i] > mx_p) mx_p = sym->phase[i];
                 }
                 bparams.y_min = mn - 1.0f;
-                bparams.y_max = mx + 1.0f;
+                bparams.y_max = mx_p + 1.0f;
                 bparams.title = "Differential Phase Trajectory";
+                sdrgui_burst_chart(&bparams);
+            } else {
+                sdrgui_burst_chart(&bparams);
+                bparams.plot = r_soft; bparams.title = "Soft Symbol Magnitudes (|Im|)"; sdrgui_burst_chart(&bparams);
+                bparams.plot = r_phase; bparams.title = "Differential Phase Trajectory"; sdrgui_burst_chart(&bparams);
             }
+        } else {
+            DrawText(TextFormat("ARFCN waterfall - inspecting ARFCN %d",
+                                app->scan_selected_arfcn),
+                     (int)wf.x, (int)wf.y - 18, 16, (Color){ 151, 174, 188, 255 });
+            draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
         }
-        sdrgui_burst_chart(&bparams);
 
         /* Channel Power Scan Chart on bottom left */
         Rectangle sc = gsm_scan_rect();
@@ -3284,23 +3290,24 @@ static void draw_gsm(struct app *app) {
 
         /* Decode constellation on bottom right */
         Rectangle cst = gsm_constellation_rect();
-        int n = app->gsm_sch_valid ? sym->count : 0;
+        const struct gsm_sch_symbols *sym_c = &app->gsm_sch_symbols;
+        int n = app->gsm_sch_valid ? sym_c->count : 0;
         float cx[GSM_SCH_BURST_BITS];
         float cy[GSM_SCH_BURST_BITS];
         if (n > GSM_SCH_BURST_BITS)
             n = GSM_SCH_BURST_BITS;
         const unsigned char *color_bits =
-            app->gsm_const_derotated ? sym->chan : sym->bit;
+            app->gsm_const_derotated ? sym_c->chan : sym_c->bit;
         /* Raw display coords per representation. */
         float maxmag = 1e-9f;
         for (int i = 0; i < n; i++) {
             float rx, ry;
             if (app->gsm_const_derotated) {
-                rx = sym->rot_i[i];
-                ry = sym->rot_q[i];
+                rx = sym_c->rot_i[i];
+                ry = sym_c->rot_q[i];
             } else {
-                rx = sym->diff_im[i];  /* map so bit 0 (im>0) sits on the right */
-                ry = -sym->diff_re[i];
+                rx = sym_c->diff_im[i];  /* map so bit 0 (im>0) sits on the right */
+                ry = -sym_c->diff_re[i];
             }
             cx[i] = rx;
             cy[i] = ry;
@@ -3382,11 +3389,9 @@ static void handle_gsm_input(struct app *app) {
         }
     }
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
-        for(int i=0; i<3; i++) {
-            if (clicked(gsm_burst_chart_toggle(i))) {
-                app->gsm_analysis_mode = i;
-                return;
-            }
+        if (clicked(gsm_view_toggle_button())) {
+            app->gsm_analysis_mode = !app->gsm_analysis_mode;
+            return;
         }
         if (clicked(gsm_back_to_scan_button())) {
             app->scan_selected_arfcn = 0;
