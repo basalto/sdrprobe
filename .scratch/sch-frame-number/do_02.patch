@@ -1,0 +1,109 @@
+--- src/gsm_dsp.c
++++ src/gsm_dsp.c
+@@ -526,30 +526,71 @@
+     float best_ratio = (float)best_match / (float)(GSM_SCH_TRAINING_BITS - 1);
+     int decoded = 0;
+     if (best_ratio >= SCH_MIN_MATCH && best_timing >= 0) {
+-        sch_diff_bits(bi, bq, pair_count, sps, opt_phase0, nsym, m);
+-        if (best_invert)
+-            for (int k = 0; k < nsym; k++)
+-                m[k] ^= 1u;
+-
+-        /* Reconstruct the channel bits anchored at the known training sequence
+-           (d[p+j] = TRAIN[j]), so a bit error in a data field can only corrupt
+-           that field toward the anchor and the parity will reject it, rather
+-           than a global polarity flip hiding the error. */
+-        int p = best_pos; /* d[p] = TRAIN[0] */
+-        uint8_t coded[GSM_SCH_CODED_BITS];
+-        /* data2 forward from d[p+63] = TRAIN[63]: d[k] = d[k-1] ^ m[k]. */
+-        uint8_t prev = sch_training[GSM_SCH_TRAINING_BITS - 1];
+-        int base2 = p + GSM_SCH_TRAINING_BITS;
+-        for (int j = 0; j < 39; j++) {
+-            uint8_t bit = prev ^ m[base2 + j];
+-            coded[39 + j] = bit;
+-            prev = bit;
+-        }
+-        /* data1 backward from d[p] = TRAIN[0]: d[k-1] = d[k] ^ m[k]. */
+-        prev = sch_training[0];
+-        for (int i = 0; i < 39; i++) {
+-            uint8_t bit = prev ^ m[p - i];
+-            coded[38 - i] = bit;
+-            prev = bit;
+-        }
+-
+         uint8_t u[GSM_SCH_UNCODED_BITS];
+-        sch_viterbi(coded, u);
++        
++        /* Phase 2: Joint soft-decision differential + convolutional Viterbi. */
++        float soft_im[148];
++        double prev_i, prev_q;
++        sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos - 42 - 1) * sps, &prev_i, &prev_q);
++        for (int n = 0; n < 148; n++) {
++            double si, sq;
++            sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos - 42 + n) * sps, &si, &sq);
++            soft_im[n] = (float)(prev_i * sq - prev_q * si);
++            prev_i = si;
++            prev_q = sq;
++        }
++        
++        /* 32 states: 16 convolutional states (K=5) x 2 (last coded channel bit). */
++        float metric[32];
++        float next_metric[32];
++        uint16_t back[39][32];
++        for (int s = 0; s < 32; s++) metric[s] = (s == 0) ? 0.0f : 1e9f;
++        
++        for (int k = 0; k < 39; k++) {
++            for (int s = 0; s < 32; s++) next_metric[s] = 1e9f;
++            for (int s = 0; s < 32; s++) {
++                if (metric[s] > 1e8f) continue;
++                int conv_state = s >> 1;
++                int last_e = s & 1;
++                for (int in = 0; in < 2; in++) {
++                    int c0 = in ^ ((conv_state >> 2) & 1) ^ ((conv_state >> 3) & 1);
++                    int c1 = in ^ (conv_state & 1) ^ ((conv_state >> 2) & 1) ^ ((conv_state >> 3) & 1);
++                    float cost = 0.0f;
++                    int i0 = 2 * k;
++                    if (i0 < 39) {
++                        cost += sch_bit_cost(soft_im[3 + i0], c0, (i0 == 0) ? 0 : last_e, best_invert);
++                        if (i0 == 38) cost += sch_bit_cost(soft_im[42], sch_training[0], c0, best_invert);
++                    } else {
++                        cost += sch_bit_cost(soft_im[106 + i0 - 39], c0, (i0 == 39) ? sch_training[63] : last_e, best_invert);
++                    }
++                    int i1 = 2 * k + 1;
++                    if (i1 < 39) {
++                        cost += sch_bit_cost(soft_im[3 + i1], c1, c0, best_invert);
++                        if (i1 == 38) cost += sch_bit_cost(soft_im[42], sch_training[0], c1, best_invert);
++                    } else {
++                        cost += sch_bit_cost(soft_im[106 + i1 - 39], c1, (i1 == 39) ? sch_training[63] : c0, best_invert);
++                        if (i1 == 77) cost += sch_bit_cost(soft_im[145], 0, c1, best_invert);
++                    }
++                    int next_conv = ((conv_state << 1) | in) & 0xF;
++                    int next_state = (next_conv << 1) | c1;
++                    float cand = metric[s] + cost;
++                    if (cand < next_metric[next_state]) {
++                        next_metric[next_state] = cand;
++                        back[k][next_state] = (uint16_t)(s | (in << 8));
++                    }
++                }
++            }
++            memcpy(metric, next_metric, sizeof(metric));
++        }
++        int best_s = -1;
++        float best_m = 1e9f;
++        for (int s = 0; s < 32; s++) {
++            if ((s >> 1) == 0 && metric[s] < best_m) {
++                best_m = metric[s]; best_s = s;
++            }
++        }
++        if (best_s >= 0) {
++            int s = best_s;
++            for (int k = 38; k >= 0; k--) {
++                int b = back[k][s];
++                u[k] = (uint8_t)((b >> 8) & 1);
++                s = b & 0xFF;
++            }
++        } else {
++            memset(u, 0, sizeof(u));
++        }
++
+         if (sch_parse(u, result)) {
