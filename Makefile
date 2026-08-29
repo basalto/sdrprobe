@@ -51,10 +51,7 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp
 
-# Backwards-compatible alias.
-check-raylib-dsp: check-dsp
-
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp check-raylib-dsp clean
+.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp clean
