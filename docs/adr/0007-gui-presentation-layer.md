@@ -6,7 +6,7 @@ accepted
 
 ## Context and decision
 
-`rtl_raylib`'s UI was one ~3600-line file mixing three concerns: generic widgets
+`sdrprobe`'s UI was one ~3600-line file mixing three concerns: generic widgets
 (buttons, checkboxes, text fields, hit-testing), bespoke SDR visualizations (the
 four plots, the waterfall with a frequency/ARFCN axis and carrier markers, the
 scan bar chart, the health circle, HUD, cursor readouts), and the application
@@ -23,7 +23,7 @@ presentation into two layers so screens compose from named pieces:
   small `sdrgui_text_field`). Each takes a plain param struct (buffers +
   geometry + style), never `struct app`. It depends only on raylib, not raygui.
 
-`src/rtl_raylib.c` keeps the application state, the calibration/scan/drift logic
+`src/sdrprobe.c` keeps the application state, the calibration/scan/drift logic
 and `retune_receiver`, and now only *composes* screens from sdrgui + raygui.
 
 ## Considered options

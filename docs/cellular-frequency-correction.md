@@ -12,7 +12,7 @@ power, antenna gain, or cellular timing.
 
 ## Current Application Support
 
-`rtl_raylib` includes an interactive cellular calibration screen reached from
+`sdrprobe` includes an interactive cellular calibration screen reached from
 the **Calibration** button (below **Settings**, or the `c` key). The screen
 displays selectors for 2G, 4G,
 and 5G, but the current measurement implementation supports only:
@@ -69,11 +69,11 @@ live receiver and a sample rate of at least 1 MS/s.
 ## Using The Calibration Screen
 
 1. Warm the RTL-SDR for at least 10 minutes.
-2. Start `rtl_raylib` with a moderate manual gain and the correction currently
+2. Start `sdrprobe` with a moderate manual gain and the correction currently
    believed to be correct, for example:
 
 ```sh
-./rtl_raylib --frequency 1090M --sample-rate 2000000 \
+./sdrprobe --frequency 1090M --sample-rate 2000000 \
   --gain 32.8 --ppm 0
 ```
 
@@ -144,7 +144,7 @@ waterfall views. It does not open another receiver stream or invoke
 
 | File | Responsibility |
 | --- | --- |
-| `src/rtl_raylib.c` | Calibration screen, channel-scan sweep and chart, application state, input handling, receiver stop/retune/restart, FCCH-vs-centroid selection, robust stability accumulation, waterfall markers, and PPM application |
+| `src/sdrprobe.c` | Calibration screen, channel-scan sweep and chart, application state, input handling, receiver stop/retune/restart, FCCH-vs-centroid selection, robust stability accumulation, waterfall markers, and PPM application |
 | `src/sdr_dsp.h` / `src/sdr_dsp.c` | Generic SDR primitives reused by calibration: byte→float I/Q, DC removal, signal stats, FFT/dBFS spectrum, two-stage carrier estimator, evenly-spaced channel-power reducer, and PPM correction |
 | `src/gsm_dsp.h` / `src/gsm_dsp.c` | GSM 900 technology plugin: ARFCN→frequency map and the FCCH tone detector |
 | `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` | Hardware-free checks — generic primitives, and GSM calibration (ARFCN conversion, carrier estimation, correction sign, FCCH detection/rejection) respectively |
@@ -212,7 +212,7 @@ int sdr_dsp_channel_powers(
     float *powers_dbfs);
 ```
 
-Keeping these operations outside `src/rtl_raylib.c` has two consequences:
+Keeping these operations outside `src/sdrprobe.c` has two consequences:
 
 - The channel and correction math can be tested without raylib or hardware.
 - GUI code consumes named measurements rather than reproducing FFT-bin or PPM
@@ -242,7 +242,7 @@ rather than weakening this validation.
 
 ## Receiver Tuning Strategy
 
-`start_calibration()` in `src/rtl_raylib.c` validates the technology, band,
+`start_calibration()` in `src/sdrprobe.c` validates the technology, band,
 sample rate, and ARFCN. It then places the expected carrier 400 kHz above the
 receiver center:
 
@@ -280,14 +280,14 @@ is required.
 
 ## Spectrum Feeding Calibration
 
-`process_block()` in `src/rtl_raylib.c` converts each raw sample block once. The
+`process_block()` in `src/sdrprobe.c` converts each raw sample block once. The
 raw centered I/Q remains available to magnitude and scatter views. When DC
 removal is enabled, only the spectrum copy is modified:
 
 ```c
 memcpy(app->spectrum_i, app->i_samples, pair_count * sizeof(float));
 memcpy(app->spectrum_q, app->q_samples, pair_count * sizeof(float));
-rtl_raylib_remove_dc(app->spectrum_i, app->spectrum_q, pair_count);
+sdrprobe_remove_dc(app->spectrum_i, app->spectrum_q, pair_count);
 ```
 
 `sdr_dsp_spectrum()` then processes every complete 2048-pair window:

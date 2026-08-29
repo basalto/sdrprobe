@@ -8,7 +8,7 @@ accepted
 
 GSM 900 calibration accumulates per-block PPM residuals and decides when the
 correction is trustworthy ("Stable lock"). Two non-obvious statistical decisions
-govern this (see `src/rtl_raylib.c` `update_calibration_measurement`,
+govern this (see `src/sdrprobe.c` `update_calibration_measurement`,
 `robust_center_spread`, and `docs/cellular-frequency-correction.md`):
 
 1. **Gate on the standard error of a robust center, not on raw spread.** The
@@ -41,4 +41,4 @@ govern this (see `src/rtl_raylib.c` `update_calibration_measurement`,
   samples is required for the standard error to be valid, which is why no
   smoothing is applied.
 - This supersedes the earlier "stddev ≤ 3 PPM" gate described in
-  `docs/rtl_raylib-implementation.md`.
+  `docs/sdrprobe-implementation.md`.

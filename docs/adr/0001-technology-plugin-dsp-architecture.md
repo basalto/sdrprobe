@@ -6,8 +6,8 @@ accepted
 
 ## Context and decision
 
-The `rtl_raylib` cellular calibration grew GSM-specific DSP (ARFCN mapping, FCCH
-tone detection) mixed into one `rtl_raylib_dsp.*` file alongside generic SDR
+The `sdrprobe` cellular calibration grew GSM-specific DSP (ARFCN mapping, FCCH
+tone detection) mixed into one `sdrprobe_dsp.*` file alongside generic SDR
 primitives. To keep each radio technology easy to inspect and unit-test on its
 own — and to make room for future 4G/5G support — we split the DSP into a
 **generic core** and **per-technology plugins**:
@@ -37,7 +37,7 @@ decode stage behind the same per-technology boundary.
 ## Consequences
 
 - Only the DSP layer is split. The GSM *application* logic (calibration/scan
-  state and rendering) still lives in `src/rtl_raylib.c`, tightly coupled to the
+  state and rendering) still lives in `src/sdrprobe.c`, tightly coupled to the
   raylib `struct app` and the retune path. Turning that into a runtime plugin
   is a separate, larger effort; this ADR covers the DSP seam only.
 - Adding a technology means adding `<tech>_dsp.{c,h}` + `<tech>_dsp_test.c` +

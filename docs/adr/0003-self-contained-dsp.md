@@ -14,7 +14,7 @@ do **not** link an external DSP library (liquid-dsp or FFTW).
 ## Considered options
 
 - **liquid-dsp** (low-level FFT plan or `spgramcf`) or **FFTW**, assessed in
-  detail in [../liquid-dsp-rtl-raylib-assessment.md](../liquid-dsp-rtl-raylib-assessment.md).
+  detail in [../liquid-dsp-sdrprobe-assessment.md](../liquid-dsp-sdrprobe-assessment.md).
   Rejected: the realistic net saving was only ~50-100 LOC; `spgramcf`'s PSD
   normalization differs from this project's unit-tone dBFS convention by
   ~31.35 dB (a wrapper would be needed and could mislabel output); pkg-config

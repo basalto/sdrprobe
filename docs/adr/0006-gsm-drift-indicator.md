@@ -15,7 +15,7 @@ Crystal error is thermal and drifts over time, but in normal use the receiver is
 tuned wherever the operator set it (e.g. 1090 MHz), *not* on a GSM channel — so
 drift cannot be observed passively. We decided the periodic check will
 **briefly retune the receiver to the calibrated ARFCN, measure the FCCH
-residual, then retune back** (`update_drift_check` in `src/rtl_raylib.c`).
+residual, then retune back** (`update_drift_check` in `src/sdrprobe.c`).
 
 ## Considered options
 
