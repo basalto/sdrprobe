@@ -349,7 +349,7 @@ static int self_check(void) {
         Q[n] += 3.0f * ((float)rand() / RAND_MAX - 0.5f);
     }
     struct gsm_sch_result r;
-    int ok = gsm_sch_decode(I, Q, count, SAMPLE_RATE_HZ, NOMINAL_OFFSET_HZ, &r,
+    int ok = gsm_sch_decode(I, Q, count, SAMPLE_RATE_HZ, NOMINAL_OFFSET_HZ, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &r,
                             NULL);
     int pass = ok && r.bsic == bsic && r.t1 == t1 && r.t2 == t2 && r.t3 == t3 &&
                r.frame_number == frame_number(t1, t2, t3);
@@ -430,6 +430,7 @@ static void consistency_sweep(FILE *f) {
     puts("");
     puts("========================================================================");
     puts("CONSISTENCY SWEEP  every block (BSIC is reliable; frame number is not)");
+    
     struct gsm_sch_tracker trk={0};
     static unsigned char raw[BLOCK_BYTES];
     static float I[BLOCK_PAIRS], Q[BLOCK_PAIRS], M[BLOCK_PAIRS];
@@ -440,7 +441,7 @@ static void consistency_sweep(FILE *f) {
     while (fread(raw, 1, BLOCK_BYTES, f) == BLOCK_BYTES) {
         size_t pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, I, Q, M, BLOCK_PAIRS);
         struct gsm_sch_result r;
-        if (gsm_sch_decode(I, Q, pairs, SAMPLE_RATE_HZ, NOMINAL_OFFSET_HZ, &r,
+        if (gsm_sch_decode(I, Q, pairs, SAMPLE_RATE_HZ, NOMINAL_OFFSET_HZ, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &r,
                            NULL)) {
             decoded++;
             if (r.bsic >= 0 && r.bsic < 64)
@@ -484,7 +485,7 @@ int main(int argc, char **argv) {
     }
     printf("GSM SCH chain probe on %s\n", path);
 
-    struct gsm_sch_tracker trk={0};
+    
     static unsigned char raw[BLOCK_BYTES];
     if (fread(raw, 1, BLOCK_BYTES, f) == BLOCK_BYTES)
         probe_block(raw, BLOCK_BYTES);

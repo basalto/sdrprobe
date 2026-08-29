@@ -658,7 +658,9 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
             decoded = 1;
 
             /* Capture the burst's symbols for a decode constellation: both the
-               differential-detection product and the derotated sample. */
+               differential-detection product and the derotated sample. Also
+               capture the correlation landscape, soft magnitudes, and phase
+               for the Burst Analysis Chart. */
             if (symbols) {
                 int first = best_pos - 42; /* burst start (3 tail bits before) */
                 if (first < 1)
@@ -668,6 +670,7 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
                            &prev_i, &prev_q);
                 int count = 0;
                 uint8_t chan_prev = 0;
+                double accumulated_phase = 0.0;
                 for (int k = first;
                      k < first + GSM_SCH_BURST_BITS && k < nsym; k++) {
                     double si, sq;
@@ -682,6 +685,24 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
                     double cr = cos(a), sr = sin(a);
                     symbols->rot_i[count] = (float)(si * cr - sq * sr);
                     symbols->rot_q[count] = (float)(si * sr + sq * cr);
+                    
+                    /* Burst Analysis metrics */
+                    symbols->soft_mag[count] = (float)fabs(im);
+                    double dphase = atan2(im, re);
+                    accumulated_phase += dphase;
+                    symbols->phase[count] = (float)accumulated_phase;
+                    
+                    /* We calculate the correlation score aligned such that the 
+                       training sequence peak would match its actual location.
+                       sch_soft_correlate expects `p` to point to the start of data1.
+                       The current symbol index is `k`. To see the landscape around
+                       the peak, we evaluate at `k - 42` (since best_pos is 42 symbols
+                       into the burst). */
+                    double corr = sch_soft_correlate(bi, bq, pair_count, sps, 
+                                                     opt_phase0, k - 42, 
+                                                     best_invert, train_diff);
+                    symbols->corr[count] = (float)(corr / (GSM_SCH_TRAINING_BITS - 1));
+
                     uint8_t b = (im < 0.0) ? 1u : 0u;
                     symbols->bit[count] = b;
                     if (best_invert)

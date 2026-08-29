@@ -81,13 +81,18 @@ struct gsm_sch_result {
    Both the differential-detection product (conj(prev)*cur) and the derotated
    symbol sample (s[k]*e^{-j k pi/2}, a BPSK-like constellation) are provided so
    the UI can toggle representation and amplitude. bit is the per-symbol
-   differential decision; chan is the reconstructed channel bit. */
+   differential decision; chan is the reconstructed channel bit.
+   Additional fields capture the correlation landscape, soft symbol magnitudes,
+   and unwrapped phase trajectory for the Burst Analysis Chart. */
 struct gsm_sch_symbols {
     int count;
     float diff_re[GSM_SCH_BURST_BITS];
     float diff_im[GSM_SCH_BURST_BITS];
     float rot_i[GSM_SCH_BURST_BITS];
     float rot_q[GSM_SCH_BURST_BITS];
+    float corr[GSM_SCH_BURST_BITS];     /* correlation landscape around peak */
+    float soft_mag[GSM_SCH_BURST_BITS]; /* soft symbol magnitude (|Im|) */
+    float phase[GSM_SCH_BURST_BITS];    /* accumulated unwrapped phase */
     uint8_t bit[GSM_SCH_BURST_BITS];
     uint8_t chan[GSM_SCH_BURST_BITS];
 };
