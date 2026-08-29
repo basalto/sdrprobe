@@ -11,10 +11,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #include "sdr_dsp.h"
 #include "gsm_dsp.h"
+#include "adsb_dsp.h"
 #include "sdrgui.h"
 #include "raygui.h"
 
@@ -79,6 +81,33 @@ enum view_kind {
     VIEW_SPECTRUM,
     VIEW_SCATTER,
     VIEW_WATERFALL
+};
+
+/* Top-level tabs. TAB_SCOPE must be 0 (zero-initialised default). See
+   docs/adr/0008-top-level-tab-navigation.md. */
+enum active_tab {
+    TAB_SCOPE,
+    TAB_DECODE
+};
+#define TAB_COUNT 2
+
+/* Sub-views of the Decode tab, selected by number keys like the Scope views. */
+enum decode_kind {
+    DECODE_GSM,
+    DECODE_ADSB
+};
+
+#define ADSB_LOG_CAPACITY 256
+
+/* One row of the decoded-message log, formatted for display at decode time. */
+struct adsb_log_entry {
+    char stamp[16];
+    char icao[8];
+    char label[6];
+    char detail[96];
+    char raw[32];
+    double time;
+    int highlight;
 };
 
 struct options {
@@ -189,6 +218,8 @@ struct app {
     float scatter_axis_limit;
     int have_samples;
 
+    enum active_tab tab;
+    enum decode_kind decode;
     enum view_kind view;
     Rectangle plot;
     RenderTexture2D scatter;
@@ -257,6 +288,13 @@ struct app {
     float scan_bcch_conf[125];
     int scan_selected_arfcn;
 
+    /* GSM decode view: the currently inspected channel and the tuning to
+       restore when the view is left. */
+    double gsm_selected_hz;         /* carrier of the selected ARFCN (0 = none) */
+    uint32_t gsm_return_frequency;  /* view frequency to restore on leave */
+    int gsm_return_valid;
+    int gsm_autoselect_pending;     /* pick the best BCCH when the open-scan ends */
+
     /* Calibration-health indicator and background drift re-check. */
     int auto_drift_check;          /* Settings toggle: enable periodic re-check */
     int settings_auto_drift;       /* Settings-panel working copy */
@@ -275,9 +313,32 @@ struct app {
     uint32_t drift_saved_frequency; /* view frequency to return to */
     double drift_recent_ppm[DRIFT_RECENT];
     int drift_recent_count;
+
+    /* ADS-B / Mode S decoder tab (the Decoder context). */
+    struct adsb_decoder adsb_decoder;
+    struct adsb_message adsb_scratch[64];
+    struct adsb_log_entry adsb_log[ADSB_LOG_CAPACITY]; /* newest first */
+    int adsb_log_count;
+    uint64_t adsb_frames_total;
+    uint64_t adsb_positions_total;
+
+    /* GSM SCH decode of the inspected channel. */
+    struct gsm_sch_result gsm_sch;
+    int gsm_sch_valid;
+    double gsm_sch_time;
+
+    /* Raw-I/Q recording (to build a GSM test capture). */
+    FILE *record_file;
+    int recording;
+    uint64_t record_bytes;
+    uint64_t record_limit_bytes;
+    char record_path[256];
 };
 
 static volatile sig_atomic_t signal_stop_requested = 0;
+
+static void set_tab(struct app *app, int new_tab);
+static void gsm_tune_selected(struct app *app, int arfcn);
 
 static void on_signal(int signal_number) {
     (void)signal_number;
@@ -1157,18 +1218,25 @@ static void update_waterfall(struct app *app) {
 #define GSM900_BASE_HZ 935000000.0
 #define GSM900_ARFCN_SPACING_HZ 200000.0
 
-static void draw_waterfall(const struct app *app, int calibration_mode) {
+static void draw_waterfall_rect(const struct app *app, int calibration_mode,
+                                Rectangle rect, double zoom_center_hz) {
     struct sdrgui_waterfall_params params = {
-        app->plot, app->waterfall, (double)app->applied_frequency,
+        rect, app->waterfall, (double)app->applied_frequency,
         (double)app->applied_sample_rate, calibration_mode,
         calibration_mode && app->calibration_technology == 0,
-        (double)app->calibration_expected_hz, CALIBRATION_VIEW_HALF_WIDTH_HZ,
+        zoom_center_hz, CALIBRATION_VIEW_HALF_WIDTH_HZ,
         app->waterfall_rows, app->waterfall_height, app->pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900"
     };
     sdrgui_waterfall(&params);
+}
+
+static void draw_waterfall(const struct app *app, int calibration_mode) {
+    draw_waterfall_rect(app, calibration_mode, app->plot,
+                        calibration_mode ? (double)app->calibration_expected_hz
+                                         : 0.0);
 }
 
 static void update_scatter(struct app *app, double now, int insert) {
@@ -1268,10 +1336,6 @@ static void draw_base_hud(const struct app *app,
                  app->applied_gain_tenths / 10.0);
     }
 
-    DrawText("sdrprobe signal visualizer", 22, 16, 24,
-             (Color){ 225, 236, 245, 255 });
-    DrawText("1 magnitude   2 spectrum   3 I/Q scatter   4 waterfall   Up/Down scale   Esc quit",
-             22, 47, 17, (Color){ 127, 151, 170, 255 });
     snprintf(text, sizeof(text), "source: %s   state: %s", app->source_label,
              state);
     DrawText(text, 22, 78, 17, (Color){ 187, 205, 216, 255 });
@@ -2041,7 +2105,15 @@ static void update_scan(struct app *app) {
     if (app->scan_step >= app->scan_step_count) {
         app->scan_running = 0;
         int bcch = scan_strongest_bcch(app);
-        app->scan_selected_arfcn = bcch > 0 ? bcch : scan_strongest_arfcn(app);
+        int chosen = bcch > 0 ? bcch : scan_strongest_arfcn(app);
+        if (chosen > 0 && app->gsm_autoselect_pending &&
+            app->tab == TAB_DECODE && app->decode == DECODE_GSM &&
+            !app->calibration_open) {
+            app->gsm_autoselect_pending = 0;
+            gsm_tune_selected(app, chosen); /* show the best channel above */
+        } else {
+            app->scan_selected_arfcn = chosen;
+        }
         return;
     }
     double next = app->scan_first_center_hz +
@@ -2634,7 +2706,7 @@ static void draw_scan(struct app *app) {
     struct sdrgui_scan_chart_params params = {
         app->plot, app->scan_power, app->scan_bcch_conf, 124,
         SCAN_SENTINEL_DBFS, SCAN_BCCH_MIN_CONF, hover,
-        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ
+        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, app->scan_selected_arfcn
     };
     sdrgui_scan_chart(&params);
 }
@@ -2696,6 +2768,512 @@ static void draw_health_indicator(const struct app *app) {
     sdrgui_health_dot(&params);
 }
 
+/* --- Top-level tabs (Scope / Decode) --- */
+
+static const char *tab_labels[TAB_COUNT] = { "Scope", "Decode" };
+
+static Rectangle tab_rect(int index) {
+    float width = (float)GetScreenWidth();
+    return (Rectangle){ width - 512.0f + (float)index * 128.0f, 14.0f,
+                        118.0f, 36.0f };
+}
+
+/* A tab button with bright, prominent text and a clear active state. */
+static void draw_tab(Rectangle rect, const char *label, int active) {
+    Color fill = active ? (Color){ 191, 111, 25, 255 }
+                        : (Color){ 27, 41, 52, 255 };
+    Color border = active ? (Color){ 255, 201, 103, 255 }
+                          : (Color){ 96, 124, 141, 255 };
+    Color text = active ? (Color){ 255, 244, 224, 255 }
+                        : (Color){ 214, 227, 236, 255 };
+    DrawRectangleRec(rect, fill);
+    DrawRectangleLinesEx(rect, active ? 2.0f : 1.0f, border);
+    int font = 22;
+    int tw = MeasureText(label, font);
+    DrawText(label, (int)(rect.x + (rect.width - tw) / 2.0f),
+             (int)(rect.y + (rect.height - font) / 2.0f), font, text);
+}
+
+static void draw_tab_bar(const struct app *app) {
+    for (int i = 0; i < TAB_COUNT; i++)
+        draw_tab(tab_rect(i), tab_labels[i], (int)app->tab == i);
+}
+
+/* Enter the GSM decode view: pick the default channel and show it in the
+   waterfall above. Priority: the channel a calibration is using, else the last
+   channel the user selected, else run a band scan and auto-pick the strongest
+   BCCH when it finishes. */
+static void enter_gsm(struct app *app) {
+    if (app->receiver_mode && !app->gsm_return_valid) {
+        app->gsm_return_frequency = app->applied_frequency;
+        app->gsm_return_valid = 1;
+    }
+    int arfcn = 0;
+    if (app->gsm_cal_arfcn > 0)
+        arfcn = app->gsm_cal_arfcn;
+    else if (app->scan_selected_arfcn > 0)
+        arfcn = app->scan_selected_arfcn;
+    if (arfcn > 0) {
+        gsm_tune_selected(app, arfcn);
+    } else if (app->receiver_mode) {
+        if (start_scan(app) == 0) {
+            app->scan_open = 0;
+            app->gsm_autoselect_pending = 1;
+        }
+    }
+}
+
+/* Leave the GSM decode view: stop any scan and restore the entry tuning. */
+static void leave_gsm(struct app *app) {
+    app->scan_running = 0;
+    app->scan_open = 0;
+    app->gsm_autoselect_pending = 0;
+    if (app->receiver_mode && app->gsm_return_valid)
+        retune_receiver(app, app->gsm_return_frequency, app->applied_ppm);
+    app->gsm_return_valid = 0;
+    app->gsm_selected_hz = 0.0;
+    app->gsm_sch_valid = 0;
+}
+
+/* Switch tabs. The GSM decode view retunes the receiver, so leaving the Decode
+   tab (while on the GSM view) restores tuning. Calibration is a separate global
+   overlay (a button), not a tab, so tabs do not touch it. */
+static void set_tab(struct app *app, int new_tab) {
+    if (new_tab == (int)app->tab)
+        return;
+    if (app->tab == TAB_DECODE && app->decode == DECODE_GSM)
+        leave_gsm(app);
+    app->settings_open = 0;
+    app->tab = new_tab;
+    if (new_tab == TAB_DECODE && app->decode == DECODE_GSM)
+        enter_gsm(app);
+}
+
+/* Switch the Decode sub-view. Entering/leaving GSM manages its tuning. */
+static void set_decode(struct app *app, int kind) {
+    if (kind == (int)app->decode)
+        return;
+    if (app->decode == DECODE_GSM)
+        leave_gsm(app);
+    app->decode = kind;
+    if (kind == DECODE_GSM)
+        enter_gsm(app);
+}
+
+/* One row of numbered mode options, the active one highlighted. */
+static void draw_option_row(int active, const char **labels, int count,
+                            const char *suffix) {
+    int x = 22;
+    const int y = 50;
+    for (int i = 0; i < count; i++) {
+        Color color = (i == active) ? (Color){ 255, 201, 103, 255 }
+                                    : (Color){ 150, 172, 188, 255 };
+        DrawText(labels[i], x, y, 18, color);
+        x += MeasureText(labels[i], 18) + 26;
+    }
+    if (suffix && suffix[0])
+        DrawText(suffix, x, y, 18, (Color){ 110, 132, 150, 255 });
+}
+
+/* The uniform application header, identical on every tab: application name
+   (top-left), the current tab's numbered options (below it), and the buttons
+   (tabs, Settings, Calibration, health) on the right. The mode display renders
+   below it. */
+static void draw_header(const struct app *app) {
+    static const char *scope_opts[4] = {
+        "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall"
+    };
+    static const char *decode_opts[2] = { "1 GSM", "2 ADS-B" };
+
+    DrawText("sdrprobe signal visualizer", 22, 14, 24,
+             (Color){ 225, 236, 245, 255 });
+    if (app->tab == TAB_SCOPE)
+        draw_option_row((int)app->view, scope_opts, 4,
+                        "Up/Down scale   Esc quit");
+    else
+        draw_option_row((int)app->decode, decode_opts, 2, "Esc scope");
+
+    draw_tab_bar(app);
+    draw_button(settings_button(), "Settings", 0);
+    draw_button(calibration_button(), "Calibration", 0);
+    draw_health_indicator(app);
+}
+
+static int handle_tab_input(struct app *app) {
+    for (int i = 0; i < TAB_COUNT; i++) {
+        if (clicked(tab_rect(i))) {
+            set_tab(app, i);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* --- Decode tab: numbered sub-views (1 GSM, 2 ADS-B) --- */
+
+/* --- GSM analysis view (band survey: channel scan + ARFCN waterfall) --- */
+
+static Rectangle gsm_scan_button(void) {
+    return (Rectangle){ 22.0f, 84.0f, 150.0f, 30.0f };
+}
+
+static Rectangle gsm_waterfall_rect(void) {
+    float width = (float)GetScreenWidth();
+    float span = (float)GetScreenHeight() - 144.0f - 40.0f;
+    return (Rectangle){ 82.0f, 144.0f, width - 112.0f, span * 0.46f };
+}
+
+static Rectangle gsm_scan_rect(void) {
+    float width = (float)GetScreenWidth();
+    float top = 144.0f;
+    float span = (float)GetScreenHeight() - top - 40.0f;
+    return (Rectangle){ 82.0f, top + span * 0.54f, width - 112.0f,
+                        span * 0.40f };
+}
+
+static int gsm_scan_arfcn_at(Vector2 point, Rectangle rect) {
+    if (!CheckCollisionPointRec(point, rect))
+        return 0;
+    double fraction = (point.x - rect.x) / rect.width;
+    int arfcn = 1 + (int)(fraction * 124.0);
+    if (arfcn < 1)
+        arfcn = 1;
+    if (arfcn > 124)
+        arfcn = 124;
+    return arfcn;
+}
+
+/* Select an ARFCN and show it in the waterfall above: on a live receiver retune
+   to it (carrier at +400 kHz within the 2 MHz span) so its activity is visible;
+   the waterfall then zooms to the selected carrier. */
+static void gsm_tune_selected(struct app *app, int arfcn) {
+    uint32_t expected;
+    if (arfcn < 1 || arfcn > 124 ||
+        !gsm_downlink_hz((unsigned int)arfcn, &expected))
+        return;
+    app->scan_selected_arfcn = arfcn;
+    app->gsm_selected_hz = (double)expected;
+    app->gsm_sch_valid = 0;
+    if (app->receiver_mode) {
+        if (!app->gsm_return_valid) {
+            app->gsm_return_frequency = app->applied_frequency;
+            app->gsm_return_valid = 1;
+        }
+        retune_receiver(app, expected - 400000U, app->applied_ppm);
+    }
+}
+
+/* Attempt an SCH decode on the inspected channel's latest block. The channel
+   carrier sits at +400 kHz (we tuned to expected - 400 kHz). */
+static void update_gsm_sch(struct app *app) {
+    if (app->gsm_selected_hz <= 0.0 || app->scan_running ||
+        app->pair_count == 0)
+        return;
+    double offset = app->gsm_selected_hz - (double)app->applied_frequency;
+    struct gsm_sch_result result;
+    if (gsm_sch_decode(app->i_samples, app->q_samples, app->pair_count,
+                       (double)app->applied_sample_rate, offset, &result)) {
+        app->gsm_sch = result;
+        app->gsm_sch_valid = 1;
+        app->gsm_sch_time = GetTime();
+    }
+}
+
+static Rectangle gsm_record_button(void) {
+    return (Rectangle){ 182.0f, 84.0f, 130.0f, 30.0f };
+}
+
+/* Record ~2 s of raw I/Q to captures/ so a real GSM SCH capture can be made
+   with the current setup and later replayed / turned into a test vector. Files
+   are timestamped so re-recording never overwrites an earlier capture. */
+static void start_record(struct app *app) {
+    if (app->recording)
+        return;
+    mkdir("captures", 0755); /* ignore EEXIST */
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    char stamp[32];
+    strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+    snprintf(app->record_path, sizeof(app->record_path),
+             "captures/gsm_arfcn%d_%s.bin",
+             app->scan_selected_arfcn > 0 ? app->scan_selected_arfcn : 0, stamp);
+    app->record_file = fopen(app->record_path, "wb");
+    if (!app->record_file)
+        return;
+    app->recording = 1;
+    app->record_bytes = 0;
+    app->record_limit_bytes =
+        (uint64_t)(2.0 * (double)app->applied_sample_rate * 2.0);
+}
+
+static void record_block(struct app *app) {
+    if (!app->recording || !app->record_file)
+        return;
+    size_t written = fwrite(app->raw, 1, app->raw_len, app->record_file);
+    app->record_bytes += written;
+    if (app->record_bytes >= app->record_limit_bytes) {
+        fclose(app->record_file);
+        app->record_file = NULL;
+        app->recording = 0;
+    }
+}
+
+static void draw_gsm(struct app *app) {
+    char text[320];
+    draw_button(gsm_scan_button(),
+                app->scan_running ? "Scanning" : "Scan / Rescan",
+                !app->scan_running);
+    draw_button(gsm_record_button(),
+                app->recording ? "Recording..." : "Record 2s",
+                app->recording);
+
+    if (!app->receiver_mode)
+        snprintf(text, sizeof(text),
+                 "Band scan needs a live RTL-SDR receiver; waterfall shows the current tuning");
+    else if (app->scan_running)
+        snprintf(text, sizeof(text), "Scanning ARFCN band... step %d / %d",
+                 app->scan_step + 1, app->scan_step_count);
+    else {
+        int bcch = scan_strongest_bcch(app);
+        int strongest = scan_strongest_arfcn(app);
+        if (app->scan_selected_arfcn > 0)
+            snprintf(text, sizeof(text),
+                     "Selected ARFCN %d (%.3f MHz)   click another channel to inspect it",
+                     app->scan_selected_arfcn, app->gsm_selected_hz / 1000000.0);
+        else if (bcch > 0)
+            snprintf(text, sizeof(text),
+                     "Strongest BCCH ARFCN %d at %.1f dBFS (conf %.2f)   click a channel to inspect it",
+                     bcch, app->scan_power[bcch], app->scan_bcch_conf[bcch]);
+        else if (strongest > 0)
+            snprintf(text, sizeof(text),
+                     "No BCCH detected; strongest ARFCN %d at %.1f dBFS   click a channel to inspect it",
+                     strongest, app->scan_power[strongest]);
+        else
+            snprintf(text, sizeof(text),
+                     "Press Scan to survey GSM 900 downlink channel power and locate BCCH carriers");
+    }
+    DrawText(text, 322, 90, 17, (Color){ 190, 208, 218, 255 });
+
+    Rectangle wf = gsm_waterfall_rect();
+    Rectangle sc = gsm_scan_rect();
+    if (app->scan_selected_arfcn > 0)
+        DrawText(TextFormat("ARFCN waterfall - inspecting ARFCN %d",
+                            app->scan_selected_arfcn),
+                 (int)wf.x, (int)wf.y - 18, 16, (Color){ 151, 174, 188, 255 });
+    else
+        DrawText("ARFCN waterfall", (int)wf.x, (int)wf.y - 18, 16,
+                 (Color){ 151, 174, 188, 255 });
+    draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
+
+    /* SCH decode readout, printed above the scan chart. */
+    if (app->gsm_sch_valid) {
+        const struct gsm_sch_result *sch = &app->gsm_sch;
+        snprintf(text, sizeof(text),
+                 "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f",
+                 sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
+                 sch->t2, sch->t3, (double)sch->confidence);
+        DrawText(text, (int)sc.x, (int)sc.y - 22, 18,
+                 (Color){ 120, 230, 255, 255 });
+    } else if (app->recording) {
+        snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
+                 app->record_path, app->record_bytes / 1e6);
+        DrawText(text, (int)sc.x, (int)sc.y - 22, 18,
+                 (Color){ 255, 202, 105, 255 });
+    } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
+        DrawText("SCH   searching for a synchronisation burst...", (int)sc.x,
+                 (int)sc.y - 22, 18, (Color){ 151, 174, 188, 255 });
+    }
+
+    int hover = (!app->scan_running)
+                    ? gsm_scan_arfcn_at(GetMousePosition(), sc)
+                    : 0;
+    struct sdrgui_scan_chart_params params = {
+        sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
+        SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
+        app->scan_selected_arfcn
+    };
+    sdrgui_scan_chart(&params);
+}
+
+static void handle_gsm_input(struct app *app) {
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        set_tab(app, TAB_SCOPE);
+        return;
+    }
+    if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP))
+        adjust_waterfall_scale(app, 1);
+    if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))
+        adjust_waterfall_scale(app, 0);
+    if (app->scan_running)
+        return;
+    if (clicked(gsm_scan_button())) {
+        if (start_scan(app) == 0) {
+            app->scan_open = 0; /* the GSM view shows the scan inline */
+            app->gsm_autoselect_pending = 1;
+        }
+        return;
+    }
+    if (clicked(gsm_record_button())) {
+        start_record(app);
+        return;
+    }
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        int arfcn = gsm_scan_arfcn_at(GetMousePosition(), gsm_scan_rect());
+        if (arfcn > 0 && app->scan_power[arfcn] > SCAN_SENTINEL_DBFS)
+            gsm_tune_selected(app, arfcn);
+    }
+}
+
+/* --- ADS-B decoder tab --- */
+
+static int adsb_tuned(const struct app *app) {
+    long delta = (long)app->applied_frequency - (long)DEFAULT_FREQUENCY;
+    if (delta < 0)
+        delta = -delta;
+    return delta < 200000 && app->applied_sample_rate >= 2000000U;
+}
+
+static Rectangle adsb_retune_button(void) {
+    return (Rectangle){ 470.0f, 82.0f, 220.0f, 30.0f };
+}
+
+static Rectangle adsb_log_rect(void) {
+    float width = (float)GetScreenWidth();
+    float top = 124.0f;
+    return (Rectangle){ 82.0f, top, width - 112.0f,
+                        (float)GetScreenHeight() - top - 30.0f };
+}
+
+static void adsb_log_push(struct app *app, const struct adsb_log_entry *entry) {
+    int keep = app->adsb_log_count < ADSB_LOG_CAPACITY ? app->adsb_log_count
+                                                       : ADSB_LOG_CAPACITY - 1;
+    memmove(&app->adsb_log[1], &app->adsb_log[0],
+            (size_t)keep * sizeof(app->adsb_log[0]));
+    app->adsb_log[0] = *entry;
+    if (app->adsb_log_count < ADSB_LOG_CAPACITY)
+        app->adsb_log_count++;
+}
+
+static void adsb_format(const struct adsb_message *msg,
+                        struct adsb_log_entry *entry, double now) {
+    memset(entry, 0, sizeof(*entry));
+    time_t wall = time(NULL);
+    struct tm local;
+    localtime_r(&wall, &local);
+    strftime(entry->stamp, sizeof(entry->stamp), "%H:%M:%S", &local);
+    snprintf(entry->icao, sizeof(entry->icao), "%06X", msg->icao);
+    int pos = 0;
+    for (int b = 0; b < msg->byte_count &&
+                    pos + 2 < (int)sizeof(entry->raw); b++)
+        pos += snprintf(entry->raw + pos, sizeof(entry->raw) - (size_t)pos,
+                        "%02X", msg->bytes[b]);
+    entry->time = now;
+    entry->highlight = 1;
+    switch (msg->kind) {
+    case ADSB_KIND_IDENTIFICATION:
+        snprintf(entry->label, sizeof(entry->label), "ID");
+        snprintf(entry->detail, sizeof(entry->detail), "callsign %s",
+                 msg->callsign);
+        break;
+    case ADSB_KIND_AIRBORNE_POSITION:
+        snprintf(entry->label, sizeof(entry->label), "POS");
+        if (msg->has_position)
+            snprintf(entry->detail, sizeof(entry->detail),
+                     "lat %.4f  lon %.4f  alt %d ft", msg->latitude_deg,
+                     msg->longitude_deg, msg->altitude_ft);
+        else if (msg->has_altitude)
+            snprintf(entry->detail, sizeof(entry->detail),
+                     "alt %d ft  (awaiting %s frame)", msg->altitude_ft,
+                     msg->cpr_odd ? "even" : "odd");
+        else
+            snprintf(entry->detail, sizeof(entry->detail),
+                     "position (awaiting pair)");
+        break;
+    case ADSB_KIND_VELOCITY:
+        snprintf(entry->label, sizeof(entry->label), "VEL");
+        snprintf(entry->detail, sizeof(entry->detail),
+                 "%.0f kt  heading %.0f deg", msg->ground_speed_kt,
+                 msg->heading_deg);
+        break;
+    default:
+        snprintf(entry->label, sizeof(entry->label), "MSG");
+        snprintf(entry->detail, sizeof(entry->detail), "DF%d TC%d",
+                 msg->downlink_format, msg->type_code);
+        break;
+    }
+}
+
+static void update_adsb(struct app *app, double now) {
+    if (!app->have_samples || app->pair_count == 0)
+        return;
+    size_t count = adsb_demod(&app->adsb_decoder, app->magnitudes,
+                              app->pair_count, now, app->adsb_scratch,
+                              sizeof(app->adsb_scratch) /
+                                  sizeof(app->adsb_scratch[0]));
+    size_t emitted = count;
+    size_t capacity = sizeof(app->adsb_scratch) / sizeof(app->adsb_scratch[0]);
+    if (emitted > capacity)
+        emitted = capacity;
+    /* Fade the previous rows' highlight before adding new ones. */
+    for (int i = 0; i < app->adsb_log_count; i++)
+        app->adsb_log[i].highlight = 0;
+    for (size_t i = 0; i < emitted; i++) {
+        struct adsb_log_entry entry;
+        adsb_format(&app->adsb_scratch[i], &entry, now);
+        adsb_log_push(app, &entry);
+        app->adsb_frames_total++;
+        if (app->adsb_scratch[i].has_position)
+            app->adsb_positions_total++;
+    }
+}
+
+static void handle_adsb_input(struct app *app) {
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        set_tab(app, TAB_SCOPE);
+        return;
+    }
+    if (!adsb_tuned(app) && app->receiver_mode &&
+        clicked(adsb_retune_button())) {
+        retune_receiver(app, DEFAULT_FREQUENCY, app->applied_ppm);
+    }
+}
+
+static void draw_adsb(struct app *app) {
+    char text[160];
+    snprintf(text, sizeof(text),
+             "1090 MHz extended squitter   frames decoded: %llu   positions: %llu",
+             (unsigned long long)app->adsb_frames_total,
+             (unsigned long long)app->adsb_positions_total);
+    DrawText(text, 22, 88, 17, (Color){ 187, 205, 216, 255 });
+
+    if (!adsb_tuned(app)) {
+        if (app->receiver_mode) {
+            draw_button(adsb_retune_button(), "Retune to 1090 MHz", 1);
+        } else {
+            DrawText("Capture is not 1090 MHz / 2 MS/s; no Mode S expected",
+                     470, 88, 17, (Color){ 250, 190, 74, 255 });
+        }
+    }
+
+    struct sdrgui_message_log_row rows[ADSB_LOG_CAPACITY];
+    for (int i = 0; i < app->adsb_log_count; i++) {
+        rows[i].time = app->adsb_log[i].stamp;
+        rows[i].icao = app->adsb_log[i].icao;
+        rows[i].label = app->adsb_log[i].label;
+        rows[i].detail = app->adsb_log[i].detail;
+        rows[i].raw = app->adsb_log[i].raw;
+        rows[i].highlight = app->adsb_log[i].highlight;
+    }
+    struct sdrgui_message_log_params params = {
+        adsb_log_rect(), rows, app->adsb_log_count,
+        "Decoded messages (newest first)",
+        app->have_samples ? "Listening for Mode S frames..."
+                          : "Waiting for samples..."
+    };
+    sdrgui_message_log(&params);
+}
+
 static int run_gui(struct app *app) {
     struct slot_snapshot snapshot;
     int result = 0;
@@ -2753,21 +3331,35 @@ static int run_gui(struct app *app) {
         if (WindowShouldClose())
             break;
 
-        if (app->scan_open) {
-            handle_scan_input(app);
-        } else if (app->calibration_open) {
-            handle_calibration_input(app);
-        } else if (app->settings_open) {
+        if (app->settings_open) {
             if (IsKeyPressed(KEY_ESCAPE))
                 app->settings_open = 0;
             else
                 handle_settings_input(app);
-        } else if (IsKeyPressed(KEY_ESCAPE)) {
-            break;
+        } else if (app->calibration_open) {
+            if (app->scan_open)
+                handle_scan_input(app);
+            else
+                handle_calibration_input(app);
+        } else if (handle_tab_input(app)) {
+            /* Tab switched this frame; skip per-tab input. */
         } else if (clicked(settings_button()) || IsKeyPressed(KEY_S)) {
             open_settings(app);
         } else if (clicked(calibration_button()) || IsKeyPressed(KEY_C)) {
+            if (app->tab == TAB_DECODE && app->decode == DECODE_GSM)
+                leave_gsm(app);
             open_calibration(app);
+        } else if (app->tab == TAB_DECODE) {
+            if (IsKeyPressed(KEY_ONE))
+                set_decode(app, DECODE_GSM);
+            else if (IsKeyPressed(KEY_TWO))
+                set_decode(app, DECODE_ADSB);
+            if (app->decode == DECODE_GSM)
+                handle_gsm_input(app);
+            else
+                handle_adsb_input(app);
+        } else if (IsKeyPressed(KEY_ESCAPE)) {
+            break;
         }
 
         double now = GetTime();
@@ -2792,7 +3384,8 @@ static int run_gui(struct app *app) {
             app->plot = new_plot;
         }
 
-        if (!app->settings_open && !app->calibration_open) {
+        if (app->tab == TAB_SCOPE && !app->settings_open &&
+            !app->calibration_open) {
             enum view_kind selected = app->view;
             if (IsKeyPressed(KEY_ONE))
                 selected = VIEW_MAGNITUDE;
@@ -2821,29 +3414,47 @@ static int run_gui(struct app *app) {
             update_scan(app);
             update_calibration_measurement(app);
         }
+        if (have_new && app->tab == TAB_DECODE &&
+            app->decode == DECODE_ADSB && !app->calibration_open)
+            update_adsb(app, now);
+        if (have_new && app->tab == TAB_DECODE &&
+            app->decode == DECODE_GSM && !app->calibration_open)
+            update_gsm_sch(app);
+        if (have_new)
+            record_block(app);
         update_drift_check(app, spectrum_updated);
         update_scatter(app, now,
-                       have_new && app->view == VIEW_SCATTER);
+                       have_new && app->tab == TAB_SCOPE &&
+                           !app->calibration_open &&
+                           app->view == VIEW_SCATTER);
 
         BeginDrawing();
         ClearBackground((Color){ 12, 19, 28, 255 });
-        if (app->scan_open) {
-            draw_scan(app);
-        } else if (app->calibration_open) {
-            draw_calibration(app);
-        } else {
-            draw_base_hud(app, &snapshot);
-            if (app->view == VIEW_MAGNITUDE)
-                draw_magnitude(app);
-            else if (app->view == VIEW_SPECTRUM)
-                draw_spectrum(app);
-            else if (app->view == VIEW_SCATTER)
-                draw_scatter(app);
+        if (app->calibration_open) {
+            /* Calibration is a global full-screen overlay reached by a button,
+               independent of the active tab. */
+            if (app->scan_open)
+                draw_scan(app);
             else
-                draw_waterfall(app, 0);
-            draw_button(settings_button(), "Settings", 0);
-            draw_button(calibration_button(), "Calibration", 0);
-            draw_health_indicator(app);
+                draw_calibration(app);
+        } else {
+            if (app->tab == TAB_DECODE) {
+                if (app->decode == DECODE_GSM)
+                    draw_gsm(app);
+                else
+                    draw_adsb(app);
+            } else {
+                draw_base_hud(app, &snapshot);
+                if (app->view == VIEW_MAGNITUDE)
+                    draw_magnitude(app);
+                else if (app->view == VIEW_SPECTRUM)
+                    draw_spectrum(app);
+                else if (app->view == VIEW_SCATTER)
+                    draw_scatter(app);
+                else
+                    draw_waterfall(app, 0);
+            }
+            draw_header(app);
             if (app->settings_open)
                 draw_settings(app);
         }
@@ -2958,6 +3569,10 @@ cleanup:
             result = 1;
         }
         app->capture = NULL;
+    }
+    if (app->record_file) {
+        fclose(app->record_file);
+        app->record_file = NULL;
     }
     if (app->dev) {
         int close_result = rtlsdr_close(app->dev);

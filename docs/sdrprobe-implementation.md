@@ -482,7 +482,7 @@ make sdrprobe
 
 1. `make` builds `sdrprobe` (requires raylib + librtlsdr dev headers).
 2. `make clean` removes all project and test executables.
-3. `sdrprobe --file testfiles/modes1.bin` runs paced, hardware-free playback.
+3. `sdrprobe --file testfiles/adsb_modes1.bin` runs paced, hardware-free playback.
 
 ### Deterministic DSP checks
 
@@ -501,7 +501,7 @@ make sdrprobe
 ### Hardware-free GUI
 
 ```sh
-./sdrprobe --file testfiles/modes1.bin
+./sdrprobe --file testfiles/adsb_modes1.bin
 ```
 
 Verify that playback loops, advances at approximately 2 million I/Q pairs per

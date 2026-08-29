@@ -9,8 +9,8 @@ BUILD=build
 
 all: sdrprobe
 
-DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c
-DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h
+DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/adsb_dsp.c
+DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui.c
 GUI_HDR=$(SRC)/sdrgui.h
 RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
@@ -43,7 +43,13 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/sdr_dsp.c -lm
 	./$(BUILD)/gsm_dsp_test
 
-check-dsp: check-sdr-dsp check-gsm-dsp
+check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_dsp_test \
+		$(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c -lm
+	./$(BUILD)/adsb_dsp_test
+
+check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp
 
 # Backwards-compatible alias.
 check-raylib-dsp: check-dsp
@@ -51,4 +57,4 @@ check-raylib-dsp: check-dsp
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-dsp check-raylib-dsp clean
+.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp check-raylib-dsp clean

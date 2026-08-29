@@ -43,7 +43,7 @@ On Arch‑based systems: `pacman -S rtl-sdr raylib pkgconf`.
 ```sh
 make                 # builds ./sdrprobe
 ./sdrprobe           # live receiver, defaults to 1090 MHz / 2 MS/s / max gain
-./sdrprobe --file testfiles/modes1.bin   # hardware-free paced playback
+./sdrprobe --file testfiles/adsb_modes1.bin   # hardware-free paced playback
 ```
 
 ```
@@ -98,7 +98,7 @@ tests/     sdr_dsp_test.c    hardware-free DSP checks
            gsm_dsp_test.c
 vendor/    raygui.h          pinned immediate-mode widget toolkit
 docs/      ARCHITECTURE.md, adr/, cellular-frequency-correction.md, ...
-testfiles/ modes1.bin        raw 8-bit I/Q capture for hardware-free playback
+testfiles/ adsb_modes1.bin, gsm_arfcn_69.bin   test captures (&lt;tech&gt;_&lt;detail&gt;.bin)
 build/     compiled artifacts (gitignored)
 ```
 

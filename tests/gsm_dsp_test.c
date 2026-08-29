@@ -137,9 +137,149 @@ static void test_fcch_detection(void) {
     free(q);
 }
 
+/* Pack a known BSIC + reduced frame number into the 25 SCH information bits,
+   matching the decoder's bit layout. */
+static void sch_pack_info(int bsic, int t1, int t2, int t3p, uint8_t d[25]) {
+    int idx = 0;
+    for (int i = 5; i >= 0; i--)
+        d[idx++] = (uint8_t)((bsic >> i) & 1);
+    for (int i = 10; i >= 0; i--)
+        d[idx++] = (uint8_t)((t1 >> i) & 1);
+    for (int i = 4; i >= 0; i--)
+        d[idx++] = (uint8_t)((t2 >> i) & 1);
+    for (int i = 2; i >= 0; i--)
+        d[idx++] = (uint8_t)((t3p >> i) & 1);
+}
+
+/* Round-trip: encode + MSK-modulate a full SCH burst into noisy I/Q, then
+   recover the BSIC and frame number through the demod + Viterbi + parity chain.
+   This proves the sync + coding path; real-signal accuracy still needs a live
+   capture. */
+static void test_sch_decode(void) {
+    const double sample_rate = 2000000.0;
+    const double carrier_offset = 400000.0;
+    const int bsic = 42; /* NCC 5, BCC 2 */
+    const int t1 = 100, t2 = 13, t3p = 2;
+    const int t3 = 10 * t3p + 1;
+    const int expected_fn = 51 * (((t3 + 26) - t2) % 26) + t3 + 51 * 26 * t1;
+
+    uint8_t info[25];
+    uint8_t coded[78];
+    sch_pack_info(bsic, t1, t2, t3p, info);
+    gsm_sch_encode(info, coded);
+
+    const size_t count = 4000;
+    const size_t start = 500;
+    float *i = malloc(count * sizeof(*i));
+    float *q = malloc(count * sizeof(*q));
+    if (!i || !q) {
+        fprintf(stderr, "sch allocation failed\n");
+        exit(2);
+    }
+
+    srand(7);
+    for (size_t n = 0; n < count; n++) {
+        i[n] = 3.0f * ((float)rand() / (float)RAND_MAX - 0.5f);
+        q[n] = 3.0f * ((float)rand() / (float)RAND_MAX - 0.5f);
+    }
+    size_t written = gsm_sch_modulate(coded, sample_rate, carrier_offset, start,
+                                      i, q, count);
+    if (written == 0) {
+        fprintf(stderr, "sch modulate wrote no samples\n");
+        failures++;
+    }
+    /* Add mild noise on top of the burst. */
+    for (size_t n = start; n < start + written; n++) {
+        i[n] += 3.0f * ((float)rand() / (float)RAND_MAX - 0.5f);
+        q[n] += 3.0f * ((float)rand() / (float)RAND_MAX - 0.5f);
+    }
+
+    struct gsm_sch_result result;
+    check_size("SCH decoded",
+               (size_t)gsm_sch_decode(i, q, count, sample_rate, carrier_offset,
+                                      &result),
+               1);
+    check_size("SCH BSIC", (size_t)result.bsic, (size_t)bsic);
+    check_size("SCH NCC", (size_t)result.ncc, 5);
+    check_size("SCH BCC", (size_t)result.bcc, 2);
+    check_size("SCH T1", (size_t)result.t1, (size_t)t1);
+    check_size("SCH T2", (size_t)result.t2, (size_t)t2);
+    check_size("SCH T3", (size_t)result.t3, (size_t)t3);
+    check_size("SCH frame number", (size_t)result.frame_number,
+               (size_t)expected_fn);
+
+    /* Noise only: no burst, so no decode. */
+    srand(9);
+    for (size_t n = 0; n < count; n++) {
+        i[n] = 40.0f * ((float)rand() / (float)RAND_MAX - 0.5f);
+        q[n] = 40.0f * ((float)rand() / (float)RAND_MAX - 0.5f);
+    }
+    check_size("SCH rejects noise",
+               (size_t)gsm_sch_decode(i, q, count, sample_rate, carrier_offset,
+                                      &result),
+               0);
+
+    free(i);
+    free(q);
+}
+
+/* Real-capture regression: a 2 s recording of GSM 900 ARFCN 69 (948.8 MHz),
+   tuned to expected - 400 kHz, must decode a stable BSIC. The frame number is
+   not asserted (plain differential detection leaves residual data-field errors
+   that a soft-decision trellis would remove); BSIC/NCC/BCC are reliable. Skips
+   gracefully when the capture is absent. */
+#define GSM_REAL_BLOCK (16 * 16384)
+static void test_sch_real_capture(void) {
+    FILE *file = fopen("testfiles/gsm_arfcn_69.bin", "rb");
+    if (!file) {
+        puts("  (skipping real-capture SCH test: testfiles/gsm_arfcn_69.bin "
+             "absent)");
+        return;
+    }
+    unsigned char *raw = malloc(GSM_REAL_BLOCK);
+    float *i = malloc((GSM_REAL_BLOCK / 2) * sizeof(*i));
+    float *q = malloc((GSM_REAL_BLOCK / 2) * sizeof(*q));
+    float *mag = malloc((GSM_REAL_BLOCK / 2) * sizeof(*mag));
+    if (!raw || !i || !q || !mag) {
+        fprintf(stderr, "real-capture allocation failed\n");
+        exit(2);
+    }
+
+    int decoded = 0, bsic_ok = 0;
+    size_t got;
+    while ((got = fread(raw, 1, GSM_REAL_BLOCK, file)) == GSM_REAL_BLOCK) {
+        size_t pairs = sdr_dsp_convert_iq(raw, GSM_REAL_BLOCK, i, q, mag,
+                                          GSM_REAL_BLOCK / 2);
+        struct gsm_sch_result result;
+        if (gsm_sch_decode(i, q, pairs, 2000000.0, 400000.0, &result)) {
+            decoded++;
+            if (result.bsic == 45 && result.ncc == 5 && result.bcc == 5)
+                bsic_ok++;
+        }
+    }
+    fclose(file);
+    free(raw);
+    free(i);
+    free(q);
+    free(mag);
+
+    if (decoded < 5) {
+        fprintf(stderr, "real-capture SCH: only %d blocks decoded (expected >=5)\n",
+                decoded);
+        failures++;
+    }
+    if (bsic_ok < decoded) {
+        fprintf(stderr, "real-capture SCH: %d/%d decodes had BSIC 45 (NCC 5, BCC 5)\n",
+                bsic_ok, decoded);
+        failures++;
+    }
+}
+
 int main(void) {
     test_cellular_calibration();
     test_fcch_detection();
+    test_sch_decode();
+    test_sch_real_capture();
 
     if (failures) {
         fprintf(stderr, "%d gsm_dsp check(s) failed\n", failures);
