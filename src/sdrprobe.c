@@ -3055,6 +3055,21 @@ static void draw_gsm(struct app *app) {
     }
     DrawText(text, 322, 90, 17, (Color){ 190, 208, 218, 255 });
 
+    /* Signal quality of the inspected channel (estimated SNR for gain/lock). */
+    if (app->signal_stats_ready) {
+        const struct sdr_signal_stats *stats = &app->signal_stats;
+        Color quality_color = (Color){ 90, 220, 164, 255 };
+        if (stats->clipping_percent >= 0.1f || stats->headroom_db < 1.0f)
+            quality_color = (Color){ 255, 102, 94, 255 };
+        else if (stats->clipping_percent > 0.0f || stats->headroom_db < 3.0f)
+            quality_color = (Color){ 250, 190, 74, 255 };
+        snprintf(text, sizeof(text),
+                 "noise (p10) %.2f   signal (p99.5) %.2f   estimated SNR %.1f dB   clipping %.4f%%   headroom %.1f dB",
+                 stats->noise_magnitude, stats->signal_magnitude,
+                 stats->snr_db, stats->clipping_percent, stats->headroom_db);
+        DrawText(text, 322, 112, 16, quality_color);
+    }
+
     Rectangle wf = gsm_waterfall_rect();
     Rectangle sc = gsm_scan_rect();
     if (app->scan_selected_arfcn > 0)
