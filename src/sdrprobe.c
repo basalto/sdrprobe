@@ -2132,6 +2132,7 @@ static void update_scan(struct app *app) {
             app->tab == TAB_DECODE && app->decode == DECODE_GSM &&
             !app->calibration_open) {
             app->gsm_autoselect_pending = 0;
+            app->gsm_analysis_mode = 1;     /* Default to Burst mode after scan */
             gsm_tune_selected(app, chosen); /* show the best channel above */
         } else {
             app->scan_selected_arfcn = chosen;
@@ -2837,6 +2838,7 @@ static void enter_gsm(struct app *app) {
         arfcn = app->scan_selected_arfcn;
     if (arfcn > 0) {
         gsm_tune_selected(app, arfcn);
+        app->gsm_analysis_mode = 1; /* Default to Burst mode when inspecting */
     } else if (app->receiver_mode) {
         if (start_scan(app) == 0) {
             app->scan_open = 0;
@@ -2971,7 +2973,8 @@ static Rectangle gsm_burst_rect(void) {
 }
 
 static Rectangle gsm_view_toggle_button(void) {
-    return (Rectangle){ 322.0f, 84.0f, 150.0f, 30.0f };
+    float width = (float)GetScreenWidth();
+    return (Rectangle){ width - 180.0f, 84.0f, 150.0f, 30.0f };
 }
 
 static Rectangle gsm_constellation_rect(void) {
@@ -3410,8 +3413,10 @@ static void handle_gsm_input(struct app *app) {
     }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         int arfcn = gsm_scan_arfcn_at(GetMousePosition(), gsm_scan_rect());
-        if (arfcn > 0 && app->scan_power[arfcn] > SCAN_SENTINEL_DBFS)
+        if (arfcn > 0 && app->scan_power[arfcn] > SCAN_SENTINEL_DBFS) {
             gsm_tune_selected(app, arfcn);
+            app->gsm_analysis_mode = 1;
+        }
     }
 }
 
