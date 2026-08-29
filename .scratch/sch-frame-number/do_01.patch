@@ -1,0 +1,27 @@
+--- src/gsm_dsp.c
++++ src/gsm_dsp.c
+@@ -344,6 +344,22 @@
+         bi[n] = (float)(i_samples[n] * c - q_samples[n] * s);
+         bq[n] = (float)(i_samples[n] * s + q_samples[n] * c);
+     }
++    
++    /* Matched filter: moving average over one symbol period. */
++    float *f_bi = malloc(pair_count * sizeof(*f_bi));
++    float *f_bq = malloc(pair_count * sizeof(*f_bq));
++    int tap_count = (int)(sps + 0.5);
++    int half = tap_count / 2;
++    for (size_t n = 0; n < pair_count; n++) {
++        double sum_i = 0.0, sum_q = 0.0;
++        int count = 0;
++        for (int j = -half; j <= half; j++) {
++            if ((int)n + j >= 0 && (int)n + j < (int)pair_count) {
++                sum_i += bi[n + j]; sum_q += bq[n + j]; count++;
++            }
++        }
++        f_bi[n] = (float)(sum_i / count); f_bq[n] = (float)(sum_q / count);
++    }
++    free(bi); free(bq);
++    bi = f_bi; bq = f_bq;
+ 
+     int nsym = (int)(((double)pair_count - 2.0) / sps) - 1;
+     if (nsym < GSM_SCH_BURST_BITS + 4) {
