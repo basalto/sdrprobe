@@ -133,10 +133,33 @@ struct sdrgui_scan_chart_params {
     int hover;               /* hovered channel (0 = none) */
     double base_hz;          /* channel 0 frequency, for the hover readout */
     double spacing_hz;
+    int selected;            /* selected/inspected channel (0 = none) */
 };
 
 /* Per-channel power bar chart with BCCH highlighting and a hover readout. */
 void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params);
+
+/* --- Decoded-message log --- */
+
+struct sdrgui_message_log_row {
+    const char *time;    /* decode timestamp, e.g. "14:32:07" */
+    const char *icao;    /* transmitter id, e.g. "4840D6" */
+    const char *label;   /* short message-kind tag, e.g. "ID", "POS", "VEL" */
+    const char *detail;  /* decoded summary text */
+    const char *raw;     /* raw hexadecimal frame */
+    int highlight;       /* newest / just-updated row */
+};
+
+struct sdrgui_message_log_params {
+    Rectangle plot;
+    const struct sdrgui_message_log_row *rows; /* newest first */
+    int count;
+    const char *caption;      /* top-of-panel caption (may be NULL) */
+    const char *empty_notice; /* shown when count == 0 */
+};
+
+/* Scrolling, newest-first table of decoded messages (ICAO | kind | detail). */
+void sdrgui_message_log(const struct sdrgui_message_log_params *params);
 
 /* --- Widgets --- */
 

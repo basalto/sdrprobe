@@ -647,6 +647,18 @@ void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
                           width, 4, (Color){ 139, 255, 205, 255 });
     }
 
+    /* Selected/inspected channel marker: a bright vertical band and a cap. */
+    if (params->selected >= 1 && params->selected <= params->count) {
+        float x = plot.x + (float)(params->selected - 1) * bar_width;
+        float w = bar_width > 2.0f ? bar_width : 2.0f;
+        DrawRectangle((int)x, (int)plot.y, (int)w, (int)plot.height,
+                      (Color){ 120, 230, 255, 40 });
+        DrawRectangleLines((int)x, (int)plot.y, (int)w, (int)plot.height,
+                           (Color){ 120, 230, 255, 200 });
+        DrawRectangle((int)x, (int)plot.y - 6, (int)w, 5,
+                      (Color){ 150, 236, 255, 255 });
+    }
+
     /* Channel axis labels every 10 channels. */
     for (int chan = 10; chan <= params->count; chan += 10) {
         float x = plot.x + ((float)(chan - 1) + 0.5f) * bar_width;
@@ -676,6 +688,62 @@ void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
                      params->bcch_conf[hover]);
         DrawText(text, (int)mouse.x + 12, (int)mouse.y - 24, 16,
                  (Color){ 235, 242, 246, 255 });
+    }
+}
+
+void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
+    Rectangle plot = params->plot;
+    DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
+    DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
+
+    const int pad = 12;
+    const int row_height = 24;
+    int x_time = (int)plot.x + pad;
+    int x_icao = x_time + 96;
+    int x_label = x_icao + 84;
+    int x_detail = x_label + 64;
+    int x_raw = x_detail + 430;
+    int y = (int)plot.y + pad;
+
+    if (params->caption && params->caption[0]) {
+        DrawText(params->caption, x_time, y, 16, (Color){ 151, 174, 188, 255 });
+        y += 24;
+    }
+
+    /* Column header. */
+    DrawText("TIME", x_time, y, 16, (Color){ 126, 151, 166, 255 });
+    DrawText("ICAO", x_icao, y, 16, (Color){ 126, 151, 166, 255 });
+    DrawText("TYPE", x_label, y, 16, (Color){ 126, 151, 166, 255 });
+    DrawText("DECODED MESSAGE", x_detail, y, 16, (Color){ 126, 151, 166, 255 });
+    DrawText("RAW (hex)", x_raw, y, 16, (Color){ 126, 151, 166, 255 });
+    y += 22;
+    DrawLine(x_time, y - 4, (int)(plot.x + plot.width) - pad, y - 4,
+             (Color){ 82, 109, 126, 160 });
+
+    if (params->count <= 0) {
+        const char *notice = params->empty_notice ? params->empty_notice : "";
+        DrawText(notice, x_time, y + 8, 18, (Color){ 187, 205, 216, 255 });
+        return;
+    }
+
+    int usable = (int)(plot.y + plot.height) - pad - y;
+    int max_rows = usable / row_height;
+    int rows = params->count < max_rows ? params->count : max_rows;
+    for (int i = 0; i < rows; i++) {
+        const struct sdrgui_message_log_row *row = &params->rows[i];
+        int row_y = y + i * row_height;
+        if (i % 2 == 1)
+            DrawRectangle(x_time - 4, row_y - 2,
+                          (int)plot.width - 2 * pad + 8, row_height,
+                          (Color){ 255, 255, 255, 8 });
+        Color id_color = row->highlight ? (Color){ 255, 202, 105, 255 }
+                                        : (Color){ 235, 242, 246, 255 };
+        DrawText(row->time, x_time, row_y, 18, (Color){ 160, 178, 190, 255 });
+        DrawText(row->icao, x_icao, row_y, 18, id_color);
+        DrawText(row->label, x_label, row_y, 18, (Color){ 149, 205, 232, 255 });
+        DrawText(row->detail, x_detail, row_y, 18,
+                 (Color){ 213, 226, 234, 255 });
+        DrawText(row->raw, x_raw, row_y, 18, (Color){ 130, 150, 162, 255 });
     }
 }
 

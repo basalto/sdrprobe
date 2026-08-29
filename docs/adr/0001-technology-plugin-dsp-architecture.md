@@ -34,6 +34,12 @@ identify a reference carrier and measure its frequency. Full demodulation and
 message decoding are explicitly out of scope for now; a future plugin may add a
 decode stage behind the same per-technology boundary.
 
+> **Revised by ADR-0009.** The decode stage anticipated here now exists as the
+> Mode S / ADS-B plugin. Because Mode S decoding reuses almost none of the
+> generic FFT/centroid/power primitives, ADR-0009 clarifies that the reuse
+> expectation below applies to calibration-grade plugins, not the decode stage;
+> the preserved invariant is the plugin *seam*, not literal primitive reuse.
+
 ## Consequences
 
 - Only the DSP layer is split. The GSM *application* logic (calibration/scan

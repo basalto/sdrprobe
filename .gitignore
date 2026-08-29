@@ -11,3 +11,6 @@
 *.swp
 *~
 .DS_Store
+
+# Raw-I/Q recordings from the Record button (user captures, not fixtures).
+/captures/
