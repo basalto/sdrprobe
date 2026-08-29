@@ -77,6 +77,16 @@ struct gsm_sch_result {
     float confidence; /* training-sequence match quality [0,1] */
 };
 
+/* The demodulated symbols of the located SCH burst, for a decode visualisation:
+   each point is a normalised differential-detection sample (clusters near
+   x = +-1 for the two bit decisions), tagged with its hard bit. */
+struct gsm_sch_symbols {
+    int count;
+    float x[GSM_SCH_BURST_BITS];
+    float y[GSM_SCH_BURST_BITS];
+    uint8_t bit[GSM_SCH_BURST_BITS];
+};
+
 /* Channel-encode 25 information bits (MSB first) into 78 coded bits: append the
    10-bit parity and 4 tail bits, then the rate-1/2 K=5 convolutional code. */
 void gsm_sch_encode(const uint8_t info_bits[GSM_SCH_INFO_BITS],
@@ -93,9 +103,12 @@ size_t gsm_sch_modulate(const uint8_t coded_bits[GSM_SCH_CODED_BITS],
 
 /* Decode the SCH from centred I/Q. carrier_offset_hz is the channel carrier's
    baseband offset (e.g. +400 kHz when tuned to expected-400 kHz). Returns 1 and
-   fills result on a parity-valid decode, else 0. */
+   fills result on a parity-valid decode, else 0. When symbols is non-NULL it is
+   filled with the located burst's demodulated symbols for visualisation (also
+   on a successful decode). */
 int gsm_sch_decode(const float *i_samples, const float *q_samples,
                    size_t pair_count, double sample_rate,
-                   double carrier_offset_hz, struct gsm_sch_result *result);
+                   double carrier_offset_hz, struct gsm_sch_result *result,
+                   struct gsm_sch_symbols *symbols);
 
 #endif

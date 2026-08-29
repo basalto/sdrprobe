@@ -747,6 +747,41 @@ void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
     }
 }
 
+void sdrgui_constellation(const struct sdrgui_constellation_params *params) {
+    Rectangle plot = params->plot;
+    DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
+    DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
+
+    if (params->caption && params->caption[0])
+        DrawText(params->caption, (int)plot.x, (int)plot.y - 20, 16,
+                 (Color){ 151, 174, 188, 255 });
+
+    float cx = plot.x + plot.width / 2.0f;
+    float cy = plot.y + plot.height / 2.0f;
+    DrawLine((int)plot.x, (int)cy, (int)(plot.x + plot.width), (int)cy,
+             (Color){ 170, 190, 200, 40 });
+    DrawLine((int)cx, (int)plot.y, (int)cx, (int)(plot.y + plot.height),
+             (Color){ 170, 190, 200, 40 });
+
+    if (params->count <= 0) {
+        const char *notice = params->empty_notice ? params->empty_notice : "";
+        DrawText(notice, (int)plot.x + 10, (int)cy - 8, 16,
+                 (Color){ 150, 172, 188, 255 });
+        return;
+    }
+
+    float half = 0.46f * (plot.width < plot.height ? plot.width : plot.height);
+    for (int i = 0; i < params->count; i++) {
+        float px = cx + params->x[i] / 1.4f * half;
+        float py = cy - params->y[i] / 1.4f * half;
+        Color color = (Color){ 120, 180, 235, 200 };
+        if (params->bit)
+            color = params->bit[i] ? (Color){ 255, 170, 90, 220 }
+                                   : (Color){ 120, 220, 170, 220 };
+        DrawCircle((int)px, (int)py, 2.0f, color);
+    }
+}
+
 void sdrgui_text_field(Rectangle box, const char *text, int focused) {
     DrawRectangleRec(box, (Color){ 5, 10, 16, 255 });
     DrawRectangleLinesEx(box, 1.0f, focused ? (Color){ 255, 174, 62, 255 }

@@ -331,9 +331,12 @@ static void sch_diff_bits(const float *bi, const float *bq, size_t pair_count,
 
 int gsm_sch_decode(const float *i_samples, const float *q_samples,
                    size_t pair_count, double sample_rate,
-                   double carrier_offset_hz, struct gsm_sch_result *result) {
+                   double carrier_offset_hz, struct gsm_sch_result *result,
+                   struct gsm_sch_symbols *symbols) {
     if (!i_samples || !q_samples || !result)
         return 0;
+    if (symbols)
+        symbols->count = 0;
     double sps = sample_rate / GSM_SYMBOL_RATE_HZ;
     if (pair_count < (size_t)(2.0 * GSM_SCH_BURST_BITS * sps))
         return 0;
@@ -442,6 +445,36 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
             result->decoded = 1;
             result->confidence = best_ratio;
             decoded = 1;
+
+            /* Capture the burst's differential-detection samples for a decode
+               constellation: rotate so the two bit decisions sit near x=+-1. */
+            if (symbols) {
+                int first = best_pos - 42; /* burst start (3 tail bits before) */
+                if (first < 1)
+                    first = 1;
+                double prev_i, prev_q;
+                sch_interp(bi, bq, pair_count, phase0 + (double)(first - 1) * sps,
+                           &prev_i, &prev_q);
+                int count = 0;
+                for (int k = first;
+                     k < first + GSM_SCH_BURST_BITS && k < nsym; k++) {
+                    double si, sq;
+                    sch_interp(bi, bq, pair_count, phase0 + (double)k * sps, &si,
+                               &sq);
+                    double re = prev_i * si + prev_q * sq;
+                    double im = prev_i * sq - prev_q * si;
+                    double mag = sqrt(re * re + im * im);
+                    if (mag < 1e-9)
+                        mag = 1e-9;
+                    symbols->x[count] = (float)(im / mag);  /* +-1 clusters */
+                    symbols->y[count] = (float)(-re / mag);
+                    symbols->bit[count] = (im < 0.0) ? 1u : 0u;
+                    count++;
+                    prev_i = si;
+                    prev_q = sq;
+                }
+                symbols->count = count;
+            }
         }
     }
 

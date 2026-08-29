@@ -37,7 +37,8 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   one, otherwise it scans and picks the strongest BCCH), and clicking a channel
   tunes the waterfall above to inspect it. On the inspected channel it decodes
   the SCH and prints the BSIC (NCC/BCC) and frame number above the scan chart,
-  and a Record button saves ~2 s of raw I/Q to `captures/` to build a GSM
+  with a decode constellation of the demodulated SCH symbols beside it, and a
+  Record button saves ~2 s of raw I/Q to `captures/` to build a GSM
   capture. The
   Calibration button (or `c`), below Settings, opens button-driven GSM 900
   cellular calibration for ARFCN 1-124 as a full-screen overlay over any tab,

@@ -161,6 +161,22 @@ struct sdrgui_message_log_params {
 /* Scrolling, newest-first table of decoded messages (ICAO | kind | detail). */
 void sdrgui_message_log(const struct sdrgui_message_log_params *params);
 
+/* --- Symbol constellation --- */
+
+struct sdrgui_constellation_params {
+    Rectangle plot;
+    const float *x;       /* normalised in-phase, `count` entries */
+    const float *y;       /* normalised quadrature */
+    const unsigned char *bit; /* per-point hard decision (may be NULL) */
+    int count;
+    const char *caption;
+    const char *empty_notice; /* shown when count == 0 */
+};
+
+/* Decoded-symbol constellation: normalised points on I/Q axes, coloured by
+   their hard bit decision, showing demodulation/decoding quality. */
+void sdrgui_constellation(const struct sdrgui_constellation_params *params);
+
 /* --- Widgets --- */
 
 /* Render-only text-entry box (the app owns editing/validation). Draws the box,
