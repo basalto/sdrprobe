@@ -112,3 +112,24 @@ _Avoid_: Sector id
 The compressed TDMA frame number (T1, T2, T3) carried in the SCH, from which the
 full frame number is reconstructed.
 _Avoid_: Timestamp, frame counter
+
+**Frame-number lock**:
+The minimal running memory of the SCH frame number, used to vote a constant T1
+and predict the next burst's number; it is not a scheduler or a clock.
+_Avoid_: Clock, timer, scheduler
+
+**Burst analysis chart**:
+A time-series visualization of intermediate decoder metrics (correlation, soft bits, phase) for a single recovered burst.
+_Avoid_: Oscilloscope, logic analyzer
+
+**Timing correlation landscape**:
+A plot showing the training-sequence match score across a window of samples, revealing where the decoder locked onto the burst.
+_Avoid_: Sync graph, peak finder
+
+**Soft symbol magnitude**:
+The absolute confidence value of a demodulated symbol before hard bit decisions or Viterbi decoding are applied.
+_Avoid_: Power, amplitude, SNR
+
+**Differential phase trajectory**:
+The accumulated symbol-to-symbol phase change across a burst, illustrating the underlying GMSK modulation.
+_Avoid_: FM waveform, phase drift
