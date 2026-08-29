@@ -61,7 +61,16 @@ probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		scripts/gsm_chain_probe.c $(SRC)/sdr_dsp.c -lm
 	./$(BUILD)/gsm_chain_probe $(FILE)
 
+# White-box diagnostic walk through the ADS-B Mode S decode chain.
+FILE_ADSB ?= testfiles/adsb_modes1.bin
+probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_chain_probe \
+		scripts/adsb_chain_probe.c $(SRC)/sdr_dsp.c -lm
+	./$(BUILD)/adsb_chain_probe $(FILE_ADSB)
+
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp probe-gsm-chain clean
+.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp probe-gsm-chain probe-adsb-chain clean
