@@ -782,6 +782,81 @@ void sdrgui_constellation(const struct sdrgui_constellation_params *params) {
     }
 }
 
+void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params) {
+    Rectangle plot = params->plot;
+    DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
+    DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
+
+    if (params->title && params->title[0])
+        DrawText(params->title, (int)plot.x, (int)plot.y - 20, 16,
+                 (Color){ 151, 174, 188, 255 });
+
+    if (params->count <= 0) {
+        const char *notice = params->empty_notice ? params->empty_notice : "";
+        DrawText(notice, (int)plot.x + 10, (int)(plot.y + plot.height / 2.0f) - 8,
+                 16, (Color){ 150, 172, 188, 255 });
+        return;
+    }
+
+    /* Draw zero-line if 0 is within y_min/y_max. */
+    if (params->y_min < 0.0f && params->y_max > 0.0f) {
+        float zero_y = sdrgui_plot_y(plot, 0.0f, params->y_min, params->y_max);
+        DrawLine((int)plot.x, (int)zero_y, (int)(plot.x + plot.width), (int)zero_y,
+                 (Color){ 170, 190, 200, 40 });
+    }
+
+    /* Draw horizontal axis markers. */
+    for (int i = 0; i <= 4; i++) {
+        float y_val = params->y_min + (params->y_max - params->y_min) * (i / 4.0f);
+        float line_y = sdrgui_plot_y(plot, y_val, params->y_min, params->y_max);
+        if (i > 0 && i < 4) {
+            DrawLine((int)plot.x, (int)line_y, (int)(plot.x + plot.width), (int)line_y,
+                     (Color){ 170, 190, 200, 20 });
+        }
+        char text[32];
+        snprintf(text, sizeof(text), "%.1f", y_val);
+        DrawText(text, (int)plot.x - MeasureText(text, 16) - 10, (int)line_y - 8, 16,
+                 (Color){ 151, 174, 188, 255 });
+    }
+
+    /* X-axis mapping. */
+    float dx = plot.width / (float)params->count;
+    
+    if (params->type == SDRGUI_BURST_LINE) {
+        /* Draw as continuous line. */
+        for (int i = 0; i < params->count - 1; i++) {
+            float x1 = plot.x + i * dx;
+            float y1 = sdrgui_plot_y(plot, params->data[i], params->y_min, params->y_max);
+            float x2 = plot.x + (i + 1) * dx;
+            float y2 = sdrgui_plot_y(plot, params->data[i + 1], params->y_min, params->y_max);
+            DrawLineEx((Vector2){x1, y1}, (Vector2){x2, y2}, 1.5f, (Color){ 120, 230, 255, 200 });
+        }
+    } else if (params->type == SDRGUI_BURST_BAR) {
+        /* Draw as individual bars. */
+        float bar_width = dx > 1.5f ? dx - 1.0f : 1.0f;
+        float base_y = sdrgui_plot_y(plot, 0.0f, params->y_min, params->y_max);
+        
+        /* Highlight the 64-bit training sequence region in a distinct color. */
+        int train_start = 39 + 3; /* 3 tail bits + 39 data bits */
+        int train_end = train_start + 64;
+
+        for (int i = 0; i < params->count; i++) {
+            float x = plot.x + i * dx;
+            float y = sdrgui_plot_y(plot, params->data[i], params->y_min, params->y_max);
+            
+            Color color = (i >= train_start && i < train_end) 
+                          ? (Color){ 255, 174, 62, 220 }   /* Amber for training seq */
+                          : (Color){ 149, 205, 232, 220 }; /* Light blue for data */
+
+            if (params->data[i] >= 0.0f) {
+                DrawRectangle((int)x, (int)y, (int)bar_width, (int)(base_y - y), color);
+            } else {
+                DrawRectangle((int)x, (int)base_y, (int)bar_width, (int)(y - base_y), color);
+            }
+        }
+    }
+}
+
 void sdrgui_text_field(Rectangle box, const char *text, int focused) {
     DrawRectangleRec(box, (Color){ 5, 10, 16, 255 });
     DrawRectangleLinesEx(box, 1.0f, focused ? (Color){ 255, 174, 62, 255 }

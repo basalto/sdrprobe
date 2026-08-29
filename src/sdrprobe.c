@@ -341,6 +341,7 @@ struct app {
     double gsm_sch_time;
     int gsm_const_amplitude; /* constellation: show amplitude vs unit circle */
     int gsm_const_derotated; /* constellation: derotated sample vs differential */
+    int gsm_analysis_mode;   /* Burst Analysis Chart: 0=Corr, 1=Soft Bits, 2=Phase */
     
     int gsm_opt_filter;
     int gsm_opt_finecfo;
@@ -2938,6 +2939,10 @@ static Rectangle gsm_scan_button(void) {
     return (Rectangle){ 22.0f, 84.0f, 150.0f, 30.0f };
 }
 
+static Rectangle gsm_back_to_scan_button(void) {
+    return (Rectangle){ 22.0f, 84.0f, 150.0f, 30.0f };
+}
+
 static Rectangle gsm_waterfall_rect(void) {
     float width = (float)GetScreenWidth();
     float span = (float)GetScreenHeight() - 164.0f - 40.0f;
@@ -2957,6 +2962,11 @@ static Rectangle gsm_scan_rect(void) {
     if (scan_w < 200.0f)
         scan_w = 200.0f;
     return (Rectangle){ 82.0f, y, scan_w, h };
+}
+
+static Rectangle gsm_burst_chart_toggle(int index) {
+    Rectangle sc = gsm_scan_rect();
+    return (Rectangle){ sc.x + (float)index * 96.0f, sc.y - 32.0f, 86.0f, 22.0f };
 }
 
 static Rectangle gsm_constellation_rect(void) {
@@ -3142,9 +3152,13 @@ static Rectangle gsm_opt_button(int index) {
 
 static void draw_gsm(struct app *app) {
     char text[320];
-    draw_button(gsm_scan_button(),
-                app->scan_running ? "Scanning" : "Scan / Rescan",
-                !app->scan_running);
+    if (app->scan_selected_arfcn > 0 && !app->scan_running) {
+        draw_button(gsm_back_to_scan_button(), "Back to Scan", 1);
+    } else {
+        draw_button(gsm_scan_button(),
+                    app->scan_running ? "Scanning" : "Scan / Rescan",
+                    !app->scan_running);
+    }
     draw_button(gsm_record_button(),
                 app->recording ? "Recording..." : "Record 2s",
                 app->recording);
@@ -3231,15 +3245,69 @@ static void draw_gsm(struct app *app) {
                  (int)sc.y - 22, 18, (Color){ 151, 174, 188, 255 });
     }
 
-    int hover = (!app->scan_running)
-                    ? gsm_scan_arfcn_at(GetMousePosition(), sc)
-                    : 0;
-    struct sdrgui_scan_chart_params params = {
-        sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
-        SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
-        app->scan_selected_arfcn
-    };
-    sdrgui_scan_chart(&params);
+    if (app->scan_selected_arfcn > 0 && !app->scan_running) {
+        /* Burst Analysis Chart */
+        const char *toggles[3] = {"Corr", "Soft", "Phase"};
+        for(int i=0; i<3; i++) {
+            draw_button(gsm_burst_chart_toggle(i), toggles[i], app->gsm_analysis_mode == i);
+        }
+
+        struct sdrgui_burst_chart_params bparams = {
+            sc, NULL, 0, SDRGUI_BURST_LINE, 0.0f, 1.0f, "",
+            "waiting for a synchronisation burst..."
+        };
+        const struct gsm_sch_symbols *sym = &app->gsm_sch_symbols;
+
+        if (app->gsm_sch_valid && sym->count > 0) {
+            if (app->gsm_analysis_mode == 0) {
+                bparams.data = sym->corr;
+                bparams.count = sym->count;
+                bparams.type = SDRGUI_BURST_LINE;
+                bparams.y_min = -1.0f;
+                bparams.y_max = 1.0f;
+                bparams.title = "Timing Correlation Landscape";
+            } else if (app->gsm_analysis_mode == 1) {
+                bparams.data = sym->soft_mag;
+                bparams.count = sym->count;
+                bparams.type = SDRGUI_BURST_BAR;
+                bparams.y_min = 0.0f;
+                /* Find max for scaling */
+                float mx = 0.1f;
+                for(int i=0; i<sym->count; i++) {
+                    if (sym->soft_mag[i] > mx) mx = sym->soft_mag[i];
+                }
+                bparams.y_max = mx * 1.1f;
+                bparams.title = "Soft Symbol Magnitudes (|Im|)";
+            } else {
+                bparams.data = sym->phase;
+                bparams.count = sym->count;
+                bparams.type = SDRGUI_BURST_LINE;
+                bparams.y_min = -3.14159f;
+                /* Find bounds */
+                float mn = 0.0f, mx = 0.0f;
+                for(int i=0; i<sym->count; i++) {
+                    if (sym->phase[i] < mn) mn = sym->phase[i];
+                    if (sym->phase[i] > mx) mx = sym->phase[i];
+                }
+                bparams.y_min = mn - 1.0f;
+                bparams.y_max = mx + 1.0f;
+                bparams.title = "Differential Phase Trajectory";
+            }
+        }
+        sdrgui_burst_chart(&bparams);
+
+    } else {
+        /* Default Channel Power Scan Chart */
+        int hover = (!app->scan_running)
+                        ? gsm_scan_arfcn_at(GetMousePosition(), sc)
+                        : 0;
+        struct sdrgui_scan_chart_params params = {
+            sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
+            SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
+            app->scan_selected_arfcn
+        };
+        sdrgui_scan_chart(&params);
+    }
 
     /* Decode constellation beside the scan chart: the SCH burst's demodulated
        symbols. Toggles pick differential vs derotated and amplitude vs unit. */
@@ -3322,6 +3390,20 @@ static void handle_gsm_input(struct app *app) {
             return;
         }
     }
+    if (app->scan_selected_arfcn > 0 && !app->scan_running) {
+        for(int i=0; i<3; i++) {
+            if (clicked(gsm_burst_chart_toggle(i))) {
+                app->gsm_analysis_mode = i;
+                return;
+            }
+        }
+        if (clicked(gsm_back_to_scan_button())) {
+            app->scan_selected_arfcn = 0;
+            app->gsm_selected_hz = 0.0;
+            return;
+        }
+    }
+
     if (clicked(gsm_const_amp_button())) {
         app->gsm_const_amplitude = !app->gsm_const_amplitude;
         return;

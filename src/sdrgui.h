@@ -177,6 +177,27 @@ struct sdrgui_constellation_params {
    their hard bit decision, showing demodulation/decoding quality. */
 void sdrgui_constellation(const struct sdrgui_constellation_params *params);
 
+/* --- Burst Analysis Chart --- */
+
+enum sdrgui_burst_chart_type {
+    SDRGUI_BURST_LINE,
+    SDRGUI_BURST_BAR
+};
+
+struct sdrgui_burst_chart_params {
+    Rectangle plot;
+    const float *data;        /* The values to plot, `count` entries */
+    int count;
+    enum sdrgui_burst_chart_type type;
+    float y_min;              /* Axis minimum */
+    float y_max;              /* Axis maximum */
+    const char *title;
+    const char *empty_notice; /* Shown when count == 0 */
+};
+
+/* Time-series plot of intermediate decoder metrics (correlation, soft bits, phase). */
+void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params);
+
 /* --- Widgets --- */
 
 /* Render-only text-entry box (the app owns editing/validation). Draws the box,
