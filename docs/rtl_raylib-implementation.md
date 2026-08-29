@@ -3,8 +3,9 @@
 ## Status
 
 This document is the implementation and verification contract for the
-separate `rtl_raylib` executable. `rtl_init` remains the one-shot
-initialization/statistics probe and `rtl_tui` remains the terminal visualizer.
+`rtl_raylib` executable, now the repository's sole application. (The earlier
+`rtl_init` one-shot probe and `rtl_tui` terminal visualizer, referenced
+historically below, have since been removed.)
 
 ## Purpose
 
@@ -34,7 +35,6 @@ decode transmitted messages.
 - Mode S or ADS-B demodulation and decoding.
 - Calibrated RF power such as dBm.
 - Device selection, recording, and interactive retuning.
-- Sharing acquisition code with `rtl_tui` in this change.
 - FFTW or another external DSP dependency.
 
 ## Command Line
@@ -94,8 +94,6 @@ pacing. `--gain` is invalid because gain cannot change recorded samples.
   (aggregated by `check-dsp`, aliased `check-raylib-dsp`) targets without
   changing what default `make` builds.
 - `AGENTS.md`: describe the new implementation specification.
-
-Do not restructure `rtl_init`, `rtl_tui`, or `src/tui.c` as part of this work.
 
 ## Signal Conventions
 
@@ -440,8 +438,8 @@ after application.
 
 ## Makefile Integration
 
-Default `make` continues to build only `rtl_init` and `rtl_tui`, so raylib is
-not mandatory for existing probes. Add target-specific raylib flags:
+Default `make` builds `rtl_raylib`, so raylib and librtlsdr development headers
+are required. The DSP checks link only the hardware-free core:
 
 ```make
 SRC=src
@@ -480,12 +478,11 @@ make rtl_raylib
 
 ## Verification
 
-### Existing behavior
+### Build and playback
 
-1. Without raylib installed, `make` still builds `rtl_init` and `rtl_tui`.
+1. `make` builds `rtl_raylib` (requires raylib + librtlsdr dev headers).
 2. `make clean` removes all project and test executables.
-3. `rtl_init` retains its one-shot behavior.
-4. `rtl_tui --file testfiles/modes1.bin` retains its supported behavior.
+3. `rtl_raylib --file testfiles/modes1.bin` runs paced, hardware-free playback.
 
 ### Deterministic DSP checks
 

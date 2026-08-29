@@ -1,19 +1,12 @@
 CFLAGS?=-O2 -g -Wall -W $(shell pkg-config --cflags librtlsdr)
 LDLIBS+=$(shell pkg-config --libs librtlsdr) -lm
 CC?=gcc
-PROGNAME=rtl_init
 
 SRC=src
 TESTS=tests
 VENDOR=vendor
 
-all: $(PROGNAME) rtl_tui
-
-$(PROGNAME): $(SRC)/rtl_init.c
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
-
-rtl_tui: $(SRC)/rtl_tui.c $(SRC)/tui.c $(SRC)/tui.h
-	$(CC) $(CFLAGS) -o $@ $(SRC)/rtl_tui.c $(SRC)/tui.c $(LDFLAGS) $(LDLIBS)
+all: rtl_raylib
 
 DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h
@@ -51,6 +44,6 @@ check-dsp: check-sdr-dsp check-gsm-dsp
 check-raylib-dsp: check-dsp
 
 clean:
-	rm -f $(PROGNAME) rtl_tui rtl_raylib sdr_dsp_test gsm_dsp_test raygui_impl.o
+	rm -f rtl_raylib sdr_dsp_test gsm_dsp_test raygui_impl.o
 
 .PHONY: all check-sdr-dsp check-gsm-dsp check-dsp check-raylib-dsp clean
