@@ -106,14 +106,19 @@ size_t gsm_sch_modulate(const uint8_t coded_bits[GSM_SCH_CODED_BITS],
                         size_t start_pair, float *i_out, float *q_out,
                         size_t capacity);
 
+#define GSM_OPT_FILTER   1
+#define GSM_OPT_FINECFO  2
+#define GSM_OPT_TRELLIS  4
+
 /* Decode the SCH from centred I/Q. carrier_offset_hz is the channel carrier's
    baseband offset (e.g. +400 kHz when tuned to expected-400 kHz). Returns 1 and
    fills result on a parity-valid decode, else 0. When symbols is non-NULL it is
    filled with the located burst's demodulated symbols for visualisation (also
-   on a successful decode). */
+   on a successful decode). Options bitmask toggles decode features. */
 int gsm_sch_decode(const float *i_samples, const float *q_samples,
                    size_t pair_count, double sample_rate,
-                   double carrier_offset_hz, struct gsm_sch_result *result,
+                   double carrier_offset_hz, uint32_t options,
+                   struct gsm_sch_result *result,
                    struct gsm_sch_symbols *symbols);
 
 #endif

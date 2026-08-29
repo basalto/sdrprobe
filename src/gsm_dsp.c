@@ -152,6 +152,52 @@ void gsm_sch_encode(const uint8_t info_bits[GSM_SCH_INFO_BITS],
 /* Hard-decision Viterbi decode of the rate-1/2 K=5 code (start and end state 0
    thanks to the 4 tail bits). Recovers the 39 uncoded bits. */
 
+/* Hard-decision Viterbi decode of the rate-1/2 K=5 code (start and end state 0
+   thanks to the 4 tail bits). Recovers the 39 uncoded bits. */
+static void sch_viterbi(const uint8_t e[GSM_SCH_CODED_BITS],
+                        uint8_t u[GSM_SCH_UNCODED_BITS]) {
+    const int states = 16;
+    const int steps = GSM_SCH_UNCODED_BITS;
+    const int INF = 1 << 20;
+    int metric[16];
+    int next_metric[16];
+    static uint8_t back[GSM_SCH_UNCODED_BITS][16];
+
+    for (int s = 0; s < states; s++)
+        metric[s] = (s == 0) ? 0 : INF;
+
+    for (int k = 0; k < steps; k++) {
+        int r0 = e[2 * k];
+        int r1 = e[2 * k + 1];
+        for (int s = 0; s < states; s++)
+            next_metric[s] = INF;
+        for (int s = 0; s < states; s++) {
+            if (metric[s] >= INF)
+                continue;
+            for (unsigned int in = 0; in < 2; in++) {
+                unsigned int g0 = in ^ ((s >> 2) & 1u) ^ ((s >> 3) & 1u);
+                unsigned int g1 = in ^ (s & 1u) ^ ((s >> 2) & 1u) ^
+                                  ((s >> 3) & 1u);
+                int cost = (int)(g0 ^ (unsigned)r0) + (int)(g1 ^ (unsigned)r1);
+                int ns = (int)(((s << 1) | in) & 0xF);
+                int cand = metric[s] + cost;
+                if (cand < next_metric[ns]) {
+                    next_metric[ns] = cand;
+                    back[k][ns] = (uint8_t)s;
+                }
+            }
+        }
+        memcpy(metric, next_metric, sizeof(metric));
+    }
+
+    int s = 0; /* known terminating state */
+    for (int k = steps - 1; k >= 0; k--) {
+        int prev = back[k][s];
+        u[k] = (uint8_t)(s & 1u); /* the input bit that produced state s */
+        s = prev;
+    }
+}
+
 /* Verify parity and parse BSIC + reduced frame number from 39 decoded bits. */
 static int sch_parse(const uint8_t u[GSM_SCH_UNCODED_BITS],
                      struct gsm_sch_result *result) {
@@ -318,7 +364,8 @@ static float sch_bit_cost(float soft_im, int b_curr, int b_prev, int invert) {
 
 int gsm_sch_decode(const float *i_samples, const float *q_samples,
                    size_t pair_count, double sample_rate,
-                   double carrier_offset_hz, struct gsm_sch_result *result,
+                   double carrier_offset_hz, uint32_t options,
+                   struct gsm_sch_result *result,
                    struct gsm_sch_symbols *symbols) {
     if (!i_samples || !q_samples || !result)
         return 0;
@@ -354,32 +401,34 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
     }
 
     /* Phase 1 front-end: Matched filter (moving average over ~1 symbol). */
-    float *f_bi = malloc(pair_count * sizeof(*f_bi));
-    float *f_bq = malloc(pair_count * sizeof(*f_bq));
-    if (f_bi && f_bq) {
-        int tap_count = (int)(sps + 0.5);
-        int half = tap_count / 2;
-        for (size_t n = 0; n < pair_count; n++) {
-            double sum_i = 0.0, sum_q = 0.0;
-            int count = 0;
-            for (int j = -half; j <= half; j++) {
-                int idx = (int)n + j;
-                if (idx >= 0 && idx < (int)pair_count) {
-                    sum_i += bi[idx];
-                    sum_q += bq[idx];
-                    count++;
+    if (options & GSM_OPT_FILTER) {
+        float *f_bi = malloc(pair_count * sizeof(*f_bi));
+        float *f_bq = malloc(pair_count * sizeof(*f_bq));
+        if (f_bi && f_bq) {
+            int tap_count = (int)(sps + 0.5);
+            int half = tap_count / 2;
+            for (size_t n = 0; n < pair_count; n++) {
+                double sum_i = 0.0, sum_q = 0.0;
+                int count = 0;
+                for (int j = -half; j <= half; j++) {
+                    int idx = (int)n + j;
+                    if (idx >= 0 && idx < (int)pair_count) {
+                        sum_i += bi[idx];
+                        sum_q += bq[idx];
+                        count++;
+                    }
                 }
+                f_bi[n] = (float)(sum_i / count);
+                f_bq[n] = (float)(sum_q / count);
             }
-            f_bi[n] = (float)(sum_i / count);
-            f_bq[n] = (float)(sum_q / count);
+            free(bi);
+            free(bq);
+            bi = f_bi;
+            bq = f_bq;
+        } else {
+            free(f_bi);
+            free(f_bq);
         }
-        free(bi);
-        free(bq);
-        bi = f_bi;
-        bq = f_bq;
-    } else {
-        free(f_bi);
-        free(f_bq);
     }
 
     int nsym = (int)(((double)pair_count - 2.0) / sps) - 1;
@@ -427,56 +476,57 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
     /* Sub-phase timing interpolation and Fine CFO refinement. */
     double opt_phase0 = 0.0;
     if (best_timing >= 0) {
-        double s0 = sch_soft_correlate(bi, bq, pair_count, sps,
-            ((best_timing - 1 + SCH_TIMINGS) % SCH_TIMINGS) * sps / SCH_TIMINGS,
-            best_pos, best_invert, train_diff);
-        double s1 = sch_soft_correlate(bi, bq, pair_count, sps,
-            best_timing * sps / SCH_TIMINGS,
-            best_pos, best_invert, train_diff);
-        double s2 = sch_soft_correlate(bi, bq, pair_count, sps,
-            ((best_timing + 1) % SCH_TIMINGS) * sps / SCH_TIMINGS,
-            best_pos, best_invert, train_diff);
+        if (options & GSM_OPT_FINECFO) {
+            double s0 = sch_soft_correlate(bi, bq, pair_count, sps,
+                ((best_timing - 1 + SCH_TIMINGS) % SCH_TIMINGS) * sps / SCH_TIMINGS,
+                best_pos, best_invert, train_diff);
+            double s1 = sch_soft_correlate(bi, bq, pair_count, sps,
+                best_timing * sps / SCH_TIMINGS,
+                best_pos, best_invert, train_diff);
+            double s2 = sch_soft_correlate(bi, bq, pair_count, sps,
+                ((best_timing + 1) % SCH_TIMINGS) * sps / SCH_TIMINGS,
+                best_pos, best_invert, train_diff);
 
-        double denom = s0 - 2.0 * s1 + s2;
-        double offset = 0.0;
-        if (denom < -1e-6)
-            offset = 0.5 * (s0 - s2) / denom;
-        if (offset < -1.0) offset = -1.0;
-        if (offset > 1.0) offset = 1.0;
+            double denom = s0 - 2.0 * s1 + s2;
+            double offset = 0.0;
+            if (denom < -1e-6)
+                offset = 0.5 * (s0 - s2) / denom;
+            if (offset < -1.0) offset = -1.0;
+            if (offset > 1.0) offset = 1.0;
 
-        opt_phase0 = ((double)best_timing + offset) * sps / SCH_TIMINGS;
+            opt_phase0 = ((double)best_timing + offset) * sps / SCH_TIMINGS;
 
-        /* Fine CFO from training differential phase errors. */
-        double prev_i, prev_q;
-        sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos) * sps, &prev_i, &prev_q);
-        double phase_err_sum = 0.0;
-        for (int j = 1; j < GSM_SCH_TRAINING_BITS; j++) {
-            double si, sq;
-            sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos + j) * sps, &si, &sq);
-            double re = prev_i * si + prev_q * sq;
-            double im = prev_i * sq - prev_q * si;
-            double expected_im = train_diff[j] ? -1.0 : 1.0;
-            if (best_invert)
-                expected_im = -expected_im;
-            /* Phase error = angle(actual * conj(expected)) */
-            /* expected_re is 0, so actual * conj(j expected_im) = re*(-j*im_exp) + j*im*(-j*im_exp)
-               = im * expected_im - j * re * expected_im */
-            double err_re = im * expected_im;
-            double err_im = -re * expected_im;
-            phase_err_sum += atan2(err_im, err_re);
-            prev_i = si;
-            prev_q = sq;
-        }
-        double fine_cfo_rad_per_sym = phase_err_sum / (GSM_SCH_TRAINING_BITS - 1);
+            /* Fine CFO from training differential phase errors. */
+            double prev_i, prev_q;
+            sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos) * sps, &prev_i, &prev_q);
+            double phase_err_sum = 0.0;
+            for (int j = 1; j < GSM_SCH_TRAINING_BITS; j++) {
+                double si, sq;
+                sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos + j) * sps, &si, &sq);
+                double re = prev_i * si + prev_q * sq;
+                double im = prev_i * sq - prev_q * si;
+                double expected_im = train_diff[j] ? -1.0 : 1.0;
+                if (best_invert)
+                    expected_im = -expected_im;
+                double err_re = im * expected_im;
+                double err_im = -re * expected_im;
+                phase_err_sum += atan2(err_im, err_re);
+                prev_i = si;
+                prev_q = sq;
+            }
+            double fine_cfo_rad_per_sym = phase_err_sum / (GSM_SCH_TRAINING_BITS - 1);
 
-        /* Apply fine CFO de-rotation. */
-        for (size_t n = 0; n < pair_count; n++) {
-            double ph = -fine_cfo_rad_per_sym * ((double)n / sps);
-            double c = cos(ph), s = sin(ph);
-            float new_i = (float)(bi[n] * c - bq[n] * s);
-            float new_q = (float)(bi[n] * s + bq[n] * c);
-            bi[n] = new_i;
-            bq[n] = new_q;
+            /* Apply fine CFO de-rotation. */
+            for (size_t n = 0; n < pair_count; n++) {
+                double ph = -fine_cfo_rad_per_sym * ((double)n / sps);
+                double c = cos(ph), s = sin(ph);
+                float new_i = (float)(bi[n] * c - bq[n] * s);
+                float new_q = (float)(bi[n] * s + bq[n] * c);
+                bi[n] = new_i;
+                bq[n] = new_q;
+            }
+        } else {
+            opt_phase0 = (double)best_timing * sps / SCH_TIMINGS;
         }
     }
 
@@ -485,96 +535,121 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
     if (best_ratio >= SCH_MIN_MATCH && best_timing >= 0) {
         uint8_t u[GSM_SCH_UNCODED_BITS];
 
-        /* Phase 2: Joint soft-decision differential + convolutional Viterbi. */
-        float soft_im[148];
-        double prev_i, prev_q;
-        sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos - 42 - 1) * sps, &prev_i, &prev_q);
-        for (int n = 0; n < 148; n++) {
-            double si, sq;
-            sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos - 42 + n) * sps, &si, &sq);
-            soft_im[n] = (float)(prev_i * sq - prev_q * si);
-            prev_i = si;
-            prev_q = sq;
-        }
+        if (options & GSM_OPT_TRELLIS) {
+            /* Phase 2: Joint soft-decision differential + convolutional Viterbi. */
+            float soft_im[148];
+            double prev_i, prev_q;
+            sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos - 42 - 1) * sps, &prev_i, &prev_q);
+            for (int n = 0; n < 148; n++) {
+                double si, sq;
+                sch_interp(bi, bq, pair_count, opt_phase0 + (double)(best_pos - 42 + n) * sps, &si, &sq);
+                soft_im[n] = (float)(prev_i * sq - prev_q * si);
+                prev_i = si;
+                prev_q = sq;
+            }
 
-        /* 32 states: 16 convolutional states (K=5) x 2 (last coded channel bit). */
-        float metric[32];
-        float next_metric[32];
-        uint16_t back[39][32];
+            /* 32 states: 16 convolutional states (K=5) x 2 (last coded channel bit). */
+            float metric[32];
+            float next_metric[32];
+            uint16_t back[39][32];
 
-        for (int s = 0; s < 32; s++)
-            metric[s] = (s == 0) ? 0.0f : 1e9f;
-
-        for (int k = 0; k < 39; k++) {
             for (int s = 0; s < 32; s++)
-                next_metric[s] = 1e9f;
-            for (int s = 0; s < 32; s++) {
-                if (metric[s] > 1e8f)
-                    continue;
-                int conv_state = s >> 1;
-                int last_e = s & 1;
+                metric[s] = (s == 0) ? 0.0f : 1e9f;
 
-                for (int in = 0; in < 2; in++) {
-                    int c0 = in ^ ((conv_state >> 2) & 1) ^ ((conv_state >> 3) & 1);
-                    int c1 = in ^ (conv_state & 1) ^ ((conv_state >> 2) & 1) ^ ((conv_state >> 3) & 1);
-                    float cost = 0.0f;
+            for (int k = 0; k < 39; k++) {
+                for (int s = 0; s < 32; s++)
+                    next_metric[s] = 1e9f;
+                for (int s = 0; s < 32; s++) {
+                    if (metric[s] > 1e8f)
+                        continue;
+                    int conv_state = s >> 1;
+                    int last_e = s & 1;
 
-                    /* Evaluate branch cost for c0 = e[2k] */
-                    int i0 = 2 * k;
-                    if (i0 < 39) { /* data1 */
-                        int prev0 = (i0 == 0) ? 0 : last_e; /* 0 is the tail bit */
-                        cost += sch_bit_cost(soft_im[3 + i0], c0, prev0, best_invert);
-                        if (i0 == 38) /* entering training sequence */
-                            cost += sch_bit_cost(soft_im[42], sch_training[0], c0, best_invert);
-                    } else { /* data2 */
-                        int prev0 = (i0 == 39) ? sch_training[63] : last_e;
-                        cost += sch_bit_cost(soft_im[106 + i0 - 39], c0, prev0, best_invert);
-                    }
+                    for (int in = 0; in < 2; in++) {
+                        int c0 = in ^ ((conv_state >> 2) & 1) ^ ((conv_state >> 3) & 1);
+                        int c1 = in ^ (conv_state & 1) ^ ((conv_state >> 2) & 1) ^ ((conv_state >> 3) & 1);
+                        float cost = 0.0f;
 
-                    /* Evaluate branch cost for c1 = e[2k+1] */
-                    int i1 = 2 * k + 1;
-                    if (i1 < 39) { /* data1 */
-                        int prev1 = c0;
-                        cost += sch_bit_cost(soft_im[3 + i1], c1, prev1, best_invert);
-                        if (i1 == 38) /* entering training sequence */
-                            cost += sch_bit_cost(soft_im[42], sch_training[0], c1, best_invert);
-                    } else { /* data2 */
-                        int prev1 = (i1 == 39) ? sch_training[63] : c0;
-                        cost += sch_bit_cost(soft_im[106 + i1 - 39], c1, prev1, best_invert);
-                        if (i1 == 77) /* entering tail sequence */
-                            cost += sch_bit_cost(soft_im[145], 0, c1, best_invert);
-                    }
+                        /* Evaluate branch cost for c0 = e[2k] */
+                        int i0 = 2 * k;
+                        if (i0 < 39) { /* data1 */
+                            int prev0 = (i0 == 0) ? 0 : last_e; /* 0 is the tail bit */
+                            cost += sch_bit_cost(soft_im[3 + i0], c0, prev0, best_invert);
+                            if (i0 == 38) /* entering training sequence */
+                                cost += sch_bit_cost(soft_im[42], sch_training[0], c0, best_invert);
+                        } else { /* data2 */
+                            int prev0 = (i0 == 39) ? sch_training[63] : last_e;
+                            cost += sch_bit_cost(soft_im[106 + i0 - 39], c0, prev0, best_invert);
+                        }
 
-                    int next_conv = ((conv_state << 1) | in) & 0xF;
-                    int next_state = (next_conv << 1) | c1;
-                    float cand = metric[s] + cost;
-                    if (cand < next_metric[next_state]) {
-                        next_metric[next_state] = cand;
-                        back[k][next_state] = (uint16_t)(s | (in << 8));
+                        /* Evaluate branch cost for c1 = e[2k+1] */
+                        int i1 = 2 * k + 1;
+                        if (i1 < 39) { /* data1 */
+                            int prev1 = c0;
+                            cost += sch_bit_cost(soft_im[3 + i1], c1, prev1, best_invert);
+                            if (i1 == 38) /* entering training sequence */
+                                cost += sch_bit_cost(soft_im[42], sch_training[0], c1, best_invert);
+                        } else { /* data2 */
+                            int prev1 = (i1 == 39) ? sch_training[63] : c0;
+                            cost += sch_bit_cost(soft_im[106 + i1 - 39], c1, prev1, best_invert);
+                            if (i1 == 77) /* entering tail sequence */
+                                cost += sch_bit_cost(soft_im[145], 0, c1, best_invert);
+                        }
+
+                        int next_conv = ((conv_state << 1) | in) & 0xF;
+                        int next_state = (next_conv << 1) | c1;
+                        float cand = metric[s] + cost;
+                        if (cand < next_metric[next_state]) {
+                            next_metric[next_state] = cand;
+                            back[k][next_state] = (uint16_t)(s | (in << 8));
+                        }
                     }
                 }
+                memcpy(metric, next_metric, sizeof(metric));
             }
-            memcpy(metric, next_metric, sizeof(metric));
-        }
 
-        int best_s = -1;
-        float best_m = 1e9f;
-        for (int s = 0; s < 32; s++) {
-            if ((s >> 1) == 0 && metric[s] < best_m) { /* must end in conv_state 0 */
-                best_m = metric[s];
-                best_s = s;
+            int best_s = -1;
+            float best_m = 1e9f;
+            for (int s = 0; s < 32; s++) {
+                if ((s >> 1) == 0 && metric[s] < best_m) { /* must end in conv_state 0 */
+                    best_m = metric[s];
+                    best_s = s;
+                }
             }
-        }
 
-        if (best_s >= 0) {
-            int s = best_s;
-            for (int k = 38; k >= 0; k--) {
-                int b = back[k][s];
-                u[k] = (uint8_t)((b >> 8) & 1);
-                s = b & 0xFF;
+            if (best_s >= 0) {
+                int s = best_s;
+                for (int k = 38; k >= 0; k--) {
+                    int b = back[k][s];
+                    u[k] = (uint8_t)((b >> 8) & 1);
+                    s = b & 0xFF;
+                }
+            } else {
+                memset(u, 0, sizeof(u));
             }
         } else {
-            memset(u, 0, sizeof(u));
+            /* Hard-decision fallback */
+            sch_diff_bits(bi, bq, pair_count, sps, opt_phase0, nsym, m);
+            if (best_invert)
+                for (int k = 0; k < nsym; k++)
+                    m[k] ^= 1u;
+
+            int p = best_pos;
+            uint8_t coded[GSM_SCH_CODED_BITS];
+            uint8_t prev = sch_training[GSM_SCH_TRAINING_BITS - 1];
+            int base2 = p + GSM_SCH_TRAINING_BITS;
+            for (int j = 0; j < 39; j++) {
+                uint8_t bit = prev ^ m[base2 + j];
+                coded[39 + j] = bit;
+                prev = bit;
+            }
+            prev = sch_training[0];
+            for (int i = 0; i < 39; i++) {
+                uint8_t bit = prev ^ m[p - i];
+                coded[38 - i] = bit;
+                prev = bit;
+            }
+            sch_viterbi(coded, u);
         }
 
         if (sch_parse(u, result)) {
