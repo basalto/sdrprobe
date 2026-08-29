@@ -2964,9 +2964,15 @@ static Rectangle gsm_scan_rect(void) {
     return (Rectangle){ 82.0f, y, scan_w, h };
 }
 
+static Rectangle gsm_burst_rect(void) {
+    float width = (float)GetScreenWidth();
+    float span = (float)GetScreenHeight() - 164.0f - 40.0f;
+    return (Rectangle){ 82.0f, 164.0f, width - 112.0f, span * 0.44f };
+}
+
 static Rectangle gsm_burst_chart_toggle(int index) {
-    Rectangle sc = gsm_scan_rect();
-    return (Rectangle){ sc.x + (float)index * 96.0f, sc.y - 32.0f, 86.0f, 22.0f };
+    Rectangle br = gsm_burst_rect();
+    return (Rectangle){ br.x + (float)index * 96.0f, br.y - 32.0f, 86.0f, 22.0f };
 }
 
 static Rectangle gsm_constellation_rect(void) {
@@ -3211,49 +3217,17 @@ static void draw_gsm(struct app *app) {
         DrawText(text, 322, 112, 16, quality_color);
     }
 
-    Rectangle wf = gsm_waterfall_rect();
-    Rectangle sc = gsm_scan_rect();
-    if (app->scan_selected_arfcn > 0)
-        DrawText(TextFormat("ARFCN waterfall - inspecting ARFCN %d",
-                            app->scan_selected_arfcn),
-                 (int)wf.x, (int)wf.y - 18, 16, (Color){ 151, 174, 188, 255 });
-    else
-        DrawText("ARFCN waterfall", (int)wf.x, (int)wf.y - 18, 16,
-                 (Color){ 151, 174, 188, 255 });
-    draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
-
-    /* SCH decode readout, printed above the scan chart. */
-    if (app->gsm_sch_valid) {
-        const struct gsm_sch_result *sch = &app->gsm_sch;
-        struct gsm_sch_tracker *trk = &app->gsm_tracker;
-        int d_fn = app->gsm_opt_tracker ? trk->display_fn : sch->frame_number;
-        int d_t1 = app->gsm_opt_tracker ? trk->voted_t1 : sch->t1;
-        snprintf(text, sizeof(text),
-                 "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
-                 sch->bsic, sch->ncc, sch->bcc, d_fn, d_t1,
-                 sch->t2, sch->t3, (double)sch->confidence,
-                 (app->gsm_opt_tracker && trk->locked) ? "  [LOCKED]" : "");
-        DrawText(text, (int)sc.x, (int)sc.y - 22, 18,
-                 (Color){ 120, 230, 255, 255 });
-    } else if (app->recording) {
-        snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
-                 app->record_path, app->record_bytes / 1e6);
-        DrawText(text, (int)sc.x, (int)sc.y - 22, 18,
-                 (Color){ 255, 202, 105, 255 });
-    } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
-        DrawText("SCH   searching for a synchronisation burst...", (int)sc.x,
-                 (int)sc.y - 22, 18, (Color){ 151, 174, 188, 255 });
-    }
-
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
-        /* Burst Analysis Chart */
+        Rectangle wf = gsm_burst_rect();
+
+        /* Burst Analysis Chart replaces Waterfall */
         const char *toggles[3] = {"Corr", "Soft", "Phase"};
         for(int i=0; i<3; i++) {
             draw_button(gsm_burst_chart_toggle(i), toggles[i], app->gsm_analysis_mode == i);
         }
 
         struct sdrgui_burst_chart_params bparams = {
-            sc, NULL, 0, SDRGUI_BURST_LINE, 0.0f, 1.0f, "",
+            wf, NULL, 0, SDRGUI_BURST_LINE, 0.0f, 1.0f, "",
             "waiting for a synchronisation burst..."
         };
         const struct gsm_sch_symbols *sym = &app->gsm_sch_symbols;
@@ -3296,8 +3270,74 @@ static void draw_gsm(struct app *app) {
         }
         sdrgui_burst_chart(&bparams);
 
+        /* Channel Power Scan Chart on bottom left */
+        Rectangle sc = gsm_scan_rect();
+        int hover = (!app->scan_running)
+                        ? gsm_scan_arfcn_at(GetMousePosition(), sc)
+                        : 0;
+        struct sdrgui_scan_chart_params params = {
+            sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
+            SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
+            app->scan_selected_arfcn
+        };
+        sdrgui_scan_chart(&params);
+
+        /* Decode constellation on bottom right */
+        Rectangle cst = gsm_constellation_rect();
+        int n = app->gsm_sch_valid ? sym->count : 0;
+        float cx[GSM_SCH_BURST_BITS];
+        float cy[GSM_SCH_BURST_BITS];
+        if (n > GSM_SCH_BURST_BITS)
+            n = GSM_SCH_BURST_BITS;
+        const unsigned char *color_bits =
+            app->gsm_const_derotated ? sym->chan : sym->bit;
+        /* Raw display coords per representation. */
+        float maxmag = 1e-9f;
+        for (int i = 0; i < n; i++) {
+            float rx, ry;
+            if (app->gsm_const_derotated) {
+                rx = sym->rot_i[i];
+                ry = sym->rot_q[i];
+            } else {
+                rx = sym->diff_im[i];  /* map so bit 0 (im>0) sits on the right */
+                ry = -sym->diff_re[i];
+            }
+            cx[i] = rx;
+            cy[i] = ry;
+            float mag = sqrtf(rx * rx + ry * ry);
+            if (mag > maxmag)
+                maxmag = mag;
+        }
+        for (int i = 0; i < n; i++) {
+            if (app->gsm_const_amplitude) {
+                cx[i] = cx[i] / maxmag * 1.4f; /* scale so the cloud fills the box */
+                cy[i] = cy[i] / maxmag * 1.4f;
+            } else {
+                float mag = sqrtf(cx[i] * cx[i] + cy[i] * cy[i]);
+                if (mag < 1e-9f)
+                    mag = 1e-9f;
+                cx[i] /= mag; /* project onto the unit circle */
+                cy[i] /= mag;
+            }
+        }
+        struct sdrgui_constellation_params cparams = {
+            cst, cx, cy, color_bits, n, "SCH decoded symbols",
+            app->scan_selected_arfcn > 0 ? "waiting for a synchronisation burst..."
+                                         : "select a channel to inspect"
+        };
+        sdrgui_constellation(&cparams);
+        draw_button(gsm_const_amp_button(), "Amp", app->gsm_const_amplitude);
+        draw_button(gsm_const_derot_button(), "Derot", app->gsm_const_derotated);
+
     } else {
-        /* Default Channel Power Scan Chart */
+        /* Waterfall on Top */
+        Rectangle wf = gsm_waterfall_rect();
+        DrawText("ARFCN waterfall", (int)wf.x, (int)wf.y - 18, 16,
+                 (Color){ 151, 174, 188, 255 });
+        draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
+
+        /* Default Channel Power Scan Chart on Bottom */
+        Rectangle sc = gsm_scan_rect();
         int hover = (!app->scan_running)
                         ? gsm_scan_arfcn_at(GetMousePosition(), sc)
                         : 0;
@@ -3308,55 +3348,6 @@ static void draw_gsm(struct app *app) {
         };
         sdrgui_scan_chart(&params);
     }
-
-    /* Decode constellation beside the scan chart: the SCH burst's demodulated
-       symbols. Toggles pick differential vs derotated and amplitude vs unit. */
-    Rectangle cst = gsm_constellation_rect();
-    const struct gsm_sch_symbols *sym = &app->gsm_sch_symbols;
-    int n = app->gsm_sch_valid ? sym->count : 0;
-    float cx[GSM_SCH_BURST_BITS];
-    float cy[GSM_SCH_BURST_BITS];
-    if (n > GSM_SCH_BURST_BITS)
-        n = GSM_SCH_BURST_BITS;
-    const unsigned char *color_bits =
-        app->gsm_const_derotated ? sym->chan : sym->bit;
-    /* Raw display coords per representation. */
-    float maxmag = 1e-9f;
-    for (int i = 0; i < n; i++) {
-        float rx, ry;
-        if (app->gsm_const_derotated) {
-            rx = sym->rot_i[i];
-            ry = sym->rot_q[i];
-        } else {
-            rx = sym->diff_im[i];  /* map so bit 0 (im>0) sits on the right */
-            ry = -sym->diff_re[i];
-        }
-        cx[i] = rx;
-        cy[i] = ry;
-        float mag = sqrtf(rx * rx + ry * ry);
-        if (mag > maxmag)
-            maxmag = mag;
-    }
-    for (int i = 0; i < n; i++) {
-        if (app->gsm_const_amplitude) {
-            cx[i] = cx[i] / maxmag * 1.4f; /* scale so the cloud fills the box */
-            cy[i] = cy[i] / maxmag * 1.4f;
-        } else {
-            float mag = sqrtf(cx[i] * cx[i] + cy[i] * cy[i]);
-            if (mag < 1e-9f)
-                mag = 1e-9f;
-            cx[i] /= mag; /* project onto the unit circle */
-            cy[i] /= mag;
-        }
-    }
-    struct sdrgui_constellation_params cparams = {
-        cst, cx, cy, color_bits, n, "SCH decoded symbols",
-        app->scan_selected_arfcn > 0 ? "waiting for a synchronisation burst..."
-                                     : "select a channel to inspect"
-    };
-    sdrgui_constellation(&cparams);
-    draw_button(gsm_const_amp_button(), "Amp", app->gsm_const_amplitude);
-    draw_button(gsm_const_derot_button(), "Derot", app->gsm_const_derotated);
 }
 
 static void handle_gsm_input(struct app *app) {
