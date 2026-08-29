@@ -2947,16 +2947,16 @@ static Rectangle gsm_back_to_scan_button(void) {
 
 static Rectangle gsm_waterfall_rect(void) {
     float width = (float)GetScreenWidth();
-    float span = (float)GetScreenHeight() - 176.0f - 40.0f;
-    return (Rectangle){ 82.0f, 176.0f, width - 112.0f, span * 0.44f };
+    float span = (float)GetScreenHeight() - 196.0f - 40.0f;
+    return (Rectangle){ 82.0f, 196.0f, width - 112.0f, span * 0.44f };
 }
 
 static Rectangle gsm_scan_rect(void) {
     float width = (float)GetScreenWidth();
-    float top = 176.0f;
+    float top = 196.0f;
     float span = (float)GetScreenHeight() - top - 40.0f;
-    float y = top + span * 0.44f + 82.0f; /* gap for wf caption and sch text */
-    float h = span * 0.56f - 82.0f;
+    float y = top + span * 0.44f + 120.0f; /* increased gap for wf caption and sch text */
+    float h = span * 0.56f - 120.0f;
     /* Leave a square constellation panel on the right. */
     float right = width - 30.0f;
     float side = h;
@@ -2968,21 +2968,21 @@ static Rectangle gsm_scan_rect(void) {
 
 static Rectangle gsm_burst_rect(void) {
     float width = (float)GetScreenWidth();
-    float span = (float)GetScreenHeight() - 176.0f - 40.0f;
-    return (Rectangle){ 82.0f, 176.0f, width - 112.0f, span * 0.44f };
+    float span = (float)GetScreenHeight() - 196.0f - 40.0f;
+    return (Rectangle){ 82.0f, 196.0f, width - 112.0f, span * 0.44f };
 }
 
 static Rectangle gsm_view_toggle_button(void) {
     float width = (float)GetScreenWidth();
-    return (Rectangle){ width - 180.0f, 66.0f, 150.0f, 26.0f };
+    return (Rectangle){ width - 300.0f, 58.0f, 150.0f, 34.0f };
 }
 
 static Rectangle gsm_constellation_rect(void) {
     float width = (float)GetScreenWidth();
-    float top = 176.0f;
+    float top = 196.0f;
     float span = (float)GetScreenHeight() - top - 40.0f;
-    float y = top + span * 0.44f + 82.0f;
-    float h = span * 0.56f - 82.0f;
+    float y = top + span * 0.44f + 120.0f;
+    float h = span * 0.56f - 120.0f;
     float right = width - 30.0f;
     return (Rectangle){ right - h, y, h, h };
 }
@@ -3222,6 +3222,29 @@ static void draw_gsm(struct app *app) {
 
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
         Rectangle wf = gsm_burst_rect();
+
+        /* SCH decode readout, printed above the top chart area. */
+        if (app->gsm_sch_valid) {
+            const struct gsm_sch_result *sch = &app->gsm_sch;
+            struct gsm_sch_tracker *trk = &app->gsm_tracker;
+            int d_fn = app->gsm_opt_tracker ? trk->display_fn : sch->frame_number;
+            int d_t1 = app->gsm_opt_tracker ? trk->voted_t1 : sch->t1;
+            snprintf(text, sizeof(text),
+                     "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
+                     sch->bsic, sch->ncc, sch->bcc, d_fn, d_t1,
+                     sch->t2, sch->t3, (double)sch->confidence,
+                     (app->gsm_opt_tracker && trk->locked) ? "  [LOCKED]" : "");
+            DrawText(text, (int)wf.x, (int)wf.y - 22, 18,
+                     (Color){ 120, 230, 255, 255 });
+        } else if (app->recording) {
+            snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
+                     app->record_path, app->record_bytes / 1e6);
+            DrawText(text, (int)wf.x, (int)wf.y - 22, 18,
+                     (Color){ 255, 202, 105, 255 });
+        } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
+            DrawText("SCH   searching for a synchronisation burst...", (int)wf.x,
+                     (int)wf.y - 22, 18, (Color){ 151, 174, 188, 255 });
+        }
 
         if (app->gsm_analysis_mode) {
             /* Burst Analysis Chart replaces Waterfall */
