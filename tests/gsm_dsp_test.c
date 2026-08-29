@@ -196,7 +196,7 @@ static void test_sch_decode(void) {
 
     struct gsm_sch_result result;
     check_size("SCH decoded",
-               (size_t)gsm_sch_decode(i, q, count, sample_rate, carrier_offset, &result, NULL),
+               (size_t)gsm_sch_decode(i, q, count, sample_rate, carrier_offset, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &result, NULL),
                1);
     check_size("SCH BSIC", (size_t)result.bsic, (size_t)bsic);
     check_size("SCH NCC", (size_t)result.ncc, 5);
@@ -214,7 +214,7 @@ static void test_sch_decode(void) {
         q[n] = 40.0f * ((float)rand() / (float)RAND_MAX - 0.5f);
     }
     check_size("SCH rejects noise",
-               (size_t)gsm_sch_decode(i, q, count, sample_rate, carrier_offset, &result, NULL),
+               (size_t)gsm_sch_decode(i, q, count, sample_rate, carrier_offset, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &result, NULL),
                0);
 
     free(i);
@@ -249,7 +249,7 @@ static void test_sch_real_capture(void) {
         size_t pairs = sdr_dsp_convert_iq(raw, GSM_REAL_BLOCK, i, q, mag,
                                           GSM_REAL_BLOCK / 2);
         struct gsm_sch_result result;
-        if (gsm_sch_decode(i, q, pairs, 2000000.0, 400000.0, &result, NULL)) {
+        if (gsm_sch_decode(i, q, pairs, 2000000.0, 400000.0, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &result, NULL)) {
             decoded++;
             if (result.bsic == 45 && result.ncc == 5 && result.bcc == 5)
                 bsic_ok++;

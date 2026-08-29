@@ -308,7 +308,7 @@ static int probe_block(const unsigned char *raw, size_t bytes) {
 
     /* Cross-check against the real gsm_sch_decode(). */
     struct gsm_sch_result r;
-    int dec = gsm_sch_decode(I, Q, pairs, fs, NOMINAL_OFFSET_HZ, &r, NULL);
+    int dec = gsm_sch_decode(I, Q, pairs, fs, NOMINAL_OFFSET_HZ, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &r, NULL);
     printf("  gsm_sch_decode() -> decoded=%s", yesno(dec));
     if (dec)
         printf("  BSIC=%d frame=%d (T1/T2/T3 %d/%d/%d)", r.bsic,

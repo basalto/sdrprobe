@@ -341,6 +341,11 @@ struct app {
     double gsm_sch_time;
     int gsm_const_amplitude; /* constellation: show amplitude vs unit circle */
     int gsm_const_derotated; /* constellation: derotated sample vs differential */
+    
+    int gsm_opt_filter;
+    int gsm_opt_finecfo;
+    int gsm_opt_trellis;
+    int gsm_opt_tracker;
 
     /* Raw-I/Q recording (to build a GSM test capture). */
     FILE *record_file;
@@ -3075,8 +3080,13 @@ static void update_gsm_sch(struct app *app, double now) {
     double offset = app->gsm_selected_hz - (double)app->applied_frequency;
     struct gsm_sch_result result;
     struct gsm_sch_symbols symbols;
+    uint32_t options = 0;
+    if (app->gsm_opt_filter) options |= GSM_OPT_FILTER;
+    if (app->gsm_opt_finecfo) options |= GSM_OPT_FINECFO;
+    if (app->gsm_opt_trellis) options |= GSM_OPT_TRELLIS;
+    
     if (gsm_sch_decode(app->i_samples, app->q_samples, app->pair_count,
-                       (double)app->applied_sample_rate, offset, &result,
+                       (double)app->applied_sample_rate, offset, options, &result,
                        &symbols)) {
         app->gsm_sch = result;
         app->gsm_sch_symbols = symbols;
@@ -3126,6 +3136,10 @@ static void record_block(struct app *app) {
     }
 }
 
+static Rectangle gsm_opt_button(int index) {
+    return (Rectangle){ 96.0f + (float)index * 72.0f, 118.0f, 66.0f, 20.0f };
+}
+
 static void draw_gsm(struct app *app) {
     char text[320];
     draw_button(gsm_scan_button(),
@@ -3134,6 +3148,12 @@ static void draw_gsm(struct app *app) {
     draw_button(gsm_record_button(),
                 app->recording ? "Recording..." : "Record 2s",
                 app->recording);
+                
+    DrawText("Features:", 22, 120, 15, (Color){ 151, 174, 188, 255 });
+    draw_button(gsm_opt_button(0), "Filter", app->gsm_opt_filter);
+    draw_button(gsm_opt_button(1), "FnCFO", app->gsm_opt_finecfo);
+    draw_button(gsm_opt_button(2), "Trellis", app->gsm_opt_trellis);
+    draw_button(gsm_opt_button(3), "Tracker", app->gsm_opt_tracker);
 
     if (!app->receiver_mode)
         snprintf(text, sizeof(text),
@@ -3192,11 +3212,13 @@ static void draw_gsm(struct app *app) {
     if (app->gsm_sch_valid) {
         const struct gsm_sch_result *sch = &app->gsm_sch;
         struct gsm_sch_tracker *trk = &app->gsm_tracker;
+        int d_fn = app->gsm_opt_tracker ? trk->display_fn : sch->frame_number;
+        int d_t1 = app->gsm_opt_tracker ? trk->voted_t1 : sch->t1;
         snprintf(text, sizeof(text),
                  "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
-                 sch->bsic, sch->ncc, sch->bcc, trk->display_fn, trk->voted_t1,
+                 sch->bsic, sch->ncc, sch->bcc, d_fn, d_t1,
                  sch->t2, sch->t3, (double)sch->confidence,
-                 trk->locked ? "  [LOCKED]" : "");
+                 (app->gsm_opt_tracker && trk->locked) ? "  [LOCKED]" : "");
         DrawText(text, (int)sc.x, (int)sc.y - 22, 18,
                  (Color){ 120, 230, 255, 255 });
     } else if (app->recording) {
@@ -3290,6 +3312,15 @@ static void handle_gsm_input(struct app *app) {
     if (clicked(gsm_record_button())) {
         start_record(app);
         return;
+    }
+    for (int i = 0; i < 4; i++) {
+        if (clicked(gsm_opt_button(i))) {
+            if (i == 0) app->gsm_opt_filter = !app->gsm_opt_filter;
+            if (i == 1) app->gsm_opt_finecfo = !app->gsm_opt_finecfo;
+            if (i == 2) app->gsm_opt_trellis = !app->gsm_opt_trellis;
+            if (i == 3) app->gsm_opt_tracker = !app->gsm_opt_tracker;
+            return;
+        }
     }
     if (clicked(gsm_const_amp_button())) {
         app->gsm_const_amplitude = !app->gsm_const_amplitude;
@@ -3669,6 +3700,10 @@ int main(int argc, char **argv) {
     app->receiver_mode = options.file_path == NULL;
     app->remove_dc = 1;
     app->gsm_const_amplitude = 1; /* constellation shows amplitude by default */
+    app->gsm_opt_filter = 1;
+    app->gsm_opt_finecfo = 1;
+    app->gsm_opt_trellis = 1;
+    app->gsm_opt_tracker = 1;
     app->magnitude_lower = 0.0f;
     app->magnitude_upper = 64.0f;
     app->spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;
