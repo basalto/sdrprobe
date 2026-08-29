@@ -51,7 +51,17 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp
 
+# White-box diagnostic walk through the GSM SCH chain (not a unit test). It
+# compiles gsm_dsp.c in (to reach its statics), so it links only sdr_dsp.c.
+FILE ?= testfiles/gsm_arfcn_69.bin
+probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_chain_probe \
+		scripts/gsm_chain_probe.c $(SRC)/sdr_dsp.c -lm
+	./$(BUILD)/gsm_chain_probe $(FILE)
+
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp clean
+.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp probe-gsm-chain clean
