@@ -5,6 +5,7 @@ PROGNAME=rtl_init
 
 SRC=src
 TESTS=tests
+VENDOR=vendor
 
 all: $(PROGNAME) rtl_tui
 
@@ -16,11 +17,19 @@ rtl_tui: $(SRC)/rtl_tui.c $(SRC)/tui.c $(SRC)/tui.h
 
 DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h
+GUI_SRC=$(SRC)/sdrgui.c
+GUI_HDR=$(SRC)/sdrgui.h
+RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 
-rtl_raylib: $(SRC)/rtl_raylib.c $(DSP_SRC) $(DSP_HDR)
-	$(CC) $(CFLAGS) $(shell pkg-config --cflags raylib) -pthread \
-		-o $@ $(SRC)/rtl_raylib.c $(DSP_SRC) $(LDFLAGS) $(LDLIBS) \
-		$(shell pkg-config --libs raylib) -pthread
+# The vendored raygui header is not -Wall -W clean; compile it in isolation.
+raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
+	$(CC) -O2 $(RAYGUI_FLAGS) -w -c $(SRC)/raygui_impl.c -o $@
+
+rtl_raylib: $(SRC)/rtl_raylib.c $(DSP_SRC) $(DSP_HDR) $(GUI_SRC) $(GUI_HDR) \
+		raygui_impl.o
+	$(CC) $(CFLAGS) $(RAYGUI_FLAGS) -pthread \
+		-o $@ $(SRC)/rtl_raylib.c $(DSP_SRC) $(GUI_SRC) raygui_impl.o \
+		$(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs raylib) -pthread
 
 # Per-technology hardware-free DSP checks. Each technology's checks build and
 # run in isolation so they are easy to inspect and extend; check-dsp runs all.
@@ -42,6 +51,6 @@ check-dsp: check-sdr-dsp check-gsm-dsp
 check-raylib-dsp: check-dsp
 
 clean:
-	rm -f $(PROGNAME) rtl_tui rtl_raylib sdr_dsp_test gsm_dsp_test
+	rm -f $(PROGNAME) rtl_tui rtl_raylib sdr_dsp_test gsm_dsp_test raygui_impl.o
 
 .PHONY: all check-sdr-dsp check-gsm-dsp check-dsp check-raylib-dsp clean

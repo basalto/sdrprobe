@@ -179,3 +179,17 @@ _Avoid_: Pilot, beacon, sync word
 **Calibration-grade detection**:
 Identifying a reference carrier and measuring its frequency, as opposed to demodulating or decoding transmitted messages.
 _Avoid_: Demodulation, decode
+
+### Presentation
+
+**SDR visual component**:
+A reusable piece of the display that renders one kind of signal information (a plot, the waterfall, the scan chart, the health circle) from plain data and geometry, without knowing the application's state.
+_Avoid_: Widget, panel
+
+**Widget**:
+A generic interface control with no signal meaning of its own, such as a button, checkbox, toggle, or text field.
+_Avoid_: Component, view
+
+**HUD composition**:
+Assembling a screen from SDR visual components and widgets, keeping the arrangement separate from both the rendering of each piece and the application logic behind it.
+_Avoid_: Layout engine, scene graph
