@@ -15,6 +15,8 @@
 
 #include "sdr_dsp.h"
 #include "gsm_dsp.h"
+#include "sdrgui.h"
+#include "raygui.h"
 
 #define SAMPLE_BLOCK_BYTES (16 * 16384)
 #define SAMPLE_BLOCK_PAIRS (SAMPLE_BLOCK_BYTES / 2)
@@ -1152,247 +1154,21 @@ static void update_waterfall(struct app *app) {
     render_waterfall(app);
 }
 
-static int plot_cursor(Rectangle plot, float *x_fraction, float *y_fraction,
-                       Vector2 *mouse) {
-    *mouse = GetMousePosition();
-    if (!CheckCollisionPointRec(*mouse, plot))
-        return 0;
-    *x_fraction = (mouse->x - plot.x) / plot.width;
-    *y_fraction = (mouse->y - plot.y) / plot.height;
-    return 1;
-}
-
-static void draw_cursor_readout(Rectangle plot, Vector2 mouse,
-                                const char *text) {
-    const int font_size = 16;
-    const int padding = 7;
-    int text_width = MeasureText(text, font_size);
-    int box_width = text_width + padding * 2;
-    int box_height = font_size + padding * 2;
-    int box_x = (int)mouse.x + 14;
-    int box_y = (int)mouse.y - box_height - 10;
-
-    if (box_x + box_width > (int)(plot.x + plot.width))
-        box_x = (int)mouse.x - box_width - 14;
-    if (box_y < (int)plot.y)
-        box_y = (int)mouse.y + 10;
-
-    DrawLine((int)plot.x, (int)mouse.y, (int)(plot.x + plot.width),
-             (int)mouse.y, (Color){ 255, 206, 92, 150 });
-    DrawLine((int)mouse.x, (int)plot.y, (int)mouse.x,
-             (int)(plot.y + plot.height), (Color){ 255, 206, 92, 150 });
-    DrawCircleV(mouse, 3.0f, (Color){ 255, 225, 130, 255 });
-    DrawRectangle(box_x, box_y, box_width, box_height,
-                  (Color){ 7, 12, 19, 235 });
-    DrawRectangleLines(box_x, box_y, box_width, box_height,
-                       (Color){ 255, 190, 65, 255 });
-    DrawText(text, box_x + padding, box_y + padding, font_size,
-             (Color){ 255, 231, 170, 255 });
-}
-
-static void format_frequency_offset(char *text, size_t size, double offset) {
-    double absolute = fabs(offset);
-    if (absolute >= 1000000.0)
-        snprintf(text, size, "%+.3f MHz", offset / 1000000.0);
-    else if (absolute >= 1000.0)
-        snprintf(text, size, "%+.3f kHz", offset / 1000.0);
-    else
-        snprintf(text, size, "%+.0f Hz", offset);
-}
-
 #define GSM900_BASE_HZ 935000000.0
 #define GSM900_ARFCN_SPACING_HZ 200000.0
 
 static void draw_waterfall(const struct app *app, int calibration_mode) {
-    char text[256];
-    int channel_axis = calibration_mode && app->calibration_technology == 0;
-    Rectangle plot = app->plot;
-    Rectangle source = { 0.0f, 0.0f, (float)app->waterfall.width,
-                         (float)app->waterfall.height };
-    double full_lower = (double)app->applied_frequency -
-                        (double)app->applied_sample_rate / 2.0;
-    double full_upper = (double)app->applied_frequency +
-                        (double)app->applied_sample_rate / 2.0;
-    double lower_frequency = full_lower;
-    double upper_frequency = full_upper;
-    if (calibration_mode && app->calibration_expected_hz > 0 &&
-        full_upper > full_lower) {
-        double zoom_lower = (double)app->calibration_expected_hz -
-                            CALIBRATION_VIEW_HALF_WIDTH_HZ;
-        double zoom_upper = (double)app->calibration_expected_hz +
-                            CALIBRATION_VIEW_HALF_WIDTH_HZ;
-        if (zoom_lower < full_lower)
-            zoom_lower = full_lower;
-        if (zoom_upper > full_upper)
-            zoom_upper = full_upper;
-        if (zoom_upper - zoom_lower > 1.0) {
-            lower_frequency = zoom_lower;
-            upper_frequency = zoom_upper;
-            source.x = (float)((zoom_lower - full_lower) /
-                               (full_upper - full_lower)) *
-                       (float)app->waterfall.width;
-            source.width = (float)((zoom_upper - zoom_lower) /
-                                   (full_upper - full_lower)) *
-                           (float)app->waterfall.width;
-        }
-    }
-    const double frequency_steps[] = {
-        1000.0, 2000.0, 5000.0, 10000.0, 20000.0, 50000.0,
-        100000.0, 200000.0, 500000.0, 1000000.0, 2000000.0,
-        5000000.0, 10000000.0, 20000000.0, 50000000.0
+    struct sdrgui_waterfall_params params = {
+        app->plot, app->waterfall, (double)app->applied_frequency,
+        (double)app->applied_sample_rate, calibration_mode,
+        calibration_mode && app->calibration_technology == 0,
+        (double)app->calibration_expected_hz, CALIBRATION_VIEW_HALF_WIDTH_HZ,
+        app->waterfall_rows, app->waterfall_height, app->pair_count,
+        SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
+        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
+        "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900"
     };
-    double frequency_step = frequency_steps[
-        sizeof(frequency_steps) / sizeof(frequency_steps[0]) - 1];
-    double minimum_frequency_step = app->applied_sample_rate * 105.0 /
-                                    fmaxf(plot.width, 1.0f);
-    for (size_t i = 0;
-         i < sizeof(frequency_steps) / sizeof(frequency_steps[0]); i++) {
-        if (frequency_steps[i] >= minimum_frequency_step) {
-            frequency_step = frequency_steps[i];
-            break;
-        }
-    }
-
-    DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
-    DrawTexturePro(app->waterfall, source, plot, (Vector2){ 0.0f, 0.0f },
-                   0.0f, WHITE);
-
-    double first_frequency = ceil(lower_frequency / frequency_step) *
-                             frequency_step;
-    if (!channel_axis) {
-    for (double frequency = first_frequency;
-         frequency <= upper_frequency + frequency_step * 1e-6;
-         frequency += frequency_step) {
-        float x = plot.x + (float)((frequency - lower_frequency) /
-                                   (upper_frequency - lower_frequency)) *
-                                   plot.width;
-        DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
-                 (Color){ 170, 190, 200, 70 });
-        DrawLine((int)x, (int)(plot.y + plot.height), (int)x,
-                 (int)(plot.y + plot.height) + 7,
-                 (Color){ 126, 151, 166, 255 });
-        snprintf(text, sizeof(text), "%.3f", frequency / 1000000.0);
-        DrawText(text, (int)x - MeasureText(text, 16) / 2,
-                 (int)(plot.y + plot.height) + 11, 16,
-                 (Color){ 151, 174, 188, 255 });
-
-        double minor_step = frequency_step / 5.0;
-        for (int minor = 1; minor < 5; minor++) {
-            double minor_frequency = frequency + minor * minor_step;
-            if (minor_frequency >= upper_frequency)
-                break;
-            float minor_x = plot.x +
-                            (float)((minor_frequency - lower_frequency) /
-                                    (upper_frequency - lower_frequency)) *
-                                plot.width;
-            if (minor_x <= plot.x || minor_x >= plot.x + plot.width)
-                continue;
-            DrawLine((int)minor_x, (int)plot.y, (int)minor_x,
-                     (int)(plot.y + plot.height),
-                     (Color){ 100, 125, 140, 32 });
-            DrawLine((int)minor_x, (int)(plot.y + plot.height),
-                     (int)minor_x, (int)(plot.y + plot.height) + 4,
-                     (Color){ 70, 91, 105, 255 });
-        }
-    }
-    } else {
-        double channel_px = (double)plot.width * GSM900_ARFCN_SPACING_HZ /
-                            (upper_frequency - lower_frequency);
-        int label_stride = 1;
-        while (channel_px * label_stride < 42.0)
-            label_stride++;
-        int first_arfcn = (int)ceil((lower_frequency - GSM900_BASE_HZ) /
-                                    GSM900_ARFCN_SPACING_HZ);
-        if (first_arfcn < 1)
-            first_arfcn = 1;
-        for (int arfcn = first_arfcn; arfcn <= 124; arfcn++) {
-            double frequency = GSM900_BASE_HZ +
-                               arfcn * GSM900_ARFCN_SPACING_HZ;
-            if (frequency > upper_frequency)
-                break;
-            float x = plot.x + (float)((frequency - lower_frequency) /
-                                       (upper_frequency - lower_frequency)) *
-                                       plot.width;
-            int labeled = ((arfcn - first_arfcn) % label_stride) == 0;
-            DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
-                     labeled ? (Color){ 170, 190, 200, 70 }
-                             : (Color){ 100, 125, 140, 32 });
-            DrawLine((int)x, (int)(plot.y + plot.height), (int)x,
-                     (int)(plot.y + plot.height) + (labeled ? 7 : 4),
-                     labeled ? (Color){ 126, 151, 166, 255 }
-                             : (Color){ 70, 91, 105, 255 });
-            if (labeled) {
-                snprintf(text, sizeof(text), "%d", arfcn);
-                DrawText(text, (int)x - MeasureText(text, 16) / 2,
-                         (int)(plot.y + plot.height) + 11, 16,
-                         (Color){ 151, 174, 188, 255 });
-            }
-        }
-    }
-
-    double row_seconds = app->pair_count > 0
-                             ? (double)app->pair_count /
-                                   app->applied_sample_rate
-                             : (double)SAMPLE_BLOCK_PAIRS /
-                                   app->applied_sample_rate;
-    double visible_seconds = app->waterfall_rows * row_seconds;
-    int time_divisions = plot.height >= 400.0f ? 4 : 2;
-    for (int division = 0; division <= time_divisions; division++) {
-        float y = plot.y + plot.height * division / (float)time_divisions;
-        double age = visible_seconds * division / (double)time_divisions;
-        DrawLine((int)plot.x, (int)y, (int)(plot.x + plot.width), (int)y,
-                 (Color){ 170, 190, 200, division == 0 ? 100 : 45 });
-        snprintf(text, sizeof(text), division == 0 ? "now" : "-%.1f s", age);
-        DrawText(text, (int)plot.x - MeasureText(text, 16) - 11,
-                 (int)y - 8, 16, (Color){ 151, 174, 188, 255 });
-    }
-
-    DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
-    if (!calibration_mode)
-        DrawText("time (newest at top)", (int)plot.x, (int)plot.y - 25, 16,
-                 (Color){ 151, 174, 188, 255 });
-    if (channel_axis)
-        snprintf(text, sizeof(text),
-                 "GSM 900 ARFCN (200 kHz spacing)   visible history %.1f s   color %.0f..%.0f dBFS",
-                 visible_seconds, app->waterfall_lower_dbfs,
-                 SPECTRUM_TOP_DBFS);
-    else
-        snprintf(text, sizeof(text),
-                 "frequency (MHz), major %.3f MHz   visible history %.1f s   color %.0f..%.0f dBFS",
-                 frequency_step / 1000000.0, visible_seconds,
-                 app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS);
-    DrawText(text, (int)plot.x, (int)(plot.y + plot.height + 36), 16,
-             (Color){ 187, 205, 216, 255 });
-
-    float x_fraction;
-    float y_fraction;
-    Vector2 mouse;
-    if (plot_cursor(plot, &x_fraction, &y_fraction, &mouse)) {
-        double frequency = lower_frequency +
-                           x_fraction * (upper_frequency - lower_frequency);
-        double age = y_fraction * app->waterfall_height * row_seconds;
-        char offset[40];
-        format_frequency_offset(offset, sizeof(offset),
-                                frequency - app->applied_frequency);
-        if (channel_axis) {
-            double channel = (frequency - GSM900_BASE_HZ) /
-                             GSM900_ARFCN_SPACING_HZ;
-            long arfcn = lround(channel);
-            if (arfcn >= 1 && arfcn <= 124)
-                snprintf(text, sizeof(text),
-                         "ARFCN %ld   frequency %.6f MHz   age %.2f s",
-                         arfcn, frequency / 1000000.0, age);
-            else
-                snprintf(text, sizeof(text),
-                         "outside GSM 900   frequency %.6f MHz   age %.2f s",
-                         frequency / 1000000.0, age);
-        } else {
-            snprintf(text, sizeof(text),
-                     "frequency %.6f MHz   offset %s   age %.2f s",
-                     frequency / 1000000.0, offset, age);
-        }
-        draw_cursor_readout(plot, mouse, text);
-    }
+    sdrgui_waterfall(&params);
 }
 
 static void update_scatter(struct app *app, double now, int insert) {
@@ -1541,313 +1317,36 @@ static void draw_base_hud(const struct app *app,
     }
 }
 
-static void draw_plot_frame(Rectangle plot, int quarter_grid) {
-    DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
-    if (quarter_grid) {
-        for (int i = 1; i < 4; i++) {
-            int y = (int)(plot.y + plot.height * (float)i / 4.0f);
-            DrawLine((int)plot.x, y, (int)(plot.x + plot.width), y,
-                     (Color){ 31, 47, 59, 255 });
-        }
-    }
-    DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
-}
-
-static float plot_y(Rectangle plot, float value, float lower, float upper) {
-    float fraction = (value - lower) / (upper - lower);
-    if (fraction < 0.0f)
-        fraction = 0.0f;
-    if (fraction > 1.0f)
-        fraction = 1.0f;
-    return plot.y + plot.height * (1.0f - fraction);
-}
-
 static void draw_magnitude(const struct app *app) {
-    char text[256];
-    Rectangle plot = app->plot;
-
-    draw_plot_frame(plot, 1);
-    snprintf(text, sizeof(text), "%.2f", app->have_samples
-                                              ? app->magnitude_upper
-                                              : PHYSICAL_MAGNITUDE_MAX);
-    DrawText(text, 12, (int)plot.y - 8, 16, (Color){ 151, 174, 188, 255 });
-    snprintf(text, sizeof(text), "%.2f", app->have_samples
-                                              ? app->magnitude_lower
-                                              : 0.0f);
-    DrawText(text, 12, (int)(plot.y + plot.height) - 8, 16,
-             (Color){ 151, 174, 188, 255 });
-    DrawText("magnitude (sample units)", (int)plot.x, (int)plot.y - 25, 16,
-             (Color){ 151, 174, 188, 255 });
-
-    if (app->magnitude_bin_count > 0) {
-        if (app->magnitude_bin_count == 1) {
-            DrawCircleV((Vector2){ plot.x,
-                                   plot_y(plot, app->magnitude_peaks[0],
-                                          app->magnitude_lower,
-                                          app->magnitude_upper) },
-                        2.0f, (Color){ 72, 221, 189, 255 });
-        }
-        for (size_t i = 1; i < app->magnitude_bin_count; i++) {
-            float x0 = plot.x + plot.width * (float)(i - 1) /
-                                  (float)(app->magnitude_bin_count - 1);
-            float x1 = plot.x + plot.width * (float)i /
-                                  (float)(app->magnitude_bin_count - 1);
-            float y0 = plot_y(plot, app->magnitude_peaks[i - 1],
-                              app->magnitude_lower, app->magnitude_upper);
-            float y1 = plot_y(plot, app->magnitude_peaks[i],
-                              app->magnitude_lower, app->magnitude_upper);
-            DrawLineEx((Vector2){ x0, y0 }, (Vector2){ x1, y1 }, 1.5f,
-                       (Color){ 72, 221, 189, 255 });
-        }
-    }
-
-    DrawText("0 ms", (int)plot.x, (int)(plot.y + plot.height + 11), 16,
-             (Color){ 151, 174, 188, 255 });
     double duration_ms = app->have_samples
                              ? (double)app->pair_count * 1000.0 /
                                    app->applied_sample_rate
                              : 0.0;
-    snprintf(text, sizeof(text), "%.3f ms", duration_ms);
-    DrawText(text, (int)(plot.x + plot.width) - MeasureText(text, 16),
-             (int)(plot.y + plot.height + 11), 16,
-             (Color){ 151, 174, 188, 255 });
-    snprintf(text, sizeof(text),
-                 "absolute min %.2f   mean %.2f   max %.2f   manual axis %.2f..%.2f sample units   Up/Down scale",
-             app->magnitude_min, app->magnitude_mean, app->magnitude_max,
-             app->magnitude_lower, app->magnitude_upper);
-    DrawText(text, (int)plot.x, (int)(plot.y + plot.height + 36), 16,
-             (Color){ 187, 205, 216, 255 });
-
-    float x_fraction;
-    float y_fraction;
-    Vector2 mouse;
-    if (plot_cursor(plot, &x_fraction, &y_fraction, &mouse)) {
-        double time_ms = duration_ms * x_fraction;
-        float lower = app->have_samples ? app->magnitude_lower : 0.0f;
-        float upper = app->have_samples ? app->magnitude_upper
-                                        : PHYSICAL_MAGNITUDE_MAX;
-        float magnitude = upper - y_fraction * (upper - lower);
-        snprintf(text, sizeof(text), "time %.3f ms   magnitude %.2f",
-                 time_ms, magnitude);
-        draw_cursor_readout(plot, mouse, text);
-    }
+    struct sdrgui_magnitude_params params = {
+        app->plot, app->have_samples, app->magnitude_peaks,
+        app->magnitude_bin_count, app->magnitude_lower, app->magnitude_upper,
+        app->magnitude_min, app->magnitude_mean, app->magnitude_max,
+        duration_ms, PHYSICAL_MAGNITUDE_MAX
+    };
+    sdrgui_magnitude(&params);
 }
 
 static void draw_spectrum(const struct app *app) {
-    char text[256];
-    Rectangle plot = app->plot;
-    double lower_frequency = (double)app->applied_frequency -
-                             (double)app->applied_sample_rate / 2.0;
-    double upper_frequency = (double)app->applied_frequency +
-                             (double)app->applied_sample_rate / 2.0;
-    const double frequency_steps[] = {
-        1000.0, 2000.0, 5000.0, 10000.0, 20000.0, 50000.0,
-        100000.0, 200000.0, 500000.0, 1000000.0, 2000000.0,
-        5000000.0, 10000000.0, 20000000.0, 50000000.0
+    struct sdrgui_spectrum_params params = {
+        app->plot, (double)app->applied_frequency,
+        (double)app->applied_sample_rate, app->spectrum_ready,
+        app->spectrum_average, app->spectrum_peak, SDR_DSP_FFT_SIZE,
+        app->spectrum_lower_dbfs, SPECTRUM_TOP_DBFS, app->spectrum_windows
     };
-    double frequency_step = frequency_steps[
-        sizeof(frequency_steps) / sizeof(frequency_steps[0]) - 1];
-    double minimum_frequency_step = app->applied_sample_rate * 105.0 /
-                                    fmaxf(plot.width, 1.0f);
-    for (size_t i = 0;
-         i < sizeof(frequency_steps) / sizeof(frequency_steps[0]); i++) {
-        if (frequency_steps[i] >= minimum_frequency_step) {
-            frequency_step = frequency_steps[i];
-            break;
-        }
-    }
-    int db_step = 10;
-    while ((float)db_step * plot.height /
-               (SPECTRUM_TOP_DBFS - app->spectrum_lower_dbfs) < 25.0f)
-        db_step += 10;
-
-    draw_plot_frame(plot, 0);
-    int minor_db_step = db_step / 2;
-    int first_minor_db = (int)ceilf(app->spectrum_lower_dbfs /
-                                    (float)minor_db_step) * minor_db_step;
-    for (int db = first_minor_db; db <= (int)SPECTRUM_TOP_DBFS;
-         db += minor_db_step) {
-        float y = plot_y(plot, (float)db, app->spectrum_lower_dbfs,
-                          SPECTRUM_TOP_DBFS);
-        int major = db % db_step == 0;
-        DrawLine((int)plot.x, (int)y, (int)(plot.x + plot.width), (int)y,
-                 major ? (Color){ 42, 61, 74, 255 }
-                       : (Color){ 24, 37, 48, 255 });
-        DrawLine((int)plot.x - (major ? 7 : 4), (int)y, (int)plot.x, (int)y,
-                 major ? (Color){ 126, 151, 166, 255 }
-                       : (Color){ 70, 91, 105, 255 });
-        if (major) {
-            snprintf(text, sizeof(text), "%d", db);
-            DrawText(text, (int)plot.x - MeasureText(text, 16) - 11,
-                     (int)y - 8, 16, (Color){ 151, 174, 188, 255 });
-        }
-    }
-    DrawText("dBFS", (int)plot.x, (int)plot.y - 25, 16,
-              (Color){ 151, 174, 188, 255 });
-
-    double first_frequency = ceil(lower_frequency / frequency_step) *
-                             frequency_step;
-    for (double frequency = first_frequency;
-         frequency <= upper_frequency + frequency_step * 1e-6;
-         frequency += frequency_step) {
-        float x = plot.x + (float)((frequency - lower_frequency) /
-                                   (upper_frequency - lower_frequency)) *
-                                   plot.width;
-        DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
-                 (Color){ 42, 61, 74, 255 });
-        DrawLine((int)x, (int)(plot.y + plot.height), (int)x,
-                 (int)(plot.y + plot.height) + 7,
-                 (Color){ 126, 151, 166, 255 });
-        snprintf(text, sizeof(text), "%.3f", frequency / 1000000.0);
-        int label_width = MeasureText(text, 16);
-        DrawText(text, (int)x - label_width / 2,
-                 (int)(plot.y + plot.height) + 11, 16,
-                 (Color){ 151, 174, 188, 255 });
-
-        double minor_step = frequency_step / 5.0;
-        for (int minor = 1; minor < 5; minor++) {
-            double minor_frequency = frequency + minor * minor_step;
-            if (minor_frequency >= upper_frequency)
-                break;
-            float minor_x = plot.x +
-                            (float)((minor_frequency - lower_frequency) /
-                                    (upper_frequency - lower_frequency)) *
-                                plot.width;
-            if (minor_x <= plot.x || minor_x >= plot.x + plot.width)
-                continue;
-            DrawLine((int)minor_x, (int)plot.y, (int)minor_x,
-                     (int)(plot.y + plot.height),
-                     (Color){ 24, 37, 48, 255 });
-            DrawLine((int)minor_x, (int)(plot.y + plot.height),
-                     (int)minor_x, (int)(plot.y + plot.height) + 4,
-                     (Color){ 70, 91, 105, 255 });
-        }
-    }
-
-    if (app->spectrum_ready) {
-        for (int i = 1; i < SDR_DSP_FFT_SIZE; i++) {
-            float x0 = plot.x + plot.width * (float)(i - 1) /
-                                  (SDR_DSP_FFT_SIZE - 1);
-            float x1 = plot.x + plot.width * (float)i /
-                                  (SDR_DSP_FFT_SIZE - 1);
-            float average_y0 = plot_y(plot, app->spectrum_average[i - 1],
-                                      app->spectrum_lower_dbfs,
-                                      SPECTRUM_TOP_DBFS);
-            float average_y1 = plot_y(plot, app->spectrum_average[i],
-                                      app->spectrum_lower_dbfs,
-                                      SPECTRUM_TOP_DBFS);
-            float peak_y0 = plot_y(plot, app->spectrum_peak[i - 1],
-                                   app->spectrum_lower_dbfs,
-                                   SPECTRUM_TOP_DBFS);
-            float peak_y1 = plot_y(plot, app->spectrum_peak[i],
-                                   app->spectrum_lower_dbfs,
-                                   SPECTRUM_TOP_DBFS);
-            DrawLineEx((Vector2){ x0, peak_y0 }, (Vector2){ x1, peak_y1 },
-                       1.0f, (Color){ 251, 176, 64, 210 });
-            DrawLineEx((Vector2){ x0, average_y0 },
-                       (Vector2){ x1, average_y1 }, 1.4f,
-                       (Color){ 65, 202, 240, 255 });
-        }
-    }
-
-    snprintf(text, sizeof(text),
-              "frequency (MHz), major %.3f MHz   axis %.1f..%.1f dBFS   %d x %d-pair windows   bin %.3f Hz   average   peak hold",
-              frequency_step / 1000000.0,
-              app->spectrum_lower_dbfs, SPECTRUM_TOP_DBFS,
-              app->spectrum_windows, SDR_DSP_FFT_SIZE,
-             app->applied_sample_rate / (double)SDR_DSP_FFT_SIZE);
-    DrawText(text, (int)plot.x, (int)(plot.y + plot.height + 36), 16,
-             (Color){ 187, 205, 216, 255 });
-
-    float x_fraction;
-    float y_fraction;
-    Vector2 mouse;
-    if (plot_cursor(plot, &x_fraction, &y_fraction, &mouse)) {
-        double frequency = lower_frequency +
-                           x_fraction * (upper_frequency - lower_frequency);
-        float dbfs = SPECTRUM_TOP_DBFS -
-                     y_fraction * (SPECTRUM_TOP_DBFS -
-                                   app->spectrum_lower_dbfs);
-        char offset[40];
-        format_frequency_offset(offset, sizeof(offset),
-                                frequency - app->applied_frequency);
-        snprintf(text, sizeof(text),
-                 "frequency %.6f MHz   offset %s   power %.1f dBFS",
-                 frequency / 1000000.0, offset, dbfs);
-        draw_cursor_readout(plot, mouse, text);
-    }
+    sdrgui_spectrum(&params);
 }
 
 static void draw_scatter(const struct app *app) {
-    char text[256];
-    Rectangle plot = app->plot;
-    Rectangle source = { 0.0f, 0.0f, (float)app->scatter.texture.width,
-                          -(float)app->scatter.texture.height };
-    float major_step = app->scatter_axis_limit /
-                       (plot.width >= 700.0f && plot.height >= 350.0f
-                            ? 4.0f
-                            : 2.0f);
-    float minor_step = major_step / 5.0f;
-
-    DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
-    DrawTexturePro(app->scatter.texture, source, plot, (Vector2){ 0.0f, 0.0f },
-                   0.0f, WHITE);
-
-    float limit = app->scatter_axis_limit;
-    for (float value = -limit; value <= limit + minor_step * 0.01f;
-         value += minor_step) {
-        int major_index = (int)lroundf(value / major_step);
-        int major = fabsf(value - major_index * major_step) < 0.0001f;
-        float x = plot.x + (value / limit + 1.0f) * 0.5f * plot.width;
-        float y = plot.y + (1.0f - (value / limit + 1.0f) * 0.5f) *
-                           plot.height;
-        Color grid = major ? (Color){ 42, 61, 74, 255 }
-                           : (Color){ 24, 37, 48, 255 };
-        Color tick = major ? (Color){ 126, 151, 166, 255 }
-                           : (Color){ 70, 91, 105, 255 };
-        int tick_size = major ? 7 : 4;
-
-        DrawLine((int)x, (int)plot.y, (int)x,
-                 (int)(plot.y + plot.height), grid);
-        DrawLine((int)plot.x, (int)y, (int)(plot.x + plot.width), (int)y,
-                 grid);
-        DrawLine((int)x, (int)(plot.y + plot.height), (int)x,
-                 (int)(plot.y + plot.height) + tick_size, tick);
-        DrawLine((int)plot.x - tick_size, (int)y, (int)plot.x, (int)y,
-                 tick);
-
-        if (major) {
-            float label_value = fabsf(value) < 0.0001f ? 0.0f : value;
-            int precision = limit < 0.1f ? 3 : 2;
-            snprintf(text, sizeof(text), "%+.*f", precision, label_value);
-            DrawText(text, (int)x - MeasureText(text, 16) / 2,
-                     (int)(plot.y + plot.height) + 11, 16,
-                     (Color){ 151, 174, 188, 255 });
-            DrawText(text, (int)plot.x - MeasureText(text, 16) - 11,
-                     (int)y - 8, 16, (Color){ 151, 174, 188, 255 });
-        }
-    }
-
-    DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
-    DrawText("Q (normalized full scale)", (int)plot.x, (int)plot.y - 25, 16,
-             (Color){ 151, 174, 188, 255 });
-    snprintf(text, sizeof(text),
-              "I (normalized full scale)   manual range +/-%.3f   major %.3f   latest block: %zu points   Up/Down scale",
-              limit, major_step,
-              app->scatter_inserted);
-    DrawText(text, (int)plot.x, (int)(plot.y + plot.height + 36), 16,
-              (Color){ 187, 205, 216, 255 });
-
-    float x_fraction;
-    float y_fraction;
-    Vector2 mouse;
-    if (plot_cursor(plot, &x_fraction, &y_fraction, &mouse)) {
-        float i_value = (x_fraction * 2.0f - 1.0f) * limit;
-        float q_value = (1.0f - y_fraction * 2.0f) * limit;
-        snprintf(text, sizeof(text), "I %+.4f   Q %+.4f full scale",
-                 i_value, q_value);
-        draw_cursor_readout(plot, mouse, text);
-    }
+    struct sdrgui_scatter_params params = {
+        app->plot, app->scatter.texture, app->scatter_axis_limit,
+        app->scatter_inserted
+    };
+    sdrgui_scatter(&params);
 }
 
 static int install_signal_handlers(struct app *app) {
@@ -2732,23 +2231,51 @@ static void handle_settings_input(struct app *app) {
     (void)frequency;
 }
 
+static void configure_gui_style(void) {
+    GuiSetStyle(DEFAULT, TEXT_SIZE, 17);
+    GuiSetStyle(DEFAULT, BACKGROUND_COLOR,
+                ColorToInt((Color){ 10, 18, 28, 255 }));
+    GuiSetStyle(DEFAULT, BASE_COLOR_NORMAL,
+                ColorToInt((Color){ 29, 43, 54, 255 }));
+    GuiSetStyle(DEFAULT, BASE_COLOR_FOCUSED,
+                ColorToInt((Color){ 44, 62, 75, 255 }));
+    GuiSetStyle(DEFAULT, BASE_COLOR_PRESSED,
+                ColorToInt((Color){ 44, 62, 75, 255 }));
+    GuiSetStyle(DEFAULT, BORDER_COLOR_NORMAL,
+                ColorToInt((Color){ 91, 117, 132, 255 }));
+    GuiSetStyle(DEFAULT, BORDER_COLOR_FOCUSED,
+                ColorToInt((Color){ 255, 201, 103, 255 }));
+    GuiSetStyle(DEFAULT, BORDER_COLOR_PRESSED,
+                ColorToInt((Color){ 255, 201, 103, 255 }));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL,
+                ColorToInt((Color){ 235, 242, 246, 255 }));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_FOCUSED,
+                ColorToInt((Color){ 255, 255, 255, 255 }));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_PRESSED,
+                ColorToInt((Color){ 255, 255, 255, 255 }));
+    GuiSetStyle(BUTTON, TEXT_ALIGNMENT, TEXT_ALIGN_CENTER);
+}
+
+/* Render-only button: raygui draws it (themed); the click action is dispatched
+   from the input phase via clicked(), so heavy actions never run mid-frame. */
 static void draw_button(Rectangle rectangle, const char *label, int primary) {
-    int hover = CheckCollisionPointRec(GetMousePosition(), rectangle);
-    Color fill = primary ? (hover ? (Color){ 220, 142, 38, 255 }
-                                  : (Color){ 191, 111, 25, 255 })
-                         : (hover ? (Color){ 44, 62, 75, 255 }
-                                  : (Color){ 29, 43, 54, 255 });
-    DrawRectangleRec(rectangle, fill);
-    DrawRectangleLinesEx(rectangle, 1.0f,
-                         primary ? (Color){ 255, 201, 103, 255 }
-                                 : (Color){ 91, 117, 132, 255 });
-    int font_size = 17;
-    DrawText(label,
-             (int)(rectangle.x + (rectangle.width - MeasureText(label,
-                                                                 font_size)) /
-                                      2.0f),
-             (int)(rectangle.y + (rectangle.height - font_size) / 2.0f),
-             font_size, (Color){ 235, 242, 246, 255 });
+    if (primary) {
+        GuiSetStyle(BUTTON, BASE_COLOR_NORMAL,
+                    ColorToInt((Color){ 191, 111, 25, 255 }));
+        GuiSetStyle(BUTTON, BASE_COLOR_FOCUSED,
+                    ColorToInt((Color){ 220, 142, 38, 255 }));
+        GuiSetStyle(BUTTON, BORDER_COLOR_NORMAL,
+                    ColorToInt((Color){ 255, 201, 103, 255 }));
+    }
+    GuiButton(rectangle, label);
+    if (primary) {
+        GuiSetStyle(BUTTON, BASE_COLOR_NORMAL,
+                    ColorToInt((Color){ 29, 43, 54, 255 }));
+        GuiSetStyle(BUTTON, BASE_COLOR_FOCUSED,
+                    ColorToInt((Color){ 44, 62, 75, 255 }));
+        GuiSetStyle(BUTTON, BORDER_COLOR_NORMAL,
+                    ColorToInt((Color){ 91, 117, 132, 255 }));
+    }
 }
 
 static void draw_settings(const struct app *app) {
@@ -2780,19 +2307,11 @@ static void draw_settings(const struct app *app) {
     DrawText("Center frequency (Hz or K/M/G)", (int)frequency.x,
              (int)frequency.y - 23,
              17, (Color){ 166, 188, 201, 255 });
-    DrawRectangleRec(frequency, (Color){ 5, 10, 16, 255 });
-    DrawRectangleLinesEx(frequency, 1.0f, (Color){ 255, 174, 62, 255 });
-    DrawText(app->settings_frequency, (int)frequency.x + 10,
-             (int)frequency.y + 9, 19, (Color){ 255, 225, 161, 255 });
+    sdrgui_text_field(frequency, app->settings_frequency,
+                      app->settings_focus == 0);
     DrawText("PPM", (int)ppm.x, (int)ppm.y - 23, 17,
              (Color){ 166, 188, 201, 255 });
-    DrawRectangleRec(ppm, (Color){ 5, 10, 16, 255 });
-    DrawRectangleLinesEx(ppm, 1.0f,
-                         app->settings_focus == 1
-                             ? (Color){ 255, 174, 62, 255 }
-                             : (Color){ 91, 117, 132, 255 });
-    DrawText(app->settings_ppm, (int)ppm.x + 9, (int)ppm.y + 9, 19,
-             (Color){ 255, 225, 161, 255 });
+    sdrgui_text_field(ppm, app->settings_ppm, app->settings_focus == 1);
 
     DrawText("Gain", (int)panel.x + 28, (int)panel.y + 137, 17,
              (Color){ 166, 188, 201, 255 });
@@ -2812,33 +2331,13 @@ static void draw_settings(const struct app *app) {
              (int)(panel.x + (panel.width - MeasureText(gain, 20)) / 2.0f),
              (int)panel.y + 173, 20, (Color){ 235, 242, 246, 255 });
 
-    DrawRectangleRec(dc_toggle, (Color){ 5, 10, 16, 255 });
-    DrawRectangleLinesEx(dc_toggle, 1.0f, (Color){ 255, 174, 62, 255 });
-    if (app->settings_remove_dc) {
-        DrawLineEx((Vector2){ dc_toggle.x + 4.0f, dc_toggle.y + 11.0f },
-                   (Vector2){ dc_toggle.x + 9.0f, dc_toggle.y + 17.0f },
-                   2.0f, (Color){ 255, 205, 91, 255 });
-        DrawLineEx((Vector2){ dc_toggle.x + 9.0f, dc_toggle.y + 17.0f },
-                   (Vector2){ dc_toggle.x + 19.0f, dc_toggle.y + 5.0f },
-                   2.0f, (Color){ 255, 205, 91, 255 });
-    }
-    DrawText("Remove DC spike from spectrum and waterfall",
-             (int)dc_toggle.x + 32, (int)dc_toggle.y + 2, 17,
-             (Color){ 205, 218, 226, 255 });
+    bool dc_checked = app->settings_remove_dc;
+    GuiCheckBox(dc_toggle, "Remove DC spike from spectrum and waterfall",
+                &dc_checked);
 
-    DrawRectangleRec(drift_toggle, (Color){ 5, 10, 16, 255 });
-    DrawRectangleLinesEx(drift_toggle, 1.0f, (Color){ 255, 174, 62, 255 });
-    if (app->settings_auto_drift) {
-        DrawLineEx((Vector2){ drift_toggle.x + 4.0f, drift_toggle.y + 11.0f },
-                   (Vector2){ drift_toggle.x + 9.0f, drift_toggle.y + 17.0f },
-                   2.0f, (Color){ 255, 205, 91, 255 });
-        DrawLineEx((Vector2){ drift_toggle.x + 9.0f, drift_toggle.y + 17.0f },
-                   (Vector2){ drift_toggle.x + 19.0f, drift_toggle.y + 5.0f },
-                   2.0f, (Color){ 255, 205, 91, 255 });
-    }
-    DrawText("Auto GSM drift check (periodic re-tune)",
-             (int)drift_toggle.x + 32, (int)drift_toggle.y + 2, 17,
-             (Color){ 205, 218, 226, 255 });
+    bool drift_checked = app->settings_auto_drift;
+    GuiCheckBox(drift_toggle, "Auto GSM drift check (periodic re-tune)",
+                &drift_checked);
 
     if (app->settings_error[0])
         DrawText(app->settings_error, (int)panel.x + 28, (int)panel.y + 289,
@@ -3009,13 +2508,11 @@ static void draw_calibration(struct app *app) {
              (Color){ 209, 221, 228, 255 });
     DrawText("ARFCN", (int)channel.x, 50, 16,
              (Color){ 157, 180, 194, 255 });
-    DrawRectangleRec(channel, (Color){ 5, 10, 16, 255 });
-    DrawRectangleLinesEx(channel, 1.0f, (Color){ 255, 174, 62, 255 });
-    DrawText(app->calibration_technology == 0
-                 ? app->calibration_channel
-                 : "N/A",
-             (int)channel.x + 9,
-             (int)channel.y + 8, 18, (Color){ 255, 225, 161, 255 });
+    sdrgui_text_field(channel,
+                      app->calibration_technology == 0
+                          ? app->calibration_channel
+                          : "N/A",
+                      app->calibration_technology == 0);
     draw_button(start, app->calibration_running ? "Retune" : "Start",
                 app->calibration_technology == 0);
     draw_button(apply_ppm, "Apply PPM", app->calibration_stable);
@@ -3106,7 +2603,6 @@ static void draw_scan(struct app *app) {
     char text[160];
     Rectangle back = { (float)GetScreenWidth() - 112.0f, 18, 88, 34 };
     Rectangle rescan = { (float)GetScreenWidth() - 212.0f, 18, 88, 34 };
-    Rectangle plot = app->plot;
     int strongest = scan_strongest_arfcn(app);
     int strongest_bcch = scan_strongest_bcch(app);
 
@@ -3133,101 +2629,14 @@ static void draw_scan(struct app *app) {
                  "No channels measured; press Rescan");
     DrawText(text, 24, 54, 18, (Color){ 190, 208, 218, 255 });
 
-    /* Power range for the vertical axis. */
-    float minimum = 0.0f;
-    float maximum = -300.0f;
-    int measured = 0;
-    for (int arfcn = 1; arfcn <= 124; arfcn++) {
-        float power = app->scan_power[arfcn];
-        if (power <= SCAN_SENTINEL_DBFS)
-            continue;
-        if (!measured || power < minimum)
-            minimum = power;
-        if (!measured || power > maximum)
-            maximum = power;
-        measured = 1;
-    }
-    if (!measured) {
-        minimum = -100.0f;
-        maximum = -30.0f;
-    }
-    minimum -= 3.0f;
-    maximum += 3.0f;
-    if (maximum - minimum < 10.0f)
-        maximum = minimum + 10.0f;
-
-    DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
-    DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
-
-    /* Vertical dBFS gridlines. */
-    for (int division = 0; division <= 4; division++) {
-        float y = plot.y + plot.height * division / 4.0f;
-        float value = maximum - (maximum - minimum) * division / 4.0f;
-        DrawLine((int)plot.x, (int)y, (int)(plot.x + plot.width), (int)y,
-                 (Color){ 170, 190, 200, division == 4 ? 100 : 40 });
-        snprintf(text, sizeof(text), "%.0f", value);
-        DrawText(text, (int)plot.x - MeasureText(text, 16) - 10,
-                 (int)y - 8, 16, (Color){ 151, 174, 188, 255 });
-    }
-
-    float bar_width = plot.width / 124.0f;
-    Vector2 mouse = GetMousePosition();
-    int hover = (!app->scan_running) ? scan_arfcn_at(app, mouse) : 0;
-    for (int arfcn = 1; arfcn <= 124; arfcn++) {
-        float power = app->scan_power[arfcn];
-        if (power <= SCAN_SENTINEL_DBFS)
-            continue;
-        float level = (power - minimum) / (maximum - minimum);
-        if (level < 0.0f)
-            level = 0.0f;
-        if (level > 1.0f)
-            level = 1.0f;
-        float x = plot.x + (float)(arfcn - 1) * bar_width;
-        float height = level * plot.height;
-        int is_bcch = app->scan_bcch_conf[arfcn] >= SCAN_BCCH_MIN_CONF;
-        Color color = is_bcch ? (Color){ 99, 228, 170, 255 }
-                              : (Color){ 90, 140, 210, 220 };
-        if (arfcn == hover)
-            color = (Color){ 255, 202, 105, 255 };
-        int width = (int)(bar_width > 1.0f ? bar_width - 1.0f : 1.0f);
-        DrawRectangle((int)x, (int)(plot.y + plot.height - height),
-                      width, (int)height, color);
-        /* A cap marker keeps a short BCCH bar visible. */
-        if (is_bcch)
-            DrawRectangle((int)x, (int)(plot.y + plot.height - height) - 4,
-                          width, 4, (Color){ 139, 255, 205, 255 });
-    }
-
-    /* ARFCN axis labels every 10 channels. */
-    for (int arfcn = 10; arfcn <= 120; arfcn += 10) {
-        float x = plot.x + ((float)(arfcn - 1) + 0.5f) * bar_width;
-        DrawLine((int)x, (int)(plot.y + plot.height), (int)x,
-                 (int)(plot.y + plot.height) + 6,
-                 (Color){ 126, 151, 166, 255 });
-        snprintf(text, sizeof(text), "%d", arfcn);
-        DrawText(text, (int)x - MeasureText(text, 16) / 2,
-                 (int)(plot.y + plot.height) + 10, 16,
-                 (Color){ 151, 174, 188, 255 });
-    }
-    DrawText("ARFCN (GSM 900 downlink, 200 kHz spacing)   green = BCCH (FCCH tone present)",
-             (int)plot.x, (int)(plot.y + plot.height + 34), 16,
-             (Color){ 187, 205, 216, 255 });
-
-    if (hover > 0 && app->scan_power[hover] > SCAN_SENTINEL_DBFS) {
-        uint32_t frequency = 935000000U + (uint32_t)hover * 200000U;
-        if (app->scan_bcch_conf[hover] >= SCAN_BCCH_MIN_CONF)
-            snprintf(text, sizeof(text),
-                     "ARFCN %d   %.3f MHz   %.1f dBFS   BCCH conf %.2f",
-                     hover, frequency / 1000000.0, app->scan_power[hover],
-                     app->scan_bcch_conf[hover]);
-        else
-            snprintf(text, sizeof(text),
-                     "ARFCN %d   %.3f MHz   %.1f dBFS   FCCH coh %.2f",
-                     hover, frequency / 1000000.0, app->scan_power[hover],
-                     app->scan_bcch_conf[hover]);
-        DrawText(text, (int)mouse.x + 12, (int)mouse.y - 24, 16,
-                 (Color){ 235, 242, 246, 255 });
-    }
+    int hover = (!app->scan_running) ? scan_arfcn_at(app, GetMousePosition())
+                                     : 0;
+    struct sdrgui_scan_chart_params params = {
+        app->plot, app->scan_power, app->scan_bcch_conf, 124,
+        SCAN_SENTINEL_DBFS, SCAN_BCCH_MIN_CONF, hover,
+        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ
+    };
+    sdrgui_scan_chart(&params);
 }
 
 static void handle_scan_input(struct app *app) {
@@ -3281,37 +2690,10 @@ static void adjust_active_scale(struct app *app, int zoom_in) {
 }
 
 static void draw_health_indicator(const struct app *app) {
-    float cx = (float)GetScreenWidth() - 152.0f;
-    float cy = 33.0f;
-    Color color;
-    switch (app->drift_health) {
-    case CAL_HEALTH_GOOD:
-        color = (Color){ 99, 228, 170, 255 };
-        break;
-    case CAL_HEALTH_DRIFT:
-        color = (Color){ 235, 90, 90, 255 };
-        break;
-    case CAL_HEALTH_CHECKING:
-        color = (Color){ 250, 190, 74, 255 };
-        break;
-    default:
-        color = (Color){ 110, 122, 133, 255 };
-        break;
-    }
-    const char *cap = "GSM cal";
-    DrawText(cap, (int)(cx - 12.0f - (float)MeasureText(cap, 16)),
-             (int)cy - 8, 16, (Color){ 150, 170, 184, 255 });
-    DrawCircle((int)cx, (int)cy, 9.0f, color);
-    DrawCircleLines((int)cx, (int)cy, 9.0f, (Color){ 12, 19, 28, 255 });
-
-    if (app->drift_health == CAL_HEALTH_CHECKING) {
-        char text[96];
-        snprintf(text, sizeof(text),
-                 "Checking GSM drift on ARFCN %d...", app->gsm_cal_arfcn);
-        DrawText(text, 22, 178, 17, (Color){ 250, 190, 74, 255 });
-    } else if (app->drift_health == CAL_HEALTH_DRIFT && app->drift_notice[0]) {
-        DrawText(app->drift_notice, 22, 178, 17, (Color){ 255, 120, 120, 255 });
-    }
+    struct sdrgui_health_params params = {
+        app->drift_health, app->gsm_cal_arfcn, app->drift_notice
+    };
+    sdrgui_health_dot(&params);
 }
 
 static int run_gui(struct app *app) {
@@ -3328,6 +2710,7 @@ static int run_gui(struct app *app) {
     SetExitKey(KEY_NULL);
     SetWindowMinSize(1000, 540);
     SetTargetFPS(60);
+    configure_gui_style();
     app->plot = calculate_plot();
     if (recreate_scatter(app, app->plot) < 0)
         return -1;

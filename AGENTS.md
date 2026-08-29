@@ -67,6 +67,15 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   everything else. Prefix `gsm_`. The per-technology DSP split (a generic core
   plus reference-tone plugins, calibration-grade scope) is recorded in
   `docs/adr/0001-technology-plugin-dsp-architecture.md`.
+- `src/sdrgui.h` / `src/sdrgui.c` — reusable SDR visual components (plots,
+  waterfall, scan chart, health circle, cursor readouts) taking plain
+  data/geometry, not `struct app`. Prefix `sdrgui_`. `rtl_raylib` composes these
+  plus generic widgets; the presentation split is recorded in
+  `docs/adr/0007-gui-presentation-layer.md`.
+- `vendor/raygui.h` + `src/raygui_impl.c` — the vendored raygui immediate-mode
+  widget toolkit (pinned; compiled once in isolation, `-Ivendor`), GUI build
+  only. The DSP checks never link the GUI, so their `-lm`-only contract is
+  unaffected.
 - `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` — the deterministic,
   hardware-free DSP checks (`make check-sdr-dsp` / `check-gsm-dsp`).
 - `testfiles/modes1.bin` — raw 8-bit I/Q capture at 2 MS/s, for
