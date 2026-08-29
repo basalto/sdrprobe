@@ -2940,16 +2940,16 @@ static Rectangle gsm_scan_button(void) {
 
 static Rectangle gsm_waterfall_rect(void) {
     float width = (float)GetScreenWidth();
-    float span = (float)GetScreenHeight() - 144.0f - 40.0f;
-    return (Rectangle){ 82.0f, 144.0f, width - 112.0f, span * 0.46f };
+    float span = (float)GetScreenHeight() - 164.0f - 40.0f;
+    return (Rectangle){ 82.0f, 164.0f, width - 112.0f, span * 0.44f };
 }
 
 static Rectangle gsm_scan_rect(void) {
     float width = (float)GetScreenWidth();
-    float top = 144.0f;
+    float top = 164.0f;
     float span = (float)GetScreenHeight() - top - 40.0f;
-    float y = top + span * 0.54f;
-    float h = span * 0.40f;
+    float y = top + span * 0.44f + 82.0f; /* gap for wf caption and sch text */
+    float h = span * 0.56f - 82.0f;
     /* Leave a square constellation panel on the right. */
     float right = width - 30.0f;
     float side = h;
@@ -2961,10 +2961,10 @@ static Rectangle gsm_scan_rect(void) {
 
 static Rectangle gsm_constellation_rect(void) {
     float width = (float)GetScreenWidth();
-    float top = 144.0f;
+    float top = 164.0f;
     float span = (float)GetScreenHeight() - top - 40.0f;
-    float y = top + span * 0.54f;
-    float h = span * 0.40f;
+    float y = top + span * 0.44f + 82.0f;
+    float h = span * 0.56f - 82.0f;
     float right = width - 30.0f;
     return (Rectangle){ right - h, y, h, h };
 }
@@ -3137,7 +3137,7 @@ static void record_block(struct app *app) {
 }
 
 static Rectangle gsm_opt_button(int index) {
-    return (Rectangle){ 96.0f + (float)index * 72.0f, 118.0f, 66.0f, 20.0f };
+    return (Rectangle){ 96.0f + (float)index * 72.0f, 128.0f, 66.0f, 20.0f };
 }
 
 static void draw_gsm(struct app *app) {
@@ -3149,7 +3149,7 @@ static void draw_gsm(struct app *app) {
                 app->recording ? "Recording..." : "Record 2s",
                 app->recording);
                 
-    DrawText("Features:", 22, 120, 15, (Color){ 151, 174, 188, 255 });
+    DrawText("Features:", 22, 130, 15, (Color){ 151, 174, 188, 255 });
     draw_button(gsm_opt_button(0), "Filter", app->gsm_opt_filter);
     draw_button(gsm_opt_button(1), "FnCFO", app->gsm_opt_finecfo);
     draw_button(gsm_opt_button(2), "Trellis", app->gsm_opt_trellis);
