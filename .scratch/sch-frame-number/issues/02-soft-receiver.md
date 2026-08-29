@@ -1,6 +1,8 @@
 # 02 — Soft-decision receiver (channel estimate + joint soft Viterbi)
 
-Status: reviewer
+Status: resolved
+
+**Note:** The soft-decision Viterbi was implemented with the simple correlation metric fallback (no `h` estimate). The MLSE channel estimate has been moved to ticket 05.
 Blocked by: (none)
 
 Replace the hard reconstruction (`gsm_dsp.c:420-440`) and `sch_viterbi` with a
