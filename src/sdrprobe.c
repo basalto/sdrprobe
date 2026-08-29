@@ -3592,6 +3592,7 @@ int main(int argc, char **argv) {
     app->options = options;
     app->receiver_mode = options.file_path == NULL;
     app->remove_dc = 1;
+    app->gsm_const_amplitude = 1; /* constellation shows amplitude by default */
     app->magnitude_lower = 0.0f;
     app->magnitude_upper = 64.0f;
     app->spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;
