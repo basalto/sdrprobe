@@ -91,7 +91,7 @@ pacing. `--gain` is invalid because gain cannot change recorded samples.
 ### Updated files
 
 - `Makefile`: add optional `sdrprobe` and the `check-sdr-dsp`/`check-gsm-dsp`
-  (aggregated by `check-dsp`, aliased `check-raylib-dsp`) targets without
+  (aggregated by `check-dsp`) targets without
   changing what default `make` builds.
 - `AGENTS.md`: describe the new implementation specification.
 
@@ -463,7 +463,6 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 	./gsm_dsp_test
 
 check-dsp: check-sdr-dsp check-gsm-dsp
-check-raylib-dsp: check-dsp
 ```
 
 Extend `clean` to remove `sdrprobe`, `sdr_dsp_test`, and `gsm_dsp_test`. The
@@ -486,7 +485,7 @@ make sdrprobe
 
 ### Deterministic DSP checks
 
-`make check-raylib-dsp` must verify at least:
+`make check-dsp` must verify at least:
 
 1. Raw `127` and `128` bytes center to `-0.5` and `+0.5`.
 2. Magnitude is calculated from both centered components.

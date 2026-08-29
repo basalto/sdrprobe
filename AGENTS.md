@@ -17,9 +17,9 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 
 - `make` — builds `sdrprobe` via pkg-config; requires librtlsdr and raylib
   development headers installed.
-- `make check-raylib-dsp` — builds and runs deterministic, hardware-free DSP
-  checks; it does not require raylib. This is an alias for `make check-dsp`,
-  which runs the per-technology checks `check-sdr-dsp` (generic core),
+- `make check-dsp` — builds and runs deterministic, hardware-free DSP
+  checks; it does not require raylib. It runs the per-technology checks
+  `check-sdr-dsp` (generic core),
   `check-gsm-dsp` (GSM plugin), and `check-adsb-dsp` (Mode S / ADS-B plugin);
   each can be built and run on its own.
 - `./sdrprobe [--frequency Hz|K|M|G] [--sample-rate S/s] [--gain max|auto|dB] [--ppm N]`

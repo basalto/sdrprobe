@@ -693,7 +693,7 @@ The hardware-free DSP checks (`tests/sdr_dsp_test.c` + `tests/gsm_dsp_test.c`) v
 Run:
 
 ```sh
-make check-raylib-dsp
+make check-dsp
 ```
 
 The deterministic checks validate formulas and rejection behavior. They do
