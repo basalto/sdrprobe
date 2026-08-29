@@ -77,14 +77,19 @@ struct gsm_sch_result {
     float confidence; /* training-sequence match quality [0,1] */
 };
 
-/* The demodulated symbols of the located SCH burst, for a decode visualisation:
-   each point is a normalised differential-detection sample (clusters near
-   x = +-1 for the two bit decisions), tagged with its hard bit. */
+/* The demodulated symbols of the located SCH burst, for a decode visualisation.
+   Both the differential-detection product (conj(prev)*cur) and the derotated
+   symbol sample (s[k]*e^{-j k pi/2}, a BPSK-like constellation) are provided so
+   the UI can toggle representation and amplitude. bit is the per-symbol
+   differential decision; chan is the reconstructed channel bit. */
 struct gsm_sch_symbols {
     int count;
-    float x[GSM_SCH_BURST_BITS];
-    float y[GSM_SCH_BURST_BITS];
+    float diff_re[GSM_SCH_BURST_BITS];
+    float diff_im[GSM_SCH_BURST_BITS];
+    float rot_i[GSM_SCH_BURST_BITS];
+    float rot_q[GSM_SCH_BURST_BITS];
     uint8_t bit[GSM_SCH_BURST_BITS];
+    uint8_t chan[GSM_SCH_BURST_BITS];
 };
 
 /* Channel-encode 25 information bits (MSB first) into 78 coded bits: append the

@@ -446,8 +446,8 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
             result->confidence = best_ratio;
             decoded = 1;
 
-            /* Capture the burst's differential-detection samples for a decode
-               constellation: rotate so the two bit decisions sit near x=+-1. */
+            /* Capture the burst's symbols for a decode constellation: both the
+               differential-detection product and the derotated sample. */
             if (symbols) {
                 int first = best_pos - 42; /* burst start (3 tail bits before) */
                 if (first < 1)
@@ -456,6 +456,7 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
                 sch_interp(bi, bq, pair_count, phase0 + (double)(first - 1) * sps,
                            &prev_i, &prev_q);
                 int count = 0;
+                uint8_t chan_prev = 0;
                 for (int k = first;
                      k < first + GSM_SCH_BURST_BITS && k < nsym; k++) {
                     double si, sq;
@@ -463,12 +464,19 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
                                &sq);
                     double re = prev_i * si + prev_q * sq;
                     double im = prev_i * sq - prev_q * si;
-                    double mag = sqrt(re * re + im * im);
-                    if (mag < 1e-9)
-                        mag = 1e-9;
-                    symbols->x[count] = (float)(im / mag);  /* +-1 clusters */
-                    symbols->y[count] = (float)(-re / mag);
-                    symbols->bit[count] = (im < 0.0) ? 1u : 0u;
+                    symbols->diff_re[count] = (float)re;
+                    symbols->diff_im[count] = (float)im;
+                    /* Derotate by e^{-j k pi/2} -> BPSK-like on the real axis. */
+                    double a = -GSM_TWO_PI * (double)k / 4.0;
+                    double cr = cos(a), sr = sin(a);
+                    symbols->rot_i[count] = (float)(si * cr - sq * sr);
+                    symbols->rot_q[count] = (float)(si * sr + sq * cr);
+                    uint8_t b = (im < 0.0) ? 1u : 0u;
+                    symbols->bit[count] = b;
+                    if (best_invert)
+                        b ^= 1u;
+                    chan_prev ^= b;
+                    symbols->chan[count] = chan_prev;
                     count++;
                     prev_i = si;
                     prev_q = sq;

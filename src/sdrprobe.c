@@ -327,6 +327,8 @@ struct app {
     struct gsm_sch_symbols gsm_sch_symbols;
     int gsm_sch_valid;
     double gsm_sch_time;
+    int gsm_const_amplitude; /* constellation: show amplitude vs unit circle */
+    int gsm_const_derotated; /* constellation: derotated sample vs differential */
 
     /* Raw-I/Q recording (to build a GSM test capture). */
     FILE *record_file;
@@ -2949,6 +2951,16 @@ static Rectangle gsm_constellation_rect(void) {
     return (Rectangle){ right - h, y, h, h };
 }
 
+static Rectangle gsm_const_amp_button(void) {
+    Rectangle c = gsm_constellation_rect();
+    return (Rectangle){ c.x + c.width - 134.0f, c.y + 4.0f, 62.0f, 22.0f };
+}
+
+static Rectangle gsm_const_derot_button(void) {
+    Rectangle c = gsm_constellation_rect();
+    return (Rectangle){ c.x + c.width - 68.0f, c.y + 4.0f, 64.0f, 22.0f };
+}
+
 static int gsm_scan_arfcn_at(Vector2 point, Rectangle rect) {
     if (!CheckCollisionPointRec(point, rect))
         return 0;
@@ -3132,16 +3144,53 @@ static void draw_gsm(struct app *app) {
     sdrgui_scan_chart(&params);
 
     /* Decode constellation beside the scan chart: the SCH burst's demodulated
-       symbols, two clusters (one per bit) when the decode is clean. */
+       symbols. Toggles pick differential vs derotated and amplitude vs unit. */
     Rectangle cst = gsm_constellation_rect();
     const struct gsm_sch_symbols *sym = &app->gsm_sch_symbols;
+    int n = app->gsm_sch_valid ? sym->count : 0;
+    float cx[GSM_SCH_BURST_BITS];
+    float cy[GSM_SCH_BURST_BITS];
+    if (n > GSM_SCH_BURST_BITS)
+        n = GSM_SCH_BURST_BITS;
+    const unsigned char *color_bits =
+        app->gsm_const_derotated ? sym->chan : sym->bit;
+    /* Raw display coords per representation. */
+    float maxmag = 1e-9f;
+    for (int i = 0; i < n; i++) {
+        float rx, ry;
+        if (app->gsm_const_derotated) {
+            rx = sym->rot_i[i];
+            ry = sym->rot_q[i];
+        } else {
+            rx = sym->diff_im[i];  /* map so bit 0 (im>0) sits on the right */
+            ry = -sym->diff_re[i];
+        }
+        cx[i] = rx;
+        cy[i] = ry;
+        float mag = sqrtf(rx * rx + ry * ry);
+        if (mag > maxmag)
+            maxmag = mag;
+    }
+    for (int i = 0; i < n; i++) {
+        if (app->gsm_const_amplitude) {
+            cx[i] = cx[i] / maxmag * 1.4f; /* scale so the cloud fills the box */
+            cy[i] = cy[i] / maxmag * 1.4f;
+        } else {
+            float mag = sqrtf(cx[i] * cx[i] + cy[i] * cy[i]);
+            if (mag < 1e-9f)
+                mag = 1e-9f;
+            cx[i] /= mag; /* project onto the unit circle */
+            cy[i] /= mag;
+        }
+    }
     struct sdrgui_constellation_params cparams = {
-        cst, sym->x, sym->y, sym->bit,
-        app->gsm_sch_valid ? sym->count : 0, "SCH decoded symbols",
+        cst, cx, cy, color_bits, n, "SCH decoded symbols",
         app->scan_selected_arfcn > 0 ? "waiting for a synchronisation burst..."
                                      : "select a channel to inspect"
     };
     sdrgui_constellation(&cparams);
+    draw_button(gsm_const_amp_button(), "Amp", app->gsm_const_amplitude);
+    draw_button(gsm_const_derot_button(), "Derot", app->gsm_const_derotated);
 }
 
 static void handle_gsm_input(struct app *app) {
@@ -3164,6 +3213,14 @@ static void handle_gsm_input(struct app *app) {
     }
     if (clicked(gsm_record_button())) {
         start_record(app);
+        return;
+    }
+    if (clicked(gsm_const_amp_button())) {
+        app->gsm_const_amplitude = !app->gsm_const_amplitude;
+        return;
+    }
+    if (clicked(gsm_const_derot_button())) {
+        app->gsm_const_derotated = !app->gsm_const_derotated;
         return;
     }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
