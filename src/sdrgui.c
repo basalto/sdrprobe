@@ -803,10 +803,21 @@ void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params) {
             gutter = w;
     }
     gutter += 10.0f;
-    const float title_h = 20.0f;
+    /* The topmost y-axis label is centred on the plot's top edge, so it reaches
+       half a line above it. The strip reserved for the title has to clear the
+       title itself plus that overhang, or the two collide. */
+    const float label_font = 16.0f;
+    const float title_h = label_font          /* the title */
+                        + 6.0f                /* gap under it */
+                        + label_font / 2.0f;  /* the top label's overhang */
 
+    /* The bottom label overhangs the plot's lower edge by the same half line,
+       so reserve for it too -- otherwise the chart still draws outside the
+       rectangle it was given, just at the other end. */
+    const float bottom_h = label_font / 2.0f;
     Rectangle plot = { outer.x + gutter, outer.y + title_h,
-                       outer.width - gutter, outer.height - title_h };
+                       outer.width - gutter,
+                       outer.height - title_h - bottom_h };
     if (plot.width < 1.0f)
         plot.width = 1.0f;
     if (plot.height < 1.0f)
