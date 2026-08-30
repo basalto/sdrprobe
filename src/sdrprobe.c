@@ -155,15 +155,14 @@ struct scatter_block {
     double time;
 };
 
-#define GSM_T1_HISTORY 16
-struct gsm_sch_tracker {
-    int t1_history[GSM_T1_HISTORY];
-    int history_count;
-    int locked;
-    int last_fn;
-    double last_time;
-    int voted_t1;
-    int display_fn;
+/* The SCH decode is reported as it comes off the burst. The only running
+   memory kept is the previous T1, to notice a decode that cannot be right:
+   T1 advances once per 1326 frames (~6.1 s), so consecutive decodes seconds
+   apart must agree to within 1. This flags, it never substitutes. */
+struct gsm_sch_continuity {
+    int have_last;
+    int last_t1;
+    int implausible;
 };
 
 struct app {
@@ -306,7 +305,7 @@ struct app {
     uint32_t gsm_return_frequency;  /* view frequency to restore on leave */
     int gsm_return_valid;
     int gsm_autoselect_pending;     /* pick the best BCCH when the open-scan ends */
-    struct gsm_sch_tracker gsm_tracker;
+    struct gsm_sch_continuity gsm_continuity;
 
     /* Calibration-health indicator and background drift re-check. */
     int auto_drift_check;          /* Settings toggle: enable periodic re-check */
@@ -347,7 +346,6 @@ struct app {
     int gsm_opt_filter;
     int gsm_opt_finecfo;
     int gsm_opt_trellis;
-    int gsm_opt_tracker;
 
     /* Raw-I/Q recording (to build a GSM test capture). Written by the
        acquisition thread, so record_mutex guards every field here. */
@@ -3075,7 +3073,7 @@ static void gsm_tune_selected(struct app *app, int arfcn) {
     app->scan_selected_arfcn = arfcn;
     app->gsm_selected_hz = (double)expected;
     app->gsm_sch_valid = 0;
-    memset(&app->gsm_tracker, 0, sizeof(app->gsm_tracker));
+    memset(&app->gsm_continuity, 0, sizeof(app->gsm_continuity));
     if (app->receiver_mode) {
         if (!app->gsm_return_valid) {
             app->gsm_return_frequency = app->applied_frequency;
@@ -3087,61 +3085,11 @@ static void gsm_tune_selected(struct app *app, int arfcn) {
 
 /* Update the frame-number lock with a newly decoded SCH burst. Votes T1
    to reject sporadic data-field errors, and predicts the next frame number. */
-static void update_sch_tracker(struct gsm_sch_tracker *trk, double now,
-                               const struct gsm_sch_result *res) {
-    if (trk->history_count < GSM_T1_HISTORY) {
-        trk->t1_history[trk->history_count++] = res->t1;
-    } else {
-        memmove(&trk->t1_history[0], &trk->t1_history[1],
-                (GSM_T1_HISTORY - 1) * sizeof(int));
-        trk->t1_history[GSM_T1_HISTORY - 1] = res->t1;
-    }
-    int best_t1 = -1, max_votes = 0;
-    for (int i = 0; i < trk->history_count; i++) {
-        int t1 = trk->t1_history[i], votes = 0;
-        for (int j = 0; j < trk->history_count; j++)
-            if (trk->t1_history[j] == t1)
-                votes++;
-        if (votes > max_votes) {
-            max_votes = votes;
-            best_t1 = t1;
-        }
-    }
-    trk->voted_t1 = best_t1;
-
-    /* Reconstruct FN using the voted T1 and the decoded T2/T3. */
-    int t3 = res->t3;
-    int t2 = res->t2;
-    int fn = 51 * (((t3 + 26) - t2) % 26) + t3 + 51 * 26 * best_t1;
-
-    if (trk->locked) {
-        /* GSM frames are 120/26 ms ~ 4.615 ms. */
-        double elapsed = now - trk->last_time;
-        int delta_f = (int)round(elapsed / (120.0 / 26000.0));
-        int expected_fn = trk->last_fn + delta_f;
-        /* Allow a small tolerance for block-boundary jitter. */
-        if (abs(fn - expected_fn) <= 10) {
-            trk->display_fn = fn;
-            trk->last_fn = fn;
-            trk->last_time = now;
-        } else {
-            /* Decode doesn't fit the timeline. Fall back to counter. */
-            trk->display_fn = expected_fn;
-            trk->last_fn = expected_fn;
-            trk->last_time = now;
-        }
-    } else {
-        /* Wait for two consistent bursts to establish lock. */
-        if (trk->history_count > 1) {
-            double elapsed = now - trk->last_time;
-            int delta_f = (int)round(elapsed / (120.0 / 26000.0));
-            if (abs(fn - (trk->last_fn + delta_f)) <= 10)
-                trk->locked = 1;
-        }
-        trk->display_fn = fn;
-        trk->last_fn = fn;
-        trk->last_time = now;
-    }
+static void check_sch_continuity(struct gsm_sch_continuity *c,
+                                 const struct gsm_sch_result *res) {
+    c->implausible = c->have_last && abs(res->t1 - c->last_t1) > 1;
+    c->last_t1 = res->t1;
+    c->have_last = 1;
 }
 
 /* Attempt an SCH decode on the inspected channel's latest block. The channel
@@ -3165,7 +3113,7 @@ static void update_gsm_sch(struct app *app, double now) {
         app->gsm_sch_symbols = symbols;
         app->gsm_sch_valid = 1;
         app->gsm_sch_time = now;
-        update_sch_tracker(&app->gsm_tracker, now, &result);
+        check_sch_continuity(&app->gsm_continuity, &result);
     }
 }
 
@@ -3247,7 +3195,6 @@ static void draw_gsm(struct app *app) {
     draw_button(gsm_opt_button(0), "Filter", app->gsm_opt_filter);
     draw_button(gsm_opt_button(1), "FnCFO", app->gsm_opt_finecfo);
     draw_button(gsm_opt_button(2), "Trellis", app->gsm_opt_trellis);
-    draw_button(gsm_opt_button(3), "Tracker", app->gsm_opt_tracker);
 
     if (!app->receiver_mode)
         snprintf(text, sizeof(text),
@@ -3297,14 +3244,11 @@ static void draw_gsm(struct app *app) {
         /* SCH decode readout, printed above the bottom chart area. */
         if (app->gsm_sch_valid) {
             const struct gsm_sch_result *sch = &app->gsm_sch;
-            struct gsm_sch_tracker *trk = &app->gsm_tracker;
-            int d_fn = app->gsm_opt_tracker ? trk->display_fn : sch->frame_number;
-            int d_t1 = app->gsm_opt_tracker ? trk->voted_t1 : sch->t1;
             snprintf(text, sizeof(text),
                      "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
-                     sch->bsic, sch->ncc, sch->bcc, d_fn, d_t1,
+                     sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
                      sch->t2, sch->t3, (double)sch->confidence,
-                     (app->gsm_opt_tracker && trk->locked) ? "  [LOCKED]" : "");
+                     app->gsm_continuity.implausible ? "  [T1 JUMPED]" : "");
             DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42, 18,
                      (Color){ 120, 230, 255, 255 });
         } else if (rec_active) {
@@ -3481,12 +3425,11 @@ static void handle_gsm_input(struct app *app) {
         start_record(app);
         return;
     }
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 3; i++) {
         if (clicked(gsm_opt_button(i))) {
             if (i == 0) app->gsm_opt_filter = !app->gsm_opt_filter;
             if (i == 1) app->gsm_opt_finecfo = !app->gsm_opt_finecfo;
             if (i == 2) app->gsm_opt_trellis = !app->gsm_opt_trellis;
-            if (i == 3) app->gsm_opt_tracker = !app->gsm_opt_tracker;
             return;
         }
     }
@@ -3883,7 +3826,6 @@ int main(int argc, char **argv) {
     app->gsm_opt_filter = 1;
     app->gsm_opt_finecfo = 1;
     app->gsm_opt_trellis = 1;
-    app->gsm_opt_tracker = 1;
     app->magnitude_lower = 0.0f;
     app->magnitude_upper = 64.0f;
     app->spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;

@@ -349,78 +349,14 @@ static int self_check(void) {
     return pass;
 }
 
-#define GSM_T1_HISTORY 16
-struct gsm_sch_tracker {
-    int t1_history[GSM_T1_HISTORY];
-    int history_count;
-    int locked;
-    int last_fn;
-    double last_time;
-    int voted_t1;
-    int display_fn;
-};
-
-static void update_sch_tracker(struct gsm_sch_tracker *trk, double now,
-                               const struct gsm_sch_result *res) {
-    if (trk->history_count < GSM_T1_HISTORY) {
-        trk->t1_history[trk->history_count++] = res->t1;
-    } else {
-        memmove(&trk->t1_history[0], &trk->t1_history[1],
-                (GSM_T1_HISTORY - 1) * sizeof(int));
-        trk->t1_history[GSM_T1_HISTORY - 1] = res->t1;
-    }
-    int best_t1 = -1, max_votes = 0;
-    for (int i = 0; i < trk->history_count; i++) {
-        int t1 = trk->t1_history[i], votes = 0;
-        for (int j = 0; j < trk->history_count; j++)
-            if (trk->t1_history[j] == t1)
-                votes++;
-        if (votes > max_votes) {
-            max_votes = votes;
-            best_t1 = t1;
-        }
-    }
-    trk->voted_t1 = best_t1;
-
-    int t3 = res->t3;
-    int t2 = res->t2;
-    int fn = 51 * (((t3 + 26) - t2) % 26) + t3 + 51 * 26 * best_t1;
-
-    if (trk->locked) {
-        double elapsed = now - trk->last_time;
-        int delta_f = (int)round(elapsed / (120.0 / 26000.0));
-        int expected_fn = trk->last_fn + delta_f;
-        if (abs(fn - expected_fn) <= 10) {
-            trk->display_fn = fn;
-            trk->last_fn = fn;
-            trk->last_time = now;
-        } else {
-            trk->display_fn = expected_fn;
-            trk->last_fn = expected_fn;
-            trk->last_time = now;
-        }
-    } else {
-        if (trk->history_count > 1) {
-            double elapsed = now - trk->last_time;
-            int delta_f = (int)round(elapsed / (120.0 / 26000.0));
-            if (abs(fn - (trk->last_fn + delta_f)) <= 10)
-                trk->locked = 1;
-        }
-        trk->display_fn = fn;
-        trk->last_fn = fn;
-        trk->last_time = now;
-    }
-}
-
-/* Sweep every block, report BSIC/frame per block, and judge frame-number
-   consistency (T1 is constant over ~6 s, so it should agree across a short
-   capture; disagreement exposes the current T1/T2/T3 unreliability). */
 static void consistency_sweep(FILE *f) {
     puts("");
     puts("========================================================================");
-    puts("CONSISTENCY SWEEP  every block (BSIC is reliable; frame number is not)");
-    
-    struct gsm_sch_tracker trk={0};
+    puts("CONSISTENCY SWEEP  every block. The frame number must advance by the");
+    puts("gap between SCH bursts: 10 or 11 frames, or a sum of those where a");
+    puts("block decoded nothing.");
+
+    int prev_fn = 0, have_prev = 0;
     static unsigned char raw[BLOCK_BYTES];
     static float I[BLOCK_PAIRS], Q[BLOCK_PAIRS], M[BLOCK_PAIRS];
     int blk = 0, decoded = 0;
@@ -438,10 +374,13 @@ static void consistency_sweep(FILE *f) {
             if (r.t1 < t1_min) t1_min = r.t1;
             if (r.t1 > t1_max) t1_max = r.t1;
             
-            update_sch_tracker(&trk, (double)blk * ((double)BLOCK_PAIRS / SAMPLE_RATE_HZ), &r);
-            
-            printf("  block %2d: BSIC=%d single_burst_frame=%d (T1=%d) -> tracker_frame=%d%s\n", blk,
-                   r.bsic, r.frame_number, r.t1, trk.display_fn, trk.locked ? " [LOCKED]" : "");
+            printf("  block %2d: BSIC=%d frame=%d (T1=%d)", blk, r.bsic,
+                   r.frame_number, r.t1);
+            if (have_prev)
+                printf("  +%d frames", r.frame_number - prev_fn);
+            putchar('\n');
+            prev_fn = r.frame_number;
+            have_prev = 1;
         }
         blk++;
     }
@@ -458,10 +397,9 @@ static void consistency_sweep(FILE *f) {
     puts("  CONCLUSION");
     puts("  ---------");
     puts("  * BSIC/NCC/BCC decode reliably from the real signal.");
-    puts("  * So does the frame number: the single_burst_frame column should");
-    puts("    advance by exactly the gap between SCH bursts (10 or 11 frames,");
-    puts("    and sums of those where a block decoded nothing), and T1 should");
-    puts("    take one value or two adjacent ones across a 2 s capture.");
+    puts("  * So does the frame number: the +N frames column above should");
+    puts("    only ever show a legal SCH gap, and T1 should take one value or");
+    puts("    two adjacent ones across a 2 s capture.");
     puts("  * Until 2026-08-30 it did not, because sch_parse read the 25");
     puts("    information bits as four contiguous MSB-first fields. TS 44.018");
     puts("    10.5.2.1 scatters them: T1 is split across three runs ending at");

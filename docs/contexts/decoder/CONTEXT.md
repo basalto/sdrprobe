@@ -113,10 +113,11 @@ The compressed TDMA frame number (T1, T2, T3) carried in the SCH, from which the
 full frame number is reconstructed.
 _Avoid_: Timestamp, frame counter
 
-**Frame-number lock**:
-The minimal running memory of the SCH frame number, used to vote a constant T1
-and predict the next burst's number; it is not a scheduler or a clock.
-_Avoid_: Clock, timer, scheduler
+**Frame-number continuity check**:
+The single comparison kept between consecutive SCH decodes — that T1 has not
+moved by more than one, which it cannot over a few seconds. It flags a decode
+that cannot be right; it never substitutes a value of its own.
+_Avoid_: Lock, tracker, clock, scheduler
 
 **Burst analysis chart**:
 A time-series visualization of intermediate decoder metrics (correlation, soft bits, phase) for a single recovered burst.
