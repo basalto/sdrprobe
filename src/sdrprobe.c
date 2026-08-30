@@ -1965,7 +1965,8 @@ static void update_calibration_measurement(struct app *app) {
     int have_fcch = gsm_fcch_detect(app->i_samples, app->q_samples,
                                            app->pair_count,
                                            app->applied_sample_rate,
-                                           fcch_target, 50000.0, &fcch);
+                                           fcch_target,
+                                           GSM_FCCH_SEARCH_HALF_HZ, &fcch);
 
     /* The centroid supplies the peak/floor/prominence metrics and the
        carrier estimate used in centroid mode. */
@@ -2168,7 +2169,7 @@ static void update_scan(struct app *app) {
         double target = channel - center + GSM_FCCH_TONE_HZ;
         gsm_fcch_detect(app->i_samples, app->q_samples,
                                app->pair_count, app->applied_sample_rate,
-                               target, 50000.0, &fcch);
+                               target, GSM_FCCH_SEARCH_HALF_HZ, &fcch);
         if (fcch.confidence > app->scan_bcch_conf[arfcn])
             app->scan_bcch_conf[arfcn] = fcch.confidence;
     }
@@ -2245,8 +2246,8 @@ static void update_drift_check(struct app *app, int have_block) {
         double target = (double)app->gsm_cal_expected_hz -
                         (double)app->applied_frequency + GSM_FCCH_TONE_HZ;
         if (gsm_fcch_detect(app->i_samples, app->q_samples, app->pair_count,
-                            app->applied_sample_rate, target, 50000.0,
-                            &fcch)) {
+                            app->applied_sample_rate, target,
+                            GSM_FCCH_SEARCH_HALF_HZ, &fcch)) {
             double carrier = (double)app->applied_frequency +
                              fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
             app->drift_recent_ppm[app->drift_recent_count++] =

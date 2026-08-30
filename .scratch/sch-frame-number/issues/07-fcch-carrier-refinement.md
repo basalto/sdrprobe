@@ -56,10 +56,32 @@ The real-capture test's decode floors went from 5 and 10 to 25 and 25. Slack
 floors would have hidden this. Rebuilding the test with the window back at
 100 kHz now fails: "only 16 blocks decoded (expected >=25)".
 
-## Note
+## The other callers, and why the bug was possible at all
+
+Checked, and they were fine: the calibration, scan and drift paths in
+`src/sdrprobe.c` all already passed 50 kHz. `gsm_sch_decode` was the only site
+at 100 kHz. But that is the interesting part — the value was a bare `50000.0`
+repeated at four call sites with nothing saying what it meant, so the one site
+that disagreed looked no different from the ones that agreed.
+
+Two changes so it cannot drift apart again:
+
+- `GSM_FCCH_SEARCH_HALF_HZ` in `gsm_dsp.h`, used by every caller including the
+  chain probe, with the reasoning at the definition: what the bound represents
+  (how far the receiver may plausibly be off), what it is in ppm, and what
+  happens if it is widened.
+- `gsm_fcch_detect`'s parameter renamed `search_window_hz` →
+  `search_half_width_hz`. "Window" reads as a full width, and passing 100 kHz
+  meaning "±50 kHz" is exactly the mistake that was made. Note
+  `sdr_dsp_estimate_channel_center` next door already names its equivalents
+  `coarse_half_width_hz` / `fine_half_width_hz` — the FCCH detector was the odd
+  one out.
+
+The chain probe had also drifted: its STAGE 2 walkthrough passed 100 kHz of its
+own, so the carrier it printed was not necessarily the one the library used.
+A diagnostic that quietly disagrees with the code it documents is worse than no
+diagnostic. It now uses the shared constant.
 
 Same shape as the field-layout bug in [[06-frame-number-diagnosis]]: a stage
-trusting an upstream result it never checked. Worth asking of the other
-consumers of `gsm_fcch_detect` — the calibration and drift paths in
-`src/sdrprobe.c` — whether a tone tens of kHz from expectation should be
-accepted there either, or at least surfaced.
+trusting an upstream result it never checked, with a duplicated definition
+letting the copies disagree.

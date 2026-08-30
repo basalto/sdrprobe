@@ -25,6 +25,19 @@
    carrier centre. */
 #define GSM_FCCH_TONE_HZ (1625000.0 / 24.0)
 
+/* How far from its expected place the FCCH tone may be looked for: a bound on
+   how far the receiver's own tuning may plausibly be off. 50 kHz is about
+   53 ppm at GSM 900 -- generous for an RTL-SDR, and more so once a PPM
+   correction has been applied.
+
+   This is a HALF-width, so it must not be raised casually. Search wider and
+   the detector will accept whatever narrowband component happens to be the
+   most tone-like out there, report high coherence for it, and hand back a
+   carrier estimate tens of kHz wrong; nothing about the result says it is
+   implausible. At +-100 kHz that cost 14 of 30 blocks on
+   testfiles/gsm_arfcn_73.bin. */
+#define GSM_FCCH_SEARCH_HALF_HZ 50000.0
+
 struct gsm_fcch_result {
     int detected;
     double tone_frequency_hz; /* baseband; caller maps to the RF carrier */
@@ -42,7 +55,7 @@ int gsm_downlink_hz(unsigned int arfcn, uint32_t *frequency_hz);
    coherence found even when it does not. */
 int gsm_fcch_detect(const float *i_samples, const float *q_samples,
                     size_t pair_count, double sample_rate,
-                    double target_offset_hz, double search_window_hz,
+                    double target_offset_hz, double search_half_width_hz,
                     struct gsm_fcch_result *result);
 
 /*
