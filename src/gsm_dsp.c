@@ -198,6 +198,41 @@ static void sch_viterbi(const uint8_t e[GSM_SCH_CODED_BITS],
     }
 }
 
+/* Positions of each field's bits within the 25 SCH information bits, most
+   significant first (3GPP TS 44.018 10.5.2.1). The fields are NOT contiguous:
+   T1 is split across three runs and its least significant bit sits at d[23],
+   while T3's least significant bit sits at the very end, d[24]. Matches the
+   extraction in gr-gsm lib/decoding/sch.c and E3V3A/gsm-parser sch.c.
+
+   Reading these as four contiguous MSB-first fields -- which this file did
+   until 2026-08-30 -- yields a self-consistent but wrong BSIC and a frame
+   number that does not advance with time. */
+static const int sch_bsic_bits[6] = { 7, 6, 5, 4, 3, 2 };
+static const int sch_t1_bits[11] = { 1, 0, 15, 14, 13, 12, 11, 10, 9, 8, 23 };
+static const int sch_t2_bits[5] = { 22, 21, 20, 19, 18 };
+static const int sch_t3p_bits[3] = { 17, 16, 24 };
+
+static int sch_field(const uint8_t d[GSM_SCH_INFO_BITS], const int *bits,
+                     int count) {
+    int value = 0;
+    for (int i = 0; i < count; i++)
+        value = (value << 1) | (d[bits[i]] & 1u);
+    return value;
+}
+
+void gsm_sch_pack_info(int bsic, int t1, int t2, int t3p,
+                       uint8_t info_bits[GSM_SCH_INFO_BITS]) {
+    memset(info_bits, 0, GSM_SCH_INFO_BITS);
+    for (int i = 0; i < 6; i++)
+        info_bits[sch_bsic_bits[i]] = (uint8_t)((bsic >> (5 - i)) & 1);
+    for (int i = 0; i < 11; i++)
+        info_bits[sch_t1_bits[i]] = (uint8_t)((t1 >> (10 - i)) & 1);
+    for (int i = 0; i < 5; i++)
+        info_bits[sch_t2_bits[i]] = (uint8_t)((t2 >> (4 - i)) & 1);
+    for (int i = 0; i < 3; i++)
+        info_bits[sch_t3p_bits[i]] = (uint8_t)((t3p >> (2 - i)) & 1);
+}
+
 /* Verify parity and parse BSIC + reduced frame number from 39 decoded bits. */
 static int sch_parse(const uint8_t u[GSM_SCH_UNCODED_BITS],
                      struct gsm_sch_result *result) {
@@ -210,18 +245,10 @@ static int sch_parse(const uint8_t u[GSM_SCH_UNCODED_BITS],
         if (p_expected[j] != (u[GSM_SCH_INFO_BITS + j] & 1u))
             return 0;
 
-    int bsic = 0;
-    for (int i = 0; i < 6; i++)
-        bsic = (bsic << 1) | d[i];
-    int t1 = 0;
-    for (int i = 6; i < 17; i++)
-        t1 = (t1 << 1) | d[i];
-    int t2 = 0;
-    for (int i = 17; i < 22; i++)
-        t2 = (t2 << 1) | d[i];
-    int t3p = 0;
-    for (int i = 22; i < 25; i++)
-        t3p = (t3p << 1) | d[i];
+    int bsic = sch_field(d, sch_bsic_bits, 6);
+    int t1 = sch_field(d, sch_t1_bits, 11);
+    int t2 = sch_field(d, sch_t2_bits, 5);
+    int t3p = sch_field(d, sch_t3p_bits, 3);
     /* Valid SCH timing: T2 in 0..25, T3' in 0..4 (T3 in {1,11,21,31,41}).
        An out-of-range value means a residual bit error slipped past the 10-bit
        parity, so reject it. */

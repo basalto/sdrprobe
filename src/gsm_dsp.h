@@ -97,6 +97,13 @@ struct gsm_sch_symbols {
     uint8_t chan[GSM_SCH_BURST_BITS];
 };
 
+/* Pack a BSIC and a reduced frame number (T1, T2, T3') into the 25 SCH
+   information bits, using the scattered field layout of 3GPP TS 44.018
+   10.5.2.1. Exposed so that anything building a burst uses the same bit
+   positions the decoder reads, rather than its own inverse of them. */
+void gsm_sch_pack_info(int bsic, int t1, int t2, int t3p,
+                       uint8_t info_bits[GSM_SCH_INFO_BITS]);
+
 /* Channel-encode 25 information bits (MSB first) into 78 coded bits: append the
    10-bit parity and 4 tail bits, then the rate-1/2 K=5 convolutional code. */
 void gsm_sch_encode(const uint8_t info_bits[GSM_SCH_INFO_BITS],
