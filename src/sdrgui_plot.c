@@ -2,6 +2,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 /*
  * Primitives every chart uses: cursor hit-testing and its readout box, the
@@ -86,4 +87,33 @@ Rectangle sdrgui_chart_area(Rectangle outer, float gutter,
     if (plot.height < 1.0f)
         plot.height = 1.0f;
     return plot;
+}
+
+/* Draw `text` at (x, y), shortened with an ellipsis if it will not fit in
+   `max_width`.
+ *
+ * The status lines run left-to-right from the window's left edge while the
+ * Settings, Calibration and View buttons are anchored to its right, so on a
+ * narrow window a long source path or notice used to run underneath them.
+ * Neither side can move -- the text is as long as the state it reports -- so
+ * the text gives way. */
+void sdrgui_text_fit(const char *text, int x, int y, int size, float max_width,
+                     Color color) {
+    if (max_width <= 0.0f)
+        return;
+    if ((float)MeasureText(text, size) <= max_width) {
+        DrawText(text, x, y, size, color);
+        return;
+    }
+    char buffer[512];
+    size_t len = strlen(text);
+    if (len >= sizeof(buffer))
+        len = sizeof(buffer) - 1;
+    while (len > 0) {
+        snprintf(buffer, sizeof(buffer), "%.*s...", (int)len, text);
+        if ((float)MeasureText(buffer, size) <= max_width)
+            break;
+        len--;
+    }
+    DrawText(buffer, x, y, size, color);
 }

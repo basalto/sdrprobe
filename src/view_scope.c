@@ -295,6 +295,13 @@ static const char *view_name(enum view_kind view) {
     return "magnitude";
 }
 
+/* The Settings and Calibration buttons are anchored to the right edge; the HUD
+   runs from the left. This is the room between them. */
+static float hud_width(void) {
+    float limit = (float)GetScreenWidth() - 130.0f - 12.0f - 22.0f;
+    return limit > 0.0f ? limit : 0.0f;
+}
+
 void draw_base_hud(const struct app *app,
                            const struct slot_snapshot *snapshot) {
     char text[640];
@@ -314,25 +321,25 @@ void draw_base_hud(const struct app *app,
 
     snprintf(text, sizeof(text), "source: %s   state: %s", app->source_label,
              state);
-    DrawText(text, 22, 78, 17, (Color){ 187, 205, 216, 255 });
+    sdrgui_text_fit(text, 22, 78, 17, hud_width(), (Color){ 187, 205, 216, 255 });
     snprintf(text, sizeof(text),
               "center: %.6f MHz   rate: %u S/s   gain: %s   PPM: %+d   DC filter: %s   view: %s   FPS: %d",
               app->applied_frequency / 1000000.0, app->applied_sample_rate,
               gain, app->applied_ppm, app->remove_dc ? "on" : "off",
               view_name(app->view), GetFPS());
-    DrawText(text, 22, 103, 17, (Color){ 187, 205, 216, 255 });
+    sdrgui_text_fit(text, 22, 103, 17, hud_width(), (Color){ 187, 205, 216, 255 });
     snprintf(text, sizeof(text),
              "blocks published: %llu   processed: %llu   overwritten: %llu   malformed: %llu   worker: %s",
              (unsigned long long)snapshot->published_blocks,
              (unsigned long long)snapshot->processed_blocks,
              (unsigned long long)snapshot->overwritten_blocks,
              (unsigned long long)snapshot->malformed_blocks, state);
-    DrawText(text, 22, 128, 17, (Color){ 187, 205, 216, 255 });
+    sdrgui_text_fit(text, 22, 128, 17, hud_width(), (Color){ 187, 205, 216, 255 });
 
     if (snapshot->worker_failed) {
         snprintf(text, sizeof(text), "acquisition error: %s",
                  snapshot->worker_error);
-        DrawText(text, 22, 154, 17, (Color){ 255, 104, 104, 255 });
+        sdrgui_text_fit(text, 22, 154, 17, hud_width(), (Color){ 255, 104, 104, 255 });
     } else if (!app->have_samples) {
         DrawText("waiting for samples", 22, 154, 17,
                   (Color){ 250, 190, 74, 255 });
@@ -353,7 +360,7 @@ void draw_base_hud(const struct app *app,
                  stats->noise_magnitude, stats->signal_magnitude,
                  stats->snr_db, stats->clipping_percent,
                  stats->headroom_db, quality);
-        DrawText(text, 22, 154, 17, quality_color);
+        sdrgui_text_fit(text, 22, 154, 17, hud_width(), quality_color);
     }
 }
 
