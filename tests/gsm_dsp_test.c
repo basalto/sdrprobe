@@ -213,6 +213,118 @@ static void test_sch_decode(void) {
    that a soft-decision trellis would remove); BSIC/NCC/BCC are reliable. Skips
    gracefully when the capture is absent. */
 #define GSM_REAL_BLOCK (16 * 16384)
+
+/* Deterministic PRNG so the synthetic channel is byte-identical every run. */
+static unsigned long long sch_rng;
+static double sch_urand(void) {
+    sch_rng = sch_rng * 6364136223846793005ULL + 1442695040888963407ULL;
+    return (double)((sch_rng >> 11) & 0x1FFFFFFFFFFFFFULL) / 9007199254740992.0;
+}
+static double sch_gauss(void) {
+    double u1 = sch_urand(), u2 = sch_urand();
+    if (u1 < 1e-12) u1 = 1e-12;
+    return sqrt(-2.0 * log(u1)) * cos(2.0 * PI_F * u2);
+}
+
+/* Known fields -> encode -> MSK modulate -> a symbol-spaced 3-tap ISI channel
+   -> AWGN -> decode, over many random bursts. `gsm_sch_modulate` stays an
+   idealised modulator; the channel lives here in the test, so the taps can be
+   the ones actually measured on testfiles/gsm_arfcn_69.bin and the noise can
+   be referenced to the burst's own RMS (a per-sample SNR that means
+   something). Also compares the soft-decision trellis against the hard
+   fallback on the very same bursts. */
+#define SCH_SYN_PAIRS 20000
+#define SCH_SYN_START 4000
+#define SCH_SYN_TRIALS 60
+#define SCH_SYN_SNR_DB 3.0
+
+static void test_sch_synthetic_channel(void) {
+    float *ci = malloc(SCH_SYN_PAIRS * sizeof(*ci));
+    float *cq = malloc(SCH_SYN_PAIRS * sizeof(*cq));
+    float *ni = malloc(SCH_SYN_PAIRS * sizeof(*ni));
+    float *nq = malloc(SCH_SYN_PAIRS * sizeof(*nq));
+    if (!ci || !cq || !ni || !nq) {
+        fprintf(stderr, "synthetic-channel allocation failed\n");
+        exit(2);
+    }
+    const double fs = 2000000.0, offset = 400000.0;
+    const double taps[3] = { 0.197, 0.928, 0.316 }; /* measured on ARFCN 69 */
+    const int sps = (int)(fs / GSM_SYMBOL_RATE_HZ + 0.5);
+    int soft_ok = 0, hard_ok = 0;
+
+    sch_rng = 20260830ULL;
+    for (int t = 0; t < SCH_SYN_TRIALS; t++) {
+        int bsic = (int)(sch_urand() * 64);
+        int t1 = (int)(sch_urand() * 2048);
+        int t2 = (int)(sch_urand() * 26);
+        int t3p = (int)(sch_urand() * 5);
+        int t3 = 10 * t3p + 1;
+        int fn = 51 * (((t3 + 26) - t2) % 26) + t3 + 51 * 26 * t1;
+
+        uint8_t info[GSM_SCH_INFO_BITS], coded[GSM_SCH_CODED_BITS];
+        gsm_sch_pack_info(bsic, t1, t2, t3p, info);
+        gsm_sch_encode(info, coded);
+
+        for (int n = 0; n < SCH_SYN_PAIRS; n++) { ci[n] = 0.0f; cq[n] = 0.0f; }
+        size_t wrote = gsm_sch_modulate(coded, fs, offset, SCH_SYN_START,
+                                        ci, cq, SCH_SYN_PAIRS);
+        if (!wrote) {
+            fprintf(stderr, "synthetic-channel: modulation produced nothing\n");
+            failures++;
+            break;
+        }
+        double energy = 0.0;
+        for (size_t n = SCH_SYN_START; n < SCH_SYN_START + wrote &&
+                                       n < SCH_SYN_PAIRS; n++)
+            energy += ci[n] * ci[n] + cq[n] * cq[n];
+        double rms = sqrt(energy / (double)wrote / 2.0);
+        double sigma = rms / pow(10.0, SCH_SYN_SNR_DB / 20.0);
+
+        for (int n = 0; n < SCH_SYN_PAIRS; n++) {
+            double ai = 0.0, aq = 0.0;
+            for (int l = 0; l < 3; l++) {
+                int idx = n - (l - 1) * sps;
+                if (idx < 0 || idx >= SCH_SYN_PAIRS)
+                    continue;
+                ai += taps[l] * ci[idx];
+                aq += taps[l] * cq[idx];
+            }
+            ni[n] = (float)(ai + sigma * sch_gauss());
+            nq[n] = (float)(aq + sigma * sch_gauss());
+        }
+
+        struct gsm_sch_result r;
+        uint32_t soft = GSM_OPT_FILTER | GSM_OPT_FINECFO | GSM_OPT_TRELLIS;
+        if (gsm_sch_decode(ni, nq, SCH_SYN_PAIRS, fs, offset, soft, &r, NULL) &&
+            r.bsic == bsic && r.t1 == t1 && r.t2 == t2 && r.frame_number == fn)
+            soft_ok++;
+        if (gsm_sch_decode(ni, nq, SCH_SYN_PAIRS, fs, offset,
+                           GSM_OPT_FILTER | GSM_OPT_FINECFO, &r, NULL) &&
+            r.bsic == bsic && r.t1 == t1 && r.t2 == t2 && r.frame_number == fn)
+            hard_ok++;
+    }
+    free(ci); free(cq); free(ni); free(nq);
+
+    /* Every field, not just the BSIC: through ISI and noise the decoder must
+       recover the frame number too. Measured 60/60 soft against 45/60 hard at
+       3 dB, so the thresholds leave room without being vacuous. */
+    if (soft_ok * 100 < SCH_SYN_TRIALS * 95) {
+        fprintf(stderr,
+                "synthetic-channel: soft decode recovered every field on "
+                "%d/%d bursts (expected >=95%%)\n", soft_ok, SCH_SYN_TRIALS);
+        failures++;
+    }
+    /* The soft trellis exists to beat the hard-decision fallback; if it ever
+       stops doing so on the same bursts, it is not earning its complexity. */
+    if (soft_ok <= hard_ok) {
+        fprintf(stderr,
+                "synthetic-channel: soft decode %d/%d did not beat the hard "
+                "path %d/%d\n", soft_ok, SCH_SYN_TRIALS, hard_ok,
+                SCH_SYN_TRIALS);
+        failures++;
+    }
+}
+
 /* Decode every block of a real capture and check the result against what the
    signal itself must satisfy: one cell's BSIC throughout, and a frame number
    that tracks real time. A wrong field layout in sch_parse still round-trips
@@ -308,6 +420,7 @@ int main(void) {
     test_cellular_calibration();
     test_fcch_detection();
     test_sch_decode();
+    test_sch_synthetic_channel();
     /* Two independent cells: the layout fix was derived from ARFCN 69, so
        ARFCN 73 is the capture that checks it generalises. */
     check_real_capture("testfiles/gsm_arfcn_69.bin", 59, 7, 3, 5);
