@@ -31,13 +31,13 @@ static Rectangle adsb_log_rect(void) {
 }
 
 static void adsb_log_push(struct app *app, const struct adsb_log_entry *entry) {
-    int keep = app->adsb_log_count < ADSB_LOG_CAPACITY ? app->adsb_log_count
+    int keep = app->adsb.log_count < ADSB_LOG_CAPACITY ? app->adsb.log_count
                                                        : ADSB_LOG_CAPACITY - 1;
-    memmove(&app->adsb_log[1], &app->adsb_log[0],
-            (size_t)keep * sizeof(app->adsb_log[0]));
-    app->adsb_log[0] = *entry;
-    if (app->adsb_log_count < ADSB_LOG_CAPACITY)
-        app->adsb_log_count++;
+    memmove(&app->adsb.log[1], &app->adsb.log[0],
+            (size_t)keep * sizeof(app->adsb.log[0]));
+    app->adsb.log[0] = *entry;
+    if (app->adsb.log_count < ADSB_LOG_CAPACITY)
+        app->adsb.log_count++;
 }
 
 static void adsb_format(const struct adsb_message *msg,
@@ -92,24 +92,24 @@ static void adsb_format(const struct adsb_message *msg,
 void update_adsb(struct app *app, double now) {
     if (!app->have_samples || app->pair_count == 0)
         return;
-    size_t count = adsb_demod(&app->adsb_decoder, app->magnitudes,
-                              app->pair_count, now, app->adsb_scratch,
-                              sizeof(app->adsb_scratch) /
-                                  sizeof(app->adsb_scratch[0]));
+    size_t count = adsb_demod(&app->adsb.decoder, app->magnitudes,
+                              app->pair_count, now, app->adsb.scratch,
+                              sizeof(app->adsb.scratch) /
+                                  sizeof(app->adsb.scratch[0]));
     size_t emitted = count;
-    size_t capacity = sizeof(app->adsb_scratch) / sizeof(app->adsb_scratch[0]);
+    size_t capacity = sizeof(app->adsb.scratch) / sizeof(app->adsb.scratch[0]);
     if (emitted > capacity)
         emitted = capacity;
     /* Fade the previous rows' highlight before adding new ones. */
-    for (int i = 0; i < app->adsb_log_count; i++)
-        app->adsb_log[i].highlight = 0;
+    for (int i = 0; i < app->adsb.log_count; i++)
+        app->adsb.log[i].highlight = 0;
     for (size_t i = 0; i < emitted; i++) {
         struct adsb_log_entry entry;
-        adsb_format(&app->adsb_scratch[i], &entry, now);
+        adsb_format(&app->adsb.scratch[i], &entry, now);
         adsb_log_push(app, &entry);
-        app->adsb_frames_total++;
-        if (app->adsb_scratch[i].has_position)
-            app->adsb_positions_total++;
+        app->adsb.frames_total++;
+        if (app->adsb.scratch[i].has_position)
+            app->adsb.positions_total++;
     }
 }
 
@@ -128,8 +128,8 @@ void draw_adsb(struct app *app) {
     char text[160];
     snprintf(text, sizeof(text),
              "1090 MHz extended squitter   frames decoded: %llu   positions: %llu",
-             (unsigned long long)app->adsb_frames_total,
-             (unsigned long long)app->adsb_positions_total);
+             (unsigned long long)app->adsb.frames_total,
+             (unsigned long long)app->adsb.positions_total);
     DrawText(text, 22, 88, 17, (Color){ 187, 205, 216, 255 });
 
     if (!adsb_tuned(app)) {
@@ -142,16 +142,16 @@ void draw_adsb(struct app *app) {
     }
 
     struct sdrgui_message_log_row rows[ADSB_LOG_CAPACITY];
-    for (int i = 0; i < app->adsb_log_count; i++) {
-        rows[i].time = app->adsb_log[i].stamp;
-        rows[i].icao = app->adsb_log[i].icao;
-        rows[i].label = app->adsb_log[i].label;
-        rows[i].detail = app->adsb_log[i].detail;
-        rows[i].raw = app->adsb_log[i].raw;
-        rows[i].highlight = app->adsb_log[i].highlight;
+    for (int i = 0; i < app->adsb.log_count; i++) {
+        rows[i].time = app->adsb.log[i].stamp;
+        rows[i].icao = app->adsb.log[i].icao;
+        rows[i].label = app->adsb.log[i].label;
+        rows[i].detail = app->adsb.log[i].detail;
+        rows[i].raw = app->adsb.log[i].raw;
+        rows[i].highlight = app->adsb.log[i].highlight;
     }
     struct sdrgui_message_log_params params = {
-        adsb_log_rect(), rows, app->adsb_log_count,
+        adsb_log_rect(), rows, app->adsb.log_count,
         "Decoded messages (newest first)",
         app->have_samples ? "Listening for Mode S frames..."
                           : "Waiting for samples..."

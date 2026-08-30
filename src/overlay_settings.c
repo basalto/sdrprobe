@@ -19,40 +19,40 @@
  */
 
 void open_settings(struct app *app) {
-    snprintf(app->settings_frequency, sizeof(app->settings_frequency), "%u",
+    snprintf(app->set.frequency, sizeof(app->set.frequency), "%u",
              app->applied_frequency);
-    app->settings_frequency_length = (int)strlen(app->settings_frequency);
-    snprintf(app->settings_ppm, sizeof(app->settings_ppm), "%d",
+    app->set.frequency_length = (int)strlen(app->set.frequency);
+    snprintf(app->set.ppm, sizeof(app->set.ppm), "%d",
              app->applied_ppm);
-    app->settings_ppm_length = (int)strlen(app->settings_ppm);
-    app->settings_focus = 0;
-    app->settings_gain_choice = 0;
+    app->set.ppm_length = (int)strlen(app->set.ppm);
+    app->set.focus = 0;
+    app->set.gain_choice = 0;
     if (app->receiver_mode && app->applied_manual_gain) {
         for (int i = 0; i < app->supported_gain_count; i++)
             if (app->supported_gains[i] == app->applied_gain_tenths)
-                app->settings_gain_choice = i + 1;
+                app->set.gain_choice = i + 1;
     }
     app->settings_error[0] = '\0';
-    app->settings_remove_dc = app->remove_dc;
-    app->settings_auto_drift = app->auto_drift_check;
+    app->set.remove_dc = app->remove_dc;
+    app->set.auto_drift = app->auto_drift_check;
     app->settings_open = 1;
 }
 
 int apply_settings(struct app *app) {
     uint32_t frequency;
     int ppm;
-    if (parse_frequency(app->settings_frequency, &frequency) < 0) {
+    if (parse_frequency(app->set.frequency, &frequency) < 0) {
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "Use Hz or a K/M/G value, for example 1090M");
         return -1;
     }
-    if (parse_int(app->settings_ppm, &ppm) < 0 || ppm < -1000 || ppm > 1000) {
+    if (parse_int(app->set.ppm, &ppm) < 0 || ppm < -1000 || ppm > 1000) {
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "PPM must be a signed integer from -1000 to 1000");
         return -1;
     }
 
-    app->auto_drift_check = app->settings_auto_drift;
+    app->auto_drift_check = app->set.auto_drift;
     /* A manual PPM change is no longer FCCH-backed: drop to grey. */
     if (app->gsm_cal_valid && ppm != app->gsm_cal_ppm) {
         app->gsm_cal_valid = 0;
@@ -66,7 +66,7 @@ int apply_settings(struct app *app) {
         app->options.frequency = frequency;
         app->options.ppm = ppm;
         app->applied_ppm = ppm;
-        app->remove_dc = app->settings_remove_dc;
+        app->remove_dc = app->set.remove_dc;
         app->spectrum_ready = 0;
         app->spectrum_peak_ready = 0;
         if (recreate_waterfall(app, app->plot, 1) < 0) {
@@ -77,8 +77,8 @@ int apply_settings(struct app *app) {
         return 0;
     }
 
-    int manual = app->settings_gain_choice > 0;
-    int gain = manual ? app->supported_gains[app->settings_gain_choice - 1] : 0;
+    int manual = app->set.gain_choice > 0;
+    int gain = manual ? app->supported_gains[app->set.gain_choice - 1] : 0;
     int old_manual = app->applied_manual_gain;
     int old_gain = app->applied_gain_tenths;
     int old_ppm = app->applied_ppm;
@@ -129,7 +129,7 @@ int apply_settings(struct app *app) {
     app->options.frequency = frequency;
     app->options.ppm = ppm;
     app->applied_ppm = rtlsdr_get_freq_correction(app->dev);
-    app->remove_dc = app->settings_remove_dc;
+    app->remove_dc = app->set.remove_dc;
     app->spectrum_ready = 0;
     app->spectrum_peak_ready = 0;
     if (recreate_waterfall(app, app->plot, 1) < 0) {
@@ -182,54 +182,54 @@ void handle_settings_input(struct app *app) {
 
     int character;
     while ((character = GetCharPressed()) != 0) {
-        if (app->settings_focus == 0) {
+        if (app->set.focus == 0) {
             int valid = (character >= '0' && character <= '9') ||
                         character == '.' || character == 'k' ||
                         character == 'K' || character == 'm' ||
                         character == 'M' || character == 'g' ||
                         character == 'G';
-            if (valid && app->settings_frequency_length <
-                             (int)sizeof(app->settings_frequency) - 1) {
-                app->settings_frequency[app->settings_frequency_length++] =
+            if (valid && app->set.frequency_length <
+                             (int)sizeof(app->set.frequency) - 1) {
+                app->set.frequency[app->set.frequency_length++] =
                     (char)character;
-                app->settings_frequency[app->settings_frequency_length] = '\0';
+                app->set.frequency[app->set.frequency_length] = '\0';
             }
         } else {
             int valid = (character >= '0' && character <= '9') ||
-                        (character == '-' && app->settings_ppm_length == 0);
-            if (valid && app->settings_ppm_length <
-                             (int)sizeof(app->settings_ppm) - 1) {
-                app->settings_ppm[app->settings_ppm_length++] =
+                        (character == '-' && app->set.ppm_length == 0);
+            if (valid && app->set.ppm_length <
+                             (int)sizeof(app->set.ppm) - 1) {
+                app->set.ppm[app->set.ppm_length++] =
                     (char)character;
-                app->settings_ppm[app->settings_ppm_length] = '\0';
+                app->set.ppm[app->set.ppm_length] = '\0';
             }
         }
     }
     if (IsKeyPressed(KEY_BACKSPACE)) {
-        if (app->settings_focus == 0 && app->settings_frequency_length > 0)
-            app->settings_frequency[--app->settings_frequency_length] = '\0';
-        if (app->settings_focus == 1 && app->settings_ppm_length > 0)
-            app->settings_ppm[--app->settings_ppm_length] = '\0';
+        if (app->set.focus == 0 && app->set.frequency_length > 0)
+            app->set.frequency[--app->set.frequency_length] = '\0';
+        if (app->set.focus == 1 && app->set.ppm_length > 0)
+            app->set.ppm[--app->set.ppm_length] = '\0';
     }
     if (clicked(frequency))
-        app->settings_focus = 0;
+        app->set.focus = 0;
     if (clicked(ppm))
-        app->settings_focus = 1;
+        app->set.focus = 1;
 
     if (app->receiver_mode && clicked(gain_previous)) {
-        app->settings_gain_choice--;
-        if (app->settings_gain_choice < 0)
-            app->settings_gain_choice = app->supported_gain_count;
+        app->set.gain_choice--;
+        if (app->set.gain_choice < 0)
+            app->set.gain_choice = app->supported_gain_count;
     }
     if (app->receiver_mode && clicked(gain_next)) {
-        app->settings_gain_choice++;
-        if (app->settings_gain_choice > app->supported_gain_count)
-            app->settings_gain_choice = 0;
+        app->set.gain_choice++;
+        if (app->set.gain_choice > app->supported_gain_count)
+            app->set.gain_choice = 0;
     }
     if (clicked(dc_toggle))
-        app->settings_remove_dc = !app->settings_remove_dc;
+        app->set.remove_dc = !app->set.remove_dc;
     if (clicked(drift_toggle))
-        app->settings_auto_drift = !app->settings_auto_drift;
+        app->set.auto_drift = !app->set.auto_drift;
     if (clicked(cancel)) {
         app->settings_open = 0;
         return;
@@ -271,21 +271,21 @@ void draw_settings(const struct app *app) {
     DrawText("Center frequency (Hz or K/M/G)", (int)frequency.x,
              (int)frequency.y - 23,
              17, (Color){ 166, 188, 201, 255 });
-    sdrgui_text_field(frequency, app->settings_frequency,
-                      app->settings_focus == 0);
+    sdrgui_text_field(frequency, app->set.frequency,
+                      app->set.focus == 0);
     DrawText("PPM", (int)ppm.x, (int)ppm.y - 23, 17,
              (Color){ 166, 188, 201, 255 });
-    sdrgui_text_field(ppm, app->settings_ppm, app->settings_focus == 1);
+    sdrgui_text_field(ppm, app->set.ppm, app->set.focus == 1);
 
     DrawText("Gain", (int)panel.x + 28, (int)panel.y + 137, 17,
              (Color){ 166, 188, 201, 255 });
     if (!app->receiver_mode) {
         snprintf(gain, sizeof(gain), "capture (not adjustable)");
-    } else if (app->settings_gain_choice == 0) {
+    } else if (app->set.gain_choice == 0) {
         snprintf(gain, sizeof(gain), "automatic");
     } else {
         snprintf(gain, sizeof(gain), "%.1f dB",
-                 app->supported_gains[app->settings_gain_choice - 1] / 10.0);
+                 app->supported_gains[app->set.gain_choice - 1] / 10.0);
     }
     if (app->receiver_mode) {
         draw_button(gain_previous, "<", 0);
@@ -295,11 +295,11 @@ void draw_settings(const struct app *app) {
              (int)(panel.x + (panel.width - MeasureText(gain, 20)) / 2.0f),
              (int)panel.y + 173, 20, (Color){ 235, 242, 246, 255 });
 
-    bool dc_checked = app->settings_remove_dc;
+    bool dc_checked = app->set.remove_dc;
     GuiCheckBox(dc_toggle, "Remove DC spike from spectrum and waterfall",
                 &dc_checked);
 
-    bool drift_checked = app->settings_auto_drift;
+    bool drift_checked = app->set.auto_drift;
     GuiCheckBox(drift_toggle, "Auto GSM drift check (periodic re-tune)",
                 &drift_checked);
 
