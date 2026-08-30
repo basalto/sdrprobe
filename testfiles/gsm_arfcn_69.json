@@ -1,0 +1,22 @@
+{
+  "provenance": "reconstructed 2026-08-30, after the sidecar was added. The capture predates it, so only the fields below with values are known; the nulls were never recorded and are NOT guessed.",
+  "format": "unsigned 8-bit interleaved I/Q, 127.5 = zero",
+  "center_frequency_hz": 948400000,
+  "sample_rate_hz": 2000000,
+  "gain_db": null,
+  "ppm": null,
+  "gsm_arfcn": 69,
+  "carrier_offset_hz": 400000,
+  "source": "sdrprobe Record button (the byte count is exactly 31 x 262144, that path's signature)",
+  "tuner": null,
+  "started_at": null,
+  "duration_seconds": 2.031616,
+  "bytes": 8126464,
+  "short_blocks": null,
+  "decodes_to": "BSIC 59 (NCC 7, BCC 3), T1 793..794, 31/31 blocks",
+  "notes": [
+    "center_frequency_hz is 948.8 MHz (ARFCN 69) minus the 400 kHz the GSM view tunes below the channel, as recorded in AGENTS.md; the carrier therefore sits 400 kHz above centre.",
+    "sample_rate_hz is corroborated rather than merely assumed: the SCH training sequence only correlates at 2 MS/s, and the byte count is a whole number of 256 KB acquisition blocks.",
+    "short_blocks is null, not zero: the capture predates the count. Its burst spacing is consistent throughout, so it is very likely contiguous, but that was inferred and not measured at record time."
+  ]
+}

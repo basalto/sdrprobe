@@ -1,0 +1,19 @@
+{
+  "provenance": "reconstructed 2026-08-30. Provenance genuinely unknown: this capture predates the sidecar and did not come from the Record button, so most fields could not be recovered.",
+  "format": "unsigned 8-bit interleaved I/Q, 127.5 = zero",
+  "center_frequency_hz": 1090000000,
+  "sample_rate_hz": 2000000,
+  "gain_db": null,
+  "ppm": null,
+  "source": null,
+  "tuner": null,
+  "started_at": null,
+  "duration_seconds": 0.178434,
+  "bytes": 713736,
+  "short_blocks": null,
+  "notes": [
+    "center_frequency_hz is inferred, not recorded: the file decodes as Mode S, which only exists at 1090 MHz.",
+    "sample_rate_hz is from AGENTS.md; the ADS-B decoder assumes 2 MS/s (1 sample = 0.5 us) throughout.",
+    "The byte count is not a multiple of the 256 KB acquisition block, so this did not come from sdrprobe's Record path."
+  ]
+}

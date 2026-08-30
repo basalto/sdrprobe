@@ -1,0 +1,17 @@
+{
+  "provenance": "reconstructed 2026-08-30. Captured with rtl_sdr rather than the Record button, so every value here comes from the command line used, not from the recorder.",
+  "format": "unsigned 8-bit interleaved I/Q, 127.5 = zero",
+  "center_frequency_hz": 949200000,
+  "sample_rate_hz": 2000000,
+  "gain_db": 49.6,
+  "ppm": 0,
+  "gsm_arfcn": 73,
+  "carrier_offset_hz": 400000,
+  "source": "rtl_sdr -f 949200000 -s 2000000 -g 49.6 -n 4000000; RTL-SDR: Generic RTL2832U",
+  "tuner": "R820T",
+  "started_at": "2026-08-30T16:02",
+  "duration_seconds": 2.0,
+  "bytes": 8000000,
+  "short_blocks": 0,
+  "decodes_to": "BSIC 56 (NCC 7, BCC 0), T1 1576, 30/30 blocks"
+}

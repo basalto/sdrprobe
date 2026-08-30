@@ -99,6 +99,11 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` / `tests/adsb_dsp_test.c` —
   the deterministic, hardware-free DSP checks (`make check-sdr-dsp` /
   `check-gsm-dsp` / `check-adsb-dsp`).
+- Each capture has a `.json` sidecar recording the tuning it was taken at.
+  Read it before using a capture: the GSM ones are tuned 400 kHz below their
+  channel, and nothing in the samples says so. Sidecars written after the fact
+  say `"provenance": "reconstructed"` and use `null` for fields that were never
+  recorded — those are genuinely unknown, not zero.
 - `testfiles/adsb_modes1.bin` — raw 8-bit I/Q capture at 2 MS/s, for
   hardware-free testing; read by `sdrprobe --file`.
 - `testfiles/gsm_arfcn_69.bin` — 2 s raw I/Q capture of GSM 900 ARFCN 69
