@@ -184,6 +184,14 @@ enum sdrgui_burst_chart_type {
     SDRGUI_BURST_BAR
 };
 
+/* sdrgui_burst_chart draws entirely INSIDE the rectangle it is given: it
+   reserves space at the top for its title and on the left for its y-axis
+   labels, then plots in what remains. Callers can therefore pack charts by
+   rectangle alone, with any gap they like purely for looks.
+
+   The other components in this file still draw their captions and labels just
+   outside their rect, so packing those needs clearance the caller has to know
+   about. Converting them is worthwhile but has not been done. */
 struct sdrgui_burst_chart_params {
     Rectangle plot;
     const float *data;        /* The values to plot, `count` entries */

@@ -783,12 +783,40 @@ void sdrgui_constellation(const struct sdrgui_constellation_params *params) {
 }
 
 void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params) {
-    Rectangle plot = params->plot;
+    Rectangle outer = params->plot;
+
+    /* Reserve the room this chart's own furniture needs, instead of drawing
+       outside the rectangle it was handed. The title sits above the frame and
+       the y-axis labels to its left; when those overhung the rect, a caller
+       packing two charts side by side had to know how wide a label would be to
+       leave a gap, and could not -- the width depends on the values, which
+       only this function sees. Charts overlapped their neighbours as a result.
+       Everything below draws into `plot`, which is what is left. */
+    float gutter = 0.0f;
+    for (int i = 0; i <= 4; i++) {
+        char text[32];
+        float value = params->y_min +
+                      (params->y_max - params->y_min) * ((float)i / 4.0f);
+        snprintf(text, sizeof(text), "%.1f", value);
+        float w = (float)MeasureText(text, 16);
+        if (w > gutter)
+            gutter = w;
+    }
+    gutter += 10.0f;
+    const float title_h = 20.0f;
+
+    Rectangle plot = { outer.x + gutter, outer.y + title_h,
+                       outer.width - gutter, outer.height - title_h };
+    if (plot.width < 1.0f)
+        plot.width = 1.0f;
+    if (plot.height < 1.0f)
+        plot.height = 1.0f;
+
     DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
 
     if (params->title && params->title[0])
-        DrawText(params->title, (int)plot.x, (int)plot.y - 20, 16,
+        DrawText(params->title, (int)outer.x, (int)outer.y, 16,
                  (Color){ 151, 174, 188, 255 });
 
     if (params->count <= 0) {

@@ -3351,12 +3351,10 @@ static void draw_gsm(struct app *app) {
         }
 
         if (app->gsm_analysis_mode) {
-            /* Burst Analysis Chart replaces Waterfall.
-               sdrgui_burst_chart draws each y-axis label to the LEFT of its
-               plot, so the gap between charts has to fit the widest label or
-               it runs back over the neighbouring chart. Size it from the font
-               rather than guessing a pixel count. */
-            float gap = (float)MeasureText("-88888.8", 16) + 16.0f;
+            /* Burst Analysis Chart replaces Waterfall. sdrgui_burst_chart
+               keeps its labels inside its own rectangle, so this gap is only
+               breathing room between panels. */
+            float gap = 14.0f;
             float w3 = (wf.width - 2.0f * gap) / 3.0f;
             Rectangle r_corr = { wf.x, wf.y, w3, wf.height };
             Rectangle r_soft = { wf.x + w3 + gap, wf.y, w3, wf.height };
