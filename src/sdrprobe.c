@@ -3234,21 +3234,21 @@ static void draw_gsm(struct app *app) {
                      sch->bsic, sch->ncc, sch->bcc, d_fn, d_t1,
                      sch->t2, sch->t3, (double)sch->confidence,
                      (app->gsm_opt_tracker && trk->locked) ? "  [LOCKED]" : "");
-            DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 22, 18,
+            DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 36, 18,
                      (Color){ 120, 230, 255, 255 });
         } else if (app->recording) {
             snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
                      app->record_path, app->record_bytes / 1e6);
-            DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 22, 18,
+            DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 36, 18,
                      (Color){ 255, 202, 105, 255 });
         } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
             DrawText("SCH   searching for a synchronisation burst...", (int)gsm_scan_rect().x,
-                     (int)gsm_scan_rect().y - 22, 18, (Color){ 151, 174, 188, 255 });
+                     (int)gsm_scan_rect().y - 36, 18, (Color){ 151, 174, 188, 255 });
         }
 
         if (app->gsm_analysis_mode) {
             /* Burst Analysis Chart replaces Waterfall */
-            float gap = 10.0f;
+            float gap = 34.0f;
             float w3 = (wf.width - 2.0f * gap) / 3.0f;
             Rectangle r_corr = { wf.x, wf.y, w3, wf.height };
             Rectangle r_soft = { wf.x + w3 + gap, wf.y, w3, wf.height };
@@ -3306,6 +3306,7 @@ static void draw_gsm(struct app *app) {
 
         /* Channel Power Scan Chart on bottom left */
         Rectangle sc = gsm_scan_rect();
+        DrawText("Channel Power Scan", (int)sc.x, (int)sc.y - 18, 16, (Color){ 151, 174, 188, 255 });
         int hover = (!app->scan_running)
                         ? gsm_scan_arfcn_at(GetMousePosition(), sc)
                         : 0;
@@ -3373,6 +3374,7 @@ static void draw_gsm(struct app *app) {
 
         /* Default Channel Power Scan Chart on Bottom */
         Rectangle sc = gsm_scan_rect();
+        DrawText("Channel Power Scan", (int)sc.x, (int)sc.y - 18, 16, (Color){ 151, 174, 188, 255 });
         int hover = (!app->scan_running)
                         ? gsm_scan_arfcn_at(GetMousePosition(), sc)
                         : 0;
