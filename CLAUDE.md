@@ -90,11 +90,11 @@ Two hard constraints on this layer:
 
 ### Application
 
-`src/app.h` names the shared state; `src/options.c` parses the command line;
-`src/view_gsm.c` and `src/view_adsb.c` are the Decode tab's two screens, with
-`src/view.h` declaring what they share with the rest. `src/sdrprobe.c` keeps
-acquisition, the Scope views, the settings and calibration overlays, and the
-frame loop.
+`src/app.h` names the shared state and `src/options.c` parses the command
+line. Each screen has a file — `view_scope.c` (the four Scope views),
+`view_gsm.c`, `view_adsb.c`, `overlay_calibration.c`, `overlay_settings.c` —
+with `src/view.h` declaring what they share. `src/sdrprobe.c` is down to
+acquisition, the tab/header chrome, the frame loop and `main`.
 
 Be clear on what that split is and isn't: every view still reads one big
 `struct app`, so this is an organisation of the same coupling, not a set of
