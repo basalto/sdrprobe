@@ -106,21 +106,46 @@ void sdrgui_health_dot(const struct sdrgui_health_params *params) {
     }
 }
 
+
+/* Space a chart keeps inside its own rectangle: a strip at the top for the
+   caption, a gutter on the left for the widest axis label it will draw, and
+   half a line at the bottom, because the lowest label is centred on the plot's
+   lower edge and would otherwise hang below it.
+ *
+ * Components that use this draw entirely within the rectangle they are given,
+ * so a caller can pack them by rectangle alone. Without it the caller has to
+ * leave clearance for a label width it cannot know -- the width depends on the
+ * values, which only the component sees. */
+static Rectangle chart_plot_area(Rectangle outer, float gutter,
+                                 float caption_h) {
+    Rectangle plot = { outer.x + gutter, outer.y + caption_h,
+                       outer.width - gutter, outer.height - caption_h - 8.0f };
+    if (plot.width < 1.0f)
+        plot.width = 1.0f;
+    if (plot.height < 1.0f)
+        plot.height = 1.0f;
+    return plot;
+}
+
 void sdrgui_magnitude(const struct sdrgui_magnitude_params *params) {
     char text[256];
-    Rectangle plot = params->plot;
+    Rectangle outer = params->plot;
+    Rectangle plot = chart_plot_area(outer, (float)(MeasureText("-000.00", 16) + 11.0f),
+                                    25.0f);
 
     sdrgui_plot_frame(plot, 1);
     snprintf(text, sizeof(text), "%.2f", params->have_samples
                                              ? params->upper
                                              : params->physical_max);
-    DrawText(text, 12, (int)plot.y - 8, 16, (Color){ 151, 174, 188, 255 });
+    DrawText(text, (int)plot.x - MeasureText(text, 16) - 11,
+             (int)plot.y - 8, 16, (Color){ 151, 174, 188, 255 });
     snprintf(text, sizeof(text), "%.2f", params->have_samples
                                              ? params->lower
                                              : 0.0f);
-    DrawText(text, 12, (int)(plot.y + plot.height) - 8, 16,
+    DrawText(text, (int)plot.x - MeasureText(text, 16) - 11,
+             (int)(plot.y + plot.height) - 8, 16,
              (Color){ 151, 174, 188, 255 });
-    DrawText("magnitude (sample units)", (int)plot.x, (int)plot.y - 25, 16,
+    DrawText("magnitude (sample units)", (int)outer.x, (int)outer.y, 16,
              (Color){ 151, 174, 188, 255 });
 
     if (params->bin_count > 0) {
@@ -176,7 +201,9 @@ void sdrgui_magnitude(const struct sdrgui_magnitude_params *params) {
 
 void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
     char text[256];
-    Rectangle plot = params->plot;
+    Rectangle outer = params->plot;
+    Rectangle plot = chart_plot_area(outer, (float)(MeasureText("-120", 16) + 11.0f),
+                                    25.0f);
     double lower_frequency = params->center_hz - params->sample_rate / 2.0;
     double upper_frequency = params->center_hz + params->sample_rate / 2.0;
     const double frequency_steps[] = {
@@ -221,7 +248,7 @@ void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
                      (int)y - 8, 16, (Color){ 151, 174, 188, 255 });
         }
     }
-    DrawText("dBFS", (int)plot.x, (int)plot.y - 25, 16,
+    DrawText("dBFS", (int)outer.x, (int)outer.y, 16,
               (Color){ 151, 174, 188, 255 });
 
     double first_frequency = ceil(lower_frequency / frequency_step) *
@@ -319,7 +346,9 @@ void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
 
 void sdrgui_scatter(const struct sdrgui_scatter_params *params) {
     char text[256];
-    Rectangle plot = params->plot;
+    Rectangle outer = params->plot;
+    Rectangle plot = chart_plot_area(outer, (float)(MeasureText("+0.50", 16) + 11.0f),
+                                    25.0f);
     Rectangle source = { 0.0f, 0.0f, (float)params->texture.width,
                           -(float)params->texture.height };
     float major_step = params->axis_limit /
@@ -368,7 +397,7 @@ void sdrgui_scatter(const struct sdrgui_scatter_params *params) {
     }
 
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
-    DrawText("Q (normalized full scale)", (int)plot.x, (int)plot.y - 25, 16,
+    DrawText("Q (normalized full scale)", (int)outer.x, (int)outer.y, 16,
              (Color){ 151, 174, 188, 255 });
     snprintf(text, sizeof(text),
               "I (normalized full scale)   manual range +/-%.3f   major %.3f   latest block: %zu points   Up/Down scale",
@@ -392,7 +421,9 @@ void sdrgui_scatter(const struct sdrgui_scatter_params *params) {
 void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
     char text[256];
     int channel_axis = params->channel_axis;
-    Rectangle plot = params->plot;
+    Rectangle outer = params->plot;
+    Rectangle plot = chart_plot_area(outer, (float)(MeasureText("-10.0 s", 16) + 11.0f),
+                                    25.0f);
     Rectangle source = { 0.0f, 0.0f, (float)params->texture.width,
                          (float)params->texture.height };
     double full_lower = params->center_hz - params->sample_rate / 2.0;
@@ -531,7 +562,7 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
 
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
     if (!params->calibration_mode)
-        DrawText("time (newest at top)", (int)plot.x, (int)plot.y - 25, 16,
+        DrawText("time (newest at top)", (int)outer.x, (int)outer.y, 16,
                  (Color){ 151, 174, 188, 255 });
     if (channel_axis)
         snprintf(text, sizeof(text),
@@ -580,7 +611,9 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
 
 void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
     char text[160];
-    Rectangle plot = params->plot;
+    Rectangle outer = params->plot;
+    Rectangle plot = chart_plot_area(outer, (float)(MeasureText("-100", 16) + 10.0f),
+                                    25.0f);
 
     /* Power range for the vertical axis. */
     float minimum = 0.0f;
@@ -748,12 +781,14 @@ void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
 }
 
 void sdrgui_constellation(const struct sdrgui_constellation_params *params) {
-    Rectangle plot = params->plot;
+    Rectangle outer = params->plot;
+    Rectangle plot = chart_plot_area(outer, (float)(0.0f),
+                                    25.0f);
     DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
 
     if (params->caption && params->caption[0])
-        DrawText(params->caption, (int)plot.x, (int)plot.y - 20, 16,
+        DrawText(params->caption, (int)outer.x, (int)outer.y, 16,
                  (Color){ 151, 174, 188, 255 });
 
     float cx = plot.x + plot.width / 2.0f;
