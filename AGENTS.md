@@ -59,7 +59,11 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   circle shows calibration health (grey uncalibrated, green FCCH-backed lock,
   amber checking, red drift); the optional Settings "Auto GSM drift check"
   periodically retunes to the calibrated ARFCN to re-verify and warns on drift
-  (see `docs/adr/0006-gsm-drift-indicator.md`). Quit with `q`, Esc, or Ctrl-C.
+  (see `docs/adr/0006-gsm-drift-indicator.md`). `h` opens the help overlay from
+  any view and over the calibration and scan overlays (not over Settings, whose
+  fields are taking typed input): eleven topics on what each chart plots and how
+  to read it, opening on the topic for the screen underneath, with Left/Right to
+  change topic and Up/Down or the wheel to scroll. Quit with `q`, Esc, or Ctrl-C.
 - Built binaries and the DSP check executables are gitignored (not tracked);
   `make` writes them to the repo root and `make clean` removes them.
 
@@ -119,6 +123,12 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   `calibration_select_channel()`.
 - `src/overlay_settings.c` — the Settings panel and the two buttons that open
   it and the calibration overlay.
+- `src/overlay_help.c` — the help overlay and the text in it. The prose lives
+  in one table here rather than beside each view, because a reader arrives with
+  a question about a chart and wants the neighbouring answers next to it. Every
+  figure quoted in that text (window sizes, thresholds, decay rates) comes from
+  a constant in `acquisition.h`, `sdr_dsp.h` or `gsm_dsp.h`; change one of those
+  and the help is what goes stale.
 - `src/gsm_layout.h` — where the GSM decode view puts things: one struct of
   rectangles derived from the window size by a pure function, so the panels
   that share a row cannot drift apart and the whole layout is testable without

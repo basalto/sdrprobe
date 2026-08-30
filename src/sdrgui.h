@@ -224,4 +224,12 @@ void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params);
    a focus-tinted border, and the current text. */
 void sdrgui_text_field(Rectangle box, const char *text, int focused);
 
+/* Paragraph text wrapped to `box.width`, breaking at spaces and at '\n', and
+   returning the height it occupies. Pass draw = 0 to measure without drawing:
+   a scrolling panel needs the height before it can clamp its scroll, and only
+   this function knows where the breaks fall. Drawing is not clipped to
+   box.height -- a caller that scrolls sets its own scissor. */
+float sdrgui_text_block(Rectangle box, const char *text, int size,
+                        int line_gap, Color color, int draw);
+
 #endif

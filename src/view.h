@@ -70,6 +70,13 @@ void decay_spectrum_peak(struct app *app, double now);
 void adjust_active_scale(struct app *app, int zoom_in);
 
 
+/* Help overlay: what each chart plots and how to read it. Orthogonal to the
+   tabs like calibration is, reachable with `h` from every view. */
+void open_help(struct app *app);
+void close_help(struct app *app);
+void handle_help_input(struct app *app);
+void draw_help(const struct app *app);
+
 /* Calibration overlay: the GSM 900 channel calibration, its band scan, and the
    periodic drift re-check. Drawn over whichever tab is active. */
 void open_calibration(struct app *app);

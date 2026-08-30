@@ -2,10 +2,12 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 /*
- * Small standalone pieces that are not charts: the calibration-health dot
- * and the text input the settings and calibration panels use.
+ * Small standalone pieces that are not charts: the calibration-health dot,
+ * the text input the settings and calibration panels use, and the wrapped
+ * paragraph text the help overlay is written in.
  */
 
 void sdrgui_health_dot(const struct sdrgui_health_params *params) {
@@ -60,4 +62,71 @@ void sdrgui_text_field(Rectangle box, const char *text, int focused) {
                                             : (Color){ 91, 117, 132, 255 });
     DrawText(text, (int)box.x + 10, (int)box.y + 9, 19,
              (Color){ 255, 225, 161, 255 });
+}
+
+/* One line is accumulated in `line`, and a word is added to it only if the
+   result still fits; otherwise the line is emitted and the word starts the
+   next one. Measuring and drawing walk identical paths, so a measure pass and
+   the draw that follows it always agree on the height. */
+float sdrgui_text_block(Rectangle box, const char *text, int size,
+                        int line_gap, Color color, int draw) {
+    char line[512];
+    char candidate[512];
+    int line_length = 0;
+    float y = box.y;
+    const float step = (float)size + (float)line_gap;
+    const char *cursor = text;
+
+    if (!text)
+        return 0.0f;
+    line[0] = '\0';
+    while (*cursor) {
+        const char *word_end = cursor;
+        while (*word_end && *word_end != ' ' && *word_end != '\n')
+            word_end++;
+
+        int candidate_length = 0;
+        if (line_length > 0) {
+            memcpy(candidate, line, (size_t)line_length);
+            candidate_length = line_length;
+            candidate[candidate_length++] = ' ';
+        }
+        size_t word_length = (size_t)(word_end - cursor);
+        if (word_length > sizeof(candidate) - 1 - (size_t)candidate_length)
+            word_length = sizeof(candidate) - 1 - (size_t)candidate_length;
+        memcpy(candidate + candidate_length, cursor, word_length);
+        candidate_length += (int)word_length;
+        candidate[candidate_length] = '\0';
+
+        if (line_length > 0 &&
+            (float)MeasureText(candidate, size) > box.width) {
+            if (draw)
+                DrawText(line, (int)box.x, (int)y, size, color);
+            y += step;
+            memcpy(line, cursor, word_length);
+            line_length = (int)word_length;
+            line[line_length] = '\0';
+        } else {
+            memcpy(line, candidate, (size_t)candidate_length + 1);
+            line_length = candidate_length;
+        }
+
+        cursor = word_end;
+        if (*cursor == '\n') {
+            if (draw)
+                DrawText(line, (int)box.x, (int)y, size, color);
+            y += step;
+            line_length = 0;
+            line[0] = '\0';
+            cursor++;
+        } else if (*cursor == ' ') {
+            cursor++;
+        }
+    }
+    if (line_length > 0) {
+        if (draw)
+            DrawText(line, (int)box.x, (int)y, size, color);
+        y += step;
+    }
+    return y - box.y;
 }

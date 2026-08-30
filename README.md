@@ -59,6 +59,7 @@ Keys and controls:
 | `Up` / `Down` | narrow / widen the active chart's scale |
 | `s` or Settings button | change frequency, gain, PPM, DC filter |
 | `c` or Calibration button | open GSM 900 calibration |
+| `h` | help: what each chart plots and how to read it |
 | `q`, `Esc`, `Ctrl‑C` | quit |
 
 ## Calibrating the receiver
