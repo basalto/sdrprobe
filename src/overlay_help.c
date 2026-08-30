@@ -76,6 +76,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "s   Settings: centre frequency, gain, PPM, DC-spike filter\n"
     "c   Calibration\n"
     "h   this help\n"
+    "q   quit, from any screen but the Settings panel\n"
     "Esc   leave the current screen; quit from the Scope tab\n"
     "\n"
     "In here: Up/Down or the mouse wheel scrolls, Left/Right changes topic, "

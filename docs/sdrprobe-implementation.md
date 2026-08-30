@@ -379,7 +379,9 @@ a source rectangle with negative height.
   `Esc` closes it. It is reachable from every view and over the calibration and
   scan overlays, but not over the Settings panel, whose fields are taking typed
   input.
-- `Esc` or window close: orderly exit.
+- `q`, `Esc`, or window close: orderly exit. `q` quits from any screen except
+  the Settings panel, which is taking typed input; `Esc` leaves the current
+  screen and quits only from the Scope tab.
 - `SIGINT` or `SIGTERM`: set the stop flag and follow the same orderly shutdown
   path; signal handlers must not call raylib, pthread, or librtlsdr functions.
 - On resize, recompute plot geometry and recreate the I/Q render texture.

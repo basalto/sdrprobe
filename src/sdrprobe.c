@@ -781,6 +781,13 @@ static int run_gui(struct app *app) {
         if (WindowShouldClose())
             break;
 
+        /* Quit is checked before the precedence chain, so it means the same
+           thing from every screen. The exception is the Settings panel, which
+           is taking typed input: losing half-entered settings to a stray
+           letter is worse than having to leave the panel first. */
+        if (IsKeyPressed(KEY_Q) && !app->settings_open)
+            break;
+
         if (app->help.open) {
             /* Help is the outermost overlay: it can be raised over a view or
                over calibration, and takes every key while it is up. */
