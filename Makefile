@@ -55,14 +55,16 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 		$(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c -lm
 	./$(BUILD)/adsb_dsp_test
 
-# Layout check. Unlike the DSP checks this needs raylib's headers, for the
-# Rectangle type -- but not the library: gsm_layout.h is a pure function of the
-# window size and calls nothing, which is what makes it testable at all.
-check-layout: $(TESTS)/gsm_layout_test.c $(SRC)/gsm_layout.h
+# Layout check: the GSM view's rectangles and the window chrome, pinned at
+# several window sizes. Needs raylib's headers for the Rectangle type but not
+# the library -- both layouts are pure functions of the window size, which is
+# what makes them testable without opening a window.
+check-layout: $(TESTS)/layout_test.c $(SRC)/gsm_layout.h \
+		$(SRC)/chrome_layout.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
-		-o $(BUILD)/gsm_layout_test $(TESTS)/gsm_layout_test.c -lm
-	./$(BUILD)/gsm_layout_test
+		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
+	./$(BUILD)/layout_test
 
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp
 
