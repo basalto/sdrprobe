@@ -29,4 +29,11 @@ one it read (see `struct latest_block`, `publish_block`, `consume_latest` in
 - Dropped blocks are **counted, not queued**, so the HUD can surface that the
   renderer is falling behind.
 - This suits display; it is *not* suitable for lossless capture or decoding,
-  which would need a real queue. That is out of scope for these probes.
+  which would need a real queue.
+- Raw-I/Q recording therefore does **not** read the slot. `record_capture`
+  writes from the acquisition thread inside `publish_block`, upstream of the
+  lossy handoff, so a capture holds every block the receiver delivered without
+  adding a queue. A recording driven off `consume_latest` silently inherits the
+  drops and leaves a spliced file that still looks well-formed — the failure
+  this consequence warned about, and one the Record button did hit; see
+  `.scratch/capture-integrity/issues/01-record-drops-blocks.md`.
