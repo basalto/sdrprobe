@@ -18,7 +18,12 @@
 Rectangle calculate_plot(void) {
     float width = (float)GetScreenWidth();
     float height = (float)GetScreenHeight();
-    Rectangle plot = { 82.0f, 210.0f, width - 112.0f, height - 278.0f };
+    /* The chart components now reserve their own caption strip and label
+       gutter inside this rectangle, so it covers the margins those used to
+       overhang into: 66 px on the left for the widest axis label, 25 above for
+       the caption, 8 below for the lowest label's overhang. The drawn plot
+       lands where it always did. */
+    Rectangle plot = { 16.0f, 185.0f, width - 46.0f, height - 245.0f };
 
     if (plot.width < 1.0f)
         plot.width = 1.0f;
