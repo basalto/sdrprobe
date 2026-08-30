@@ -94,6 +94,14 @@ static int configure_receiver(struct app *app) {
             for (int i = 1; i < gain_count; i++)
                 if (gains[i] > selected_gain)
                     selected_gain = gains[i];
+        } else if (app->options.gain_kind == GAIN_REQUEST_DEFAULT) {
+            /* The gain table is tuner-specific, so the default is a target to
+               snap to rather than a value to demand. */
+            selected_gain = gains[0];
+            for (int i = 1; i < gain_count; i++)
+                if (abs(gains[i] - DEFAULT_GAIN_TENTHS) <
+                    abs(selected_gain - DEFAULT_GAIN_TENTHS))
+                    selected_gain = gains[i];
         } else {
             int supported = 0;
             selected_gain = app->options.gain_tenths;

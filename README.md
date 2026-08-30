@@ -42,7 +42,7 @@ On Arch‑based systems: `pacman -S rtl-sdr raylib pkgconf`.
 
 ```sh
 make                 # builds ./sdrprobe
-./sdrprobe           # live receiver, defaults to 1090 MHz / 2 MS/s / max gain
+./sdrprobe           # live receiver, defaults to 1090 MHz / 2 MS/s / ~30 dB gain
 ./sdrprobe --file testfiles/adsb_modes1.bin   # hardware-free paced playback
 ```
 

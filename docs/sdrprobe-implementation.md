@@ -51,7 +51,7 @@ Defaults:
 | --- | ---: | --- |
 | `--frequency` | `1090000000` | Center frequency in Hz |
 | `--sample-rate` | `2000000` | I/Q pairs per second |
-| `--gain` | `max` | Maximum supported manual gain |
+| `--gain` | ~`30` | Supported manual gain nearest 30 dB |
 | `--ppm` | `0` | Signed tuner frequency correction |
 
 Frequency accepts plain integer Hz or a decimal value with a case-insensitive
@@ -68,7 +68,9 @@ prevents zero-rate capture pacing.
 In receiver mode, all three settings configure hardware. A numeric gain is in
 dB and must exactly match a gain reported by the receiver (librtlsdr reports
 tenths of a dB); otherwise print the supported values and fail. `auto` selects
-automatic gain and `max` selects the greatest supported manual gain.
+automatic gain and `max` selects the greatest supported manual gain. With no
+`--gain`, the receiver uses the supported gain nearest 30 dB — a target rather
+than a demand, because the gain table is tuner-specific.
 
 In file mode, frequency and sample rate describe the raw capture. Frequency
 defines the spectrum axis and sample rate defines both that axis and playback

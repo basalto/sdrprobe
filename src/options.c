@@ -129,7 +129,7 @@ int parse_options(int argc, char **argv, struct options *options) {
     memset(options, 0, sizeof(*options));
     options->frequency = DEFAULT_FREQUENCY;
     options->sample_rate = DEFAULT_SAMPLE_RATE;
-    options->gain_kind = GAIN_REQUEST_MAX;
+    options->gain_kind = GAIN_REQUEST_DEFAULT;
 
     for (int i = 1; i < argc; i++) {
         const char *option = argv[i];

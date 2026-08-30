@@ -65,7 +65,8 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 
 ## Signal conventions (match dump1090)
 
-- 1090 MHz (ADS-B), 2 MS/s (1 sample = 0.5 µs), max manual gain.
+- 1090 MHz (ADS-B), 2 MS/s (1 sample = 0.5 µs), the supported manual gain
+  nearest 30 dB.
 - Samples are unsigned 8-bit interleaved I/Q; 127/127.5 = zero signal.
 - Block size is `16*16384` = 256 KB, deliberately matching dump1090's block.
 
