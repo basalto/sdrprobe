@@ -92,6 +92,11 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   velocity), and CPR global position decode with a minimal even/odd pairing
   cache. Prefix `adsb_`. It reuses only the core's per-pair magnitude, not the
   FFT/centroid primitives; recorded in `docs/adr/0009-mode-s-decode-plugin.md`.
+- `src/acquisition.{c,h}` — the worker thread, the single overwriteable block
+  slot it hands samples through (ADR-0002), and raw-I/Q recording. Owns its
+  own state and knows nothing of `struct app`: the device handle, playback
+  file and sample rate are handed to it by `acquisition_attach_source()`
+  before a worker starts.
 - `src/app.h` — the shared application state (`struct app`) plus the constants
   and enums that go with it. Naming it here is what lets the views live in
   their own files; it is a shared record, not an interface (see its header
