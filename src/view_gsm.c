@@ -125,71 +125,35 @@ static Rectangle gsm_record_button(void) {
     return gsm_layout_now().record_button;
 }
 
-/* Record ~2 s of raw I/Q to captures/ so a real GSM SCH capture can be made
-   with the current setup and later replayed / turned into a test vector. Files
-   are timestamped so re-recording never overwrites an earlier capture. */
-void start_record(struct app *app) {
-    pthread_mutex_lock(&app->record_mutex);
-    int busy = app->recording;
-    pthread_mutex_unlock(&app->record_mutex);
-    if (busy)
-        return;
 
+
+/* Start a 2 s capture of the inspected channel. The tuning goes to
+   acquisition only so it can be written into the capture's sidecar; the write
+   itself happens on the acquisition thread, upstream of the display's lossy
+   block slot. Files are timestamped so re-recording never overwrites one. */
+void start_record(struct app *app) {
     mkdir("captures", 0755); /* ignore EEXIST */
     time_t now = time(NULL);
     struct tm local;
     localtime_r(&now, &local);
     char stamp[32];
     strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
-    char path[sizeof(app->record_path)];
+    char path[256];
     snprintf(path, sizeof(path), "captures/gsm_arfcn%d_%s.bin",
              app->scan_selected_arfcn > 0 ? app->scan_selected_arfcn : 0, stamp);
-    FILE *file = fopen(path, "wb");
-    if (!file) {
-        fprintf(stderr, "Cannot open %s: %s\n", path, strerror(errno));
-        return;
-    }
 
-    char started[32];
-    strftime(started, sizeof(started), "%Y-%m-%dT%H:%M:%S", &local);
-
-    pthread_mutex_lock(&app->record_mutex);
-    snprintf(app->record_path, sizeof(app->record_path), "%s", path);
-    app->record_frequency_hz = app->applied_frequency;
-    app->record_sample_rate = app->applied_sample_rate;
-    app->record_gain_tenths = app->applied_gain_tenths;
-    app->record_manual_gain = app->applied_manual_gain;
-    app->record_ppm = app->applied_ppm;
-    app->record_arfcn = app->scan_selected_arfcn;
-    /* gsm_tune_selected tunes 400 kHz below the channel, so the carrier sits
-       that far above the recorded centre. */
-    app->record_carrier_offset_hz = app->scan_selected_arfcn > 0 ? 400000.0 : 0.0;
-    snprintf(app->record_source, sizeof(app->record_source), "%s",
-             app->source_label);
-    snprintf(app->record_tuner, sizeof(app->record_tuner), "%s",
-             app->tuner_label[0] ? app->tuner_label : "n/a (file playback)");
-    snprintf(app->record_started_at, sizeof(app->record_started_at), "%s",
-             started);
-    app->record_file = file;
-    app->record_bytes = 0;
-    app->record_short_blocks = 0;
-    app->record_limit_bytes =
-        (uint64_t)(2.0 * (double)app->applied_sample_rate * 2.0);
-    app->recording = 1; /* the acquisition thread writes from here on */
-    pthread_mutex_unlock(&app->record_mutex);
-}
-
-/* Snapshot the recording state for the UI, which does not own it. */
-static int record_snapshot(struct app *app, uint64_t *bytes, char *path,
-                           size_t path_size) {
-    pthread_mutex_lock(&app->record_mutex);
-    int active = app->recording;
-    if (bytes)
-        *bytes = app->record_bytes;
-    if (path && path_size)
-        snprintf(path, path_size, "%s", app->record_path);
-    pthread_mutex_unlock(&app->record_mutex);
-    return active;
+    struct acquisition_record_request req = {
+        app->applied_frequency, app->applied_sample_rate,
+        app->applied_gain_tenths, app->applied_manual_gain, app->applied_ppm,
+        app->scan_selected_arfcn,
+        /* gsm_tune_selected tunes 400 kHz below the channel, so the carrier
+           sits that far above the recorded centre. */
+        app->scan_selected_arfcn > 0 ? 400000.0 : 0.0,
+        app->source_label, app->tuner_label
+    };
+    if (acquisition_start_recording(&app->acq, path, &req) < 0)
+        fprintf(stderr, "Cannot start recording to %s: %s\n", path,
+                strerror(errno));
 }
 
 static Rectangle gsm_opt_button(int index) {
@@ -211,8 +175,8 @@ void draw_gsm(struct app *app) {
                     !app->scan_running);
     }
     uint64_t rec_bytes = 0;
-    char rec_path[sizeof(app->record_path)];
-    int rec_active = record_snapshot(app, &rec_bytes, rec_path,
+    char rec_path[ACQUISITION_PATH_MAX];
+    int rec_active = acquisition_recording_status(&app->acq, &rec_bytes, rec_path,
                                      sizeof(rec_path));
     draw_button(gsm_record_button(),
                 rec_active ? "Recording..." : "Record 2s", rec_active);

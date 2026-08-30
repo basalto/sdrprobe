@@ -103,12 +103,17 @@ would make them modules; `app.h`'s header comment says so.
 
 Its shape:
 
-- **Threading.** A worker thread (`receiver_worker` for the librtlsdr async
-  callback, `file_worker` for the paced file pacer) hands 256 KB blocks to the
-  main render thread through a **single mutex-guarded, overwriteable slot** —
+- **Threading** lives in `src/acquisition.c`, which owns `struct acquisition`
+  and does not include `app.h`. A worker (`receiver_worker` for the librtlsdr
+  async callback, `file_worker` for the paced file pacer) hands 256 KB blocks
+  to the render thread through a **single mutex-guarded, overwriteable slot** —
   `struct latest_block`, consumed by `consume_latest`. Not a queue: a slow
-  renderer drops blocks rather than lagging (ADR-0002). SIGINT/SIGTERM are blocked
-  around `pthread_create` so only the main thread handles them.
+  renderer drops blocks rather than lagging (ADR-0002). SIGINT/SIGTERM are
+  blocked around `pthread_create` so only the main thread handles them.
+  The device handle, playback file and sample rate are *borrowed*: call
+  `acquisition_attach_source()` before starting a worker, or it reads a NULL
+  capture and segfaults — the fields exist and zero-initialise, so the
+  compiler will not tell you.
 - **Frame loop** (`run_gui`). Each frame runs an input phase then a draw phase.
   Input is a fixed if/else precedence chain: settings overlay → calibration
   overlay (with scan) → tab switch → settings/calibration buttons → per-tab input.

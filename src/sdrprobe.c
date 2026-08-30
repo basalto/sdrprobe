@@ -229,7 +229,7 @@ static int open_capture(struct app *app) {
     if ((size & 1) != 0)
         fprintf(stderr, "Warning: ignoring unmatched trailing byte in %s.\n",
                 app->options.file_path);
-    app->capture_bytes = (uint64_t)size & ~UINT64_C(1);
+    app->acq.capture_bytes = (uint64_t)size & ~UINT64_C(1);
     app->applied_frequency = app->options.frequency;
     app->applied_sample_rate = app->options.sample_rate;
     app->applied_ppm = app->options.ppm;
@@ -248,350 +248,19 @@ static int open_capture(struct app *app) {
  * looks well-formed. A test vector that lies about its own timeline is worse
  * than no test vector.
  */
-/* Write the capture's companion metadata. A raw .bin says nothing about how it
-   was made, and the tuning convention matters as much as the samples: reading
-   testfiles/gsm_arfcn_69.bin correctly depends on knowing it was tuned 400 kHz
-   below the channel, which lived only in prose. Called with record_mutex held.
-   A failure here is reported but does not invalidate the .bin. */
-static void record_write_sidecar(struct app *app, double seconds) {
-    char path[sizeof(app->record_path) + 8];
-    size_t n = strlen(app->record_path);
-    if (n > 4 && strcmp(app->record_path + n - 4, ".bin") == 0)
-        snprintf(path, sizeof(path), "%.*s.json", (int)(n - 4),
-                 app->record_path);
-    else
-        snprintf(path, sizeof(path), "%s.json", app->record_path);
 
-    FILE *f = fopen(path, "w");
-    if (!f) {
-        fprintf(stderr, "Cannot write %s: %s\n", path, strerror(errno));
-        return;
-    }
-    fprintf(f, "{\n");
-    /* Distinguishes a sidecar written at record time from one reconstructed
-       for an older capture, where some fields may be unknown. */
-    fprintf(f, "  \"provenance\": \"recorded by sdrprobe\",\n");
-    fprintf(f, "  \"format\": \"unsigned 8-bit interleaved I/Q, 127.5 = zero\",\n");
-    fprintf(f, "  \"center_frequency_hz\": %u,\n", app->record_frequency_hz);
-    fprintf(f, "  \"sample_rate_hz\": %u,\n", app->record_sample_rate);
-    if (app->record_manual_gain)
-        fprintf(f, "  \"gain_db\": %.1f,\n", app->record_gain_tenths / 10.0);
-    else
-        fprintf(f, "  \"gain_db\": \"auto\",\n");
-    fprintf(f, "  \"ppm\": %d,\n", app->record_ppm);
-    if (app->record_arfcn > 0) {
-        fprintf(f, "  \"gsm_arfcn\": %d,\n", app->record_arfcn);
-        /* The channel sits this far above the tuned centre; a decoder needs
-           it, and it is not recoverable from the samples alone. */
-        fprintf(f, "  \"carrier_offset_hz\": %.0f,\n",
-                app->record_carrier_offset_hz);
-    }
-    fprintf(f, "  \"source\": \"%s\",\n", app->record_source);
-    fprintf(f, "  \"tuner\": \"%s\",\n", app->record_tuner);
-    fprintf(f, "  \"started_at\": \"%s\",\n", app->record_started_at);
-    fprintf(f, "  \"duration_seconds\": %.3f,\n", seconds);
-    fprintf(f, "  \"bytes\": %llu,\n",
-            (unsigned long long)app->record_bytes);
-    /* Non-zero means the capture is not contiguous: blocks arrived short, so
-       samples are missing and any timeline derived from it is suspect. */
-    fprintf(f, "  \"short_blocks\": %llu\n",
-            (unsigned long long)app->record_short_blocks);
-    fprintf(f, "}\n");
-    if (fclose(f) != 0)
-        fprintf(stderr, "Cannot close %s: %s\n", path, strerror(errno));
-}
 
-static void record_capture(struct app *app, const unsigned char *data,
-                           uint32_t len) {
-    pthread_mutex_lock(&app->record_mutex);
-    if (!app->recording || !app->record_file) {
-        pthread_mutex_unlock(&app->record_mutex);
-        return;
-    }
-    /* A block that is not the full size is a real gap in the signal, not just
-       a short write; the capture is no longer contiguous and must say so. */
-    if (len != SAMPLE_BLOCK_BYTES)
-        app->record_short_blocks++;
-    size_t written = fwrite(data, 1, len, app->record_file);
-    app->record_bytes += written;
-    if (written != (size_t)len ||
-        app->record_bytes >= app->record_limit_bytes) {
-        int truncated = (written != (size_t)len);
-        uint64_t bytes = app->record_bytes;
-        uint64_t shorts = app->record_short_blocks;
-        char path[sizeof(app->record_path)];
-        snprintf(path, sizeof(path), "%s", app->record_path);
-        record_write_sidecar(app, (double)app->record_bytes /
-                                  ((double)app->record_sample_rate * 2.0));
-        fclose(app->record_file);
-        app->record_file = NULL;
-        app->recording = 0;
-        pthread_mutex_unlock(&app->record_mutex);
-        if (truncated)
-            fprintf(stderr, "Recording %s truncated: %s\n", path,
-                    strerror(errno));
-        else if (shorts)
-            fprintf(stderr,
-                    "Recorded %.1f MB to %s, but %llu block(s) were short: "
-                    "the capture is NOT contiguous.\n",
-                    bytes / 1e6, path, (unsigned long long)shorts);
-        else
-            fprintf(stderr, "Recorded %.1f MB to %s\n", bytes / 1e6, path);
-        return;
-    }
-    pthread_mutex_unlock(&app->record_mutex);
-}
 
-static void publish_block(struct app *app, const unsigned char *data,
-                          uint32_t len) {
-    struct latest_block *latest = &app->latest;
-    uint32_t valid_len;
 
-    pthread_mutex_lock(&latest->mutex);
-    if (latest->stop) {
-        pthread_mutex_unlock(&latest->mutex);
-        return;
-    }
-    if (len == 0 || len > SAMPLE_BLOCK_BYTES) {
-        latest->malformed_blocks++;
-        pthread_mutex_unlock(&latest->mutex);
-        return;
-    }
-    valid_len = len & ~UINT32_C(1);
-    if (valid_len != len)
-        latest->malformed_blocks++;
-    if (valid_len == 0) {
-        pthread_mutex_unlock(&latest->mutex);
-        return;
-    }
-    if (latest->ready)
-        latest->overwritten_blocks++;
-    memcpy(latest->data, data, valid_len);
-    latest->len = valid_len;
-    latest->generation++;
-    latest->published_blocks++;
-    latest->ready = 1;
-    pthread_mutex_unlock(&latest->mutex);
 
-    record_capture(app, data, valid_len);
-}
 
-static void finish_worker(struct app *app, const char *error) {
-    pthread_mutex_lock(&app->latest.mutex);
-    app->latest.worker_reading = 0;
-    app->latest.worker_done = 1;
-    if (error) {
-        app->latest.worker_failed = 1;
-        snprintf(app->latest.worker_error, sizeof(app->latest.worker_error),
-                 "%s", error);
-    }
-    pthread_mutex_unlock(&app->latest.mutex);
-}
 
-static int begin_worker_read(struct app *app) {
-    int begin;
 
-    pthread_mutex_lock(&app->latest.mutex);
-    begin = !app->latest.stop;
-    if (begin)
-        app->latest.worker_reading = 1;
-    else
-        app->latest.worker_done = 1;
-    pthread_mutex_unlock(&app->latest.mutex);
-    return begin;
-}
 
-static void receiver_callback(unsigned char *buffer, uint32_t len, void *ctx) {
-    struct app *app = ctx;
 
-    publish_block(app, buffer, len);
-}
 
-static void *receiver_worker(void *arg) {
-    struct app *app = arg;
-    int result;
-    char error[160];
 
-    if (!begin_worker_read(app))
-        return NULL;
-    result = rtlsdr_read_async(app->dev, receiver_callback, app, 0,
-                               SAMPLE_BLOCK_BYTES);
-    pthread_mutex_lock(&app->latest.mutex);
-    int stopped = app->latest.stop;
-    pthread_mutex_unlock(&app->latest.mutex);
-    if (!stopped) {
-        if (result < 0)
-            snprintf(error, sizeof(error),
-                     "RTL-SDR asynchronous read failed (%d)", result);
-        else
-            snprintf(error, sizeof(error),
-                     "RTL-SDR asynchronous acquisition ended unexpectedly");
-        finish_worker(app, error);
-    } else {
-        finish_worker(app, NULL);
-    }
-    return NULL;
-}
 
-static struct timespec playback_deadline(struct timespec start,
-                                         uint64_t pairs, uint32_t rate) {
-    struct timespec deadline = start;
-    uint64_t seconds = pairs / rate;
-    uint64_t remainder = pairs % rate;
-    uint64_t nanoseconds = remainder * UINT64_C(1000000000) / rate;
-
-    deadline.tv_sec += (time_t)seconds;
-    deadline.tv_nsec += (long)nanoseconds;
-    if (deadline.tv_nsec >= 1000000000L) {
-        deadline.tv_sec++;
-        deadline.tv_nsec -= 1000000000L;
-    }
-    return deadline;
-}
-
-static int compare_timespec(struct timespec left, struct timespec right) {
-    if (left.tv_sec != right.tv_sec)
-        return left.tv_sec < right.tv_sec ? -1 : 1;
-    return (left.tv_nsec > right.tv_nsec) - (left.tv_nsec < right.tv_nsec);
-}
-
-static int worker_stop_requested(struct app *app) {
-    int stop;
-
-    pthread_mutex_lock(&app->latest.mutex);
-    stop = app->latest.stop;
-    pthread_mutex_unlock(&app->latest.mutex);
-    return stop;
-}
-
-static void request_worker_stop(struct app *app) {
-    if (!app->mutex_ready)
-        return;
-    pthread_mutex_lock(&app->latest.mutex);
-    app->latest.stop = 1;
-    pthread_mutex_unlock(&app->latest.mutex);
-}
-
-static int sleep_until(struct app *app, struct timespec deadline) {
-    while (!worker_stop_requested(app)) {
-        struct timespec now;
-        struct timespec wake;
-        int sleep_result;
-
-        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
-            return errno;
-        if (compare_timespec(now, deadline) >= 0)
-            return 0;
-        wake = now;
-        wake.tv_nsec += 20000000L;
-        if (wake.tv_nsec >= 1000000000L) {
-            wake.tv_sec++;
-            wake.tv_nsec -= 1000000000L;
-        }
-        if (compare_timespec(deadline, wake) < 0)
-            wake = deadline;
-        do {
-            sleep_result = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME,
-                                           &wake, NULL);
-        } while (sleep_result == EINTR && !worker_stop_requested(app));
-        if (sleep_result != 0 && sleep_result != EINTR)
-            return sleep_result;
-    }
-    return 0;
-}
-
-static void *file_worker(void *arg) {
-    struct app *app = arg;
-    unsigned char *block = app->file_block;
-    uint64_t position = 0;
-    uint64_t published_pairs = 0;
-    struct timespec start;
-    char error[160];
-
-    if (!begin_worker_read(app))
-        return NULL;
-    if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) {
-        snprintf(error, sizeof(error), "Cannot read monotonic clock: %s",
-                 strerror(errno));
-        finish_worker(app, error);
-        return NULL;
-    }
-
-    while (!worker_stop_requested(app)) {
-        size_t filled = 0;
-
-        while (filled < SAMPLE_BLOCK_BYTES && !worker_stop_requested(app)) {
-            uint64_t available = app->capture_bytes - position;
-            size_t wanted = SAMPLE_BLOCK_BYTES - filled;
-            if (available < wanted)
-                wanted = (size_t)available;
-            size_t got = fread(block + filled, 1, wanted, app->capture);
-            if (got != wanted) {
-                if (ferror(app->capture))
-                    snprintf(error, sizeof(error), "Capture read failed: %s",
-                             strerror(errno));
-                else
-                    snprintf(error, sizeof(error),
-                             "Capture ended before its measured length");
-                finish_worker(app, error);
-                return NULL;
-            }
-            filled += got;
-            position += got;
-            if (position == app->capture_bytes) {
-                if (fseeko(app->capture, 0, SEEK_SET) != 0) {
-                    snprintf(error, sizeof(error), "Cannot loop capture: %s",
-                             strerror(errno));
-                    finish_worker(app, error);
-                    return NULL;
-                }
-                position = 0;
-            }
-        }
-        if (worker_stop_requested(app))
-            break;
-
-        publish_block(app, block, SAMPLE_BLOCK_BYTES);
-        published_pairs += SAMPLE_BLOCK_PAIRS;
-        struct timespec deadline = playback_deadline(
-            start, published_pairs, app->applied_sample_rate);
-        int sleep_result = sleep_until(app, deadline);
-        if (sleep_result != 0) {
-            snprintf(error, sizeof(error), "Capture pacing failed: %s",
-                     strerror(sleep_result));
-            finish_worker(app, error);
-            return NULL;
-        }
-    }
-
-    finish_worker(app, NULL);
-    return NULL;
-}
-
-static int consume_latest(struct app *app, struct slot_snapshot *snapshot) {
-    struct latest_block *latest = &app->latest;
-    int have_new = 0;
-
-    pthread_mutex_lock(&latest->mutex);
-    if (latest->ready && latest->generation != app->consumed_generation) {
-        memcpy(app->raw, latest->data, latest->len);
-        app->raw_len = latest->len;
-        app->consumed_generation = latest->generation;
-        latest->ready = 0;
-        latest->processed_blocks++;
-        have_new = 1;
-    }
-    snapshot->published_blocks = latest->published_blocks;
-    snapshot->processed_blocks = latest->processed_blocks;
-    snapshot->overwritten_blocks = latest->overwritten_blocks;
-    snapshot->malformed_blocks = latest->malformed_blocks;
-    snapshot->worker_done = latest->worker_done;
-    snapshot->worker_failed = latest->worker_failed;
-    snprintf(snapshot->worker_error, sizeof(snapshot->worker_error), "%s",
-             latest->worker_error);
-    pthread_mutex_unlock(&latest->mutex);
-    return have_new;
-}
 
 static void recompute_magnitude_bins(struct app *app) {
     size_t capacity;
@@ -626,7 +295,7 @@ static int process_block(struct app *app, double now) {
     double sum = 0.0;
 
     app->pair_count = sdr_dsp_convert_iq(
-        app->raw, app->raw_len, app->i_samples, app->q_samples,
+        app->acq.raw, app->acq.raw_len, app->i_samples, app->q_samples,
         app->magnitudes, SAMPLE_BLOCK_PAIRS);
     if (app->pair_count == 0)
         return 0;
@@ -717,16 +386,16 @@ static int install_signal_handlers(struct app *app) {
 static int worker_is_reading(struct app *app, int *done) {
     int reading;
 
-    pthread_mutex_lock(&app->latest.mutex);
-    reading = app->latest.worker_reading;
-    *done = app->latest.worker_done;
-    pthread_mutex_unlock(&app->latest.mutex);
+    pthread_mutex_lock(&app->acq.latest.mutex);
+    reading = app->acq.latest.worker_reading;
+    *done = app->acq.latest.worker_done;
+    pthread_mutex_unlock(&app->acq.latest.mutex);
     return reading;
 }
 
 int stop_acquisition(struct app *app) {
-    request_worker_stop(app);
-    if (!app->worker_started)
+    request_worker_stop(&app->acq);
+    if (!app->acq.worker_started)
         return 0;
 
     if (app->receiver_mode) {
@@ -751,26 +420,26 @@ int stop_acquisition(struct app *app) {
         }
     }
 
-    int join_result = pthread_join(app->worker, NULL);
+    int join_result = pthread_join(app->acq.worker, NULL);
     if (join_result != 0) {
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "Could not join acquisition worker: %s",
                  strerror(join_result));
         return -1;
     }
-    app->worker_started = 0;
+    app->acq.worker_started = 0;
     return 0;
 }
 
 int start_acquisition(struct app *app) {
-    pthread_mutex_lock(&app->latest.mutex);
-    app->latest.stop = 0;
-    app->latest.ready = 0;
-    app->latest.worker_done = 0;
-    app->latest.worker_failed = 0;
-    app->latest.worker_reading = 0;
-    app->latest.worker_error[0] = '\0';
-    pthread_mutex_unlock(&app->latest.mutex);
+    pthread_mutex_lock(&app->acq.latest.mutex);
+    app->acq.latest.stop = 0;
+    app->acq.latest.ready = 0;
+    app->acq.latest.worker_done = 0;
+    app->acq.latest.worker_failed = 0;
+    app->acq.latest.worker_reading = 0;
+    app->acq.latest.worker_error[0] = '\0';
+    pthread_mutex_unlock(&app->acq.latest.mutex);
 
     sigset_t worker_signals;
     sigset_t original_mask;
@@ -784,14 +453,16 @@ int start_acquisition(struct app *app) {
                  "Cannot block worker signals: %s", strerror(mask_result));
         return -1;
     }
+    acquisition_attach_source(&app->acq, app->dev, app->capture,
+                              app->applied_sample_rate, app->options.file_path);
     int thread_result = pthread_create(
-        &app->worker, NULL,
-        app->receiver_mode ? receiver_worker : file_worker, app);
+        &app->acq.worker, NULL,
+        app->receiver_mode ? receiver_worker : file_worker, &app->acq);
     if (thread_result == 0)
-        app->worker_started = 1;
+        app->acq.worker_started = 1;
     int restore_result = pthread_sigmask(SIG_SETMASK, &original_mask, NULL);
     if (restore_result != 0) {
-        request_worker_stop(app);
+        request_worker_stop(&app->acq);
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "Cannot restore signal mask: %s", strerror(restore_result));
         return -1;
@@ -1160,16 +831,18 @@ static int run_gui(struct app *app) {
                 strerror(mask_result));
         return -1;
     }
+    acquisition_attach_source(&app->acq, app->dev, app->capture,
+                              app->applied_sample_rate, app->options.file_path);
     int thread_result = pthread_create(
-        &app->worker, NULL,
-        app->receiver_mode ? receiver_worker : file_worker, app);
+        &app->acq.worker, NULL,
+        app->receiver_mode ? receiver_worker : file_worker, &app->acq);
     if (thread_result == 0)
-        app->worker_started = 1;
+        app->acq.worker_started = 1;
     int restore_result = pthread_sigmask(SIG_SETMASK, &original_mask, NULL);
     if (restore_result != 0) {
         fprintf(stderr, "Cannot restore main-thread signal mask: %s\n",
                 strerror(restore_result));
-        request_worker_stop(app);
+        request_worker_stop(&app->acq);
         return -1;
     }
     if (thread_result != 0) {
@@ -1257,7 +930,7 @@ static int run_gui(struct app *app) {
         }
 
         decay_spectrum_peak(app, now);
-        int have_new = consume_latest(app, &snapshot);
+        int have_new = consume_latest(&app->acq, &snapshot);
         int spectrum_updated = have_new ? process_block(app, now) : 0;
         if (spectrum_updated) {
             update_waterfall(app);
@@ -1346,7 +1019,7 @@ int main(int argc, char **argv) {
     app->waterfall_lower_dbfs = SDR_DSP_DBFS_FLOOR;
 
     /* Before any path that can reach cleanup, which touches this. */
-    int record_mutex_result = pthread_mutex_init(&app->record_mutex, NULL);
+    int record_mutex_result = acquisition_init(&app->acq);
     if (record_mutex_result != 0) {
         fprintf(stderr, "Cannot create recording mutex: %s\n",
                 strerror(record_mutex_result));
@@ -1362,13 +1035,13 @@ int main(int argc, char **argv) {
             goto cleanup;
     }
 
-    int mutex_result = pthread_mutex_init(&app->latest.mutex, NULL);
+    int mutex_result = pthread_mutex_init(&app->acq.latest.mutex, NULL);
     if (mutex_result != 0) {
         fprintf(stderr, "Cannot initialize acquisition mutex: %s\n",
                 strerror(mutex_result));
         goto cleanup;
     }
-    app->mutex_ready = 1;
+    app->acq.mutex_ready = 1;
     if (install_signal_handlers(app) < 0)
         goto cleanup;
 
@@ -1376,8 +1049,8 @@ int main(int argc, char **argv) {
     result = gui_result == 0 ? 0 : 1;
 
 cleanup:
-    request_worker_stop(app);
-    if (app->worker_started) {
+    request_worker_stop(&app->acq);
+    if (app->acq.worker_started) {
         if (app->receiver_mode) {
             int done = 0;
             int reading = worker_is_reading(app, &done);
@@ -1404,7 +1077,7 @@ cleanup:
                 }
             }
         }
-        int join_result = pthread_join(app->worker, NULL);
+        int join_result = pthread_join(app->acq.worker, NULL);
         if (join_result != 0) {
             fprintf(stderr, "Cannot join acquisition worker: %s\n",
                     strerror(join_result));
@@ -1412,17 +1085,17 @@ cleanup:
                     "Worker ownership is uncertain; exiting without releasing shared state.\n");
             return 1;
         }
-        app->worker_started = 0;
+        app->acq.worker_started = 0;
     }
 
-    if (app->mutex_ready) {
-        int destroy_result = pthread_mutex_destroy(&app->latest.mutex);
+    if (app->acq.mutex_ready) {
+        int destroy_result = pthread_mutex_destroy(&app->acq.latest.mutex);
         if (destroy_result != 0) {
             fprintf(stderr, "Cannot destroy acquisition mutex: %s\n",
                     strerror(destroy_result));
             result = 1;
         }
-        app->mutex_ready = 0;
+        app->acq.mutex_ready = 0;
     }
     if (app->capture) {
         if (fclose(app->capture) != 0) {
@@ -1432,18 +1105,7 @@ cleanup:
         app->capture = NULL;
     }
     if (app->record_mutex_ready) {
-        pthread_mutex_lock(&app->record_mutex);
-        if (app->record_file) {
-            fprintf(stderr, "Recording %s stopped early at %.1f MB\n",
-                    app->record_path, app->record_bytes / 1e6);
-            record_write_sidecar(app, (double)app->record_bytes /
-                                      ((double)app->record_sample_rate * 2.0));
-            fclose(app->record_file);
-            app->record_file = NULL;
-            app->recording = 0;
-        }
-        pthread_mutex_unlock(&app->record_mutex);
-        pthread_mutex_destroy(&app->record_mutex);
+        acquisition_destroy(&app->acq);
         app->record_mutex_ready = 0;
     }
     if (app->dev) {

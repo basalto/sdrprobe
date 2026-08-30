@@ -9,166 +9,30 @@
 #include <stdio.h>
 #include <time.h>
 
+#include "acquisition.h"
 #include "adsb_dsp.h"
 #include "gsm_dsp.h"
 #include "options.h"
 #include "sdr_dsp.h"
 
+
 /*
  * The application's shared state.
  *
- * `struct app` is one structure that every part of the program reads: the
- * acquisition worker, the per-view drawing, the settings and calibration
- * panels. Naming it here rather than burying it in sdrprobe.c is what lets
- * the views live in their own files.
- *
- * Be honest about what this is: a shared record, not an interface. Splitting
- * it into per-area state -- so acquisition owned its slot and each view owned
- * its own fields -- is the change that would turn these files into modules.
- * Until then the files are an organisation of the same coupling.
+ * Acquisition now owns its own (struct acquisition, in acquisition.h). What
+ * is left here is still one record every view reads, so the view files are an
+ * organisation of that coupling rather than modules in their own right.
  */
-
 #define GSM900_BASE_HZ 935000000.0
 #define GSM900_ARFCN_SPACING_HZ 200000.0
-#define SAMPLE_BLOCK_BYTES (16 * 16384)
-#define SAMPLE_BLOCK_PAIRS (SAMPLE_BLOCK_BYTES / 2)
-#define SCATTER_SAMPLES 4096
-#define SCATTER_HISTORY_BLOCKS 64
-#define SCATTER_HISTORY_SECONDS 1.0
-#define PEAK_DECAY_DB_PER_SECOND 20.0f
-#define PHYSICAL_MAGNITUDE_MAX 180.31223f
-#define SPECTRUM_TOP_DBFS 6.0f
-#define SCALE_FACTOR 0.8f
-#define DB_SCALE_STEP 10.0f
-#define CALIBRATION_RECENT 64
-#define CALIBRATION_SETTLE_SECONDS 2.0
-#define CALIBRATION_MIN_SECONDS 8.0
-#define CALIBRATION_MAX_SEM_PPM 1.0
-#define CALIBRATION_VIEW_HALF_WIDTH_HZ 250000.0
-#define CALIBRATION_SOURCE_CENTROID 0
-#define CALIBRATION_SOURCE_FCCH 1
-#define CALIBRATION_FCCH_MISS_LIMIT 12
-#define SCAN_BAND_LOWER_HZ 935100000.0
-#define SCAN_BAND_UPPER_HZ 959900000.0
-#define SCAN_EDGE_MARGIN_HZ 200000.0
-#define SCAN_STEP_SETTLE_SECONDS 0.35
-#define SCAN_STEP_PROBE_SECONDS 0.45
-#define SCAN_SENTINEL_DBFS (-300.0f)
-#define SCAN_BCCH_MIN_CONF 0.85f
-#define DRIFT_CHECK_INTERVAL_SECONDS 300.0
-#define DRIFT_CHECK_SETTLE_SECONDS 2.0
-#define DRIFT_CHECK_MEASURE_SECONDS 3.0
-#define DRIFT_MAX_PPM 2.0
-#define DRIFT_MIN_MEASUREMENTS 8
-#define DRIFT_RECENT 64
-
-/* Calibration-health indicator states. UNKNOWN must be 0 (zero-initialised). */
-enum cal_health {
-    CAL_HEALTH_UNKNOWN = 0, /* grey: never GSM-calibrated, or PPM changed manually */
-    CAL_HEALTH_GOOD,        /* green: applied PPM backed by a stable FCCH lock */
-    CAL_HEALTH_DRIFT,       /* red: a periodic re-check found drift */
-    CAL_HEALTH_CHECKING     /* amber: a re-check is in progress */
-};
-
-/* Phases of one background drift re-check. */
-enum drift_phase {
-    DRIFT_IDLE = 0,
-    DRIFT_SETTLE,
-    DRIFT_MEASURE
-};
-
-
-
-enum view_kind {
-    VIEW_MAGNITUDE,
-    VIEW_SPECTRUM,
-    VIEW_SCATTER,
-    VIEW_WATERFALL
-};
-
-/* Top-level tabs. TAB_SCOPE must be 0 (zero-initialised default). See
-   docs/adr/0008-top-level-tab-navigation.md. */
-enum active_tab {
-    TAB_SCOPE,
-    TAB_DECODE
-};
-#define TAB_COUNT 2
-
-/* Sub-views of the Decode tab, selected by number keys like the Scope views. */
-enum decode_kind {
-    DECODE_GSM,
-    DECODE_ADSB
-};
-
-#define ADSB_LOG_CAPACITY 256
-
-/* One row of the decoded-message log, formatted for display at decode time. */
-struct adsb_log_entry {
-    char stamp[16];
-    char icao[8];
-    char label[6];
-    char detail[96];
-    char raw[32];
-    double time;
-    int highlight;
-};
-
-
-struct latest_block {
-    unsigned char data[SAMPLE_BLOCK_BYTES];
-    uint32_t len;
-    uint64_t generation;
-    uint64_t published_blocks;
-    uint64_t processed_blocks;
-    uint64_t overwritten_blocks;
-    uint64_t malformed_blocks;
-    int ready;
-    int worker_done;
-    int worker_failed;
-    int worker_reading;
-    int stop;
-    char worker_error[160];
-    pthread_mutex_t mutex;
-};
-
-struct slot_snapshot {
-    uint64_t published_blocks;
-    uint64_t processed_blocks;
-    uint64_t overwritten_blocks;
-    uint64_t malformed_blocks;
-    int worker_done;
-    int worker_failed;
-    char worker_error[160];
-};
-
-struct scatter_block {
-    float i[SCATTER_SAMPLES];
-    float q[SCATTER_SAMPLES];
-    size_t count;
-    double time;
-};
-
-/* The SCH decode is reported as it comes off the burst. The only running
-   memory kept is the previous T1, to notice a decode that cannot be right:
-   T1 advances once per 1326 frames (~6.1 s), so consecutive decodes seconds
-   apart must agree to within 1. This flags, it never substitutes. */
-struct gsm_sch_continuity {
-    int have_last;
-    int last_t1;
-    int implausible;
-};
 
 struct app {
+    struct acquisition acq;
     struct options options;
-    struct latest_block latest;
     struct sdr_dsp dsp;
     rtlsdr_dev_t *dev;
     FILE *capture;
-    uint64_t capture_bytes;
-    pthread_t worker;
-    int mutex_ready;
     int record_mutex_ready;
-    int worker_started;
     int window_ready;
     int scatter_ready;
     int waterfall_ready;
@@ -186,10 +50,6 @@ struct app {
     struct sigaction old_sigint;
     struct sigaction old_sigterm;
 
-    unsigned char raw[SAMPLE_BLOCK_BYTES];
-    unsigned char file_block[SAMPLE_BLOCK_BYTES];
-    uint32_t raw_len;
-    uint64_t consumed_generation;
     float i_samples[SAMPLE_BLOCK_PAIRS];
     float q_samples[SAMPLE_BLOCK_PAIRS];
     float spectrum_i[SAMPLE_BLOCK_PAIRS];
@@ -343,26 +203,8 @@ struct app {
 
     /* Raw-I/Q recording (to build a GSM test capture). Written by the
        acquisition thread, so record_mutex guards every field here. */
-    pthread_mutex_t record_mutex;
-    FILE *record_file;
-    int recording;
-    uint64_t record_bytes;
-    uint64_t record_limit_bytes;
-    uint64_t record_short_blocks;
-    char record_path[256];
     /* Snapshotted by start_record on the main thread, so the acquisition
        thread never reads live tuning state. */
-    uint32_t record_frequency_hz;
-    uint32_t record_sample_rate;
-    int record_gain_tenths;
-    int record_manual_gain;
-    int record_ppm;
-    int record_arfcn;
-    double record_carrier_offset_hz;
-    char record_source[320];
-    char record_tuner[32];
-    char record_started_at[32];
-    double record_started_mono;
 };
 
 #endif
