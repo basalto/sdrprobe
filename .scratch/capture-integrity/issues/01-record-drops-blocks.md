@@ -85,6 +85,18 @@ Note ADR-0002 already stated that the single-slot handoff "is *not* suitable
 for lossless capture"; the Record button was built on it regardless. The ADR's
 consequences now record where capture actually tees off.
 
-Still open, and worth doing on the same write path: the metadata sidecar from
-`TODO.md` (centre frequency, sample rate, gain, PPM, tuner identity,
-timestamps). The short-block count belongs in it.
+**Done (2026-08-30).** The metadata sidecar from `TODO.md` now rides the same
+write path. `record_write_sidecar()` writes `<capture>.json` when the recording
+closes, on both the normal and the stopped-early path: centre frequency, sample
+rate, gain, PPM, tuner chip, source, start time, duration, byte count, and —
+where the GSM view had selected a channel — the ARFCN and the carrier's offset
+from the recorded centre. That last field is the one that mattered most: the
+"tuned 400 kHz below the channel" convention for `gsm_arfcn_69.bin` lived only
+in prose, and everything in `.scratch/sch-frame-number/` depended on knowing it.
+
+The short-block count is in there too, so a capture states its own contiguity
+instead of leaving it to be discovered — which is the number this ticket's fix
+made meaningful in the first place.
+
+The tuning is snapshotted on the main thread when recording starts, so the
+acquisition thread that writes the file never reads live state.

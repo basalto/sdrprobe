@@ -189,6 +189,7 @@ struct app {
     uint32_t applied_frequency;
     uint32_t applied_sample_rate;
     char source_label[320];
+    char tuner_label[32];
     struct sigaction old_sigint;
     struct sigaction old_sigterm;
 
@@ -356,6 +357,19 @@ struct app {
     uint64_t record_limit_bytes;
     uint64_t record_short_blocks;
     char record_path[256];
+    /* Snapshotted by start_record on the main thread, so the acquisition
+       thread never reads live tuning state. */
+    uint32_t record_frequency_hz;
+    uint32_t record_sample_rate;
+    int record_gain_tenths;
+    int record_manual_gain;
+    int record_ppm;
+    int record_arfcn;
+    double record_carrier_offset_hz;
+    char record_source[320];
+    char record_tuner[32];
+    char record_started_at[32];
+    double record_started_mono;
 };
 
 static volatile sig_atomic_t signal_stop_requested = 0;
@@ -691,6 +705,20 @@ static int configure_receiver(struct app *app) {
     const char *device_name = rtlsdr_get_device_name(0);
     snprintf(app->source_label, sizeof(app->source_label), "RTL-SDR: %s",
              device_name ? device_name : "receiver 0");
+    /* The tuner chip, not the USB bridge: it sets the achievable gains and the
+       oscillator whose error the PPM correction compensates, so a capture is
+       worth labelling with it. */
+    const char *tuner = "unknown";
+    switch (rtlsdr_get_tuner_type(app->dev)) {
+    case RTLSDR_TUNER_E4000:  tuner = "E4000"; break;
+    case RTLSDR_TUNER_FC0012: tuner = "FC0012"; break;
+    case RTLSDR_TUNER_FC0013: tuner = "FC0013"; break;
+    case RTLSDR_TUNER_FC2580: tuner = "FC2580"; break;
+    case RTLSDR_TUNER_R820T:  tuner = "R820T"; break;
+    case RTLSDR_TUNER_R828D:  tuner = "R828D"; break;
+    default: break;
+    }
+    snprintf(app->tuner_label, sizeof(app->tuner_label), "%s", tuner);
     result = 0;
 
 done:
@@ -741,6 +769,56 @@ static int open_capture(struct app *app) {
  * looks well-formed. A test vector that lies about its own timeline is worse
  * than no test vector.
  */
+/* Write the capture's companion metadata. A raw .bin says nothing about how it
+   was made, and the tuning convention matters as much as the samples: reading
+   testfiles/gsm_arfcn_69.bin correctly depends on knowing it was tuned 400 kHz
+   below the channel, which lived only in prose. Called with record_mutex held.
+   A failure here is reported but does not invalidate the .bin. */
+static void record_write_sidecar(struct app *app, double seconds) {
+    char path[sizeof(app->record_path) + 8];
+    size_t n = strlen(app->record_path);
+    if (n > 4 && strcmp(app->record_path + n - 4, ".bin") == 0)
+        snprintf(path, sizeof(path), "%.*s.json", (int)(n - 4),
+                 app->record_path);
+    else
+        snprintf(path, sizeof(path), "%s.json", app->record_path);
+
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        fprintf(stderr, "Cannot write %s: %s\n", path, strerror(errno));
+        return;
+    }
+    fprintf(f, "{\n");
+    fprintf(f, "  \"format\": \"unsigned 8-bit interleaved I/Q, 127.5 = zero\",\n");
+    fprintf(f, "  \"center_frequency_hz\": %u,\n", app->record_frequency_hz);
+    fprintf(f, "  \"sample_rate_hz\": %u,\n", app->record_sample_rate);
+    if (app->record_manual_gain)
+        fprintf(f, "  \"gain_db\": %.1f,\n", app->record_gain_tenths / 10.0);
+    else
+        fprintf(f, "  \"gain_db\": \"auto\",\n");
+    fprintf(f, "  \"ppm\": %d,\n", app->record_ppm);
+    if (app->record_arfcn > 0) {
+        fprintf(f, "  \"gsm_arfcn\": %d,\n", app->record_arfcn);
+        /* The channel sits this far above the tuned centre; a decoder needs
+           it, and it is not recoverable from the samples alone. */
+        fprintf(f, "  \"carrier_offset_hz\": %.0f,\n",
+                app->record_carrier_offset_hz);
+    }
+    fprintf(f, "  \"source\": \"%s\",\n", app->record_source);
+    fprintf(f, "  \"tuner\": \"%s\",\n", app->record_tuner);
+    fprintf(f, "  \"started_at\": \"%s\",\n", app->record_started_at);
+    fprintf(f, "  \"duration_seconds\": %.3f,\n", seconds);
+    fprintf(f, "  \"bytes\": %llu,\n",
+            (unsigned long long)app->record_bytes);
+    /* Non-zero means the capture is not contiguous: blocks arrived short, so
+       samples are missing and any timeline derived from it is suspect. */
+    fprintf(f, "  \"short_blocks\": %llu\n",
+            (unsigned long long)app->record_short_blocks);
+    fprintf(f, "}\n");
+    if (fclose(f) != 0)
+        fprintf(stderr, "Cannot close %s: %s\n", path, strerror(errno));
+}
+
 static void record_capture(struct app *app, const unsigned char *data,
                            uint32_t len) {
     pthread_mutex_lock(&app->record_mutex);
@@ -761,6 +839,8 @@ static void record_capture(struct app *app, const unsigned char *data,
         uint64_t shorts = app->record_short_blocks;
         char path[sizeof(app->record_path)];
         snprintf(path, sizeof(path), "%s", app->record_path);
+        record_write_sidecar(app, (double)app->record_bytes /
+                                  ((double)app->record_sample_rate * 2.0));
         fclose(app->record_file);
         app->record_file = NULL;
         app->recording = 0;
@@ -3084,8 +3164,8 @@ static void gsm_tune_selected(struct app *app, int arfcn) {
     }
 }
 
-/* Update the frame-number lock with a newly decoded SCH burst. Votes T1
-   to reject sporadic data-field errors, and predicts the next frame number. */
+/* Note an SCH decode that cannot be right: T1 advances once per 1326 frames,
+   so consecutive decodes seconds apart must agree to within 1. Flags only. */
 static void check_sch_continuity(struct gsm_sch_continuity *c,
                                  const struct gsm_sch_result *res) {
     c->implausible = c->have_last && abs(res->t1 - c->last_t1) > 1;
@@ -3147,8 +3227,26 @@ static void start_record(struct app *app) {
         return;
     }
 
+    char started[32];
+    strftime(started, sizeof(started), "%Y-%m-%dT%H:%M:%S", &local);
+
     pthread_mutex_lock(&app->record_mutex);
     snprintf(app->record_path, sizeof(app->record_path), "%s", path);
+    app->record_frequency_hz = app->applied_frequency;
+    app->record_sample_rate = app->applied_sample_rate;
+    app->record_gain_tenths = app->applied_gain_tenths;
+    app->record_manual_gain = app->applied_manual_gain;
+    app->record_ppm = app->applied_ppm;
+    app->record_arfcn = app->scan_selected_arfcn;
+    /* gsm_tune_selected tunes 400 kHz below the channel, so the carrier sits
+       that far above the recorded centre. */
+    app->record_carrier_offset_hz = app->scan_selected_arfcn > 0 ? 400000.0 : 0.0;
+    snprintf(app->record_source, sizeof(app->record_source), "%s",
+             app->source_label);
+    snprintf(app->record_tuner, sizeof(app->record_tuner), "%s",
+             app->tuner_label[0] ? app->tuner_label : "n/a (file playback)");
+    snprintf(app->record_started_at, sizeof(app->record_started_at), "%s",
+             started);
     app->record_file = file;
     app->record_bytes = 0;
     app->record_short_blocks = 0;
@@ -3924,6 +4022,8 @@ cleanup:
         if (app->record_file) {
             fprintf(stderr, "Recording %s stopped early at %.1f MB\n",
                     app->record_path, app->record_bytes / 1e6);
+            record_write_sidecar(app, (double)app->record_bytes /
+                                      ((double)app->record_sample_rate * 2.0));
             fclose(app->record_file);
             app->record_file = NULL;
             app->recording = 0;
