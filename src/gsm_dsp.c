@@ -17,10 +17,10 @@ int gsm_downlink_hz(unsigned int arfcn, uint32_t *frequency_hz) {
 
 int gsm_fcch_detect(const float *i_samples, const float *q_samples,
                     size_t pair_count, double sample_rate,
-                    double target_offset_hz, double search_window_hz,
+                    double target_offset_hz, double search_half_width_hz,
                     struct gsm_fcch_result *result) {
     if (!i_samples || !q_samples || !result || sample_rate <= 0.0 ||
-        search_window_hz <= 0.0)
+        search_half_width_hz <= 0.0)
         return 0;
 
     result->detected = 0;
@@ -71,7 +71,7 @@ int gsm_fcch_detect(const float *i_samples, const float *q_samples,
         double accum_mag = sqrt(accum_re * accum_re + accum_im * accum_im);
         double coherence = sum_mag > 0.0 ? accum_mag / sum_mag : 0.0;
         double frequency = atan2(accum_im, accum_re) / GSM_TWO_PI * sample_rate;
-        if (fabs(frequency - target_offset_hz) > search_window_hz)
+        if (fabs(frequency - target_offset_hz) > search_half_width_hz)
             continue;
         if (!found || coherence > best_coherence) {
             best_coherence = coherence;
@@ -322,7 +322,6 @@ size_t gsm_sch_modulate(const uint8_t coded_bits[GSM_SCH_CODED_BITS],
     return written;
 }
 
-#define GSM_SCH_CARRIER_SEARCH_HZ 50000.0
 #define SCH_TIMINGS 8
 #define SCH_MIN_MATCH 0.80f
 
@@ -409,21 +408,13 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
        tens of kHz off, which biases the differential demod enough to break the
        decode; the FCCH is a clean reference at carrier + 1625/24 kHz.
 
-       The search half-width bounds how far the receiver may plausibly be off:
-       50 kHz is about 53 ppm at GSM 900, generous for an RTL-SDR and more so
-       once a PPM correction has been applied. It must not be widened "just in
-       case". At +-100 kHz the detector will happily lock onto some other
-       narrowband component tens of kHz away, report high coherence, and
-       mistune the downconversion enough that the training sequence can no
-       longer be found -- silently, because nothing downstream checks the
-       refinement. That cost 14 of 30 blocks on testfiles/gsm_arfcn_73.bin.
-       A receiver further out than this window needs calibration, which does
-       its own wider search. */
+       The search is bounded to GSM_FCCH_SEARCH_HALF_HZ; see its definition
+       for why widening it silently breaks the decode. */
     double refined = carrier_offset_hz;
     struct gsm_fcch_result fcch;
     if (gsm_fcch_detect(i_samples, q_samples, pair_count, sample_rate,
                         carrier_offset_hz + GSM_FCCH_TONE_HZ,
-                        GSM_SCH_CARRIER_SEARCH_HZ, &fcch))
+                        GSM_FCCH_SEARCH_HALF_HZ, &fcch))
         refined = fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
 
     float *bi = malloc(pair_count * sizeof(*bi));

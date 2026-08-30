@@ -73,7 +73,7 @@ static int probe_block(const unsigned char *raw, size_t bytes) {
     struct gsm_fcch_result fcch;
     int have_fcch = gsm_fcch_detect(I, Q, pairs, fs,
                                     NOMINAL_OFFSET_HZ + GSM_FCCH_TONE_HZ,
-                                    100000.0, &fcch);
+                                    GSM_FCCH_SEARCH_HALF_HZ, &fcch);
     double refined = NOMINAL_OFFSET_HZ;
     if (have_fcch)
         refined = fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
