@@ -88,10 +88,20 @@ Two hard constraints on this layer:
   magnitude frame — that is what lets the spectrum and scatter views exist
   (ADR-0005).
 
-### Application: `src/sdrprobe.c`
+### Application
 
-One ~3900-line file holding `struct app` (all state), acquisition, and screen
-composition. Its shape:
+`src/app.h` names the shared state; `src/options.c` parses the command line;
+`src/view_gsm.c` and `src/view_adsb.c` are the Decode tab's two screens, with
+`src/view.h` declaring what they share with the rest. `src/sdrprobe.c` keeps
+acquisition, the Scope views, the settings and calibration overlays, and the
+frame loop.
+
+Be clear on what that split is and isn't: every view still reads one big
+`struct app`, so this is an organisation of the same coupling, not a set of
+modules. Giving acquisition and each view their own state is the change that
+would make them modules; `app.h`'s header comment says so.
+
+Its shape:
 
 - **Threading.** A worker thread (`receiver_worker` for the librtlsdr async
   callback, `file_worker` for the paced file pacer) hands 256 KB blocks to the

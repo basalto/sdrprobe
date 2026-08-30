@@ -92,6 +92,18 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   velocity), and CPR global position decode with a minimal even/odd pairing
   cache. Prefix `adsb_`. It reuses only the core's per-pair magnitude, not the
   FFT/centroid primitives; recorded in `docs/adr/0009-mode-s-decode-plugin.md`.
+- `src/app.h` — the shared application state (`struct app`) plus the constants
+  and enums that go with it. Naming it here is what lets the views live in
+  their own files; it is a shared record, not an interface (see its header
+  comment).
+- `src/options.{c,h}` — command-line parsing and the text parsers behind it.
+  Touches no application state, and the settings and calibration panels reuse
+  `parse_int` / `parse_frequency` so typed input is parsed the same way
+  everywhere.
+- `src/view.h`, `src/view_gsm.c`, `src/view_adsb.c` — the Decode tab's two
+  screens, a file each: read `struct app`, draw, handle their own input.
+  `view.h` also declares the handful of widgets and actions they share with
+  `sdrprobe.c`.
 - `src/gsm_layout.h` — where the GSM decode view puts things: one struct of
   rectangles derived from the window size by a pure function, so the panels
   that share a row cannot drift apart and the whole layout is testable without

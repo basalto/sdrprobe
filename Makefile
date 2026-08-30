@@ -10,6 +10,8 @@ BUILD=build
 all: sdrprobe
 
 DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/adsb_dsp.c
+APP_SRC=$(SRC)/options.c $(SRC)/view_gsm.c $(SRC)/view_adsb.c
+APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui.c
 GUI_HDR=$(SRC)/sdrgui.h
@@ -21,10 +23,11 @@ $(BUILD)/raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
 	@mkdir -p $(BUILD)
 	$(CC) -O2 $(RAYGUI_FLAGS) -w -c $(SRC)/raygui_impl.c -o $@
 
-sdrprobe: $(SRC)/sdrprobe.c $(DSP_SRC) $(DSP_HDR) $(GUI_SRC) $(GUI_HDR) \
-		$(BUILD)/raygui_impl.o
+sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
+		$(GUI_SRC) $(GUI_HDR) $(BUILD)/raygui_impl.o
 	$(CC) $(CFLAGS) $(RAYGUI_FLAGS) -pthread \
-		-o $@ $(SRC)/sdrprobe.c $(DSP_SRC) $(GUI_SRC) $(BUILD)/raygui_impl.o \
+		-o $@ $(SRC)/sdrprobe.c $(APP_SRC) $(DSP_SRC) $(GUI_SRC) \
+		$(BUILD)/raygui_impl.o \
 		$(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs raylib) -pthread
 
 # Per-technology hardware-free DSP checks. Each technology's checks build and
