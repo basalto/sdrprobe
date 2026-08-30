@@ -27,6 +27,11 @@ Rectangle sdrgui_chart_area(Rectangle outer, float gutter, float caption_h);
 int sdrgui_plot_cursor(Rectangle plot, float *x_fraction, float *y_fraction,
                        Vector2 *mouse);
 
+/* Draw text, shortened with an ellipsis if it does not fit in `max_width`.
+   For status lines that share a row with buttons anchored to the window edge. */
+void sdrgui_text_fit(const char *text, int x, int y, int size, float max_width,
+                     Color color);
+
 /* Crosshair + floating readout box anchored to the cursor, clamped to `plot`. */
 void sdrgui_cursor_readout(Rectangle plot, Vector2 mouse, const char *text);
 

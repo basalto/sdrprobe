@@ -164,6 +164,13 @@ static Rectangle gsm_opt_button(int index) {
     return gsm_layout_now().opt_button[index];
 }
 
+/* The View Waterfall / Back to Scan button sits at the right edge on the same
+   rows as this header text. */
+static float gsm_header_width(int x) {
+    float limit = (float)GetScreenWidth() - 150.0f - 12.0f - (float)x;
+    return limit > 0.0f ? limit : 0.0f;
+}
+
 void draw_gsm(struct app *app) {
     char text[320];
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
@@ -211,7 +218,7 @@ void draw_gsm(struct app *app) {
             snprintf(text, sizeof(text),
                      "Press Scan to survey GSM 900 downlink channel power and locate BCCH carriers");
     }
-    DrawText(text, 322, 90, 17, (Color){ 190, 208, 218, 255 });
+    sdrgui_text_fit(text, 322, 90, 17, gsm_header_width(322), (Color){ 190, 208, 218, 255 });
 
     /* Signal quality of the inspected channel (estimated SNR for gain/lock). */
     if (app->signal_stats_ready) {
@@ -225,7 +232,7 @@ void draw_gsm(struct app *app) {
                  "noise (p10) %.2f   signal (p99.5) %.2f   estimated SNR %.1f dB   clipping %.4f%%   headroom %.1f dB",
                  stats->noise_magnitude, stats->signal_magnitude,
                  stats->snr_db, stats->clipping_percent, stats->headroom_db);
-        DrawText(text, 322, 112, 16, quality_color);
+        sdrgui_text_fit(text, 322, 112, 16, gsm_header_width(322), quality_color);
     }
 
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
