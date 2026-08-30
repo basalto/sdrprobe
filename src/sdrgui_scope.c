@@ -26,7 +26,7 @@ void sdrgui_magnitude(const struct sdrgui_magnitude_params *params) {
     DrawText(text, (int)plot.x - MeasureText(text, 16) - 11,
              (int)(plot.y + plot.height) - 8, 16,
              (Color){ 151, 174, 188, 255 });
-    DrawText("magnitude (sample units)", (int)outer.x, (int)outer.y, 16,
+    DrawText("magnitude (sample units)", (int)plot.x, (int)outer.y, 16,
              (Color){ 151, 174, 188, 255 });
 
     if (params->bin_count > 0) {
@@ -129,7 +129,7 @@ void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
                      (int)y - 8, 16, (Color){ 151, 174, 188, 255 });
         }
     }
-    DrawText("dBFS", (int)outer.x, (int)outer.y, 16,
+    DrawText("dBFS", (int)plot.x, (int)outer.y, 16,
               (Color){ 151, 174, 188, 255 });
 
     double first_frequency = ceil(lower_frequency / frequency_step) *
@@ -278,7 +278,7 @@ void sdrgui_scatter(const struct sdrgui_scatter_params *params) {
     }
 
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
-    DrawText("Q (normalized full scale)", (int)outer.x, (int)outer.y, 16,
+    DrawText("Q (normalized full scale)", (int)plot.x, (int)outer.y, 16,
              (Color){ 151, 174, 188, 255 });
     snprintf(text, sizeof(text),
               "I (normalized full scale)   manual range +/-%.3f   major %.3f   latest block: %zu points   Up/Down scale",
@@ -443,7 +443,7 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
 
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
     if (!params->calibration_mode)
-        DrawText("time (newest at top)", (int)outer.x, (int)outer.y, 16,
+        DrawText("time (newest at top)", (int)plot.x, (int)outer.y, 16,
                  (Color){ 151, 174, 188, 255 });
     if (channel_axis)
         snprintf(text, sizeof(text),

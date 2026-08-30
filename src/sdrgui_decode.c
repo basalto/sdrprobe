@@ -131,7 +131,7 @@ void sdrgui_constellation(const struct sdrgui_constellation_params *params) {
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
 
     if (params->caption && params->caption[0])
-        DrawText(params->caption, (int)outer.x, (int)outer.y, 16,
+        DrawText(params->caption, (int)plot.x, (int)outer.y, 16,
                  (Color){ 151, 174, 188, 255 });
 
     float cx = plot.x + plot.width / 2.0f;
@@ -205,7 +205,7 @@ void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params) {
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
 
     if (params->title && params->title[0])
-        DrawText(params->title, (int)outer.x, (int)outer.y, 16,
+        DrawText(params->title, (int)plot.x, (int)outer.y, 16,
                  (Color){ 151, 174, 188, 255 });
 
     if (params->count <= 0) {
