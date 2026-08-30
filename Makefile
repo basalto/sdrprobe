@@ -15,7 +15,8 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 	$(SRC)/overlay_settings.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
-GUI_SRC=$(SRC)/sdrgui.c
+GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
+	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
 GUI_HDR=$(SRC)/sdrgui.h
 RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 

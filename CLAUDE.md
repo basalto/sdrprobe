@@ -77,10 +77,12 @@ Two hard constraints on this layer:
 
 ### Presentation: sdrgui components over vendored raygui
 
-- `src/sdrgui.{c,h}` (`sdrgui_`) — reusable visual components (plots, waterfall,
-  scan chart, health circle, message log, cursor readouts). They take plain data
-  and geometry and **never see `struct app`** (ADR-0007). They depend only on
-  raylib.
+- `src/sdrgui.h` with `sdrgui_plot.c`, `sdrgui_scope.c`, `sdrgui_decode.c`,
+  `sdrgui_widgets.c` (`sdrgui_`) — reusable visual components. They take plain
+  data and geometry and **never see `struct app`** (ADR-0007), and depend only
+  on raylib. Every chart draws inside the rect it is handed, reserving its own
+  caption strip and label gutter via `sdrgui_chart_area()` — a caller cannot
+  compute that clearance, because label width depends on the values.
 - `vendor/raygui.h` + `src/raygui_impl.c` — pinned immediate-mode widgets,
   expanded in one isolated TU compiled with `-w` because the header is not
   `-Wall -W` clean. Keep it that way.

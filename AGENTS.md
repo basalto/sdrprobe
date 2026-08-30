@@ -122,11 +122,15 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   rectangles derived from the window size by a pure function, so the panels
   that share a row cannot drift apart and the whole layout is testable without
   a window. Covered by `tests/gsm_layout_test.c`.
-- `src/sdrgui.h` / `src/sdrgui.c` — reusable SDR visual components (plots,
+- `src/sdrgui.h` and `sdrgui_plot.c` / `sdrgui_scope.c` / `sdrgui_decode.c` /
+  `sdrgui_widgets.c` — reusable SDR visual components (plots,
   waterfall, scan chart, health circle, decoded-message log, cursor readouts)
-  taking plain data/geometry, not `struct app`. Prefix `sdrgui_`. `sdrprobe`
-  composes these plus generic widgets; the presentation split is recorded in
-  `docs/adr/0007-gui-presentation-layer.md`.
+  taking plain data/geometry, not `struct app`. Prefix `sdrgui_`. Split by what
+  consumes them: `sdrgui_plot.c` holds the primitives the charts share,
+  `sdrgui_scope.c` the four Scope views, `sdrgui_decode.c` the Decode tab's
+  charts, `sdrgui_widgets.c` the two non-chart pieces. Every chart draws
+  entirely inside the rectangle it is given. The presentation split is recorded
+  in `docs/adr/0007-gui-presentation-layer.md`.
 - `vendor/raygui.h` + `src/raygui_impl.c` — the vendored raygui immediate-mode
   widget toolkit (pinned; compiled once in isolation, `-Ivendor`), GUI build
   only. The DSP checks never link the GUI, so their `-lm`-only contract is
