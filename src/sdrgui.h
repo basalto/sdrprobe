@@ -16,6 +16,12 @@
 
 /* --- Plot geometry helpers --- */
 
+/* The inset a chart takes inside its own rectangle: `caption_h` at the top for
+   its caption and `gutter` on the left for its axis labels, plus half a line at
+   the bottom where the lowest label is centred on the plot edge. Components
+   call this so they draw entirely within the rect they were given. */
+Rectangle sdrgui_chart_area(Rectangle outer, float gutter, float caption_h);
+
 /* Fill x_fraction/y_fraction/mouse for the cursor over `plot`; returns 0 when
    the cursor is outside the plot. */
 int sdrgui_plot_cursor(Rectangle plot, float *x_fraction, float *y_fraction,
