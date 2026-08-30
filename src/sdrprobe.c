@@ -789,6 +789,9 @@ static void record_write_sidecar(struct app *app, double seconds) {
         return;
     }
     fprintf(f, "{\n");
+    /* Distinguishes a sidecar written at record time from one reconstructed
+       for an older capture, where some fields may be unknown. */
+    fprintf(f, "  \"provenance\": \"recorded by sdrprobe\",\n");
     fprintf(f, "  \"format\": \"unsigned 8-bit interleaved I/Q, 127.5 = zero\",\n");
     fprintf(f, "  \"center_frequency_hz\": %u,\n", app->record_frequency_hz);
     fprintf(f, "  \"sample_rate_hz\": %u,\n", app->record_sample_rate);
