@@ -15,6 +15,7 @@ make check-dsp        # all three hardware-free DSP checks
 make check-sdr-dsp    # one check in isolation — generic core
 make check-gsm-dsp    # GSM plugin (+ the core it reuses)
 make check-adsb-dsp   # Mode S / ADS-B plugin
+make check-layout     # GSM view geometry (raylib headers only, no window)
 make clean
 ```
 

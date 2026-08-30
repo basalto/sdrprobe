@@ -49,6 +49,15 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 		$(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c -lm
 	./$(BUILD)/adsb_dsp_test
 
+# Layout check. Unlike the DSP checks this needs raylib's headers, for the
+# Rectangle type -- but not the library: gsm_layout.h is a pure function of the
+# window size and calls nothing, which is what makes it testable at all.
+check-layout: $(TESTS)/gsm_layout_test.c $(SRC)/gsm_layout.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
+		-o $(BUILD)/gsm_layout_test $(TESTS)/gsm_layout_test.c -lm
+	./$(BUILD)/gsm_layout_test
+
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp
 
 # White-box diagnostic walk through the GSM SCH chain (not a unit test). It
@@ -73,4 +82,4 @@ probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp probe-gsm-chain probe-adsb-chain clean
+.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp check-layout probe-gsm-chain probe-adsb-chain clean
