@@ -3364,8 +3364,12 @@ static void draw_gsm(struct app *app) {
         }
 
         if (app->gsm_analysis_mode) {
-            /* Burst Analysis Chart replaces Waterfall */
-            float gap = 34.0f;
+            /* Burst Analysis Chart replaces Waterfall.
+               sdrgui_burst_chart draws each y-axis label to the LEFT of its
+               plot, so the gap between charts has to fit the widest label or
+               it runs back over the neighbouring chart. Size it from the font
+               rather than guessing a pixel count. */
+            float gap = (float)MeasureText("-88888.8", 16) + 16.0f;
             float w3 = (wf.width - 2.0f * gap) / 3.0f;
             Rectangle r_corr = { wf.x, wf.y, w3, wf.height };
             Rectangle r_soft = { wf.x + w3 + gap, wf.y, w3, wf.height };
@@ -3467,7 +3471,7 @@ static void draw_gsm(struct app *app) {
     const unsigned char *color_bits =
         app->gsm_const_derotated ? sym_c->chan : sym_c->bit;
     /* Raw display coords per representation. */
-    float maxmag = 1e-9f;
+    double cmag[GSM_SCH_BURST_BITS];
     for (int i = 0; i < n; i++) {
         float rx, ry;
         if (app->gsm_const_derotated) {
@@ -3479,14 +3483,34 @@ static void draw_gsm(struct app *app) {
         }
         cx[i] = rx;
         cy[i] = ry;
-        float mag = sqrtf(rx * rx + ry * ry);
-        if (mag > maxmag)
-            maxmag = mag;
+        cmag[i] = sqrt((double)rx * rx + (double)ry * ry);
+    }
+    /* Scale the cloud by a high percentile, not by the largest sample. Scaling
+       by the maximum puts that one sample on the box edge every frame by
+       construction and squeezes everything else inward by however extreme it
+       happens to be, which reads as a symbol that is permanently off on its
+       own. On a real burst the largest magnitude runs from 1.04x the median to
+       3.5x, so the effect is not rare. */
+    double reference = 1e-9;
+    if (n > 0) {
+        double sorted[GSM_SCH_BURST_BITS];
+        memcpy(sorted, cmag, (size_t)n * sizeof(*sorted));
+        qsort(sorted, (size_t)n, sizeof(*sorted), compare_double);
+        reference = sorted[(int)((double)(n - 1) * 0.9)];
+        if (reference < 1e-9)
+            reference = 1e-9;
     }
     for (int i = 0; i < n; i++) {
         if (app->gsm_const_amplitude) {
-            cx[i] = cx[i] / maxmag * 1.4f; /* scale so the cloud fills the box */
-            cy[i] = cy[i] / maxmag * 1.4f;
+            cx[i] = (float)(cx[i] / reference);
+            cy[i] = (float)(cy[i] / reference);
+            /* Genuine outliers stay visible at the rim instead of drawing
+               outside the box. */
+            float mag = sqrtf(cx[i] * cx[i] + cy[i] * cy[i]);
+            if (mag > 1.4f) {
+                cx[i] *= 1.4f / mag;
+                cy[i] *= 1.4f / mag;
+            }
         } else {
             float mag = sqrtf(cx[i] * cx[i] + cy[i] * cy[i]);
             if (mag < 1e-9f)
