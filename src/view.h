@@ -24,8 +24,6 @@ int scan_strongest_arfcn(const struct app *app);
 int scan_strongest_bcch(const struct app *app);
 int start_scan(struct app *app);
 int compare_double(const void *left, const void *right);
-void draw_waterfall_rect(const struct app *app, int calibration_mode,
-                                Rectangle rect, double zoom_center_hz);
 
 /* GSM band-analysis view. */
 void draw_gsm(struct app *app);
@@ -44,5 +42,55 @@ void draw_adsb(struct app *app);
 void handle_adsb_input(struct app *app);
 void update_adsb(struct app *app, double now);
 int adsb_tuned(const struct app *app);
+
+
+/* Scope tab: the four signal views, and the GPU resources two of them keep
+   between frames. render_waterfall and update_scatter are here because the
+   frame loop drives them; waterfall_color and view_name stay private. */
+Rectangle calculate_plot(void);
+void clear_scatter(struct app *app);
+int recreate_scatter(struct app *app, Rectangle plot);
+int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);
+void render_waterfall(struct app *app);
+void update_waterfall(struct app *app);
+void update_scatter(struct app *app, double now, int insert);
+void draw_waterfall_rect(const struct app *app, int calibration_mode,
+                         Rectangle rect, double zoom_center_hz);
+void draw_waterfall(const struct app *app, int calibration_mode);
+void draw_base_hud(const struct app *app, const struct slot_snapshot *snapshot);
+void draw_magnitude(const struct app *app);
+void draw_spectrum(const struct app *app);
+void draw_scatter(const struct app *app);
+
+
+/* Calibration overlay: the GSM 900 channel calibration, its band scan, and the
+   periodic drift re-check. Drawn over whichever tab is active. */
+void open_calibration(struct app *app);
+void close_calibration(struct app *app);
+void update_calibration_measurement(struct app *app);
+void handle_calibration_input(struct app *app);
+void draw_calibration(struct app *app);
+void update_scan(struct app *app);
+void draw_scan(struct app *app);
+void handle_scan_input(struct app *app);
+void update_drift_check(struct app *app, int have_block);
+void draw_health_indicator(const struct app *app);
+
+
+/* Settings panel, and the two buttons that open it and the calibration
+   overlay. */
+void open_settings(struct app *app);
+int apply_settings(struct app *app);
+void handle_settings_input(struct app *app);
+void draw_settings(const struct app *app);
+Rectangle settings_button(void);
+Rectangle calibration_button(void);
+
+
+/* Acquisition lifecycle, in sdrprobe.c: applying settings can retune or
+   restart the receiver. */
+int stop_acquisition(struct app *app);
+int start_acquisition(struct app *app);
+int set_frequency_correction(rtlsdr_dev_t *dev, int ppm);
 
 #endif

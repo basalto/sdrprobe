@@ -100,10 +100,16 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   Touches no application state, and the settings and calibration panels reuse
   `parse_int` / `parse_frequency` so typed input is parsed the same way
   everywhere.
-- `src/view.h`, `src/view_gsm.c`, `src/view_adsb.c` — the Decode tab's two
-  screens, a file each: read `struct app`, draw, handle their own input.
-  `view.h` also declares the handful of widgets and actions they share with
-  `sdrprobe.c`.
+- `src/view.h` — what the screens share with each other and with
+  `sdrprobe.c`: a few widgets, the acquisition lifecycle, and each screen's
+  entry points.
+- `src/view_scope.c` — the Scope tab's four signal views, plus the waterfall
+  texture and scatter history they keep between frames.
+- `src/view_gsm.c`, `src/view_adsb.c` — the Decode tab's two screens.
+- `src/overlay_calibration.c` — GSM 900 calibration, the band scan feeding it,
+  and the periodic drift re-check.
+- `src/overlay_settings.c` — the Settings panel and the two buttons that open
+  it and the calibration overlay.
 - `src/gsm_layout.h` — where the GSM decode view puts things: one struct of
   rectangles derived from the window size by a pure function, so the panels
   that share a row cannot drift apart and the whole layout is testable without
