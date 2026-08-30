@@ -17,7 +17,13 @@
 #define DEFAULT_FREQUENCY 1090000000U
 #define DEFAULT_SAMPLE_RATE 2000000U
 
+/* Tenths of a dB. Well below the tuner maximum: a moderate manual gain keeps
+   strong nearby signals out of saturation, and the receiver snaps this to the
+   nearest gain it supports rather than rejecting it. */
+#define DEFAULT_GAIN_TENTHS 300
+
 enum gain_request_kind {
+    GAIN_REQUEST_DEFAULT,   /* nearest supported to DEFAULT_GAIN_TENTHS */
     GAIN_REQUEST_MAX,
     GAIN_REQUEST_AUTO,
     GAIN_REQUEST_NUMERIC
