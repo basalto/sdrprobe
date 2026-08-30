@@ -164,10 +164,9 @@ static Rectangle gsm_opt_button(int index) {
     return gsm_layout_now().opt_button[index];
 }
 
-/* The View Waterfall / Back to Scan button sits at the right edge on the same
-   rows as this header text. */
+/* Room for the header text, which shares its rows with the view toggle. */
 static float gsm_header_width(int x) {
-    float limit = (float)GetScreenWidth() - 150.0f - 12.0f - (float)x;
+    float limit = gsm_layout_now().view_toggle.x - 12.0f - (float)x;
     return limit > 0.0f ? limit : 0.0f;
 }
 

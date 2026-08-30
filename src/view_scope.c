@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "chrome_layout.h"
 #include "view.h"
 #include "sdrgui.h"
 
@@ -295,10 +296,9 @@ static const char *view_name(enum view_kind view) {
     return "magnitude";
 }
 
-/* The Settings and Calibration buttons are anchored to the right edge; the HUD
-   runs from the left. This is the room between them. */
+/* Room for the HUD, which shares its rows with the buttons at the right edge. */
 static float hud_width(void) {
-    float limit = (float)GetScreenWidth() - 130.0f - 12.0f - 22.0f;
+    float limit = chrome_layout_now().status_left - 22.0f;
     return limit > 0.0f ? limit : 0.0f;
 }
 

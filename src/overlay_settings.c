@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "chrome_layout.h"
 #include "view.h"
 #include "sdrgui.h"
 #include "raygui.h"
@@ -311,11 +312,9 @@ void draw_settings(const struct app *app) {
 }
 
 Rectangle settings_button(void) {
-    return (Rectangle){ (float)GetScreenWidth() - 130.0f, 16.0f,
-                        108.0f, 34.0f };
+    return chrome_layout_now().settings_button;
 }
 
 Rectangle calibration_button(void) {
-    return (Rectangle){ (float)GetScreenWidth() - 130.0f, 58.0f,
-                        108.0f, 34.0f };
+    return chrome_layout_now().calibration_button;
 }

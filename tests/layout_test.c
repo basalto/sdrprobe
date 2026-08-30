@@ -1,3 +1,4 @@
+#include "chrome_layout.h"
 #include "gsm_layout.h"
 
 #include <math.h>
@@ -5,7 +6,8 @@
 #include <string.h>
 
 /*
- * Golden-rect check for the GSM decode view.
+ * Golden-rect check for the layouts: the GSM decode view, and the window
+ * chrome shared by every screen.
  *
  * Every rectangle, at several window sizes, pinned to the value it had when
  * the layout was consolidated into gsm_layout_for(). Layout had no test before
@@ -119,7 +121,67 @@ static void check(float width, float height, const char *name,
     (void)name;
 }
 
+struct chrome_case {
+    float width, height;
+    struct expected settings, calibration, tab0, tab1;
+    float status_left;
+};
+
+/* The chrome buttons sit at the window's right edge and the status text runs
+   up to status_left. Pinned together because they must agree: text that
+   assumes the wrong edge draws underneath a button. */
+static const struct chrome_case chrome_cases[] = {
+    { 1100.0f, 720.0f,
+      { "settings_button", 970.00f, 16.00f, 108.00f, 34.00f },
+      { "calibration_button", 970.00f, 58.00f, 108.00f, 34.00f },
+      { "tab[0]", 588.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 716.00f, 14.00f, 118.00f, 36.00f },
+      958.00f },
+    { 1280.0f, 800.0f,
+      { "settings_button", 1150.00f, 16.00f, 108.00f, 34.00f },
+      { "calibration_button", 1150.00f, 58.00f, 108.00f, 34.00f },
+      { "tab[0]", 768.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 896.00f, 14.00f, 118.00f, 36.00f },
+      1138.00f },
+    { 1920.0f, 1080.0f,
+      { "settings_button", 1790.00f, 16.00f, 108.00f, 34.00f },
+      { "calibration_button", 1790.00f, 58.00f, 108.00f, 34.00f },
+      { "tab[0]", 1408.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 1536.00f, 14.00f, 118.00f, 36.00f },
+      1778.00f },
+    { 2560.0f, 1440.0f,
+      { "settings_button", 2430.00f, 16.00f, 108.00f, 34.00f },
+      { "calibration_button", 2430.00f, 58.00f, 108.00f, 34.00f },
+      { "tab[0]", 2048.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 2176.00f, 14.00f, 118.00f, 36.00f },
+      2418.00f },
+    { 1000.0f, 540.0f,
+      { "settings_button", 870.00f, 16.00f, 108.00f, 34.00f },
+      { "calibration_button", 870.00f, 58.00f, 108.00f, 34.00f },
+      { "tab[0]", 488.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 616.00f, 14.00f, 118.00f, 36.00f },
+      858.00f },
+};
+
+static void check_chrome(void) {
+    for (unsigned c = 0; c < sizeof(chrome_cases) / sizeof(chrome_cases[0]); c++) {
+        const struct chrome_case *w = &chrome_cases[c];
+        struct chrome_layout l = chrome_layout_for(w->width, w->height);
+        check(w->width, w->height, "settings_button", l.settings_button, &w->settings);
+        check(w->width, w->height, "calibration_button", l.calibration_button,
+              &w->calibration);
+        check(w->width, w->height, "tab[0]", l.tab[0], &w->tab0);
+        check(w->width, w->height, "tab[1]", l.tab[1], &w->tab1);
+        if (fabsf(l.status_left - w->status_left) > 0.01f) {
+            fprintf(stderr, "%.0fx%.0f status_left: got %.2f, expected %.2f\n",
+                    w->width, w->height, l.status_left, w->status_left);
+            failures++;
+        }
+    }
+}
+
 int main(void) {
+    check_chrome();
     for (unsigned c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
         float w = cases[c].width, h = cases[c].height;
         struct gsm_layout l = gsm_layout_for(w, h);
@@ -133,9 +195,9 @@ int main(void) {
             check(w, h, e[i].name, got[i], &e[i]);
     }
     if (failures) {
-        fprintf(stderr, "%d gsm_layout check(s) failed\n", failures);
+        fprintf(stderr, "%d layout check(s) failed\n", failures);
         return 1;
     }
-    puts("gsm_layout checks passed");
+    puts("layout checks passed");
     return 0;
 }

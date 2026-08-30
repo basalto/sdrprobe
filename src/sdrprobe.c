@@ -20,6 +20,7 @@
 #include "options.h"
 #include "gsm_layout.h"
 #include "app.h"
+#include "chrome_layout.h"
 #include "sdrgui.h"
 #include "view.h"
 #include "raygui.h"
@@ -607,9 +608,7 @@ void draw_button(Rectangle rectangle, const char *label, int primary) {
 static const char *tab_labels[TAB_COUNT] = { "Scope", "Decode" };
 
 static Rectangle tab_rect(int index) {
-    float width = (float)GetScreenWidth();
-    return (Rectangle){ width - 512.0f + (float)index * 128.0f, 14.0f,
-                        118.0f, 36.0f };
+    return chrome_layout_now().tab[index & 1];
 }
 
 /* A tab button with bright, prominent text and a clear active state. */
