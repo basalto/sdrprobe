@@ -163,6 +163,7 @@ Its shape:
   (`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` /
   `wontfix`) and conversation appended under `## Comments`. See
   `docs/agents/issue-tracker.md`.
-- Deep-dive references: `docs/ARCHITECTURE.md` (dump1090 internals — that source
-  is *not* in this repo), `docs/cellular-frequency-correction.md`,
+- Deep-dive references: `docs/ARCHITECTURE.md` (this program's layers and state),
+  `docs/dump1090-reference.md` (dump1090 internals — that source is *not* in
+  this repo), `docs/cellular-frequency-correction.md`,
   `docs/sch-frame-number-decode.md`, `docs/sdrprobe-implementation.md`.

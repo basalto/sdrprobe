@@ -152,8 +152,10 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   ARFCN 73 (949.6 MHz, same − 400 kHz tuning), BSIC 56 (NCC 7 / BCC 0). Two
   independent cells matter here: the SCH field layout was derived from ARFCN 69,
   so ARFCN 73 is what checks it generalises rather than fitting one signal.
-- `docs/ARCHITECTURE.md` — deep dive on dump1090 (threads, buffer overlap,
-  CPR decoding). Reference only: the dump1090 source is NOT in this repo.
+- `docs/ARCHITECTURE.md` — how this program is put together: the layers, what
+  each may know, where state lives, and how changes are verified.
+- `docs/dump1090-reference.md` — deep dive on dump1090 (threads, buffer
+  overlap, CPR decoding). Reference only: that source is NOT in this repo.
 - `docs/sdrprobe-implementation.md` — implementation and verification
   contract for the `sdrprobe` probe.
 

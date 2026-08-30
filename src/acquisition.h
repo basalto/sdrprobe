@@ -85,76 +85,7 @@ struct slot_snapshot {
 #define DRIFT_MIN_MEASUREMENTS 8
 #define DRIFT_RECENT 64
 
-/* Calibration-health indicator states. UNKNOWN must be 0 (zero-initialised). */
-enum cal_health {
-    CAL_HEALTH_UNKNOWN = 0, /* grey: never GSM-calibrated, or PPM changed manually */
-    CAL_HEALTH_GOOD,        /* green: applied PPM backed by a stable FCCH lock */
-    CAL_HEALTH_DRIFT,       /* red: a periodic re-check found drift */
-    CAL_HEALTH_CHECKING     /* amber: a re-check is in progress */
-};
-
-/* Phases of one background drift re-check. */
-enum drift_phase {
-    DRIFT_IDLE = 0,
-    DRIFT_SETTLE,
-    DRIFT_MEASURE
-};
-
-
-
-enum view_kind {
-    VIEW_MAGNITUDE,
-    VIEW_SPECTRUM,
-    VIEW_SCATTER,
-    VIEW_WATERFALL
-};
-
-/* Top-level tabs. TAB_SCOPE must be 0 (zero-initialised default). See
-   docs/adr/0008-top-level-tab-navigation.md. */
-enum active_tab {
-    TAB_SCOPE,
-    TAB_DECODE
-};
 #define TAB_COUNT 2
-
-/* Sub-views of the Decode tab, selected by number keys like the Scope views. */
-enum decode_kind {
-    DECODE_GSM,
-    DECODE_ADSB
-};
-
-#define ADSB_LOG_CAPACITY 256
-
-/* One row of the decoded-message log, formatted for display at decode time. */
-struct adsb_log_entry {
-    char stamp[16];
-    char icao[8];
-    char label[6];
-    char detail[96];
-    char raw[32];
-    double time;
-    int highlight;
-};
-
-
-
-
-struct scatter_block {
-    float i[SCATTER_SAMPLES];
-    float q[SCATTER_SAMPLES];
-    size_t count;
-    double time;
-};
-
-/* The SCH decode is reported as it comes off the burst. The only running
-   memory kept is the previous T1, to notice a decode that cannot be right:
-   T1 advances once per 1326 frames (~6.1 s), so consecutive decodes seconds
-   apart must agree to within 1. This flags, it never substitutes. */
-struct gsm_sch_continuity {
-    int have_last;
-    int last_t1;
-    int implausible;
-};
 
 /*
  * What acquisition owns.
