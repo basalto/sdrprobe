@@ -2,7 +2,27 @@
 
 ## Status
 
-accepted (implementation pending — see `docs/sch-frame-number-decode.md`)
+superseded — the premise was wrong (2026-08-30)
+
+The reduced frame number was never a demodulation problem. `sch_parse` read the
+25 SCH information bits as four contiguous MSB-first fields; TS 44.018 10.5.2.1
+scatters them (T1 split across three runs ending at d[23], T3's low bit at
+d[24]). The encoder used in the round-trip test shared the same wrong layout,
+so the self-check passed while BSIC and the frame number were both wrong on
+real signals. Correcting the layout fixed it: on `testfiles/gsm_arfcn_69.bin`
+all 31 blocks now decode, BSIC is 59 on every one, T1 is 793..794, and the
+frame numbers advance by exactly the SCH burst spacing.
+
+Phases 1-3 of the soft-decision receiver (front-end refinement, the joint
+differential + convolutional soft Viterbi, and the multi-burst tracker) are
+implemented and stay. The **MLSE channel estimate of phase 2b was implemented,
+measured, and removed**: on synthetic bursts through the symbol-spaced 3-tap
+channel measured from the real capture, it decoded *fewer* bursts than the
+plain correlation metric at low SNR — 86% against 100% at 0 dB, 59% against 82%
+at -3 dB — and one fewer block on the weaker of the two real captures. Fitting
+three complex taps per burst costs more in estimation noise than the modelled
+ISI wins back. Whenever either metric decodes at all, every field is correct.
+See `.scratch/sch-frame-number/issues/05-mlse-channel-estimate.md`.
 
 ## Context and decision
 

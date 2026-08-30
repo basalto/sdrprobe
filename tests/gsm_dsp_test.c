@@ -137,20 +137,6 @@ static void test_fcch_detection(void) {
     free(q);
 }
 
-/* Pack a known BSIC + reduced frame number into the 25 SCH information bits,
-   matching the decoder's bit layout. */
-static void sch_pack_info(int bsic, int t1, int t2, int t3p, uint8_t d[25]) {
-    int idx = 0;
-    for (int i = 5; i >= 0; i--)
-        d[idx++] = (uint8_t)((bsic >> i) & 1);
-    for (int i = 10; i >= 0; i--)
-        d[idx++] = (uint8_t)((t1 >> i) & 1);
-    for (int i = 4; i >= 0; i--)
-        d[idx++] = (uint8_t)((t2 >> i) & 1);
-    for (int i = 2; i >= 0; i--)
-        d[idx++] = (uint8_t)((t3p >> i) & 1);
-}
-
 /* Round-trip: encode + MSK-modulate a full SCH burst into noisy I/Q, then
    recover the BSIC and frame number through the demod + Viterbi + parity chain.
    This proves the sync + coding path; real-signal accuracy still needs a live
@@ -165,7 +151,7 @@ static void test_sch_decode(void) {
 
     uint8_t info[25];
     uint8_t coded[78];
-    sch_pack_info(bsic, t1, t2, t3p, info);
+    gsm_sch_pack_info(bsic, t1, t2, t3p, info);
     gsm_sch_encode(info, coded);
 
     const size_t count = 4000;
@@ -243,15 +229,26 @@ static void test_sch_real_capture(void) {
         exit(2);
     }
 
-    int decoded = 0, bsic_ok = 0;
+    int decoded = 0, bsic_ok = 0, ordered = 1;
+    int first_fn = 0, last_fn = 0, min_t1 = 0, max_t1 = 0;
     size_t got;
     while ((got = fread(raw, 1, GSM_REAL_BLOCK, file)) == GSM_REAL_BLOCK) {
         size_t pairs = sdr_dsp_convert_iq(raw, GSM_REAL_BLOCK, i, q, mag,
                                           GSM_REAL_BLOCK / 2);
         struct gsm_sch_result result;
         if (gsm_sch_decode(i, q, pairs, 2000000.0, 400000.0, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &result, NULL)) {
+            if (decoded == 0) {
+                first_fn = result.frame_number;
+                min_t1 = max_t1 = result.t1;
+            } else {
+                if (result.frame_number <= last_fn)
+                    ordered = 0;
+                if (result.t1 < min_t1) min_t1 = result.t1;
+                if (result.t1 > max_t1) max_t1 = result.t1;
+            }
+            last_fn = result.frame_number;
             decoded++;
-            if (result.bsic == 45 && result.ncc == 5 && result.bcc == 5)
+            if (result.bsic == 59 && result.ncc == 7 && result.bcc == 3)
                 bsic_ok++;
         }
     }
@@ -267,9 +264,36 @@ static void test_sch_real_capture(void) {
         failures++;
     }
     if (bsic_ok < decoded) {
-        fprintf(stderr, "real-capture SCH: %d/%d decodes had BSIC 45 (NCC 5, BCC 5)\n",
+        fprintf(stderr, "real-capture SCH: %d/%d decodes had BSIC 59 (NCC 7, BCC 3)\n",
                 bsic_ok, decoded);
         failures++;
+    }
+
+    /* The frame number must track real time. A wrong field layout in
+       sch_parse still round-trips against an encoder that shares it -- that
+       is how the old layout survived -- so this is the check that actually
+       pins the bit positions. The capture is ~2 s = ~433 frames, and the SCH
+       burst advances monotonically, so the decoded frame numbers must climb
+       and must not span more than the capture itself. */
+    if (decoded > 1) {
+        if (!ordered) {
+            fprintf(stderr, "real-capture SCH: frame numbers are not increasing\n");
+            failures++;
+        }
+        int span = last_fn - first_fn;
+        if (span < 0 || span > 450) {
+            fprintf(stderr,
+                    "real-capture SCH: frame numbers span %d frames across a "
+                    "~433-frame capture\n", span);
+            failures++;
+        }
+        /* T1 steps once per 1326 frames (~6.1 s), so a 2 s capture sees one
+           value or two adjacent ones. */
+        if (max_t1 - min_t1 > 1) {
+            fprintf(stderr, "real-capture SCH: T1 spans %d..%d over ~2 s\n",
+                    min_t1, max_t1);
+            failures++;
+        }
     }
 }
 

@@ -41,18 +41,11 @@ static void print_bits(const char *label, const uint8_t *bits, int count) {
    static and only fills the result struct). */
 static void parse_fields(const uint8_t u[GSM_SCH_UNCODED_BITS], int *bsic,
                          int *t1, int *t2, int *t3p) {
-    *bsic = 0;
-    for (int i = 0; i < 6; i++)
-        *bsic = (*bsic << 1) | u[i];
-    *t1 = 0;
-    for (int i = 6; i < 17; i++)
-        *t1 = (*t1 << 1) | u[i];
-    *t2 = 0;
-    for (int i = 17; i < 22; i++)
-        *t2 = (*t2 << 1) | u[i];
-    *t3p = 0;
-    for (int i = 22; i < 25; i++)
-        *t3p = (*t3p << 1) | u[i];
+    /* Same scattered TS 44.018 layout the decoder uses. */
+    *bsic = sch_field(u, sch_bsic_bits, 6);
+    *t1 = sch_field(u, sch_t1_bits, 11);
+    *t2 = sch_field(u, sch_t2_bits, 5);
+    *t3p = sch_field(u, sch_t3p_bits, 3);
 }
 
 static int frame_number(int t1, int t2, int t3) {
@@ -190,8 +183,8 @@ static int probe_block(const unsigned char *raw, size_t bytes) {
                nt ? sum_train / nt : 0.0, nd ? sum_data / nd : 0.0);
         printf("  low-confidence symbols (<0.35 mean): %d / %d\n", weak,
                GSM_SCH_BURST_BITS);
-        puts("  -> any of these near the data fields can flip a hard bit that");
-        puts("     the current integrate-then-hard-Viterbi path cannot recover.");
+        puts("  -> these magnitudes weight the soft Viterbi in STAGE 7+8; on");
+        puts("     this capture they are healthy and the decode is not noise-bound.");
     }
 
     puts("");
@@ -328,11 +321,7 @@ static int self_check(void) {
     int bsic = 42, t1 = 100, t2 = 13, t3p = 2;
     int t3 = 10 * t3p + 1;
     uint8_t info[GSM_SCH_INFO_BITS];
-    int idx = 0;
-    for (int i = 5; i >= 0; i--) info[idx++] = (bsic >> i) & 1;
-    for (int i = 10; i >= 0; i--) info[idx++] = (t1 >> i) & 1;
-    for (int i = 4; i >= 0; i--) info[idx++] = (t2 >> i) & 1;
-    for (int i = 2; i >= 0; i--) info[idx++] = (t3p >> i) & 1;
+    gsm_sch_pack_info(bsic, t1, t2, t3p, info);
     uint8_t coded[GSM_SCH_CODED_BITS];
     gsm_sch_encode(info, coded);
 
@@ -469,11 +458,16 @@ static void consistency_sweep(FILE *f) {
     puts("  CONCLUSION");
     puts("  ---------");
     puts("  * BSIC/NCC/BCC decode reliably from the real signal.");
-    puts("  * The soft-decision Viterbi and front-end refinement improve raw");
-    puts("    error rates, but single-burst T1/T2/T3 still suffers from GMSK ISI.");
-    puts("  * The multi-burst frame-number tracker (Phase 3) completely hides");
-    puts("    these sporadic errors by voting T1 and enforcing time consistency,");
-    puts("    yielding a locked and reliable frame number.");
+    puts("  * So does the frame number: the single_burst_frame column should");
+    puts("    advance by exactly the gap between SCH bursts (10 or 11 frames,");
+    puts("    and sums of those where a block decoded nothing), and T1 should");
+    puts("    take one value or two adjacent ones across a 2 s capture.");
+    puts("  * Until 2026-08-30 it did not, because sch_parse read the 25");
+    puts("    information bits as four contiguous MSB-first fields. TS 44.018");
+    puts("    10.5.2.1 scatters them: T1 is split across three runs ending at");
+    puts("    d[23], and T3\'s low bit sits at d[24]. The old layout was");
+    puts("    self-consistent with the encoder, so the round-trip check passed");
+    puts("    while every field but the constant ones came out wrong.");
 }
 
 int main(int argc, char **argv) {

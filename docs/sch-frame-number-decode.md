@@ -1,6 +1,13 @@
 # Improving the GSM SCH reduced-frame-number (T1/T2/T3) decode
 
-Status: plan (not yet implemented)
+Status: SUPERSEDED — the diagnosis in this document is wrong (2026-08-30)
+
+> The frame number was not corrupted by GMSK ISI or by hard-decision losses.
+> `sch_parse` was reading the SCH information bits with the wrong field layout
+> (see ADR-0011's status note). The evidence below — a "clean" burst decoding
+> to an impossible T1 — is real, but its cause is the layout, not the receiver:
+> the bits were recovered correctly and then sliced wrongly. Kept for the
+> measurements and for the record of how the wrong conclusion was reached.
 Scope: `src/gsm_dsp.c` SCH decode chain, its tests, and a diagnostic probe.
 Related: ADR `docs/adr/0011-sch-frame-number-joint-trellis.md`,
 tracker `.scratch/sch-frame-number/`, probe `scripts/gsm_chain_probe.c`.
