@@ -118,9 +118,12 @@ composition. Its shape:
 - Signal conventions match dump1090 and are not free parameters: unsigned 8-bit
   interleaved I/Q with 127.5 = zero, 2 MS/s (1 sample = 0.5 µs), block size
   `16*16384`.
-- Test captures are `testfiles/<tech>_<detail>.bin`; `gsm_arfcn_69.bin` must keep
-  decoding BSIC 59 (NCC 7 / BCC 3) in `check-gsm-dsp`, and its frame
-  numbers must advance with the burst timeline.
+- Test captures are `testfiles/<tech>_<detail>.bin`. The two GSM captures must
+  keep decoding their own BSIC in `check-gsm-dsp` — 59 (NCC 7 / BCC 3) for
+  `gsm_arfcn_69.bin`, 56 (NCC 7 / BCC 0) for `gsm_arfcn_73.bin` — with frame
+  numbers that increase and track the burst timeline. Those real-signal
+  invariants are the only checks a wrong SCH field layout cannot satisfy: the
+  synthetic round trip passes against any layout the encoder shares.
 
 ## Working in this repo
 

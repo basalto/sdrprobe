@@ -213,11 +213,17 @@ static void test_sch_decode(void) {
    that a soft-decision trellis would remove); BSIC/NCC/BCC are reliable. Skips
    gracefully when the capture is absent. */
 #define GSM_REAL_BLOCK (16 * 16384)
-static void test_sch_real_capture(void) {
-    FILE *file = fopen("testfiles/gsm_arfcn_69.bin", "rb");
+/* Decode every block of a real capture and check the result against what the
+   signal itself must satisfy: one cell's BSIC throughout, and a frame number
+   that tracks real time. A wrong field layout in sch_parse still round-trips
+   against an encoder that shares it -- that is how the pre-2026-08-30 layout
+   survived -- so these real-signal invariants are what actually pin the bit
+   positions. */
+static void check_real_capture(const char *path, int bsic, int ncc, int bcc,
+                               int min_decoded) {
+    FILE *file = fopen(path, "rb");
     if (!file) {
-        puts("  (skipping real-capture SCH test: testfiles/gsm_arfcn_69.bin "
-             "absent)");
+        printf("  (skipping real-capture SCH test: %s absent)\n", path);
         return;
     }
     unsigned char *raw = malloc(GSM_REAL_BLOCK);
@@ -248,7 +254,8 @@ static void test_sch_real_capture(void) {
             }
             last_fn = result.frame_number;
             decoded++;
-            if (result.bsic == 59 && result.ncc == 7 && result.bcc == 3)
+            if (result.bsic == bsic && result.ncc == ncc &&
+                result.bcc == bcc)
                 bsic_ok++;
         }
     }
@@ -258,14 +265,14 @@ static void test_sch_real_capture(void) {
     free(q);
     free(mag);
 
-    if (decoded < 5) {
-        fprintf(stderr, "real-capture SCH: only %d blocks decoded (expected >=5)\n",
-                decoded);
+    if (decoded < min_decoded) {
+        fprintf(stderr, "%s: only %d blocks decoded (expected >=%d)\n",
+                path, decoded, min_decoded);
         failures++;
     }
     if (bsic_ok < decoded) {
-        fprintf(stderr, "real-capture SCH: %d/%d decodes had BSIC 59 (NCC 7, BCC 3)\n",
-                bsic_ok, decoded);
+        fprintf(stderr, "%s: %d/%d decodes had BSIC %d (NCC %d, BCC %d)\n",
+                path, bsic_ok, decoded, bsic, ncc, bcc);
         failures++;
     }
 
@@ -277,20 +284,20 @@ static void test_sch_real_capture(void) {
        and must not span more than the capture itself. */
     if (decoded > 1) {
         if (!ordered) {
-            fprintf(stderr, "real-capture SCH: frame numbers are not increasing\n");
+            fprintf(stderr, "%s: frame numbers are not increasing\n", path);
             failures++;
         }
         int span = last_fn - first_fn;
         if (span < 0 || span > 450) {
             fprintf(stderr,
-                    "real-capture SCH: frame numbers span %d frames across a "
-                    "~433-frame capture\n", span);
+                    "%s: frame numbers span %d frames across a ~433-frame "
+                    "capture\n", path, span);
             failures++;
         }
         /* T1 steps once per 1326 frames (~6.1 s), so a 2 s capture sees one
            value or two adjacent ones. */
         if (max_t1 - min_t1 > 1) {
-            fprintf(stderr, "real-capture SCH: T1 spans %d..%d over ~2 s\n",
+            fprintf(stderr, "%s: T1 spans %d..%d over ~2 s\n", path,
                     min_t1, max_t1);
             failures++;
         }
@@ -301,7 +308,10 @@ int main(void) {
     test_cellular_calibration();
     test_fcch_detection();
     test_sch_decode();
-    test_sch_real_capture();
+    /* Two independent cells: the layout fix was derived from ARFCN 69, so
+       ARFCN 73 is the capture that checks it generalises. */
+    check_real_capture("testfiles/gsm_arfcn_69.bin", 59, 7, 3, 5);
+    check_real_capture("testfiles/gsm_arfcn_73.bin", 56, 7, 0, 10);
 
     if (failures) {
         fprintf(stderr, "%d gsm_dsp check(s) failed\n", failures);

@@ -101,6 +101,10 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `testfiles/gsm_arfcn_69.bin` — 2 s raw I/Q capture of GSM 900 ARFCN 69
   (948.8 MHz, tuned to expected − 400 kHz); the `check-gsm-dsp` SCH test decodes
   its BSIC (59, NCC 7 / BCC 3).
+- `testfiles/gsm_arfcn_73.bin` — 2 s raw I/Q capture of a second, weaker cell on
+  ARFCN 73 (949.6 MHz, same − 400 kHz tuning), BSIC 56 (NCC 7 / BCC 0). Two
+  independent cells matter here: the SCH field layout was derived from ARFCN 69,
+  so ARFCN 73 is what checks it generalises rather than fitting one signal.
 - `docs/ARCHITECTURE.md` — deep dive on dump1090 (threads, buffer overlap,
   CPR decoding). Reference only: the dump1090 source is NOT in this repo.
 - `docs/sdrprobe-implementation.md` — implementation and verification
