@@ -111,8 +111,11 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `src/view_scope.c` — the Scope tab's four signal views, plus the waterfall
   texture and scatter history they keep between frames.
 - `src/view_gsm.c`, `src/view_adsb.c` — the Decode tab's two screens.
-- `src/overlay_calibration.c` — GSM 900 calibration, the band scan feeding it,
-  and the periodic drift re-check.
+- `src/overlay_calibration.c` — GSM 900 calibration and the periodic drift
+  re-check, which is a calibration re-run.
+- `src/overlay_scan.c` — the band scan that picks a calibration reference. It
+  shares no state with calibration; choosing a channel goes through
+  `calibration_select_channel()`.
 - `src/overlay_settings.c` — the Settings panel and the two buttons that open
   it and the calibration overlay.
 - `src/gsm_layout.h` — where the GSM decode view puts things: one struct of

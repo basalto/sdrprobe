@@ -79,6 +79,10 @@ void handle_calibration_input(struct app *app);
 void draw_calibration(struct app *app);
 void update_scan(struct app *app);
 void draw_scan(struct app *app);
+void calibration_select_channel(struct app *app, int arfcn);
+int start_calibration(struct app *app);
+void robust_center_spread(const double *values, int count,
+                          double *center, double *spread);
 void handle_scan_input(struct app *app);
 void update_drift_check(struct app *app, int have_block);
 void draw_health_indicator(const struct app *app);

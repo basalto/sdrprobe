@@ -35,6 +35,23 @@
  * The calibration_ prefix is dropped inside here; it was only ever there to
  * separate these from everything else in struct app.
  */
+/*
+ * The band scan's own state: where the sweep started, how wide each step is,
+ * and the frequency to restore when it finishes.
+ *
+ * It shares nothing with the calibration it feeds. Choosing a channel goes
+ * through calibration_select_channel(); the results the GSM view reads --
+ * per-channel power and BCCH confidence -- stay in struct app, because two
+ * screens read them.
+ */
+struct band_scan {
+    double step_started_at;
+    double first_center_hz;
+    double step_hz;
+    double accept_half_hz;
+    uint32_t return_frequency;
+};
+
 struct calibration {
     float workspace[SDR_DSP_FFT_SIZE];
     int running;
@@ -64,11 +81,6 @@ struct calibration {
     int stable;
     uint32_t return_frequency;
     int suggested_ppm;
-    double scan_step_started_at;
-    double scan_first_center_hz;
-    double scan_step_hz;
-    double scan_accept_half_hz;
-    uint32_t scan_return_frequency;
     uint32_t gsm_cal_expected_hz;  /* calibrated carrier */
     uint32_t gsm_cal_tune_hz;      /* receiver center used for the re-check */
     int drift_health_prev;         /* restored if a re-check is inconclusive */
@@ -171,6 +183,7 @@ struct app {
     struct adsb_view adsb;
     struct settings_panel set;
     struct calibration cal;
+    struct band_scan bandscan;
     struct acquisition acq;
     struct options options;
     struct sdr_dsp dsp;
