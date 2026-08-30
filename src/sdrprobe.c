@@ -175,6 +175,7 @@ struct app {
     uint64_t capture_bytes;
     pthread_t worker;
     int mutex_ready;
+    int record_mutex_ready;
     int worker_started;
     int window_ready;
     int scatter_ready;
@@ -348,11 +349,14 @@ struct app {
     int gsm_opt_trellis;
     int gsm_opt_tracker;
 
-    /* Raw-I/Q recording (to build a GSM test capture). */
+    /* Raw-I/Q recording (to build a GSM test capture). Written by the
+       acquisition thread, so record_mutex guards every field here. */
+    pthread_mutex_t record_mutex;
     FILE *record_file;
     int recording;
     uint64_t record_bytes;
     uint64_t record_limit_bytes;
+    uint64_t record_short_blocks;
     char record_path[256];
 };
 
@@ -729,6 +733,55 @@ static int open_capture(struct app *app) {
     return 0;
 }
 
+/* Append one acquired block to an in-progress recording.
+ *
+ * This runs on the acquisition thread, not the renderer, so the capture holds
+ * every block the receiver delivered. The display's latest-block slot
+ * deliberately drops blocks the renderer cannot keep up with (ADR-0002), which
+ * is right for a display and wrong for a capture: a recording driven off the
+ * consumed block loses samples silently, leaving a spliced file that still
+ * looks well-formed. A test vector that lies about its own timeline is worse
+ * than no test vector.
+ */
+static void record_capture(struct app *app, const unsigned char *data,
+                           uint32_t len) {
+    pthread_mutex_lock(&app->record_mutex);
+    if (!app->recording || !app->record_file) {
+        pthread_mutex_unlock(&app->record_mutex);
+        return;
+    }
+    /* A block that is not the full size is a real gap in the signal, not just
+       a short write; the capture is no longer contiguous and must say so. */
+    if (len != SAMPLE_BLOCK_BYTES)
+        app->record_short_blocks++;
+    size_t written = fwrite(data, 1, len, app->record_file);
+    app->record_bytes += written;
+    if (written != (size_t)len ||
+        app->record_bytes >= app->record_limit_bytes) {
+        int truncated = (written != (size_t)len);
+        uint64_t bytes = app->record_bytes;
+        uint64_t shorts = app->record_short_blocks;
+        char path[sizeof(app->record_path)];
+        snprintf(path, sizeof(path), "%s", app->record_path);
+        fclose(app->record_file);
+        app->record_file = NULL;
+        app->recording = 0;
+        pthread_mutex_unlock(&app->record_mutex);
+        if (truncated)
+            fprintf(stderr, "Recording %s truncated: %s\n", path,
+                    strerror(errno));
+        else if (shorts)
+            fprintf(stderr,
+                    "Recorded %.1f MB to %s, but %llu block(s) were short: "
+                    "the capture is NOT contiguous.\n",
+                    bytes / 1e6, path, (unsigned long long)shorts);
+        else
+            fprintf(stderr, "Recorded %.1f MB to %s\n", bytes / 1e6, path);
+        return;
+    }
+    pthread_mutex_unlock(&app->record_mutex);
+}
+
 static void publish_block(struct app *app, const unsigned char *data,
                           uint32_t len) {
     struct latest_block *latest = &app->latest;
@@ -759,6 +812,8 @@ static void publish_block(struct app *app, const unsigned char *data,
     latest->published_blocks++;
     latest->ready = 1;
     pthread_mutex_unlock(&latest->mutex);
+
+    record_capture(app, data, valid_len);
 }
 
 static void finish_worker(struct app *app, const char *error) {
@@ -3122,36 +3177,49 @@ static Rectangle gsm_record_button(void) {
    with the current setup and later replayed / turned into a test vector. Files
    are timestamped so re-recording never overwrites an earlier capture. */
 static void start_record(struct app *app) {
-    if (app->recording)
+    pthread_mutex_lock(&app->record_mutex);
+    int busy = app->recording;
+    pthread_mutex_unlock(&app->record_mutex);
+    if (busy)
         return;
+
     mkdir("captures", 0755); /* ignore EEXIST */
     time_t now = time(NULL);
     struct tm local;
     localtime_r(&now, &local);
     char stamp[32];
     strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
-    snprintf(app->record_path, sizeof(app->record_path),
-             "captures/gsm_arfcn%d_%s.bin",
+    char path[sizeof(app->record_path)];
+    snprintf(path, sizeof(path), "captures/gsm_arfcn%d_%s.bin",
              app->scan_selected_arfcn > 0 ? app->scan_selected_arfcn : 0, stamp);
-    app->record_file = fopen(app->record_path, "wb");
-    if (!app->record_file)
+    FILE *file = fopen(path, "wb");
+    if (!file) {
+        fprintf(stderr, "Cannot open %s: %s\n", path, strerror(errno));
         return;
-    app->recording = 1;
+    }
+
+    pthread_mutex_lock(&app->record_mutex);
+    snprintf(app->record_path, sizeof(app->record_path), "%s", path);
+    app->record_file = file;
     app->record_bytes = 0;
+    app->record_short_blocks = 0;
     app->record_limit_bytes =
         (uint64_t)(2.0 * (double)app->applied_sample_rate * 2.0);
+    app->recording = 1; /* the acquisition thread writes from here on */
+    pthread_mutex_unlock(&app->record_mutex);
 }
 
-static void record_block(struct app *app) {
-    if (!app->recording || !app->record_file)
-        return;
-    size_t written = fwrite(app->raw, 1, app->raw_len, app->record_file);
-    app->record_bytes += written;
-    if (app->record_bytes >= app->record_limit_bytes) {
-        fclose(app->record_file);
-        app->record_file = NULL;
-        app->recording = 0;
-    }
+/* Snapshot the recording state for the UI, which does not own it. */
+static int record_snapshot(struct app *app, uint64_t *bytes, char *path,
+                           size_t path_size) {
+    pthread_mutex_lock(&app->record_mutex);
+    int active = app->recording;
+    if (bytes)
+        *bytes = app->record_bytes;
+    if (path && path_size)
+        snprintf(path, path_size, "%s", app->record_path);
+    pthread_mutex_unlock(&app->record_mutex);
+    return active;
 }
 
 static Rectangle gsm_opt_button(int index) {
@@ -3168,9 +3236,12 @@ static void draw_gsm(struct app *app) {
                     app->scan_running ? "Scanning" : "Scan / Rescan",
                     !app->scan_running);
     }
+    uint64_t rec_bytes = 0;
+    char rec_path[sizeof(app->record_path)];
+    int rec_active = record_snapshot(app, &rec_bytes, rec_path,
+                                     sizeof(rec_path));
     draw_button(gsm_record_button(),
-                app->recording ? "Recording..." : "Record 2s",
-                app->recording);
+                rec_active ? "Recording..." : "Record 2s", rec_active);
                 
     DrawText("Features:", 322, 136, 15, (Color){ 151, 174, 188, 255 });
     draw_button(gsm_opt_button(0), "Filter", app->gsm_opt_filter);
@@ -3236,9 +3307,9 @@ static void draw_gsm(struct app *app) {
                      (app->gsm_opt_tracker && trk->locked) ? "  [LOCKED]" : "");
             DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42, 18,
                      (Color){ 120, 230, 255, 255 });
-        } else if (app->recording) {
+        } else if (rec_active) {
             snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
-                     app->record_path, app->record_bytes / 1e6);
+                     rec_path, rec_bytes / 1e6);
             DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42, 18,
                      (Color){ 255, 202, 105, 255 });
         } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
@@ -3743,8 +3814,6 @@ static int run_gui(struct app *app) {
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_GSM && !app->calibration_open)
             update_gsm_sch(app, now);
-        if (have_new)
-            record_block(app);
         update_drift_check(app, spectrum_updated);
         update_scatter(app, now,
                        have_new && app->tab == TAB_SCOPE &&
@@ -3820,6 +3889,15 @@ int main(int argc, char **argv) {
     app->spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;
     app->scatter_axis_limit = 0.5f;
     app->waterfall_lower_dbfs = SDR_DSP_DBFS_FLOOR;
+
+    /* Before any path that can reach cleanup, which touches this. */
+    int record_mutex_result = pthread_mutex_init(&app->record_mutex, NULL);
+    if (record_mutex_result != 0) {
+        fprintf(stderr, "Cannot create recording mutex: %s\n",
+                strerror(record_mutex_result));
+        goto cleanup;
+    }
+    app->record_mutex_ready = 1;
 
     if (app->receiver_mode) {
         if (configure_receiver(app) < 0)
@@ -3898,9 +3976,18 @@ cleanup:
         }
         app->capture = NULL;
     }
-    if (app->record_file) {
-        fclose(app->record_file);
-        app->record_file = NULL;
+    if (app->record_mutex_ready) {
+        pthread_mutex_lock(&app->record_mutex);
+        if (app->record_file) {
+            fprintf(stderr, "Recording %s stopped early at %.1f MB\n",
+                    app->record_path, app->record_bytes / 1e6);
+            fclose(app->record_file);
+            app->record_file = NULL;
+            app->recording = 0;
+        }
+        pthread_mutex_unlock(&app->record_mutex);
+        pthread_mutex_destroy(&app->record_mutex);
+        app->record_mutex_ready = 0;
     }
     if (app->dev) {
         int close_result = rtlsdr_close(app->dev);
