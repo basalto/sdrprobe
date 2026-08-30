@@ -32,7 +32,7 @@ struct window_case {
 static const struct window_case cases[] = {
     { 1100.0f, 720.0f, {
         { "scan_button", 22.00f, 84.00f, 150.00f, 30.00f },
-        { "waterfall", 82.00f, 196.00f, 988.00f, 212.96f },
+        { "waterfall", 82.00f, 196.00f, 988.00f, 208.56f },
         { "scan", 82.00f, 524.56f, 818.56f, 145.44f },
         { "burst", 82.00f, 196.00f, 988.00f, 208.56f },
         { "view_toggle", 950.00f, 100.00f, 130.00f, 26.00f },
@@ -46,7 +46,7 @@ static const struct window_case cases[] = {
     } },
     { 1280.0f, 800.0f, {
         { "scan_button", 22.00f, 84.00f, 150.00f, 30.00f },
-        { "waterfall", 82.00f, 196.00f, 1168.00f, 248.16f },
+        { "waterfall", 82.00f, 196.00f, 1168.00f, 243.76f },
         { "scan", 82.00f, 559.76f, 953.76f, 190.24f },
         { "burst", 82.00f, 196.00f, 1168.00f, 243.76f },
         { "view_toggle", 1130.00f, 100.00f, 130.00f, 26.00f },
@@ -60,7 +60,7 @@ static const struct window_case cases[] = {
     } },
     { 1920.0f, 1080.0f, {
         { "scan_button", 22.00f, 84.00f, 150.00f, 30.00f },
-        { "waterfall", 82.00f, 196.00f, 1808.00f, 371.36f },
+        { "waterfall", 82.00f, 196.00f, 1808.00f, 366.96f },
         { "scan", 82.00f, 682.96f, 1436.96f, 347.04f },
         { "burst", 82.00f, 196.00f, 1808.00f, 366.96f },
         { "view_toggle", 1770.00f, 100.00f, 130.00f, 26.00f },
@@ -74,7 +74,7 @@ static const struct window_case cases[] = {
     } },
     { 2560.0f, 1440.0f, {
         { "scan_button", 22.00f, 84.00f, 150.00f, 30.00f },
-        { "waterfall", 82.00f, 196.00f, 2448.00f, 529.76f },
+        { "waterfall", 82.00f, 196.00f, 2448.00f, 525.36f },
         { "scan", 82.00f, 841.36f, 1875.36f, 548.64f },
         { "burst", 82.00f, 196.00f, 2448.00f, 525.36f },
         { "view_toggle", 2410.00f, 100.00f, 130.00f, 26.00f },
@@ -88,7 +88,7 @@ static const struct window_case cases[] = {
     } },
     { 1000.0f, 540.0f, {
         { "scan_button", 22.00f, 84.00f, 150.00f, 30.00f },
-        { "waterfall", 82.00f, 196.00f, 888.00f, 133.76f },
+        { "waterfall", 82.00f, 196.00f, 888.00f, 129.36f },
         { "scan", 82.00f, 445.36f, 819.36f, 44.64f },
         { "burst", 82.00f, 196.00f, 888.00f, 129.36f },
         { "view_toggle", 850.00f, 100.00f, 130.00f, 26.00f },
@@ -99,7 +99,8 @@ static const struct window_case cases[] = {
         { "opt_button[0]", 396.00f, 134.00f, 66.00f, 20.00f },
         { "opt_button[1]", 468.00f, 134.00f, 66.00f, 20.00f },
         { "opt_button[2]", 540.00f, 134.00f, 66.00f, 20.00f },
-    } },};
+    } },
+};
 
 static int failures;
 

@@ -43,16 +43,20 @@ static inline struct gsm_layout gsm_layout_for(float width, float height) {
             (Rectangle){ 396.0f + (float)i * 72.0f, 134.0f, 66.0f, 20.0f };
     l.view_toggle = (Rectangle){ width - 150.0f, 100.0f, 130.0f, 26.0f };
 
-    /* The two upper panels differ by 10 px of reserved bottom margin. That
-       looks unintentional, but it is preserved here: this refactor is a
-       no-op by construction, and changing it is a separate decision. */
-    float wf_span = height - 196.0f - 40.0f;
-    l.waterfall = (Rectangle){ left, top, width - 112.0f, wf_span * 0.44f };
-    float burst_span = height - 196.0f - 50.0f;
-    l.burst = (Rectangle){ left, top, width - 112.0f, burst_span * 0.44f };
+    /* One vertical span for the whole view: everything below the header, less
+       the window's bottom margin. The upper panel takes 0.44 of it, the lower
+       row the rest. The two upper panels each used to subtract their own
+       bottom margin -- 40 for the waterfall, 50 for burst analysis -- before
+       taking that share, so they came out different heights and swapping
+       between them nudged the display. They are the same panel in two modes
+       and now have the same geometry. */
+    const float bottom_margin = 50.0f;
+    float span = height - top - bottom_margin;
+    Rectangle upper = { left, top, width - 112.0f, span * 0.44f };
+    l.waterfall = upper;
+    l.burst = upper;
 
     /* Lower row: chart on the left, a square constellation panel on the right. */
-    float span = height - top - 50.0f;
     float y = top + span * 0.44f + 120.0f; /* clears the waterfall caption and
                                               the SCH readout above the row */
     float h = span * 0.56f - 120.0f;
