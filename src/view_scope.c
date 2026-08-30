@@ -28,12 +28,12 @@ Rectangle calculate_plot(void) {
 }
 
 void clear_scatter(struct app *app) {
-    BeginTextureMode(app->scatter);
+    BeginTextureMode(app->sv.scatter);
     ClearBackground(BLANK);
     EndTextureMode();
-    app->scatter_inserted = 0;
-    app->scatter_history_head = 0;
-    app->scatter_history_count = 0;
+    app->sv.scatter_inserted = 0;
+    app->sv.scatter_history_head = 0;
+    app->sv.scatter_history_count = 0;
 }
 
 int recreate_scatter(struct app *app, Rectangle plot) {
@@ -48,10 +48,10 @@ int recreate_scatter(struct app *app, Rectangle plot) {
             UnloadRenderTexture(replacement);
         return -1;
     }
-    if (app->scatter_ready)
-        UnloadRenderTexture(app->scatter);
-    app->scatter = replacement;
-    app->scatter_ready = 1;
+    if (app->sv.scatter_ready)
+        UnloadRenderTexture(app->sv.scatter);
+    app->sv.scatter = replacement;
+    app->sv.scatter_ready = 1;
     app->plot = plot;
     clear_scatter(app);
     return 0;
@@ -78,9 +78,9 @@ int recreate_waterfall(struct app *app, Rectangle plot,
         return -1;
     }
 
-    if (!app->waterfall_dbfs || height > app->waterfall_capacity) {
+    if (!app->sv.waterfall_dbfs || height > app->sv.waterfall_capacity) {
         float *history = realloc(
-            app->waterfall_dbfs,
+            app->sv.waterfall_dbfs,
             (size_t)height * SDR_DSP_FFT_SIZE * sizeof(*history));
         if (!history) {
             fprintf(stderr, "Failed to allocate %d waterfall history rows.\n",
@@ -89,21 +89,21 @@ int recreate_waterfall(struct app *app, Rectangle plot,
             free(pixels);
             return -1;
         }
-        app->waterfall_dbfs = history;
-        app->waterfall_capacity = height;
+        app->sv.waterfall_dbfs = history;
+        app->sv.waterfall_capacity = height;
     }
-    if (app->waterfall_ready)
-        UnloadTexture(app->waterfall);
-    free(app->waterfall_pixels);
-    app->waterfall = texture;
-    app->waterfall_pixels = pixels;
-    app->waterfall_width = width;
-    app->waterfall_height = height;
+    if (app->sv.waterfall_ready)
+        UnloadTexture(app->sv.waterfall);
+    free(app->sv.waterfall_pixels);
+    app->sv.waterfall = texture;
+    app->sv.waterfall_pixels = pixels;
+    app->sv.waterfall_width = width;
+    app->sv.waterfall_height = height;
     if (clear_history)
-        app->waterfall_rows = 0;
-    else if (app->waterfall_rows > height)
-        app->waterfall_rows = height;
-    app->waterfall_ready = 1;
+        app->sv.waterfall_rows = 0;
+    else if (app->sv.waterfall_rows > height)
+        app->sv.waterfall_rows = height;
+    app->sv.waterfall_ready = 1;
     render_waterfall(app);
     return 0;
 }
@@ -139,64 +139,64 @@ static Color waterfall_color(const struct app *app, float dbfs) {
 }
 
 void render_waterfall(struct app *app) {
-    if (!app->waterfall_ready)
+    if (!app->sv.waterfall_ready)
         return;
-    size_t pixel_count = (size_t)app->waterfall_width *
-                         (size_t)app->waterfall_height;
+    size_t pixel_count = (size_t)app->sv.waterfall_width *
+                         (size_t)app->sv.waterfall_height;
     for (size_t n = 0; n < pixel_count; n++)
-        app->waterfall_pixels[n] = (Color){ 6, 10, 17, 255 };
+        app->sv.waterfall_pixels[n] = (Color){ 6, 10, 17, 255 };
 
-    int rows = app->waterfall_rows < app->waterfall_height
-                   ? app->waterfall_rows
-                   : app->waterfall_height;
+    int rows = app->sv.waterfall_rows < app->sv.waterfall_height
+                   ? app->sv.waterfall_rows
+                   : app->sv.waterfall_height;
     for (int y = 0; y < rows; y++) {
-        const float *row = app->waterfall_dbfs +
+        const float *row = app->sv.waterfall_dbfs +
                            (size_t)y * SDR_DSP_FFT_SIZE;
-        for (int x = 0; x < app->waterfall_width; x++) {
-            float position = app->waterfall_width == 1
+        for (int x = 0; x < app->sv.waterfall_width; x++) {
+            float position = app->sv.waterfall_width == 1
                                  ? 0.0f
                                  : (float)x * (SDR_DSP_FFT_SIZE - 1) /
-                                       (float)(app->waterfall_width - 1);
+                                       (float)(app->sv.waterfall_width - 1);
             int lower = (int)position;
             int upper = lower < SDR_DSP_FFT_SIZE - 1 ? lower + 1 : lower;
             float fraction = position - lower;
             float dbfs = row[lower] * (1.0f - fraction) +
                          row[upper] * fraction;
-            app->waterfall_pixels[(size_t)y * app->waterfall_width + x] =
+            app->sv.waterfall_pixels[(size_t)y * app->sv.waterfall_width + x] =
                 waterfall_color(app, dbfs);
         }
     }
-    UpdateTexture(app->waterfall, app->waterfall_pixels);
+    UpdateTexture(app->sv.waterfall, app->sv.waterfall_pixels);
 }
 
 
 void update_waterfall(struct app *app) {
-    if (!app->waterfall_ready || !app->spectrum_ready)
+    if (!app->sv.waterfall_ready || !app->spectrum_ready)
         return;
 
-    int retained = app->waterfall_rows < app->waterfall_capacity
-                       ? app->waterfall_rows
-                       : app->waterfall_capacity - 1;
+    int retained = app->sv.waterfall_rows < app->sv.waterfall_capacity
+                       ? app->sv.waterfall_rows
+                       : app->sv.waterfall_capacity - 1;
     if (retained > 0)
-        memmove(app->waterfall_dbfs + SDR_DSP_FFT_SIZE,
-                app->waterfall_dbfs,
+        memmove(app->sv.waterfall_dbfs + SDR_DSP_FFT_SIZE,
+                app->sv.waterfall_dbfs,
                 (size_t)retained * SDR_DSP_FFT_SIZE *
-                    sizeof(*app->waterfall_dbfs));
-    memcpy(app->waterfall_dbfs, app->spectrum_average,
-           SDR_DSP_FFT_SIZE * sizeof(*app->waterfall_dbfs));
-    if (app->waterfall_rows < app->waterfall_height)
-        app->waterfall_rows++;
+                    sizeof(*app->sv.waterfall_dbfs));
+    memcpy(app->sv.waterfall_dbfs, app->spectrum_average,
+           SDR_DSP_FFT_SIZE * sizeof(*app->sv.waterfall_dbfs));
+    if (app->sv.waterfall_rows < app->sv.waterfall_height)
+        app->sv.waterfall_rows++;
     render_waterfall(app);
 }
 
 void draw_waterfall_rect(const struct app *app, int calibration_mode,
                                 Rectangle rect, double zoom_center_hz) {
     struct sdrgui_waterfall_params params = {
-        rect, app->waterfall, (double)app->applied_frequency,
+        rect, app->sv.waterfall, (double)app->applied_frequency,
         (double)app->applied_sample_rate, calibration_mode,
         calibration_mode && app->calibration_technology == 0,
         zoom_center_hz, CALIBRATION_VIEW_HALF_WIDTH_HZ,
-        app->waterfall_rows, app->waterfall_height, app->pair_count,
+        app->sv.waterfall_rows, app->sv.waterfall_height, app->pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900"
@@ -213,7 +213,7 @@ void draw_waterfall(const struct app *app, int calibration_mode) {
 void update_scatter(struct app *app, double now, int insert) {
     if (insert && app->pair_count > 0) {
         struct scatter_block *block =
-            &app->scatter_history[app->scatter_history_head];
+            &app->sv.scatter_history[app->sv.scatter_history_head];
         block->count = app->pair_count < SCATTER_SAMPLES
                            ? app->pair_count
                            : SCATTER_SAMPLES;
@@ -226,46 +226,46 @@ void update_scatter(struct app *app, double now, int insert) {
             block->i[n] = app->i_samples[index] / 127.5f;
             block->q[n] = app->q_samples[index] / 127.5f;
         }
-        app->scatter_inserted = block->count;
-        app->scatter_history_head =
-            (app->scatter_history_head + 1) % SCATTER_HISTORY_BLOCKS;
-        if (app->scatter_history_count < SCATTER_HISTORY_BLOCKS)
-            app->scatter_history_count++;
+        app->sv.scatter_inserted = block->count;
+        app->sv.scatter_history_head =
+            (app->sv.scatter_history_head + 1) % SCATTER_HISTORY_BLOCKS;
+        if (app->sv.scatter_history_count < SCATTER_HISTORY_BLOCKS)
+            app->sv.scatter_history_count++;
     }
 
-    while (app->scatter_history_count > 0) {
-        size_t oldest = (app->scatter_history_head + SCATTER_HISTORY_BLOCKS -
-                         app->scatter_history_count) %
+    while (app->sv.scatter_history_count > 0) {
+        size_t oldest = (app->sv.scatter_history_head + SCATTER_HISTORY_BLOCKS -
+                         app->sv.scatter_history_count) %
                         SCATTER_HISTORY_BLOCKS;
-        if (now - app->scatter_history[oldest].time <=
+        if (now - app->sv.scatter_history[oldest].time <=
             SCATTER_HISTORY_SECONDS)
             break;
-        app->scatter_history_count--;
+        app->sv.scatter_history_count--;
     }
 
-    size_t oldest = (app->scatter_history_head + SCATTER_HISTORY_BLOCKS -
-                     app->scatter_history_count) %
+    size_t oldest = (app->sv.scatter_history_head + SCATTER_HISTORY_BLOCKS -
+                     app->sv.scatter_history_count) %
                     SCATTER_HISTORY_BLOCKS;
 
-    BeginTextureMode(app->scatter);
+    BeginTextureMode(app->sv.scatter);
     ClearBackground(BLANK);
-    for (size_t b = 0; b < app->scatter_history_count; b++) {
+    for (size_t b = 0; b < app->sv.scatter_history_count; b++) {
         const struct scatter_block *block =
-            &app->scatter_history[(oldest + b) % SCATTER_HISTORY_BLOCKS];
+            &app->sv.scatter_history[(oldest + b) % SCATTER_HISTORY_BLOCKS];
         float age = (float)(now - block->time);
         float age_alpha = 1.0f - age / (float)SCATTER_HISTORY_SECONDS;
         if (age_alpha < 0.0f)
             age_alpha = 0.0f;
         for (size_t n = 0; n < block->count; n++) {
             float radial = hypotf(block->i[n], block->q[n]) /
-                           app->scatter_axis_limit;
+                           app->sv.scatter_axis_limit;
             if (radial > 1.0f)
                 radial = 1.0f;
             float emphasis = sqrtf(radial);
-            float x = (block->i[n] / app->scatter_axis_limit + 1.0f) *
-                      0.5f * (float)(app->scatter.texture.width - 1);
-            float y = (1.0f - block->q[n] / app->scatter_axis_limit) *
-                      0.5f * (float)(app->scatter.texture.height - 1);
+            float x = (block->i[n] / app->sv.scatter_axis_limit + 1.0f) *
+                      0.5f * (float)(app->sv.scatter.texture.width - 1);
+            float y = (1.0f - block->q[n] / app->sv.scatter_axis_limit) *
+                      0.5f * (float)(app->sv.scatter.texture.height - 1);
             float persistence = 0.30f + 0.70f * age_alpha;
             int alpha = (int)((135.0f + 120.0f * emphasis) * persistence);
             if (alpha < 1)
@@ -358,8 +358,8 @@ void draw_magnitude(const struct app *app) {
                                    app->applied_sample_rate
                              : 0.0;
     struct sdrgui_magnitude_params params = {
-        app->plot, app->have_samples, app->magnitude_peaks,
-        app->magnitude_bin_count, app->magnitude_lower, app->magnitude_upper,
+        app->plot, app->have_samples, app->sv.magnitude_peaks,
+        app->sv.magnitude_bin_count, app->sv.magnitude_lower, app->sv.magnitude_upper,
         app->magnitude_min, app->magnitude_mean, app->magnitude_max,
         duration_ms, PHYSICAL_MAGNITUDE_MAX
     };
@@ -371,15 +371,112 @@ void draw_spectrum(const struct app *app) {
         app->plot, (double)app->applied_frequency,
         (double)app->applied_sample_rate, app->spectrum_ready,
         app->spectrum_average, app->spectrum_peak, SDR_DSP_FFT_SIZE,
-        app->spectrum_lower_dbfs, SPECTRUM_TOP_DBFS, app->spectrum_windows
+        app->sv.spectrum_lower_dbfs, SPECTRUM_TOP_DBFS, app->spectrum_windows
     };
     sdrgui_spectrum(&params);
 }
 
 void draw_scatter(const struct app *app) {
     struct sdrgui_scatter_params params = {
-        app->plot, app->scatter.texture, app->scatter_axis_limit,
-        app->scatter_inserted
+        app->plot, app->sv.scatter.texture, app->sv.scatter_axis_limit,
+        app->sv.scatter_inserted
     };
     sdrgui_scatter(&params);
+}
+void recompute_magnitude_bins(struct app *app) {
+    size_t capacity;
+
+    if (!app->have_samples || app->pair_count == 0) {
+        app->sv.magnitude_bin_count = 0;
+        return;
+    }
+    capacity = app->plot.width > 1.0f ? (size_t)app->plot.width : 1;
+    if (capacity > SAMPLE_BLOCK_PAIRS)
+        capacity = SAMPLE_BLOCK_PAIRS;
+    app->sv.magnitude_bin_count = sdr_dsp_peak_bins(
+        app->magnitudes, app->pair_count, app->sv.magnitude_peaks, capacity);
+}
+
+void decay_spectrum_peak(struct app *app, double now) {
+    if (!app->spectrum_peak_ready) {
+        app->spectrum_peak_time = now;
+        return;
+    }
+    double elapsed = now - app->spectrum_peak_time;
+    if (elapsed <= 0.0)
+        return;
+    float decay = (float)elapsed * PEAK_DECAY_DB_PER_SECOND;
+    for (int i = 0; i < SDR_DSP_FFT_SIZE; i++)
+        app->spectrum_peak[i] = fmaxf(SDR_DSP_DBFS_FLOOR,
+                                     app->spectrum_peak[i] - decay);
+    app->spectrum_peak_time = now;
+}
+
+void adjust_active_scale(struct app *app, int zoom_in) {
+    if (app->view == VIEW_MAGNITUDE) {
+        app->sv.magnitude_upper *= zoom_in ? SCALE_FACTOR : 1.0f / SCALE_FACTOR;
+        app->sv.magnitude_upper = fmaxf(1.0f,
+                                     fminf(app->sv.magnitude_upper,
+                                           PHYSICAL_MAGNITUDE_MAX));
+    } else if (app->view == VIEW_SPECTRUM) {
+        app->sv.spectrum_lower_dbfs += zoom_in ? DB_SCALE_STEP : -DB_SCALE_STEP;
+        app->sv.spectrum_lower_dbfs = fmaxf(
+            SDR_DSP_DBFS_FLOOR,
+            fminf(app->sv.spectrum_lower_dbfs, SPECTRUM_TOP_DBFS - 20.0f));
+    } else if (app->view == VIEW_SCATTER) {
+        app->sv.scatter_axis_limit *= zoom_in ? SCALE_FACTOR : 1.0f / SCALE_FACTOR;
+        app->sv.scatter_axis_limit = fmaxf(0.01f,
+                                        fminf(app->sv.scatter_axis_limit, 1.0f));
+    } else {
+        adjust_waterfall_scale(app, zoom_in);
+    }
+}
+
+
+/* The scales each view starts at. */
+void view_scope_defaults(struct app *app) {
+    app->sv.magnitude_lower = 0.0f;
+    app->sv.magnitude_upper = 64.0f;
+    app->sv.spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;
+    app->sv.scatter_axis_limit = 0.5f;
+    app->waterfall_lower_dbfs = SDR_DSP_DBFS_FLOOR;
+}
+
+/* The scatter render texture and the waterfall texture track the plot
+   rectangle, so they are rebuilt when it changes. The frame loop used to
+   compare their dimensions itself, which meant it had to know that the
+   scatter's size lives on a RenderTexture and the waterfall's in two ints.
+   Returns negative if a texture could not be created. */
+int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
+    int resized = IsWindowResized() ||
+                  (int)plot.width != app->sv.scatter.texture.width ||
+                  (int)plot.height != app->sv.scatter.texture.height ||
+                  (int)plot.width != app->sv.waterfall_width ||
+                  (int)plot.height != app->sv.waterfall_height;
+    if (!resized) {
+        app->plot = plot;
+        return 0;
+    }
+    if (recreate_scatter(app, plot) < 0)
+        return -1;
+    if (recreate_waterfall(app, plot, 0) < 0)
+        return -1;
+    recompute_magnitude_bins(app);
+    return 0;
+}
+
+/* Release the GPU textures and history buffers. Safe before they exist. */
+void view_scope_release(struct app *app) {
+    if (app->sv.scatter_ready) {
+        UnloadRenderTexture(app->sv.scatter);
+        app->sv.scatter_ready = 0;
+    }
+    if (app->sv.waterfall_ready) {
+        UnloadTexture(app->sv.waterfall);
+        app->sv.waterfall_ready = 0;
+    }
+    free(app->sv.waterfall_pixels);
+    app->sv.waterfall_pixels = NULL;
+    free(app->sv.waterfall_dbfs);
+    app->sv.waterfall_dbfs = NULL;
 }

@@ -31,6 +31,7 @@ void handle_gsm_input(struct app *app);
 void update_gsm_sch(struct app *app, double now);
 void enter_gsm(struct app *app);
 void leave_gsm(struct app *app);
+void view_gsm_defaults(struct app *app);
 void start_record(struct app *app);
 void gsm_tune_selected(struct app *app, int arfcn);
 Rectangle gsm_scan_rect(void);
@@ -61,6 +62,12 @@ void draw_base_hud(const struct app *app, const struct slot_snapshot *snapshot);
 void draw_magnitude(const struct app *app);
 void draw_spectrum(const struct app *app);
 void draw_scatter(const struct app *app);
+void view_scope_defaults(struct app *app);
+int view_scope_resize_if_needed(struct app *app, Rectangle plot);
+void view_scope_release(struct app *app);
+void recompute_magnitude_bins(struct app *app);
+void decay_spectrum_peak(struct app *app, double now);
+void adjust_active_scale(struct app *app, int zoom_in);
 
 
 /* Calibration overlay: the GSM 900 channel calibration, its band scan, and the

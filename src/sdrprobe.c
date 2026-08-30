@@ -262,34 +262,7 @@ static int open_capture(struct app *app) {
 
 
 
-static void recompute_magnitude_bins(struct app *app) {
-    size_t capacity;
 
-    if (!app->have_samples || app->pair_count == 0) {
-        app->magnitude_bin_count = 0;
-        return;
-    }
-    capacity = app->plot.width > 1.0f ? (size_t)app->plot.width : 1;
-    if (capacity > SAMPLE_BLOCK_PAIRS)
-        capacity = SAMPLE_BLOCK_PAIRS;
-    app->magnitude_bin_count = sdr_dsp_peak_bins(
-        app->magnitudes, app->pair_count, app->magnitude_peaks, capacity);
-}
-
-static void decay_spectrum_peak(struct app *app, double now) {
-    if (!app->spectrum_peak_ready) {
-        app->spectrum_peak_time = now;
-        return;
-    }
-    double elapsed = now - app->spectrum_peak_time;
-    if (elapsed <= 0.0)
-        return;
-    float decay = (float)elapsed * PEAK_DECAY_DB_PER_SECOND;
-    for (int i = 0; i < SDR_DSP_FFT_SIZE; i++)
-        app->spectrum_peak[i] = fmaxf(SDR_DSP_DBFS_FLOOR,
-                                     app->spectrum_peak[i] - decay);
-    app->spectrum_peak_time = now;
-}
 
 static int process_block(struct app *app, double now) {
     double sum = 0.0;
@@ -627,25 +600,6 @@ void draw_button(Rectangle rectangle, const char *label, int primary) {
 
 
 
-static void adjust_active_scale(struct app *app, int zoom_in) {
-    if (app->view == VIEW_MAGNITUDE) {
-        app->magnitude_upper *= zoom_in ? SCALE_FACTOR : 1.0f / SCALE_FACTOR;
-        app->magnitude_upper = fmaxf(1.0f,
-                                     fminf(app->magnitude_upper,
-                                           PHYSICAL_MAGNITUDE_MAX));
-    } else if (app->view == VIEW_SPECTRUM) {
-        app->spectrum_lower_dbfs += zoom_in ? DB_SCALE_STEP : -DB_SCALE_STEP;
-        app->spectrum_lower_dbfs = fmaxf(
-            SDR_DSP_DBFS_FLOOR,
-            fminf(app->spectrum_lower_dbfs, SPECTRUM_TOP_DBFS - 20.0f));
-    } else if (app->view == VIEW_SCATTER) {
-        app->scatter_axis_limit *= zoom_in ? SCALE_FACTOR : 1.0f / SCALE_FACTOR;
-        app->scatter_axis_limit = fmaxf(0.01f,
-                                        fminf(app->scatter_axis_limit, 1.0f));
-    } else {
-        adjust_waterfall_scale(app, zoom_in);
-    }
-}
 
 
 /* --- Top-level tabs (Scope / Decode) --- */
@@ -679,42 +633,7 @@ static void draw_tab_bar(const struct app *app) {
         draw_tab(tab_rect(i), tab_labels[i], (int)app->tab == i);
 }
 
-/* Enter the GSM decode view: pick the default channel and show it in the
-   waterfall above. Priority: the channel a calibration is using, else the last
-   channel the user selected, else run a band scan and auto-pick the strongest
-   BCCH when it finishes. */
-void enter_gsm(struct app *app) {
-    if (app->receiver_mode && !app->gsm_return_valid) {
-        app->gsm_return_frequency = app->applied_frequency;
-        app->gsm_return_valid = 1;
-    }
-    int arfcn = 0;
-    if (app->gsm_cal_arfcn > 0)
-        arfcn = app->gsm_cal_arfcn;
-    else if (app->scan_selected_arfcn > 0)
-        arfcn = app->scan_selected_arfcn;
-    if (arfcn > 0) {
-        gsm_tune_selected(app, arfcn);
-        app->gsm_analysis_mode = 1; /* Default to Burst mode when inspecting */
-    } else if (app->receiver_mode) {
-        if (start_scan(app) == 0) {
-            app->scan_open = 0;
-            app->gsm_autoselect_pending = 1;
-        }
-    }
-}
 
-/* Leave the GSM decode view: stop any scan and restore the entry tuning. */
-void leave_gsm(struct app *app) {
-    app->scan_running = 0;
-    app->scan_open = 0;
-    app->gsm_autoselect_pending = 0;
-    if (app->receiver_mode && app->gsm_return_valid)
-        retune_receiver(app, app->gsm_return_frequency, app->applied_ppm);
-    app->gsm_return_valid = 0;
-    app->gsm_selected_hz = 0.0;
-    app->gsm_sch_valid = 0;
-}
 
 /* Switch tabs. The GSM decode view retunes the receiver, so leaving the Decode
    tab (while on the GSM view) restores tuning. Calibration is a separate global
@@ -887,24 +806,9 @@ static int run_gui(struct app *app) {
 
         double now = GetTime();
 
-        Rectangle new_plot = calculate_plot();
-        int resized = IsWindowResized() ||
-                      (int)new_plot.width != app->scatter.texture.width ||
-                      (int)new_plot.height != app->scatter.texture.height ||
-                      (int)new_plot.width != app->waterfall_width ||
-                      (int)new_plot.height != app->waterfall_height;
-        if (resized) {
-            if (recreate_scatter(app, new_plot) < 0) {
-                result = -1;
-                break;
-            }
-            if (recreate_waterfall(app, new_plot, 0) < 0) {
-                result = -1;
-                break;
-            }
-            recompute_magnitude_bins(app);
-        } else {
-            app->plot = new_plot;
+        if (view_scope_resize_if_needed(app, calculate_plot()) < 0) {
+            result = -1;
+            break;
         }
 
         if (app->tab == TAB_SCOPE && !app->settings_open &&
@@ -1008,15 +912,8 @@ int main(int argc, char **argv) {
     app->options = options;
     app->receiver_mode = options.file_path == NULL;
     app->remove_dc = 1;
-    app->gsm_const_amplitude = 1; /* constellation shows amplitude by default */
-    app->gsm_opt_filter = 1;
-    app->gsm_opt_finecfo = 1;
-    app->gsm_opt_trellis = 1;
-    app->magnitude_lower = 0.0f;
-    app->magnitude_upper = 64.0f;
-    app->spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;
-    app->scatter_axis_limit = 0.5f;
-    app->waterfall_lower_dbfs = SDR_DSP_DBFS_FLOOR;
+    view_gsm_defaults(app);
+    view_scope_defaults(app);
 
     /* Before any path that can reach cleanup, which touches this. */
     int record_mutex_result = acquisition_init(&app->acq);
@@ -1117,18 +1014,7 @@ cleanup:
         }
         app->dev = NULL;
     }
-    if (app->scatter_ready) {
-        UnloadRenderTexture(app->scatter);
-        app->scatter_ready = 0;
-    }
-    if (app->waterfall_ready) {
-        UnloadTexture(app->waterfall);
-        app->waterfall_ready = 0;
-    }
-    free(app->waterfall_pixels);
-    app->waterfall_pixels = NULL;
-    free(app->waterfall_dbfs);
-    app->waterfall_dbfs = NULL;
+    view_scope_release(app);
     free(app->supported_gains);
     app->supported_gains = NULL;
     if (app->window_ready) {

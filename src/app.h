@@ -109,7 +109,65 @@ struct adsb_view {
     uint64_t positions_total;
 };
 
+/*
+ * The GSM decode screen's own state: which channel is being inspected, the
+ * last SCH decode and the symbols behind it, and the decode options the
+ * feature toggles set.
+ *
+ * The handoff fields stay in struct app: the scan tells this view which
+ * channel to open, and calibration publishes the result this view displays.
+ */
+struct gsm_view {
+    double selected_hz;         /* carrier of the selected ARFCN (0 = none) */
+    uint32_t return_frequency;  /* view frequency to restore on leave */
+    int return_valid;
+    struct gsm_sch_continuity continuity;
+    struct gsm_sch_result sch;
+    struct gsm_sch_symbols sch_symbols;
+    int sch_valid;
+    double sch_time;
+    int const_amplitude; /* constellation: show amplitude vs unit circle */
+    int const_derotated; /* constellation: derotated sample vs differential */
+    int opt_filter;
+    int opt_finecfo;
+    int opt_trellis;
+};
+
+/*
+ * The Scope tab's own state: the GPU textures behind the scatter and waterfall,
+ * the history each keeps between frames, and the per-view scales that Up/Down
+ * adjust.
+ *
+ * The frame loop used to rebuild these itself, which meant it had to know that
+ * the scatter's size lives on a RenderTexture and the waterfall's in two ints.
+ * It calls view_scope_resize_if_needed() now and knows neither.
+ */
+struct scope_view {
+    int scatter_ready;
+    int waterfall_ready;
+    float magnitude_peaks[SAMPLE_BLOCK_PAIRS];
+    size_t magnitude_bin_count;
+    float magnitude_lower;
+    float magnitude_upper;
+    float spectrum_lower_dbfs;
+    size_t scatter_inserted;
+    struct scatter_block scatter_history[SCATTER_HISTORY_BLOCKS];
+    size_t scatter_history_head;
+    size_t scatter_history_count;
+    float scatter_axis_limit;
+    RenderTexture2D scatter;
+    Texture2D waterfall;
+    Color *waterfall_pixels;
+    float *waterfall_dbfs;
+    int waterfall_capacity;
+    int waterfall_width;
+    int waterfall_height;
+    int waterfall_rows;
+};
+
 struct app {
+    struct scope_view sv;
+    struct gsm_view gsm;
     struct adsb_view adsb;
     struct settings_panel set;
     struct calibration cal;
@@ -120,8 +178,6 @@ struct app {
     FILE *capture;
     int record_mutex_ready;
     int window_ready;
-    int scatter_ready;
-    int waterfall_ready;
     int signals_ready;
     int receiver_mode;
     int applied_manual_gain;
@@ -141,45 +197,27 @@ struct app {
     float spectrum_i[SAMPLE_BLOCK_PAIRS];
     float spectrum_q[SAMPLE_BLOCK_PAIRS];
     float magnitudes[SAMPLE_BLOCK_PAIRS];
-    float magnitude_peaks[SAMPLE_BLOCK_PAIRS];
     float magnitude_sorted[SAMPLE_BLOCK_PAIRS];
     size_t pair_count;
-    size_t magnitude_bin_count;
     float magnitude_min;
     float magnitude_mean;
     float magnitude_max;
-    float magnitude_lower;
-    float magnitude_upper;
     struct sdr_signal_stats signal_stats;
     int signal_stats_ready;
 
     float spectrum_average[SDR_DSP_FFT_SIZE];
     float spectrum_candidate[SDR_DSP_FFT_SIZE];
     float spectrum_peak[SDR_DSP_FFT_SIZE];
-    float spectrum_lower_dbfs;
     int spectrum_windows;
     int spectrum_ready;
     int spectrum_peak_ready;
     double spectrum_peak_time;
-    size_t scatter_inserted;
-    struct scatter_block scatter_history[SCATTER_HISTORY_BLOCKS];
-    size_t scatter_history_head;
-    size_t scatter_history_count;
-    float scatter_axis_limit;
     int have_samples;
 
     enum active_tab tab;
     enum decode_kind decode;
     enum view_kind view;
     Rectangle plot;
-    RenderTexture2D scatter;
-    Texture2D waterfall;
-    Color *waterfall_pixels;
-    float *waterfall_dbfs;
-    int waterfall_capacity;
-    int waterfall_width;
-    int waterfall_height;
-    int waterfall_rows;
     float waterfall_lower_dbfs;
 
     int settings_open;
@@ -201,11 +239,7 @@ struct app {
 
     /* GSM decode view: the currently inspected channel and the tuning to
        restore when the view is left. */
-    double gsm_selected_hz;         /* carrier of the selected ARFCN (0 = none) */
-    uint32_t gsm_return_frequency;  /* view frequency to restore on leave */
-    int gsm_return_valid;
     int gsm_autoselect_pending;     /* pick the best BCCH when the open-scan ends */
-    struct gsm_sch_continuity gsm_continuity;
 
     /* Calibration-health indicator and background drift re-check. */
     int auto_drift_check;          /* Settings toggle: enable periodic re-check */
@@ -219,17 +253,8 @@ struct app {
     /* ADS-B / Mode S decoder tab (the Decoder context). */
 
     /* GSM SCH decode of the inspected channel. */
-    struct gsm_sch_result gsm_sch;
-    struct gsm_sch_symbols gsm_sch_symbols;
-    int gsm_sch_valid;
-    double gsm_sch_time;
-    int gsm_const_amplitude; /* constellation: show amplitude vs unit circle */
-    int gsm_const_derotated; /* constellation: derotated sample vs differential */
     int gsm_analysis_mode;   /* Burst Analysis Chart: 0=Corr, 1=Soft Bits, 2=Phase */
     
-    int gsm_opt_filter;
-    int gsm_opt_finecfo;
-    int gsm_opt_trellis;
 
     /* Raw-I/Q recording (to build a GSM test capture). Written by the
        acquisition thread, so record_mutex guards every field here. */
