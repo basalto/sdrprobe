@@ -17,6 +17,7 @@
 #include "sdr_dsp.h"
 #include "gsm_dsp.h"
 #include "adsb_dsp.h"
+#include "gsm_layout.h"
 #include "sdrgui.h"
 #include "raygui.h"
 
@@ -3074,64 +3075,46 @@ static int handle_tab_input(struct app *app) {
 
 /* --- GSM analysis view (band survey: channel scan + ARFCN waterfall) --- */
 
+/* Convenience for the current window. The accessors below keep their old
+   shape so call sites are unchanged; each is now a lookup, not a derivation. */
+static struct gsm_layout gsm_layout_now(void) {
+    return gsm_layout_for((float)GetScreenWidth(), (float)GetScreenHeight());
+}
+
 static Rectangle gsm_scan_button(void) {
-    return (Rectangle){ 22.0f, 84.0f, 150.0f, 30.0f };
+    return gsm_layout_now().scan_button;
 }
 
 static Rectangle gsm_back_to_scan_button(void) {
-    return (Rectangle){ 22.0f, 84.0f, 150.0f, 30.0f };
+    return gsm_layout_now().scan_button;
 }
 
 static Rectangle gsm_waterfall_rect(void) {
-    float width = (float)GetScreenWidth();
-    float span = (float)GetScreenHeight() - 196.0f - 40.0f;
-    return (Rectangle){ 82.0f, 196.0f, width - 112.0f, span * 0.44f };
+    return gsm_layout_now().waterfall;
 }
 
 static Rectangle gsm_scan_rect(void) {
-    float width = (float)GetScreenWidth();
-    float top = 196.0f;
-    float span = (float)GetScreenHeight() - top - 50.0f;
-    float y = top + span * 0.44f + 120.0f; /* increased gap for wf caption and sch text */
-    float h = span * 0.56f - 120.0f;
-    /* Leave a square constellation panel on the right. */
-    float right = width - 30.0f;
-    float side = h;
-    float scan_w = (right - side - 24.0f) - 82.0f;
-    if (scan_w < 200.0f)
-        scan_w = 200.0f;
-    return (Rectangle){ 82.0f, y, scan_w, h };
+    return gsm_layout_now().scan;
 }
 
 static Rectangle gsm_burst_rect(void) {
-    float width = (float)GetScreenWidth();
-    float span = (float)GetScreenHeight() - 196.0f - 50.0f;
-    return (Rectangle){ 82.0f, 196.0f, width - 112.0f, span * 0.44f };
+    return gsm_layout_now().burst;
 }
 
 static Rectangle gsm_view_toggle_button(void) {
-    float width = (float)GetScreenWidth();
-    return (Rectangle){ width - 150.0f, 100.0f, 130.0f, 26.0f };
+    return gsm_layout_now().view_toggle;
 }
 
 static Rectangle gsm_constellation_rect(void) {
-    float width = (float)GetScreenWidth();
-    float top = 196.0f;
-    float span = (float)GetScreenHeight() - top - 50.0f;
-    float y = top + span * 0.44f + 120.0f;
-    float h = span * 0.56f - 120.0f;
-    float right = width - 30.0f;
-    return (Rectangle){ right - h, y, h, h };
+    return gsm_layout_now().constellation;
 }
 
 static Rectangle gsm_const_amp_button(void) {
-    Rectangle c = gsm_constellation_rect();
-    return (Rectangle){ c.x + c.width - 134.0f, c.y + 4.0f, 62.0f, 22.0f };
+    return gsm_layout_now().const_amp_button;
 }
 
 static Rectangle gsm_const_derot_button(void) {
-    Rectangle c = gsm_constellation_rect();
-    return (Rectangle){ c.x + c.width - 68.0f, c.y + 4.0f, 64.0f, 22.0f };
+    return gsm_layout_now().const_derot_button;
 }
 
 static int gsm_scan_arfcn_at(Vector2 point, Rectangle rect) {
@@ -3202,7 +3185,7 @@ static void update_gsm_sch(struct app *app, double now) {
 }
 
 static Rectangle gsm_record_button(void) {
-    return (Rectangle){ 182.0f, 84.0f, 130.0f, 30.0f };
+    return gsm_layout_now().record_button;
 }
 
 /* Record ~2 s of raw I/Q to captures/ so a real GSM SCH capture can be made
@@ -3273,7 +3256,11 @@ static int record_snapshot(struct app *app, uint64_t *bytes, char *path,
 }
 
 static Rectangle gsm_opt_button(int index) {
-    return (Rectangle){ 396.0f + (float)index * 72.0f, 134.0f, 66.0f, 20.0f };
+    if (index < 0)
+        index = 0;
+    if (index > 2)
+        index = 2;
+    return gsm_layout_now().opt_button[index];
 }
 
 static void draw_gsm(struct app *app) {

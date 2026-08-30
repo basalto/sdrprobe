@@ -22,6 +22,11 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   `check-sdr-dsp` (generic core),
   `check-gsm-dsp` (GSM plugin), and `check-adsb-dsp` (Mode S / ADS-B plugin);
   each can be built and run on its own.
+- `make check-layout` — pins every rectangle of the GSM decode view at several
+  window sizes. Needs raylib's headers for the `Rectangle` type but not the
+  library, and opens no window. A failure means geometry moved; if that was
+  intended, re-bless the numbers in `tests/gsm_layout_test.c` in the same
+  commit, so the diff shows what shifted.
 - `./sdrprobe [--frequency Hz|K|M|G] [--sample-rate S/s] [--gain max|auto|dB] [--ppm N]`
   opens magnitude, spectrum, I/Q scatter, and waterfall views. It needs a real
   RTL-SDR dongle by default; `--file capture.bin` (e.g.
@@ -87,6 +92,10 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   velocity), and CPR global position decode with a minimal even/odd pairing
   cache. Prefix `adsb_`. It reuses only the core's per-pair magnitude, not the
   FFT/centroid primitives; recorded in `docs/adr/0009-mode-s-decode-plugin.md`.
+- `src/gsm_layout.h` — where the GSM decode view puts things: one struct of
+  rectangles derived from the window size by a pure function, so the panels
+  that share a row cannot drift apart and the whole layout is testable without
+  a window. Covered by `tests/gsm_layout_test.c`.
 - `src/sdrgui.h` / `src/sdrgui.c` — reusable SDR visual components (plots,
   waterfall, scan chart, health circle, decoded-message log, cursor readouts)
   taking plain data/geometry, not `struct app`. Prefix `sdrgui_`. `sdrprobe`
