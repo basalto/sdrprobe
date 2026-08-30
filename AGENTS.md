@@ -39,8 +39,11 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   the SCH and prints the BSIC (NCC/BCC) and frame number above the scan chart,
   with a decode constellation of the demodulated SCH symbols beside it (small
   Amp/Derot toggles switch amplitude and differential/derotated views), and a
-  Record button saves ~2 s of raw I/Q to `captures/` to build a GSM
-  capture. The
+  Record button saves ~2 s of raw I/Q to `captures/` to build a GSM capture,
+  writing a `.json` sidecar beside it with the tuning the samples were taken
+  at (centre frequency, sample rate, gain, PPM, tuner, the GSM ARFCN and its
+  carrier offset) plus a short-block count that is non-zero only when the
+  capture is not contiguous. The
   Calibration button (or `c`), below Settings, opens button-driven GSM 900
   cellular calibration for ARFCN 1-124 as a full-screen overlay over any tab,
   including expected/measured carrier markers and a stability-gated PPM

@@ -13,8 +13,9 @@
   ARFCN while running (press Start/"Retune") without exiting and restarting.
 - [ ] Add a stable internal sample-clock estimator that suggests a PPM
   correction after at least 60 seconds when `|PPM| >= 10`.
-- [ ] Add raw I/Q recording with center frequency, sample rate, gain, PPM,
-  tuner identity, and timestamps as metadata.
+- [x] Add raw I/Q recording with center frequency, sample rate, gain, PPM,
+  tuner identity, and timestamps as metadata (a JSON sidecar beside each
+  capture; also records the GSM carrier offset and a short-block count).
 - [ ] Add pause, resume, and clear controls for waterfall history.
 - [ ] Add configurable waterfall history duration.
 - [ ] Add persistent-spur detection and distinguish signals that follow the
