@@ -423,8 +423,12 @@ int main(void) {
     test_sch_synthetic_channel();
     /* Two independent cells: the layout fix was derived from ARFCN 69, so
        ARFCN 73 is the capture that checks it generalises. */
-    check_real_capture("testfiles/gsm_arfcn_69.bin", 59, 7, 3, 5);
-    check_real_capture("testfiles/gsm_arfcn_73.bin", 56, 7, 0, 10);
+    /* The decode-count floors are deliberately high: both captures decode
+       every block, and a slack floor would hide a sensitivity regression.
+       Widening the SCH carrier search back to +-100 kHz drops ARFCN 73 from
+       30 to 16, which these floors catch. */
+    check_real_capture("testfiles/gsm_arfcn_69.bin", 59, 7, 3, 25);
+    check_real_capture("testfiles/gsm_arfcn_73.bin", 56, 7, 0, 25);
 
     if (failures) {
         fprintf(stderr, "%d gsm_dsp check(s) failed\n", failures);
