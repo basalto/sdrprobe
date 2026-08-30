@@ -90,8 +90,12 @@ Two hard constraints on this layer:
 
 ### Application
 
-`src/app.h` names the shared state and `src/options.c` parses the command
-line. Each screen has a file — `view_scope.c` (the four Scope views),
+`src/app.h` names what is genuinely shared, and `src/options.c` parses the
+command line. State that belongs to one area lives with it: `struct
+acquisition` in `acquisition.h`, and `struct calibration`, `struct
+settings_panel` and `struct adsb_view` in `app.h` beside the record they were
+carved out of. Reach for `app->cal.*` rather than adding a `calibration_*`
+field back to `struct app`. Each screen has a file — `view_scope.c` (the four Scope views),
 `view_gsm.c`, `view_adsb.c`, `overlay_calibration.c`, `overlay_settings.c` —
 with `src/view.h` declaring what they share. `src/sdrprobe.c` is down to
 acquisition, the tab/header chrome, the frame loop and `main`.

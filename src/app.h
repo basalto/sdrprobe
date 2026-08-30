@@ -26,7 +26,93 @@
 #define GSM900_BASE_HZ 935000000.0
 #define GSM900_ARFCN_SPACING_HZ 200000.0
 
+/*
+ * The calibration overlay's own state: the GSM 900 channel calibration, the
+ * band scan that feeds it, and the periodic drift re-check. One struct because
+ * they are one screen -- the scan picks a channel, calibration measures it,
+ * and the drift check re-measures it later.
+ *
+ * The calibration_ prefix is dropped inside here; it was only ever there to
+ * separate these from everything else in struct app.
+ */
+struct calibration {
+    float workspace[SDR_DSP_FFT_SIZE];
+    int running;
+    int band;
+    char channel[16];
+    int channel_length;
+    uint32_t tune_hz;
+    double measured_hz;
+    double offset_hz;
+    int measurements;
+    float peak_dbfs;
+    float floor_dbfs;
+    float prominence_db;
+    double peak_hz;
+    double started_at;
+    double recent_ppm[CALIBRATION_RECENT];
+    int recent_count;
+    int recent_head;
+    double recent_center;
+    double recent_spread;
+    double recent_sem;
+    int fcch_locked;
+    float fcch_confidence;
+    int source;
+    int fcch_miss;
+    int fcch_hits;
+    int stable;
+    uint32_t return_frequency;
+    int suggested_ppm;
+    double scan_step_started_at;
+    double scan_first_center_hz;
+    double scan_step_hz;
+    double scan_accept_half_hz;
+    uint32_t scan_return_frequency;
+    uint32_t gsm_cal_expected_hz;  /* calibrated carrier */
+    uint32_t gsm_cal_tune_hz;      /* receiver center used for the re-check */
+    int drift_health_prev;         /* restored if a re-check is inconclusive */
+    double drift_ppm;              /* last measured residual drift */
+    double drift_last_check_at;
+    double drift_phase_started_at;
+    uint32_t drift_saved_frequency; /* view frequency to return to */
+    double drift_recent_ppm[DRIFT_RECENT];
+    int drift_recent_count;
+};
+
+/*
+ * What the Settings panel is holding while it is open: the text being
+ * typed and which control has focus. Applying it writes through to the
+ * applied_* fields; until then this is the panel's own draft.
+ */
+struct settings_panel {
+    char frequency[32];
+    int frequency_length;
+    char ppm[16];
+    int ppm_length;
+    int focus;
+    int gain_choice;
+    int remove_dc;
+    int auto_drift;       /* Settings-panel working copy */
+};
+
+/*
+ * The ADS-B screen's own state: the decoder's position-pairing cache and
+ * the newest-first log of messages it has recovered.
+ */
+struct adsb_view {
+    struct adsb_decoder decoder;
+    struct adsb_message scratch[64];
+    struct adsb_log_entry log[ADSB_LOG_CAPACITY]; /* newest first */
+    int log_count;
+    uint64_t frames_total;
+    uint64_t positions_total;
+};
+
 struct app {
+    struct adsb_view adsb;
+    struct settings_panel set;
+    struct calibration cal;
     struct acquisition acq;
     struct options options;
     struct sdr_dsp dsp;
@@ -70,7 +156,6 @@ struct app {
     float spectrum_average[SDR_DSP_FFT_SIZE];
     float spectrum_candidate[SDR_DSP_FFT_SIZE];
     float spectrum_peak[SDR_DSP_FFT_SIZE];
-    float calibration_workspace[SDR_DSP_FFT_SIZE];
     float spectrum_lower_dbfs;
     int spectrum_windows;
     int spectrum_ready;
@@ -98,57 +183,18 @@ struct app {
     float waterfall_lower_dbfs;
 
     int settings_open;
-    char settings_frequency[32];
-    int settings_frequency_length;
-    char settings_ppm[16];
-    int settings_ppm_length;
-    int settings_focus;
-    int settings_gain_choice;
     int remove_dc;
-    int settings_remove_dc;
     char settings_error[160];
 
     int calibration_open;
-    int calibration_running;
     int calibration_technology;
-    int calibration_band;
-    char calibration_channel[16];
-    int calibration_channel_length;
     uint32_t calibration_expected_hz;
-    uint32_t calibration_tune_hz;
-    double calibration_measured_hz;
-    double calibration_offset_hz;
-    int calibration_measurements;
-    float calibration_peak_dbfs;
-    float calibration_floor_dbfs;
-    float calibration_prominence_db;
-    double calibration_peak_hz;
-    double calibration_started_at;
-    double calibration_recent_ppm[CALIBRATION_RECENT];
-    int calibration_recent_count;
-    int calibration_recent_head;
-    double calibration_recent_center;
-    double calibration_recent_spread;
-    double calibration_recent_sem;
-    int calibration_fcch_locked;
-    float calibration_fcch_confidence;
-    int calibration_source;
-    int calibration_fcch_miss;
-    int calibration_fcch_hits;
-    int calibration_stable;
-    uint32_t calibration_return_frequency;
-    int calibration_suggested_ppm;
     char calibration_status[160];
 
     int scan_open;
     int scan_running;
     int scan_step;
     int scan_step_count;
-    double scan_step_started_at;
-    double scan_first_center_hz;
-    double scan_step_hz;
-    double scan_accept_half_hz;
-    uint32_t scan_return_frequency;
     float scan_power[125];
     float scan_bcch_conf[125];
     int scan_selected_arfcn;
@@ -163,30 +209,14 @@ struct app {
 
     /* Calibration-health indicator and background drift re-check. */
     int auto_drift_check;          /* Settings toggle: enable periodic re-check */
-    int settings_auto_drift;       /* Settings-panel working copy */
     int gsm_cal_valid;             /* an FCCH-backed GSM calibration exists */
-    uint32_t gsm_cal_expected_hz;  /* calibrated carrier */
-    uint32_t gsm_cal_tune_hz;      /* receiver center used for the re-check */
     int gsm_cal_ppm;               /* PPM applied at calibration */
     int gsm_cal_arfcn;             /* channel, for the notice text */
     int drift_health;              /* enum cal_health */
-    int drift_health_prev;         /* restored if a re-check is inconclusive */
-    double drift_ppm;              /* last measured residual drift */
-    double drift_last_check_at;
     char drift_notice[160];
     int drift_phase;               /* enum drift_phase */
-    double drift_phase_started_at;
-    uint32_t drift_saved_frequency; /* view frequency to return to */
-    double drift_recent_ppm[DRIFT_RECENT];
-    int drift_recent_count;
 
     /* ADS-B / Mode S decoder tab (the Decoder context). */
-    struct adsb_decoder adsb_decoder;
-    struct adsb_message adsb_scratch[64];
-    struct adsb_log_entry adsb_log[ADSB_LOG_CAPACITY]; /* newest first */
-    int adsb_log_count;
-    uint64_t adsb_frames_total;
-    uint64_t adsb_positions_total;
 
     /* GSM SCH decode of the inspected channel. */
     struct gsm_sch_result gsm_sch;

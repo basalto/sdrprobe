@@ -20,31 +20,31 @@
 
 void open_calibration(struct app *app) {
     app->calibration_open = 1;
-    app->calibration_running = 0;
+    app->cal.running = 0;
     app->calibration_technology = 0;
-    app->calibration_band = 0;
-    snprintf(app->calibration_channel, sizeof(app->calibration_channel),
+    app->cal.band = 0;
+    snprintf(app->cal.channel, sizeof(app->cal.channel),
              "113");
-    app->calibration_channel_length = 3;
+    app->cal.channel_length = 3;
     app->calibration_expected_hz = 0;
-    app->calibration_measurements = 0;
-    app->calibration_recent_count = 0;
-    app->calibration_recent_head = 0;
-    app->calibration_recent_center = 0.0;
-    app->calibration_recent_spread = 0.0;
-    app->calibration_recent_sem = 0.0;
-    app->calibration_fcch_locked = 0;
-    app->calibration_fcch_confidence = 0.0f;
-    app->calibration_source = CALIBRATION_SOURCE_CENTROID;
-    app->calibration_fcch_miss = 0;
-    app->calibration_fcch_hits = 0;
+    app->cal.measurements = 0;
+    app->cal.recent_count = 0;
+    app->cal.recent_head = 0;
+    app->cal.recent_center = 0.0;
+    app->cal.recent_spread = 0.0;
+    app->cal.recent_sem = 0.0;
+    app->cal.fcch_locked = 0;
+    app->cal.fcch_confidence = 0.0f;
+    app->cal.source = CALIBRATION_SOURCE_CENTROID;
+    app->cal.fcch_miss = 0;
+    app->cal.fcch_hits = 0;
     app->scan_open = 0;
     app->scan_running = 0;
-    app->calibration_stable = 0;
-    app->calibration_measured_hz = 0.0;
-    app->calibration_offset_hz = 0.0;
-    app->calibration_return_frequency = app->applied_frequency;
-    app->calibration_suggested_ppm = app->applied_ppm;
+    app->cal.stable = 0;
+    app->cal.measured_hz = 0.0;
+    app->cal.offset_hz = 0.0;
+    app->cal.return_frequency = app->applied_frequency;
+    app->cal.suggested_ppm = app->applied_ppm;
     snprintf(app->calibration_status, sizeof(app->calibration_status),
              "Select GSM 900 ARFCN 1-124, then press Start");
 }
@@ -52,7 +52,7 @@ void open_calibration(struct app *app) {
 static int start_calibration(struct app *app) {
     int arfcn;
     uint32_t expected;
-    if (app->calibration_technology != 0 || app->calibration_band != 0) {
+    if (app->calibration_technology != 0 || app->cal.band != 0) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Only 2G GSM 900 is supported in this version");
         return -1;
@@ -62,7 +62,7 @@ static int start_calibration(struct app *app) {
                  "GSM calibration requires a sample rate of at least 1 MS/s");
         return -1;
     }
-    if (parse_int(app->calibration_channel, &arfcn) < 0 ||
+    if (parse_int(app->cal.channel, &arfcn) < 0 ||
         arfcn < 1 || arfcn > 124 ||
         !gsm_downlink_hz((unsigned int)arfcn, &expected)) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
@@ -71,24 +71,24 @@ static int start_calibration(struct app *app) {
     }
 
     app->calibration_expected_hz = expected;
-    app->calibration_tune_hz = expected - 400000U;
-    app->calibration_measurements = 0;
-    app->calibration_measured_hz = 0.0;
-    app->calibration_offset_hz = 0.0;
-    app->calibration_recent_count = 0;
-    app->calibration_recent_head = 0;
-    app->calibration_recent_center = 0.0;
-    app->calibration_recent_spread = 0.0;
-    app->calibration_recent_sem = 0.0;
-    app->calibration_source = CALIBRATION_SOURCE_CENTROID;
-    app->calibration_fcch_miss = 0;
-    app->calibration_fcch_hits = 0;
-    app->calibration_fcch_locked = 0;
-    app->calibration_stable = 0;
-    if (retune_receiver(app, app->calibration_tune_hz, app->applied_ppm) < 0)
+    app->cal.tune_hz = expected - 400000U;
+    app->cal.measurements = 0;
+    app->cal.measured_hz = 0.0;
+    app->cal.offset_hz = 0.0;
+    app->cal.recent_count = 0;
+    app->cal.recent_head = 0;
+    app->cal.recent_center = 0.0;
+    app->cal.recent_spread = 0.0;
+    app->cal.recent_sem = 0.0;
+    app->cal.source = CALIBRATION_SOURCE_CENTROID;
+    app->cal.fcch_miss = 0;
+    app->cal.fcch_hits = 0;
+    app->cal.fcch_locked = 0;
+    app->cal.stable = 0;
+    if (retune_receiver(app, app->cal.tune_hz, app->applied_ppm) < 0)
         return -1;
-    app->calibration_started_at = GetTime();
-    app->calibration_running = 1;
+    app->cal.started_at = GetTime();
+    app->cal.running = 1;
     snprintf(app->calibration_status, sizeof(app->calibration_status),
              "Measuring GSM 900 ARFCN %d at %.3f MHz", arfcn,
              expected / 1000000.0);
@@ -127,33 +127,33 @@ static void robust_center_spread(const double *values, int count,
 }
 
 static void reset_calibration_stats(struct app *app) {
-    app->calibration_measurements = 0;
-    app->calibration_recent_count = 0;
-    app->calibration_recent_head = 0;
-    app->calibration_recent_center = 0.0;
-    app->calibration_recent_spread = 0.0;
-    app->calibration_recent_sem = 0.0;
-    app->calibration_stable = 0;
+    app->cal.measurements = 0;
+    app->cal.recent_count = 0;
+    app->cal.recent_head = 0;
+    app->cal.recent_center = 0.0;
+    app->cal.recent_spread = 0.0;
+    app->cal.recent_sem = 0.0;
+    app->cal.stable = 0;
 }
 
 static void calibration_set_status(struct app *app) {
     snprintf(app->calibration_status, sizeof(app->calibration_status),
              "%s (%s): %d meas, +/- %.2f PPM (spread %.2f), FCCH hits %d miss %d conf %.2f, suggested %+d PPM",
-             app->calibration_stable ? "Stable lock" : "Acquiring",
-             app->calibration_source == CALIBRATION_SOURCE_FCCH
+             app->cal.stable ? "Stable lock" : "Acquiring",
+             app->cal.source == CALIBRATION_SOURCE_FCCH
                  ? "FCCH tone"
                  : "centroid",
-             app->calibration_measurements,
-             app->calibration_recent_sem,
-             app->calibration_recent_spread,
-             app->calibration_fcch_hits,
-             app->calibration_fcch_miss,
-             app->calibration_fcch_confidence,
-             app->calibration_suggested_ppm);
+             app->cal.measurements,
+             app->cal.recent_sem,
+             app->cal.recent_spread,
+             app->cal.fcch_hits,
+             app->cal.fcch_miss,
+             app->cal.fcch_confidence,
+             app->cal.suggested_ppm);
 }
 
 void update_calibration_measurement(struct app *app) {
-    if (!app->calibration_open || !app->calibration_running ||
+    if (!app->calibration_open || !app->cal.running ||
         app->scan_open || !app->spectrum_ready)
         return;
 
@@ -161,7 +161,7 @@ void update_calibration_measurement(struct app *app) {
                    app->applied_sample_rate / 2.0;
     double upper = (double)app->applied_frequency +
                    app->applied_sample_rate / 2.0;
-    double elapsed = GetTime() - app->calibration_started_at;
+    double elapsed = GetTime() - app->cal.started_at;
     if (elapsed < CALIBRATION_SETTLE_SECONDS) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Settling receiver... %.1f s", elapsed);
@@ -186,12 +186,12 @@ void update_calibration_measurement(struct app *app) {
     int have_centroid = sdr_dsp_estimate_channel_center(
         app->spectrum_average, SDR_DSP_FFT_SIZE, lower, upper,
         app->calibration_expected_hz, 100000.0, 50000.0,
-        app->calibration_workspace, &estimate);
+        app->cal.workspace, &estimate);
     if (have_centroid) {
-        app->calibration_peak_hz = estimate.peak_frequency_hz;
-        app->calibration_peak_dbfs = estimate.peak_dbfs;
-        app->calibration_floor_dbfs = estimate.floor_dbfs;
-        app->calibration_prominence_db = estimate.prominence_db;
+        app->cal.peak_hz = estimate.peak_frequency_hz;
+        app->cal.peak_dbfs = estimate.peak_dbfs;
+        app->cal.floor_dbfs = estimate.floor_dbfs;
+        app->cal.prominence_db = estimate.prominence_db;
     }
 
     /* FCCH and centroid residuals differ by many PPM, so the recent-residual
@@ -199,27 +199,27 @@ void update_calibration_measurement(struct app *app) {
        to the tone a burst-free block is skipped rather than recorded. */
     double measured_hz;
     if (have_fcch) {
-        if (app->calibration_source != CALIBRATION_SOURCE_FCCH) {
-            app->calibration_source = CALIBRATION_SOURCE_FCCH;
+        if (app->cal.source != CALIBRATION_SOURCE_FCCH) {
+            app->cal.source = CALIBRATION_SOURCE_FCCH;
             reset_calibration_stats(app);
-            app->calibration_fcch_hits = 0;
+            app->cal.fcch_hits = 0;
         }
-        app->calibration_fcch_miss = 0;
-        app->calibration_fcch_locked = 1;
-        app->calibration_fcch_confidence = fcch.confidence;
-        app->calibration_fcch_hits++;
+        app->cal.fcch_miss = 0;
+        app->cal.fcch_locked = 1;
+        app->cal.fcch_confidence = fcch.confidence;
+        app->cal.fcch_hits++;
         measured_hz = (double)app->applied_frequency +
                       fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
-    } else if (app->calibration_source == CALIBRATION_SOURCE_FCCH) {
-        app->calibration_fcch_miss++;
-        if (app->calibration_fcch_miss < CALIBRATION_FCCH_MISS_LIMIT) {
+    } else if (app->cal.source == CALIBRATION_SOURCE_FCCH) {
+        app->cal.fcch_miss++;
+        if (app->cal.fcch_miss < CALIBRATION_FCCH_MISS_LIMIT) {
             calibration_set_status(app); /* hold the tone lock */
             return;
         }
-        app->calibration_source = CALIBRATION_SOURCE_CENTROID;
-        app->calibration_fcch_locked = 0;
+        app->cal.source = CALIBRATION_SOURCE_CENTROID;
+        app->cal.fcch_locked = 0;
         reset_calibration_stats(app);
-        app->calibration_fcch_hits = 0;
+        app->cal.fcch_hits = 0;
         if (!have_centroid) {
             snprintf(app->calibration_status,
                      sizeof(app->calibration_status),
@@ -228,7 +228,7 @@ void update_calibration_measurement(struct app *app) {
         }
         measured_hz = estimate.measured_frequency_hz;
     } else {
-        app->calibration_fcch_locked = 0;
+        app->cal.fcch_locked = 0;
         if (!have_centroid) {
             snprintf(app->calibration_status,
                      sizeof(app->calibration_status),
@@ -239,48 +239,48 @@ void update_calibration_measurement(struct app *app) {
         measured_hz = estimate.measured_frequency_hz;
     }
 
-    app->calibration_measured_hz = measured_hz;
-    app->calibration_offset_hz = measured_hz - app->calibration_expected_hz;
-    double observed_ppm = app->calibration_offset_hz /
+    app->cal.measured_hz = measured_hz;
+    app->cal.offset_hz = measured_hz - app->calibration_expected_hz;
+    double observed_ppm = app->cal.offset_hz /
                           app->calibration_expected_hz * 1000000.0;
-    app->calibration_measurements++;
-    app->calibration_recent_ppm[app->calibration_recent_head] = observed_ppm;
-    app->calibration_recent_head =
-        (app->calibration_recent_head + 1) % CALIBRATION_RECENT;
-    if (app->calibration_recent_count < CALIBRATION_RECENT)
-        app->calibration_recent_count++;
+    app->cal.measurements++;
+    app->cal.recent_ppm[app->cal.recent_head] = observed_ppm;
+    app->cal.recent_head =
+        (app->cal.recent_head + 1) % CALIBRATION_RECENT;
+    if (app->cal.recent_count < CALIBRATION_RECENT)
+        app->cal.recent_count++;
 
     /* Individual 65 ms blocks scatter a lot on a modulated GSM channel, but the
        correction we apply is the center of the recent residuals, whose
        uncertainty is the standard error of that center, not the per-block
        spread. Gate on the standard error so the lock reflects how well the
        correction is known. Median/MAD keep a hopping peak from biasing it. */
-    robust_center_spread(app->calibration_recent_ppm,
-                         app->calibration_recent_count,
-                         &app->calibration_recent_center,
-                         &app->calibration_recent_spread);
-    app->calibration_recent_sem =
-        app->calibration_recent_spread /
-        sqrt((double)app->calibration_recent_count);
+    robust_center_spread(app->cal.recent_ppm,
+                         app->cal.recent_count,
+                         &app->cal.recent_center,
+                         &app->cal.recent_spread);
+    app->cal.recent_sem =
+        app->cal.recent_spread /
+        sqrt((double)app->cal.recent_count);
 
-    app->calibration_suggested_ppm = sdr_dsp_corrected_ppm(
+    app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
         app->applied_ppm, app->calibration_expected_hz *
-                              (1.0 + app->calibration_recent_center / 1000000.0),
+                              (1.0 + app->cal.recent_center / 1000000.0),
         app->calibration_expected_hz);
-    if (app->calibration_suggested_ppm < -1000)
-        app->calibration_suggested_ppm = -1000;
-    if (app->calibration_suggested_ppm > 1000)
-        app->calibration_suggested_ppm = 1000;
+    if (app->cal.suggested_ppm < -1000)
+        app->cal.suggested_ppm = -1000;
+    if (app->cal.suggested_ppm > 1000)
+        app->cal.suggested_ppm = 1000;
 
     /* Prominence only gates centroid mode; an FCCH tone is its own quality
        proof and its prominence metric may momentarily dip. */
-    int quality_ok = (app->calibration_source == CALIBRATION_SOURCE_FCCH)
+    int quality_ok = (app->cal.source == CALIBRATION_SOURCE_FCCH)
                          ? 1
-                         : (app->calibration_prominence_db >= 8.0f);
-    app->calibration_stable = elapsed >= CALIBRATION_MIN_SECONDS &&
-                              app->calibration_measurements >= 32 &&
-                              app->calibration_recent_count >= 32 &&
-                              app->calibration_recent_sem <=
+                         : (app->cal.prominence_db >= 8.0f);
+    app->cal.stable = elapsed >= CALIBRATION_MIN_SECONDS &&
+                              app->cal.measurements >= 32 &&
+                              app->cal.recent_count >= 32 &&
+                              app->cal.recent_sem <=
                                   CALIBRATION_MAX_SEM_PPM &&
                               quality_ok;
     calibration_set_status(app);
@@ -323,14 +323,14 @@ int start_scan(struct app *app) {
                  "Channel scan requires a sample rate of at least 1 MS/s");
         return -1;
     }
-    app->scan_accept_half_hz = accept_half;
-    app->scan_step_hz = 2.0 * accept_half;
-    app->scan_first_center_hz = SCAN_BAND_LOWER_HZ + accept_half;
+    app->cal.scan_accept_half_hz = accept_half;
+    app->cal.scan_step_hz = 2.0 * accept_half;
+    app->cal.scan_first_center_hz = SCAN_BAND_LOWER_HZ + accept_half;
     int count = 0;
-    double center = app->scan_first_center_hz;
+    double center = app->cal.scan_first_center_hz;
     while (center - accept_half < SCAN_BAND_UPPER_HZ) {
         count++;
-        center += app->scan_step_hz;
+        center += app->cal.scan_step_hz;
     }
     app->scan_step_count = count;
     for (int arfcn = 0; arfcn < 125; arfcn++) {
@@ -338,12 +338,12 @@ int start_scan(struct app *app) {
         app->scan_bcch_conf[arfcn] = 0.0f;
     }
     app->scan_selected_arfcn = 0;
-    app->scan_return_frequency = app->applied_frequency;
+    app->cal.scan_return_frequency = app->applied_frequency;
     app->scan_step = 0;
-    if (retune_receiver(app, (uint32_t)llround(app->scan_first_center_hz),
+    if (retune_receiver(app, (uint32_t)llround(app->cal.scan_first_center_hz),
                         app->applied_ppm) < 0)
         return -1;
-    app->scan_step_started_at = GetTime();
+    app->cal.scan_step_started_at = GetTime();
     app->scan_running = 1;
     app->scan_open = 1;
     return 0;
@@ -352,7 +352,7 @@ int start_scan(struct app *app) {
 void update_scan(struct app *app) {
     if (!app->scan_running || !app->spectrum_ready)
         return;
-    double elapsed = GetTime() - app->scan_step_started_at;
+    double elapsed = GetTime() - app->cal.scan_step_started_at;
     if (elapsed < SCAN_STEP_SETTLE_SECONDS)
         return;
 
@@ -361,8 +361,8 @@ void update_scan(struct app *app) {
     double upper = center + app->applied_sample_rate / 2.0;
     sdr_dsp_channel_powers(app->spectrum_average, SDR_DSP_FFT_SIZE,
                               lower, upper,
-                              center - app->scan_accept_half_hz,
-                              center + app->scan_accept_half_hz,
+                              center - app->cal.scan_accept_half_hz,
+                              center + app->cal.scan_accept_half_hz,
                               GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
                               1, 124, app->scan_power);
 
@@ -374,8 +374,8 @@ void update_scan(struct app *app) {
     for (int arfcn = 1; arfcn <= 124; arfcn++) {
         double channel = GSM900_BASE_HZ +
                          (double)arfcn * GSM900_ARFCN_SPACING_HZ;
-        if (channel < center - app->scan_accept_half_hz ||
-            channel > center + app->scan_accept_half_hz)
+        if (channel < center - app->cal.scan_accept_half_hz ||
+            channel > center + app->cal.scan_accept_half_hz)
             continue;
         struct gsm_fcch_result fcch;
         double target = channel - center + GSM_FCCH_TONE_HZ;
@@ -405,13 +405,13 @@ void update_scan(struct app *app) {
         }
         return;
     }
-    double next = app->scan_first_center_hz +
-                  (double)app->scan_step * app->scan_step_hz;
+    double next = app->cal.scan_first_center_hz +
+                  (double)app->scan_step * app->cal.scan_step_hz;
     if (retune_receiver(app, (uint32_t)llround(next), app->applied_ppm) < 0) {
         app->scan_running = 0;
         return;
     }
-    app->scan_step_started_at = GetTime();
+    app->cal.scan_step_started_at = GetTime();
 }
 
 /* Periodically verify the applied PPM against the calibrated GSM carrier. Each
@@ -428,58 +428,58 @@ void update_drift_check(struct app *app, int have_block) {
     double now = GetTime();
 
     if (app->drift_phase == DRIFT_IDLE) {
-        if (now - app->drift_last_check_at < DRIFT_CHECK_INTERVAL_SECONDS)
+        if (now - app->cal.drift_last_check_at < DRIFT_CHECK_INTERVAL_SECONDS)
             return;
-        app->drift_saved_frequency = app->applied_frequency;
-        app->drift_health_prev = app->drift_health;
-        if (retune_receiver(app, app->gsm_cal_tune_hz, app->gsm_cal_ppm) < 0) {
-            app->drift_last_check_at = now; /* retry next interval */
+        app->cal.drift_saved_frequency = app->applied_frequency;
+        app->cal.drift_health_prev = app->drift_health;
+        if (retune_receiver(app, app->cal.gsm_cal_tune_hz, app->gsm_cal_ppm) < 0) {
+            app->cal.drift_last_check_at = now; /* retry next interval */
             return;
         }
-        app->drift_recent_count = 0;
+        app->cal.drift_recent_count = 0;
         app->drift_phase = DRIFT_SETTLE;
-        app->drift_phase_started_at = now;
+        app->cal.drift_phase_started_at = now;
         app->drift_health = CAL_HEALTH_CHECKING;
         return;
     }
 
     if (app->drift_phase == DRIFT_SETTLE) {
-        if (now - app->drift_phase_started_at >= DRIFT_CHECK_SETTLE_SECONDS) {
+        if (now - app->cal.drift_phase_started_at >= DRIFT_CHECK_SETTLE_SECONDS) {
             app->drift_phase = DRIFT_MEASURE;
-            app->drift_phase_started_at = now;
+            app->cal.drift_phase_started_at = now;
         }
         return;
     }
 
     /* DRIFT_MEASURE */
     if (have_block && app->spectrum_ready &&
-        app->drift_recent_count < DRIFT_RECENT) {
+        app->cal.drift_recent_count < DRIFT_RECENT) {
         struct gsm_fcch_result fcch;
-        double target = (double)app->gsm_cal_expected_hz -
+        double target = (double)app->cal.gsm_cal_expected_hz -
                         (double)app->applied_frequency + GSM_FCCH_TONE_HZ;
         if (gsm_fcch_detect(app->i_samples, app->q_samples, app->pair_count,
                             app->applied_sample_rate, target,
                             GSM_FCCH_SEARCH_HALF_HZ, &fcch)) {
             double carrier = (double)app->applied_frequency +
                              fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
-            app->drift_recent_ppm[app->drift_recent_count++] =
-                (carrier - (double)app->gsm_cal_expected_hz) /
-                (double)app->gsm_cal_expected_hz * 1000000.0;
+            app->cal.drift_recent_ppm[app->cal.drift_recent_count++] =
+                (carrier - (double)app->cal.gsm_cal_expected_hz) /
+                (double)app->cal.gsm_cal_expected_hz * 1000000.0;
         }
     }
-    if (now - app->drift_phase_started_at < DRIFT_CHECK_MEASURE_SECONDS)
+    if (now - app->cal.drift_phase_started_at < DRIFT_CHECK_MEASURE_SECONDS)
         return;
 
-    retune_receiver(app, app->drift_saved_frequency, app->gsm_cal_ppm);
+    retune_receiver(app, app->cal.drift_saved_frequency, app->gsm_cal_ppm);
     app->drift_phase = DRIFT_IDLE;
-    app->drift_last_check_at = GetTime();
+    app->cal.drift_last_check_at = GetTime();
 
-    if (app->drift_recent_count >= DRIFT_MIN_MEASUREMENTS) {
+    if (app->cal.drift_recent_count >= DRIFT_MIN_MEASUREMENTS) {
         double center = 0.0;
         double spread = 0.0;
-        robust_center_spread(app->drift_recent_ppm, app->drift_recent_count,
+        robust_center_spread(app->cal.drift_recent_ppm, app->cal.drift_recent_count,
                              &center, &spread);
-        app->drift_ppm = center;
+        app->cal.drift_ppm = center;
         if (fabs(center) >= DRIFT_MAX_PPM) {
             app->drift_health = CAL_HEALTH_DRIFT;
             snprintf(app->drift_notice, sizeof(app->drift_notice),
@@ -493,17 +493,17 @@ void update_drift_check(struct app *app, int have_block) {
         }
     } else {
         /* Inconclusive (tone not found); keep the prior state, retry later. */
-        app->drift_health = app->drift_health_prev;
+        app->drift_health = app->cal.drift_health_prev;
     }
 }
 
 void close_calibration(struct app *app) {
-    if (app->calibration_running) {
-        if (retune_receiver(app, app->calibration_return_frequency,
+    if (app->cal.running) {
+        if (retune_receiver(app, app->cal.return_frequency,
                             app->applied_ppm) < 0)
             return;
     }
-    app->calibration_running = 0;
+    app->cal.running = 0;
     app->calibration_open = 0;
 }
 
@@ -526,19 +526,19 @@ void handle_calibration_input(struct app *app) {
     Rectangle back = { (float)GetScreenWidth() - 112.0f, 18, 88, 34 };
 
     int inputs_changed = 0;
-    if (!app->calibration_running && clicked(tech_2g)) {
+    if (!app->cal.running && clicked(tech_2g)) {
         app->calibration_technology = 0;
         inputs_changed = 1;
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Select GSM 900 ARFCN 1-124, then press Start");
     }
-    if (!app->calibration_running && clicked(tech_4g)) {
+    if (!app->cal.running && clicked(tech_4g)) {
         app->calibration_technology = 1;
         inputs_changed = 1;
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "4G channel tables are not implemented yet");
     }
-    if (!app->calibration_running && clicked(tech_5g)) {
+    if (!app->cal.running && clicked(tech_5g)) {
         app->calibration_technology = 2;
         inputs_changed = 1;
         snprintf(app->calibration_status, sizeof(app->calibration_status),
@@ -549,29 +549,29 @@ void handle_calibration_input(struct app *app) {
     while (app->calibration_technology == 0 &&
            (character = GetCharPressed()) != 0) {
         if (character >= '0' && character <= '9' &&
-            app->calibration_channel_length <
-                (int)sizeof(app->calibration_channel) - 1) {
-            app->calibration_channel[app->calibration_channel_length++] =
+            app->cal.channel_length <
+                (int)sizeof(app->cal.channel) - 1) {
+            app->cal.channel[app->cal.channel_length++] =
                 (char)character;
-            app->calibration_channel[app->calibration_channel_length] = '\0';
+            app->cal.channel[app->cal.channel_length] = '\0';
             inputs_changed = 1;
         }
     }
     if (app->calibration_technology == 0 &&
         IsKeyPressed(KEY_BACKSPACE) &&
-        app->calibration_channel_length > 0) {
-        app->calibration_channel[--app->calibration_channel_length] = '\0';
+        app->cal.channel_length > 0) {
+        app->cal.channel[--app->cal.channel_length] = '\0';
         inputs_changed = 1;
     }
     if (inputs_changed) {
-        app->calibration_stable = 0;
-        app->calibration_measurements = 0;
-        app->calibration_recent_count = 0;
-        app->calibration_recent_head = 0;
-        app->calibration_recent_center = 0.0;
-        app->calibration_recent_spread = 0.0;
-        app->calibration_recent_sem = 0.0;
-        if (app->calibration_running)
+        app->cal.stable = 0;
+        app->cal.measurements = 0;
+        app->cal.recent_count = 0;
+        app->cal.recent_head = 0;
+        app->cal.recent_center = 0.0;
+        app->cal.recent_spread = 0.0;
+        app->cal.recent_sem = 0.0;
+        if (app->cal.running)
             snprintf(app->calibration_status,
                      sizeof(app->calibration_status),
                      "Editing target ARFCN; press Start to retune");
@@ -585,34 +585,34 @@ void handle_calibration_input(struct app *app) {
         start_calibration(app);
     if (clicked(scan) && app->calibration_technology == 0)
         start_scan(app);
-    if (clicked(apply_ppm) && app->calibration_stable) {
-        if (retune_receiver(app, app->calibration_tune_hz,
-                            app->calibration_suggested_ppm) == 0) {
-            app->options.ppm = app->calibration_suggested_ppm;
-            app->calibration_measurements = 0;
-            app->calibration_recent_count = 0;
-            app->calibration_recent_head = 0;
-            app->calibration_stable = 0;
-            app->calibration_started_at = GetTime();
+    if (clicked(apply_ppm) && app->cal.stable) {
+        if (retune_receiver(app, app->cal.tune_hz,
+                            app->cal.suggested_ppm) == 0) {
+            app->options.ppm = app->cal.suggested_ppm;
+            app->cal.measurements = 0;
+            app->cal.recent_count = 0;
+            app->cal.recent_head = 0;
+            app->cal.stable = 0;
+            app->cal.started_at = GetTime();
             snprintf(app->calibration_status,
                      sizeof(app->calibration_status),
                      "Applied %+d PPM; measuring residual error",
                      app->applied_ppm);
             /* The health indicator turns green only for an FCCH-backed lock;
                record the calibrated channel so drift can be re-checked. */
-            if (app->calibration_source == CALIBRATION_SOURCE_FCCH) {
+            if (app->cal.source == CALIBRATION_SOURCE_FCCH) {
                 int arfcn = 0;
-                parse_int(app->calibration_channel, &arfcn);
+                parse_int(app->cal.channel, &arfcn);
                 app->gsm_cal_valid = 1;
-                app->gsm_cal_expected_hz = app->calibration_expected_hz;
-                app->gsm_cal_tune_hz = app->calibration_tune_hz;
+                app->cal.gsm_cal_expected_hz = app->calibration_expected_hz;
+                app->cal.gsm_cal_tune_hz = app->cal.tune_hz;
                 app->gsm_cal_ppm = app->applied_ppm;
                 app->gsm_cal_arfcn = arfcn;
                 app->drift_health = CAL_HEALTH_GOOD;
-                app->drift_ppm = 0.0;
+                app->cal.drift_ppm = 0.0;
                 app->drift_notice[0] = '\0';
                 app->drift_phase = DRIFT_IDLE;
-                app->drift_last_check_at = GetTime();
+                app->cal.drift_last_check_at = GetTime();
             } else {
                 app->gsm_cal_valid = 0;
                 app->drift_health = CAL_HEALTH_UNKNOWN;
@@ -651,12 +651,12 @@ void draw_calibration(struct app *app) {
              (Color){ 157, 180, 194, 255 });
     sdrgui_text_field(channel,
                       app->calibration_technology == 0
-                          ? app->calibration_channel
+                          ? app->cal.channel
                           : "N/A",
                       app->calibration_technology == 0);
-    draw_button(start, app->calibration_running ? "Retune" : "Start",
+    draw_button(start, app->cal.running ? "Retune" : "Start",
                 app->calibration_technology == 0);
-    draw_button(apply_ppm, "Apply PPM", app->calibration_stable);
+    draw_button(apply_ppm, "Apply PPM", app->cal.stable);
     draw_button(scan, "Scan", app->calibration_technology == 0);
     draw_button(back, "Back", 0);
 
@@ -665,24 +665,24 @@ void draw_calibration(struct app *app) {
              app->calibration_expected_hz / 1000000.0,
              app->applied_frequency / 1000000.0, app->applied_ppm);
     DrawText(text, 24, 118, 17, (Color){ 190, 208, 218, 255 });
-    if (app->calibration_measurements > 0) {
+    if (app->cal.measurements > 0) {
         snprintf(text, sizeof(text),
                  "measured: %.6f MHz   offset: %+.1f kHz   observed: %+.2f PPM   center: %+.2f +/- %.2f PPM (SEM %.2f)",
-                 app->calibration_measured_hz / 1000000.0,
-                 app->calibration_offset_hz / 1000.0,
-                 app->calibration_offset_hz /
+                 app->cal.measured_hz / 1000000.0,
+                 app->cal.offset_hz / 1000.0,
+                 app->cal.offset_hz /
                      app->calibration_expected_hz * 1000000.0,
-                 app->calibration_recent_center,
-                 app->calibration_recent_spread,
-                 app->calibration_recent_sem);
+                 app->cal.recent_center,
+                 app->cal.recent_spread,
+                 app->cal.recent_sem);
         DrawText(text, 24, 142, 17, (Color){ 255, 205, 91, 255 });
         snprintf(text, sizeof(text),
                  "peak: %.1f dBFS   guard floor: %.1f dBFS   prominence: %.1f dB   suggested correction: %+d PPM",
-                 app->calibration_peak_dbfs, app->calibration_floor_dbfs,
-                 app->calibration_prominence_db,
-                 app->calibration_suggested_ppm);
+                 app->cal.peak_dbfs, app->cal.floor_dbfs,
+                 app->cal.prominence_db,
+                 app->cal.suggested_ppm);
         DrawText(text, 24, 164, 17,
-                 app->calibration_stable ? (Color){ 99, 228, 170, 255 }
+                 app->cal.stable ? (Color){ 99, 228, 170, 255 }
                                          : (Color){ 250, 190, 74, 255 });
     }
     DrawText(app->calibration_status, 24, 186, 17,
@@ -714,9 +714,9 @@ void draw_calibration(struct app *app) {
                  (Color){ 87, 229, 173, 230 });
         DrawText("expected", (int)expected_x + 5, (int)app->plot.y + 5, 16,
                  (Color){ 111, 244, 191, 255 });
-        if (app->calibration_measurements > 0) {
+        if (app->cal.measurements > 0) {
             float measured_x = app->plot.x +
-                               (float)((app->calibration_measured_hz - lower) /
+                               (float)((app->cal.measured_hz - lower) /
                                        (upper - lower)) * app->plot.width;
             DrawLine((int)measured_x, (int)app->plot.y, (int)measured_x,
                      (int)(app->plot.y + app->plot.height),
@@ -786,7 +786,7 @@ void handle_scan_input(struct app *app) {
 
     if (clicked(back) || IsKeyPressed(KEY_ESCAPE)) {
         if (app->receiver_mode)
-            retune_receiver(app, app->scan_return_frequency, app->applied_ppm);
+            retune_receiver(app, app->cal.scan_return_frequency, app->applied_ppm);
         app->scan_running = 0;
         app->scan_open = 0;
         return;
@@ -800,10 +800,10 @@ void handle_scan_input(struct app *app) {
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         int arfcn = scan_arfcn_at(app, GetMousePosition());
         if (arfcn > 0 && app->scan_power[arfcn] > SCAN_SENTINEL_DBFS) {
-            snprintf(app->calibration_channel,
-                     sizeof(app->calibration_channel), "%d", arfcn);
-            app->calibration_channel_length =
-                (int)strlen(app->calibration_channel);
+            snprintf(app->cal.channel,
+                     sizeof(app->cal.channel), "%d", arfcn);
+            app->cal.channel_length =
+                (int)strlen(app->cal.channel);
             app->scan_open = 0;
             start_calibration(app);
         }
