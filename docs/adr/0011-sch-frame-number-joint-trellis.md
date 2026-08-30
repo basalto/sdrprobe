@@ -13,9 +13,14 @@ real signals. Correcting the layout fixed it: on `testfiles/gsm_arfcn_69.bin`
 all 31 blocks now decode, BSIC is 59 on every one, T1 is 793..794, and the
 frame numbers advance by exactly the SCH burst spacing.
 
-Phases 1-3 of the soft-decision receiver (front-end refinement, the joint
-differential + convolutional soft Viterbi, and the multi-burst tracker) are
-implemented and stay. The **MLSE channel estimate of phase 2b was implemented,
+Phases 1 and 2 of the soft-decision receiver (front-end refinement and the
+joint differential + convolutional soft Viterbi) are implemented and stay;
+phase 3's multi-burst tracker was **removed** once the layout was fixed. It
+existed to hide a broken frame number by voting T1 and extrapolating from
+wall-clock time, and with a correct decoder it only added error: on
+`gsm_arfcn_69.bin` it overrode 4 of 31 provably-correct frame numbers by -3 to
++5 frames. What remains is a continuity check that flags an implausible T1 jump
+without ever substituting a value. The **MLSE channel estimate of phase 2b was implemented,
 measured, and removed**: on synthetic bursts through the symbol-spaced 3-tap
 channel measured from the real capture, it decoded *fewer* bursts than the
 plain correlation metric at low SNR — 86% against 100% at 0 dB, 59% against 82%
