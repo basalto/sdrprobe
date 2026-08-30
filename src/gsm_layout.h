@@ -67,12 +67,22 @@ static inline struct gsm_layout gsm_layout_for(float width, float height) {
         scan_w = 200.0f;
     l.scan = (Rectangle){ left, y, scan_w, h };
     l.constellation = (Rectangle){ right - h, y, h, h };
-    l.const_amp_button = (Rectangle){ l.constellation.x + l.constellation.width
-                                          - 134.0f,
-                                      l.constellation.y + 4.0f, 62.0f, 22.0f };
-    l.const_derot_button = (Rectangle){ l.constellation.x
-                                            + l.constellation.width - 68.0f,
-                                        l.constellation.y + 4.0f, 64.0f, 22.0f };
+    /* The two toggles sit inside the panel's top-right corner. They are
+       offset from its right edge, so a panel narrower than the offsets used
+       to push them out of the panel entirely and onto the scan chart beside
+       it -- which happens below roughly a 700 px window height, and the app
+       allows 540. Clamp them to the panel: on a panel that small they
+       overlap each other, which is ugly but stays where it belongs. */
+    float amp_x = l.constellation.x + l.constellation.width - 134.0f;
+    float derot_x = l.constellation.x + l.constellation.width - 68.0f;
+    if (amp_x < l.constellation.x)
+        amp_x = l.constellation.x;
+    if (derot_x < l.constellation.x)
+        derot_x = l.constellation.x;
+    l.const_amp_button =
+        (Rectangle){ amp_x, l.constellation.y + 4.0f, 62.0f, 22.0f };
+    l.const_derot_button =
+        (Rectangle){ derot_x, l.constellation.y + 4.0f, 64.0f, 22.0f };
     return l;
 }
 
