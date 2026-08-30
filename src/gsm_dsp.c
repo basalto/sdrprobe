@@ -322,6 +322,7 @@ size_t gsm_sch_modulate(const uint8_t coded_bits[GSM_SCH_CODED_BITS],
     return written;
 }
 
+#define GSM_SCH_CARRIER_SEARCH_HZ 50000.0
 #define SCH_TIMINGS 8
 #define SCH_MIN_MATCH 0.80f
 
@@ -406,11 +407,23 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
 
     /* Refine the carrier from the FCCH tone. An uncalibrated receiver can be
        tens of kHz off, which biases the differential demod enough to break the
-       decode; the FCCH is a clean reference at carrier + 1625/24 kHz. */
+       decode; the FCCH is a clean reference at carrier + 1625/24 kHz.
+
+       The search half-width bounds how far the receiver may plausibly be off:
+       50 kHz is about 53 ppm at GSM 900, generous for an RTL-SDR and more so
+       once a PPM correction has been applied. It must not be widened "just in
+       case". At +-100 kHz the detector will happily lock onto some other
+       narrowband component tens of kHz away, report high coherence, and
+       mistune the downconversion enough that the training sequence can no
+       longer be found -- silently, because nothing downstream checks the
+       refinement. That cost 14 of 30 blocks on testfiles/gsm_arfcn_73.bin.
+       A receiver further out than this window needs calibration, which does
+       its own wider search. */
     double refined = carrier_offset_hz;
     struct gsm_fcch_result fcch;
     if (gsm_fcch_detect(i_samples, q_samples, pair_count, sample_rate,
-                        carrier_offset_hz + GSM_FCCH_TONE_HZ, 100000.0, &fcch))
+                        carrier_offset_hz + GSM_FCCH_TONE_HZ,
+                        GSM_SCH_CARRIER_SEARCH_HZ, &fcch))
         refined = fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
 
     float *bi = malloc(pair_count * sizeof(*bi));
