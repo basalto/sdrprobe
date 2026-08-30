@@ -235,11 +235,25 @@ struct scope_view {
     int waterfall_rows;
 };
 
+/*
+ * The help overlay's own state: whether it is open, which topic it is showing,
+ * and how far that topic is scrolled. content_height is measured during the
+ * input phase so the scroll can be clamped there, which is what lets drawing
+ * stay read-only.
+ */
+struct help_overlay {
+    int open;
+    int topic;
+    float scroll;
+    float content_height;
+};
+
 struct app {
     struct scope_view sv;
     struct gsm_view gsm;
     struct adsb_view adsb;
     struct settings_panel set;
+    struct help_overlay help;
     struct calibration cal;
     struct band_scan bandscan;
     struct acquisition acq;

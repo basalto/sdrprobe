@@ -65,8 +65,9 @@ reserving its own caption strip and label gutter through
 width depends on the values only the component sees.
 
 **Screens** (`view_scope.c`, `view_gsm.c`, `view_adsb.c`,
-`overlay_calibration.c`, `overlay_scan.c`, `overlay_settings.c`) read state,
-draw, and handle their own input. `view.h` declares what they share.
+`overlay_calibration.c`, `overlay_scan.c`, `overlay_settings.c`,
+`overlay_help.c`) read state, draw, and handle their own input. `view.h`
+declares what they share.
 
 **Layout** (`gsm_layout.h`, `chrome_layout.h`) are pure functions of the window
 size, which is what lets `make check-layout` pin every rectangle without opening
@@ -86,6 +87,7 @@ which most are genuinely shared, and each area owns the rest:
 | `calibration` | `app.h` | measurement, stability gate, drift re-check |
 | `band_scan` | `app.h` | sweep position and step width |
 | `settings_panel` | `app.h` | the text being typed, before it is applied |
+| `help_overlay` | `app.h` | open flag, current topic, scroll position |
 
 What stays in `struct app` is the handoff between screens — the scan tells the
 GSM view which channel to open, calibration publishes the result that view

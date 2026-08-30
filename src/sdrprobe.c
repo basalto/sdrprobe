@@ -696,9 +696,10 @@ static void draw_header(const struct app *app) {
              (Color){ 225, 236, 245, 255 });
     if (app->tab == TAB_SCOPE)
         draw_option_row((int)app->view, scope_opts, 4,
-                        "Up/Down scale   Esc quit");
+                        "Up/Down scale   h help   Esc quit");
     else
-        draw_option_row((int)app->decode, decode_opts, 2, "Esc scope");
+        draw_option_row((int)app->decode, decode_opts, 2,
+                        "h help   Esc scope");
 
     draw_tab_bar(app);
     draw_button(settings_button(), "Settings", 0);
@@ -780,11 +781,17 @@ static int run_gui(struct app *app) {
         if (WindowShouldClose())
             break;
 
-        if (app->settings_open) {
+        if (app->help.open) {
+            /* Help is the outermost overlay: it can be raised over a view or
+               over calibration, and takes every key while it is up. */
+            handle_help_input(app);
+        } else if (app->settings_open) {
             if (IsKeyPressed(KEY_ESCAPE))
                 app->settings_open = 0;
             else
                 handle_settings_input(app);
+        } else if (IsKeyPressed(KEY_H)) {
+            open_help(app);
         } else if (app->calibration_open) {
             if (app->scan_open)
                 handle_scan_input(app);
@@ -890,6 +897,8 @@ static int run_gui(struct app *app) {
             if (app->settings_open)
                 draw_settings(app);
         }
+        if (app->help.open)
+            draw_help(app);
         EndDrawing();
 
         if (snapshot.worker_failed) {

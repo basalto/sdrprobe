@@ -373,6 +373,12 @@ a source rectangle with negative height.
   subtracts each sample block's mean I and Q only on the copied
   spectrum/waterfall path; magnitude and I/Q scatter continue to use the raw
   centered samples.
+- `h`: open the help overlay, a full-screen panel of topics explaining what
+  each chart plots and how to read it. It opens on the topic for the screen
+  underneath, Left/Right change topic, Up/Down and the wheel scroll, and `h` or
+  `Esc` closes it. It is reachable from every view and over the calibration and
+  scan overlays, but not over the Settings panel, whose fields are taking typed
+  input.
 - `Esc` or window close: orderly exit.
 - `SIGINT` or `SIGTERM`: set the stop flag and follow the same orderly shutdown
   path; signal handlers must not call raylib, pthread, or librtlsdr functions.
