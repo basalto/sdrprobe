@@ -3317,6 +3317,26 @@ static void draw_gsm(struct app *app) {
         };
         sdrgui_scan_chart(&params);
 
+
+    } else {
+        /* Waterfall on Top */
+        Rectangle wf = gsm_waterfall_rect();
+        DrawText("ARFCN waterfall", (int)wf.x, (int)wf.y - 18, 16,
+                 (Color){ 151, 174, 188, 255 });
+        draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
+
+        /* Default Channel Power Scan Chart on Bottom */
+        Rectangle sc = gsm_scan_rect();
+        DrawText("Channel Power Scan", (int)sc.x, (int)sc.y - 18, 16, (Color){ 151, 174, 188, 255 });
+        int hover = (!app->scan_running)
+                        ? gsm_scan_arfcn_at(GetMousePosition(), sc)
+                        : 0;
+        struct sdrgui_scan_chart_params params = {
+            sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
+            SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
+            app->scan_selected_arfcn
+        };
+        sdrgui_scan_chart(&params);
         /* Decode constellation on bottom right */
         Rectangle cst = gsm_constellation_rect();
         const struct gsm_sch_symbols *sym_c = &app->gsm_sch_symbols;
@@ -3364,26 +3384,6 @@ static void draw_gsm(struct app *app) {
         sdrgui_constellation(&cparams);
         draw_button(gsm_const_amp_button(), "Amp", app->gsm_const_amplitude);
         draw_button(gsm_const_derot_button(), "Derot", app->gsm_const_derotated);
-
-    } else {
-        /* Waterfall on Top */
-        Rectangle wf = gsm_waterfall_rect();
-        DrawText("ARFCN waterfall", (int)wf.x, (int)wf.y - 18, 16,
-                 (Color){ 151, 174, 188, 255 });
-        draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
-
-        /* Default Channel Power Scan Chart on Bottom */
-        Rectangle sc = gsm_scan_rect();
-        DrawText("Channel Power Scan", (int)sc.x, (int)sc.y - 18, 16, (Color){ 151, 174, 188, 255 });
-        int hover = (!app->scan_running)
-                        ? gsm_scan_arfcn_at(GetMousePosition(), sc)
-                        : 0;
-        struct sdrgui_scan_chart_params params = {
-            sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
-            SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
-            app->scan_selected_arfcn
-        };
-        sdrgui_scan_chart(&params);
     }
 }
 
