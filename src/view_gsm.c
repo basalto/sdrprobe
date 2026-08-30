@@ -75,13 +75,13 @@ void gsm_tune_selected(struct app *app, int arfcn) {
         !gsm_downlink_hz((unsigned int)arfcn, &expected))
         return;
     app->scan_selected_arfcn = arfcn;
-    app->gsm_selected_hz = (double)expected;
-    app->gsm_sch_valid = 0;
-    memset(&app->gsm_continuity, 0, sizeof(app->gsm_continuity));
+    app->gsm.selected_hz = (double)expected;
+    app->gsm.sch_valid = 0;
+    memset(&app->gsm.continuity, 0, sizeof(app->gsm.continuity));
     if (app->receiver_mode) {
-        if (!app->gsm_return_valid) {
-            app->gsm_return_frequency = app->applied_frequency;
-            app->gsm_return_valid = 1;
+        if (!app->gsm.return_valid) {
+            app->gsm.return_frequency = app->applied_frequency;
+            app->gsm.return_valid = 1;
         }
         retune_receiver(app, expected - 400000U, app->applied_ppm);
     }
@@ -99,25 +99,25 @@ static void check_sch_continuity(struct gsm_sch_continuity *c,
 /* Attempt an SCH decode on the inspected channel's latest block. The channel
    carrier sits at +400 kHz (we tuned to expected - 400 kHz). */
 void update_gsm_sch(struct app *app, double now) {
-    if (app->gsm_selected_hz <= 0.0 || app->scan_running ||
+    if (app->gsm.selected_hz <= 0.0 || app->scan_running ||
         app->pair_count == 0)
         return;
-    double offset = app->gsm_selected_hz - (double)app->applied_frequency;
+    double offset = app->gsm.selected_hz - (double)app->applied_frequency;
     struct gsm_sch_result result;
     struct gsm_sch_symbols symbols;
     uint32_t options = 0;
-    if (app->gsm_opt_filter) options |= GSM_OPT_FILTER;
-    if (app->gsm_opt_finecfo) options |= GSM_OPT_FINECFO;
-    if (app->gsm_opt_trellis) options |= GSM_OPT_TRELLIS;
+    if (app->gsm.opt_filter) options |= GSM_OPT_FILTER;
+    if (app->gsm.opt_finecfo) options |= GSM_OPT_FINECFO;
+    if (app->gsm.opt_trellis) options |= GSM_OPT_TRELLIS;
     
     if (gsm_sch_decode(app->i_samples, app->q_samples, app->pair_count,
                        (double)app->applied_sample_rate, offset, options, &result,
                        &symbols)) {
-        app->gsm_sch = result;
-        app->gsm_sch_symbols = symbols;
-        app->gsm_sch_valid = 1;
-        app->gsm_sch_time = now;
-        check_sch_continuity(&app->gsm_continuity, &result);
+        app->gsm.sch = result;
+        app->gsm.sch_symbols = symbols;
+        app->gsm.sch_valid = 1;
+        app->gsm.sch_time = now;
+        check_sch_continuity(&app->gsm.continuity, &result);
     }
 }
 
@@ -182,9 +182,9 @@ void draw_gsm(struct app *app) {
                 rec_active ? "Recording..." : "Record 2s", rec_active);
                 
     DrawText("Features:", 322, 136, 15, (Color){ 151, 174, 188, 255 });
-    draw_button(gsm_opt_button(0), "Filter", app->gsm_opt_filter);
-    draw_button(gsm_opt_button(1), "FnCFO", app->gsm_opt_finecfo);
-    draw_button(gsm_opt_button(2), "Trellis", app->gsm_opt_trellis);
+    draw_button(gsm_opt_button(0), "Filter", app->gsm.opt_filter);
+    draw_button(gsm_opt_button(1), "FnCFO", app->gsm.opt_finecfo);
+    draw_button(gsm_opt_button(2), "Trellis", app->gsm.opt_trellis);
 
     if (!app->receiver_mode)
         snprintf(text, sizeof(text),
@@ -198,7 +198,7 @@ void draw_gsm(struct app *app) {
         if (app->scan_selected_arfcn > 0)
             snprintf(text, sizeof(text),
                      "Selected ARFCN %d (%.3f MHz)   click another channel to inspect it",
-                     app->scan_selected_arfcn, app->gsm_selected_hz / 1000000.0);
+                     app->scan_selected_arfcn, app->gsm.selected_hz / 1000000.0);
         else if (bcch > 0)
             snprintf(text, sizeof(text),
                      "Strongest BCCH ARFCN %d at %.1f dBFS (conf %.2f)   click a channel to inspect it",
@@ -232,13 +232,13 @@ void draw_gsm(struct app *app) {
         Rectangle wf = gsm_burst_rect();
 
         /* SCH decode readout, printed above the bottom chart area. */
-        if (app->gsm_sch_valid) {
-            const struct gsm_sch_result *sch = &app->gsm_sch;
+        if (app->gsm.sch_valid) {
+            const struct gsm_sch_result *sch = &app->gsm.sch;
             snprintf(text, sizeof(text),
                      "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
                      sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
                      sch->t2, sch->t3, (double)sch->confidence,
-                     app->gsm_continuity.implausible ? "  [T1 JUMPED]" : "");
+                     app->gsm.continuity.implausible ? "  [T1 JUMPED]" : "");
             DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42, 18,
                      (Color){ 120, 230, 255, 255 });
         } else if (rec_active) {
@@ -265,9 +265,9 @@ void draw_gsm(struct app *app) {
                 r_corr, NULL, 0, SDRGUI_BURST_LINE, -1.0f, 1.0f, "Timing Correlation Landscape",
                 "waiting for a synchronisation burst..."
             };
-            const struct gsm_sch_symbols *sym = &app->gsm_sch_symbols;
+            const struct gsm_sch_symbols *sym = &app->gsm.sch_symbols;
 
-            if (app->gsm_sch_valid && sym->count > 0) {
+            if (app->gsm.sch_valid && sym->count > 0) {
                 bparams.data = sym->corr;
                 bparams.count = sym->count;
                 sdrgui_burst_chart(&bparams);
@@ -306,7 +306,7 @@ void draw_gsm(struct app *app) {
             DrawText(TextFormat("ARFCN waterfall - inspecting ARFCN %d",
                                 app->scan_selected_arfcn),
                      (int)wf.x, (int)wf.y - 18, 16, (Color){ 151, 174, 188, 255 });
-            draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
+            draw_waterfall_rect(app, 1, wf, app->gsm.selected_hz);
         }
 
 
@@ -330,7 +330,7 @@ void draw_gsm(struct app *app) {
         Rectangle wf = gsm_waterfall_rect();
         DrawText("ARFCN waterfall", (int)wf.x, (int)wf.y - 18, 16,
                  (Color){ 151, 174, 188, 255 });
-        draw_waterfall_rect(app, 1, wf, app->gsm_selected_hz);
+        draw_waterfall_rect(app, 1, wf, app->gsm.selected_hz);
 
         /* Default Channel Power Scan Chart on Bottom */
         Rectangle sc = gsm_scan_rect();
@@ -348,19 +348,19 @@ void draw_gsm(struct app *app) {
 
     /* Decode constellation on bottom right */
     Rectangle cst = gsm_constellation_rect();
-    const struct gsm_sch_symbols *sym_c = &app->gsm_sch_symbols;
-    int n = app->gsm_sch_valid ? sym_c->count : 0;
+    const struct gsm_sch_symbols *sym_c = &app->gsm.sch_symbols;
+    int n = app->gsm.sch_valid ? sym_c->count : 0;
     float cx[GSM_SCH_BURST_BITS];
     float cy[GSM_SCH_BURST_BITS];
     if (n > GSM_SCH_BURST_BITS)
         n = GSM_SCH_BURST_BITS;
     const unsigned char *color_bits =
-        app->gsm_const_derotated ? sym_c->chan : sym_c->bit;
+        app->gsm.const_derotated ? sym_c->chan : sym_c->bit;
     /* Raw display coords per representation. */
     double cmag[GSM_SCH_BURST_BITS];
     for (int i = 0; i < n; i++) {
         float rx, ry;
-        if (app->gsm_const_derotated) {
+        if (app->gsm.const_derotated) {
             rx = sym_c->rot_i[i];
             ry = sym_c->rot_q[i];
         } else {
@@ -387,7 +387,7 @@ void draw_gsm(struct app *app) {
             reference = 1e-9;
     }
     for (int i = 0; i < n; i++) {
-        if (app->gsm_const_amplitude) {
+        if (app->gsm.const_amplitude) {
             cx[i] = (float)(cx[i] / reference);
             cy[i] = (float)(cy[i] / reference);
             /* Genuine outliers stay visible at the rim instead of drawing
@@ -411,8 +411,8 @@ void draw_gsm(struct app *app) {
                                      : "select a channel to inspect"
     };
     sdrgui_constellation(&cparams);
-    draw_button(gsm_const_amp_button(), "Amp", app->gsm_const_amplitude);
-    draw_button(gsm_const_derot_button(), "Derot", app->gsm_const_derotated);
+    draw_button(gsm_const_amp_button(), "Amp", app->gsm.const_amplitude);
+    draw_button(gsm_const_derot_button(), "Derot", app->gsm.const_derotated);
 }
 
 void handle_gsm_input(struct app *app) {
@@ -439,9 +439,9 @@ void handle_gsm_input(struct app *app) {
     }
     for (int i = 0; i < 3; i++) {
         if (clicked(gsm_opt_button(i))) {
-            if (i == 0) app->gsm_opt_filter = !app->gsm_opt_filter;
-            if (i == 1) app->gsm_opt_finecfo = !app->gsm_opt_finecfo;
-            if (i == 2) app->gsm_opt_trellis = !app->gsm_opt_trellis;
+            if (i == 0) app->gsm.opt_filter = !app->gsm.opt_filter;
+            if (i == 1) app->gsm.opt_finecfo = !app->gsm.opt_finecfo;
+            if (i == 2) app->gsm.opt_trellis = !app->gsm.opt_trellis;
             return;
         }
     }
@@ -452,17 +452,17 @@ void handle_gsm_input(struct app *app) {
         }
         if (clicked(gsm_back_to_scan_button())) {
             app->scan_selected_arfcn = 0;
-            app->gsm_selected_hz = 0.0;
+            app->gsm.selected_hz = 0.0;
             return;
         }
     }
 
     if (clicked(gsm_const_amp_button())) {
-        app->gsm_const_amplitude = !app->gsm_const_amplitude;
+        app->gsm.const_amplitude = !app->gsm.const_amplitude;
         return;
     }
     if (clicked(gsm_const_derot_button())) {
-        app->gsm_const_derotated = !app->gsm_const_derotated;
+        app->gsm.const_derotated = !app->gsm.const_derotated;
         return;
     }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -476,3 +476,48 @@ void handle_gsm_input(struct app *app) {
 
 /* --- ADS-B decoder tab --- */
 
+/* The decode options this view starts with: all three refinements on, and the
+   constellation showing amplitude rather than a unit circle. */
+void view_gsm_defaults(struct app *app) {
+    app->gsm.const_amplitude = 1;
+    app->gsm.opt_filter = 1;
+    app->gsm.opt_finecfo = 1;
+    app->gsm.opt_trellis = 1;
+}
+
+/* Enter the GSM decode view: pick the default channel and show it in the
+   waterfall above. Priority: the channel a calibration is using, else the last
+   channel the user selected, else run a band scan and auto-pick the strongest
+   BCCH when it finishes. */
+void enter_gsm(struct app *app) {
+    if (app->receiver_mode && !app->gsm.return_valid) {
+        app->gsm.return_frequency = app->applied_frequency;
+        app->gsm.return_valid = 1;
+    }
+    int arfcn = 0;
+    if (app->gsm_cal_arfcn > 0)
+        arfcn = app->gsm_cal_arfcn;
+    else if (app->scan_selected_arfcn > 0)
+        arfcn = app->scan_selected_arfcn;
+    if (arfcn > 0) {
+        gsm_tune_selected(app, arfcn);
+        app->gsm_analysis_mode = 1; /* Default to Burst mode when inspecting */
+    } else if (app->receiver_mode) {
+        if (start_scan(app) == 0) {
+            app->scan_open = 0;
+            app->gsm_autoselect_pending = 1;
+        }
+    }
+}
+
+/* Leave the GSM decode view: stop any scan and restore the entry tuning. */
+void leave_gsm(struct app *app) {
+    app->scan_running = 0;
+    app->scan_open = 0;
+    app->gsm_autoselect_pending = 0;
+    if (app->receiver_mode && app->gsm.return_valid)
+        retune_receiver(app, app->gsm.return_frequency, app->applied_ppm);
+    app->gsm.return_valid = 0;
+    app->gsm.selected_hz = 0.0;
+    app->gsm.sch_valid = 0;
+}
