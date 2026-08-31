@@ -517,12 +517,15 @@ static float survey_x_for_hz(Rectangle plot, double lower_hz, double upper_hz,
     return plot.x + (float)((hz - lower_hz) / span) * plot.width;
 }
 
+/* Bins are laid out across the swept range, which is not necessarily what is
+   on screen: zooming narrows the window without resampling the array. */
 static double survey_hz_for_bin(const struct sdrgui_survey_params *params,
                                 int bin) {
     if (params->count <= 1)
-        return params->lower_hz;
-    return params->lower_hz + (params->upper_hz - params->lower_hz) *
-                                  ((double)bin + 0.5) / (double)params->count;
+        return params->data_lower_hz;
+    return params->data_lower_hz +
+           (params->data_upper_hz - params->data_lower_hz) *
+               ((double)bin + 0.5) / (double)params->count;
 }
 
 int sdrgui_survey_chart_peak_at(Rectangle outer,
@@ -540,7 +543,10 @@ int sdrgui_survey_chart_peak_at(Rectangle outer,
        an exact hit test would be unusable. */
     for (int i = 0; i < params->peak_count; i++) {
         double hz = survey_hz_for_bin(params, params->peaks[i].index);
-        float x = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, hz);
+        float x;
+        if (hz < params->lower_hz || hz > params->upper_hz)
+            continue;   /* zoomed past it */
+        x = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, hz);
         float distance = fabsf(point.x - x);
         if (distance > 8.0f)
             continue;
@@ -564,7 +570,12 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
     int measured = 0;
     for (int i = 0; i < params->count; i++) {
         float power = params->power_dbfs[i];
+        double hz = survey_hz_for_bin(params, i);
         if (power <= params->sentinel)
+            continue;
+        /* Only what is on screen sets the scale, so zooming into a quiet band
+           beside a loud one does not leave the quiet band flat on the floor. */
+        if (hz < params->lower_hz || hz > params->upper_hz)
             continue;
         if (!measured || power < minimum)
             minimum = power;
@@ -593,14 +604,49 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
     DrawText("dBFS", (int)plot.x, (int)outer.y, 16,
              (Color){ 151, 174, 188, 255 });
 
+    /* The allocations, shaded behind everything: what the spectrum here is
+       set aside for, so a peak can be read against what was expected of the
+       region it sits in. Alternating tints keep neighbours apart without a
+       colour meaning anything. */
+    for (int i = 0; i < params->band_count; i++) {
+        const struct sdrgui_survey_band *band = &params->bands[i];
+        double from = band->lower_hz < params->lower_hz ? params->lower_hz
+                                                        : band->lower_hz;
+        double to = band->upper_hz > params->upper_hz ? params->upper_hz
+                                                      : band->upper_hz;
+        if (to <= from)
+            continue;
+        float x0 = survey_x_for_hz(plot, params->lower_hz, params->upper_hz,
+                                   from);
+        float x1 = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, to);
+        float width = x1 - x0;
+        if (width < 1.0f)
+            width = 1.0f;
+        DrawRectangle((int)x0, (int)plot.y, (int)width, (int)plot.height,
+                      (i % 2) ? (Color){ 90, 130, 170, 26 }
+                              : (Color){ 120, 100, 170, 26 });
+        DrawLine((int)x0, (int)plot.y, (int)x0, (int)(plot.y + plot.height),
+                 (Color){ 130, 160, 190, 60 });
+        /* A name only where there is room for it; the cursor readout carries
+           the rest. */
+        int text_width = MeasureText(band->name, 15);
+        if (width > (float)text_width + 10.0f)
+            DrawText(band->name, (int)x0 + 5, (int)plot.y + 4, 15,
+                     (Color){ 156, 178, 196, 190 });
+    }
+
     /* The trace: one vertical mark per bin, because a survey array is usually
        wider than the panel and a line would hide the narrow signals that are
-       the point of it. */
+       the point of it. Bins outside the window are skipped rather than
+       resampled, so zooming shows the same measurements enlarged. */
     for (int i = 0; i < params->count; i++) {
         float power = params->power_dbfs[i];
         if (power <= params->sentinel)
             continue;
-        float x = plot.x + (float)i * plot.width / (float)params->count;
+        double hz = survey_hz_for_bin(params, i);
+        if (hz < params->lower_hz || hz > params->upper_hz)
+            continue;
+        float x = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, hz);
         float y = sdrgui_plot_y(plot, power, minimum, maximum);
         DrawLine((int)x, (int)(plot.y + plot.height), (int)x, (int)y,
                  (Color){ 70, 120, 180, 200 });
@@ -610,9 +656,12 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
        sweep is still findable. */
     for (int i = 0; i < params->peak_count; i++) {
         double hz = survey_hz_for_bin(params, params->peaks[i].index);
-        float x = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, hz);
-        float y = sdrgui_plot_y(plot, params->peaks[i].power_dbfs, minimum,
-                                maximum);
+        float x;
+        float y;
+        if (hz < params->lower_hz || hz > params->upper_hz)
+            continue;
+        x = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, hz);
+        y = sdrgui_plot_y(plot, params->peaks[i].power_dbfs, minimum, maximum);
         Color color = (Color){ 99, 228, 170, 255 };
         if (i == params->selected)
             color = (Color){ 255, 174, 62, 255 };
@@ -627,10 +676,13 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
 
     /* How far the sweep has got. */
     if (params->sweeping && params->count > 0) {
-        float x = plot.x + (float)params->swept_bins * plot.width /
-                               (float)params->count;
-        DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
-                 (Color){ 250, 190, 74, 200 });
+        double hz = survey_hz_for_bin(params, params->swept_bins);
+        if (hz >= params->lower_hz && hz <= params->upper_hz) {
+            float x = survey_x_for_hz(plot, params->lower_hz, params->upper_hz,
+                                      hz);
+            DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
+                     (Color){ 250, 190, 74, 200 });
+        }
     }
 
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
@@ -657,9 +709,19 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
         DrawText(text, at, (int)(plot.y + plot.height + 8), 16,
                  (Color){ 151, 174, 188, 255 });
     }
-    snprintf(text, sizeof(text),
-             "frequency (MHz)   %d candidates above the local floor",
-             params->peak_count);
+    if (params->lower_hz > params->data_lower_hz + 1.0 ||
+        params->upper_hz < params->data_upper_hz - 1.0)
+        snprintf(text, sizeof(text),
+                 "frequency (MHz)   %d candidates   zoomed to %.3f-%.3f of "
+                 "%.3f-%.3f MHz   +/- zoom, Left/Right pan, 0 reset",
+                 params->peak_count, params->lower_hz / 1e6,
+                 params->upper_hz / 1e6, params->data_lower_hz / 1e6,
+                 params->data_upper_hz / 1e6);
+    else
+        snprintf(text, sizeof(text),
+                 "frequency (MHz)   %d candidates above the local floor"
+                 "   +/- zoom, Left/Right pan",
+                 params->peak_count);
     sdrgui_text_fit(text, (int)plot.x, (int)(plot.y + plot.height + 30), 16,
                     plot.width, (Color){ 187, 205, 216, 255 });
 
@@ -676,12 +738,20 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
     if (sdrgui_plot_cursor(plot, &x_fraction, &y_fraction, &mouse)) {
         double hz = params->lower_hz + span_hz * (double)x_fraction;
         int at = sdrgui_survey_chart_peak_at(outer, params, mouse);
+        const char *band = NULL;
+        for (int i = 0; i < params->band_count; i++)
+            if (hz >= params->bands[i].lower_hz &&
+                hz < params->bands[i].upper_hz)
+                band = params->bands[i].name;
         if (at >= 0)
-            snprintf(text, sizeof(text), "%.4f MHz   %.1f dBFS   click to inspect",
+            snprintf(text, sizeof(text),
+                     "%.4f MHz   %.1f dBFS   %s   click to inspect",
                      survey_hz_for_bin(params, params->peaks[at].index) / 1e6,
-                     (double)params->peaks[at].power_dbfs);
+                     (double)params->peaks[at].power_dbfs,
+                     band ? band : "no allocation listed");
         else
-            snprintf(text, sizeof(text), "%.4f MHz", hz / 1e6);
+            snprintf(text, sizeof(text), "%.4f MHz   %s", hz / 1e6,
+                     band ? band : "no allocation listed");
         sdrgui_cursor_readout(plot, mouse, text);
     }
 }

@@ -58,6 +58,80 @@ static double survey_bin_width_hz(const struct survey_view *s) {
     return (s->upper_hz - s->lower_hz) / (double)s->bins;
 }
 
+/* Clamp the visible window inside the swept range, and no narrower than
+   SURVEY_MIN_SPAN_HZ. */
+static void survey_clamp_view(struct survey_view *s) {
+    double span;
+
+    if (s->upper_hz <= s->lower_hz) {
+        s->view_lower_hz = s->lower_hz;
+        s->view_upper_hz = s->upper_hz;
+        return;
+    }
+    span = s->view_upper_hz - s->view_lower_hz;
+    if (span < SURVEY_MIN_SPAN_HZ)
+        span = SURVEY_MIN_SPAN_HZ;
+    if (span > s->upper_hz - s->lower_hz)
+        span = s->upper_hz - s->lower_hz;
+    if (s->view_lower_hz < s->lower_hz)
+        s->view_lower_hz = s->lower_hz;
+    if (s->view_lower_hz + span > s->upper_hz)
+        s->view_lower_hz = s->upper_hz - span;
+    s->view_upper_hz = s->view_lower_hz + span;
+}
+
+static void survey_reset_view(struct survey_view *s) {
+    s->view_lower_hz = s->lower_hz;
+    s->view_upper_hz = s->upper_hz;
+}
+
+/* Zoom about an anchor: the selected candidate when there is one, so zooming
+   in keeps what you picked in sight, otherwise the middle of the window. */
+static void survey_zoom(struct survey_view *s, double factor) {
+    double span = s->view_upper_hz - s->view_lower_hz;
+    double anchor = s->view_lower_hz + span / 2.0;
+
+    if (span <= 0.0)
+        return;
+    if (s->selected >= 0 && s->selected < s->peak_count) {
+        double hz = survey_bin_hz(s, s->peaks[s->selected].index);
+        if (hz >= s->view_lower_hz && hz <= s->view_upper_hz)
+            anchor = hz;
+    }
+    double fraction = (anchor - s->view_lower_hz) / span;
+    double next = span * factor;
+    if (next < SURVEY_MIN_SPAN_HZ)
+        next = SURVEY_MIN_SPAN_HZ;
+    s->view_lower_hz = anchor - next * fraction;
+    s->view_upper_hz = s->view_lower_hz + next;
+    survey_clamp_view(s);
+}
+
+static void survey_pan(struct survey_view *s, double fraction) {
+    double span = s->view_upper_hz - s->view_lower_hz;
+
+    s->view_lower_hz += span * fraction;
+    s->view_upper_hz += span * fraction;
+    survey_clamp_view(s);
+}
+
+/* The allocations overlapping what is on screen, for the chart to shade. */
+static int survey_visible_bands(struct sdrgui_survey_band *bands, int capacity,
+                                double lower_hz, double upper_hz) {
+    int count = 0;
+
+    for (int i = 0; i < band_plan_entry_count() && count < capacity; i++) {
+        const struct band_plan_entry *entry = band_plan_entry_at(i);
+        if (entry->upper_hz <= lower_hz || entry->lower_hz >= upper_hz)
+            continue;
+        bands[count].lower_hz = entry->lower_hz;
+        bands[count].upper_hz = entry->upper_hz;
+        bands[count].name = entry->name;
+        count++;
+    }
+    return count;
+}
+
 void view_survey_defaults(struct app *app) {
     struct survey_view *s = &app->survey;
 
@@ -161,6 +235,7 @@ static int survey_start(struct app *app) {
         s->bins = 16;
     survey_clear(s);
 
+    survey_reset_view(s);
     s->step_count = (int)ceil(span / step_span);
     if (s->step_count < 1)
         s->step_count = 1;
@@ -242,6 +317,14 @@ static void survey_select(struct app *app, int index) {
     s->measure_first_prominence = 0.0f;
     hz = survey_bin_hz(s, s->peaks[index].index);
     s->measure_expected_hz = hz;
+    /* Stepping the list with Up/Down can land on a candidate the window is
+       zoomed past; follow it rather than selecting something invisible. */
+    if (hz < s->view_lower_hz || hz > s->view_upper_hz) {
+        double span = s->view_upper_hz - s->view_lower_hz;
+        s->view_lower_hz = hz - span / 2.0;
+        s->view_upper_hz = s->view_lower_hz + span;
+        survey_clamp_view(s);
+    }
 
     if (!app->receiver_mode) {
         snprintf(s->status, sizeof(s->status),
@@ -396,6 +479,41 @@ void handle_survey_input(struct app *app) {
         return;
     }
 
+    /* Zoom and pan. The chart can hold 1.7 GHz, where a 200 kHz carrier is a
+       fifth of a pixel; +/- narrow the window and Left/Right walk it, without
+       resampling anything -- the same measurements, drawn larger. */
+    if (IsKeyPressed(KEY_EQUAL) || IsKeyPressedRepeat(KEY_EQUAL) ||
+        IsKeyPressed(KEY_KP_ADD) || IsKeyPressedRepeat(KEY_KP_ADD)) {
+        survey_zoom(s, 1.0 / SURVEY_ZOOM_STEP);
+        return;
+    }
+    if (IsKeyPressed(KEY_MINUS) || IsKeyPressedRepeat(KEY_MINUS) ||
+        IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressedRepeat(KEY_KP_SUBTRACT)) {
+        survey_zoom(s, SURVEY_ZOOM_STEP);
+        return;
+    }
+    if (IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT)) {
+        survey_pan(s, -SURVEY_PAN_FRACTION);
+        return;
+    }
+    if (IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) {
+        survey_pan(s, SURVEY_PAN_FRACTION);
+        return;
+    }
+    if (IsKeyPressed(KEY_ZERO)) {
+        survey_reset_view(s);
+        return;
+    }
+    /* The wheel zooms too, about the same anchor, since a hand already on the
+       mouse to click a candidate should not have to reach for a key. */
+    float wheel = GetMouseWheelMove();
+    if (wheel != 0.0f &&
+        CheckCollisionPointRec(GetMousePosition(), l.chart)) {
+        survey_zoom(s, wheel > 0.0f ? 1.0 / SURVEY_ZOOM_STEP
+                                    : SURVEY_ZOOM_STEP);
+        return;
+    }
+
     /* Up and Down walk the candidate list. The scale keys mean nothing in
        this view, and a list you can step through is how you compare two
        carriers without hunting for them with the pointer. */
@@ -417,7 +535,8 @@ void handle_survey_input(struct app *app) {
     /* Hover and selection, in the chart and in the list. */
     struct sdrgui_survey_params params = {
         l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS, s->lower_hz,
-        s->upper_hz, s->peaks, s->peak_count, s->selected, -1,
+        s->upper_hz, s->view_lower_hz, s->view_upper_hz, NULL, 0,
+        s->peaks, s->peak_count, s->selected, -1,
         s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
                     : s->bins,
         s->sweeping, ""
@@ -652,9 +771,18 @@ void draw_survey(struct app *app) {
             shown_upper = (double)to_hz;
         }
     }
+    /* The window, which is the whole range until it is zoomed. */
+    double window_lower = s->view_upper_hz > s->view_lower_hz
+                              ? s->view_lower_hz : shown_lower;
+    double window_upper = s->view_upper_hz > s->view_lower_hz
+                              ? s->view_upper_hz : shown_upper;
+    struct sdrgui_survey_band bands[SURVEY_MAX_BANDS];
+    int band_count = survey_visible_bands(bands, SURVEY_MAX_BANDS,
+                                          window_lower, window_upper);
     struct sdrgui_survey_params params = {
         l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS, shown_lower,
-        shown_upper, s->peaks, s->peak_count, s->selected, s->hover,
+        shown_upper, window_lower, window_upper, bands, band_count,
+        s->peaks, s->peak_count, s->selected, s->hover,
         s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
                     : s->bins,
         s->sweeping,

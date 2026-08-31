@@ -13,9 +13,10 @@
  * must present the result as a lookup. See
  * docs/adr/0011-band-plan-is-a-lookup.md.
  *
- * The table is ITU Region 1 (Europe). A frequency allocated differently
- * elsewhere is simply absent rather than wrong: band_plan_lookup returns NULL
- * outside anything it knows, which is an honest "no comment".
+ * The table holds Portugal's allocations -- ITU Region 1 as ANACOM applies it,
+ * which is what most of Europe looks like too. A frequency allocated
+ * differently elsewhere is simply absent rather than wrong: band_plan_lookup
+ * returns NULL outside anything it knows, which is an honest "no comment".
  */
 
 /* A decode view that can be pointed at this allocation, for a caller offering

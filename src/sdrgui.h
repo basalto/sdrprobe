@@ -164,13 +164,26 @@ int sdrgui_scan_chart_channel_at(Rectangle outer, int count, Vector2 point);
 
 /* --- Band survey --- */
 
-struct sdrgui_survey_params {
-    Rectangle plot;
-    const float *power_dbfs;  /* `count` bins spanning lower_hz..upper_hz */
-    int count;
-    float sentinel;           /* bins not yet swept; not drawn */
+/* One allocation to shade behind the trace. The component is handed these
+   rather than reading a band plan itself: it draws labelled spans and knows
+   nothing about what allocates them. */
+struct sdrgui_survey_band {
     double lower_hz;
     double upper_hz;
+    const char *name;
+};
+
+struct sdrgui_survey_params {
+    Rectangle plot;
+    const float *power_dbfs;  /* `count` bins spanning data_lower..data_upper */
+    int count;
+    float sentinel;           /* bins not yet swept; not drawn */
+    double data_lower_hz;     /* what the array covers */
+    double data_upper_hz;
+    double lower_hz;          /* what is on screen: the array, or part of it */
+    double upper_hz;
+    const struct sdrgui_survey_band *bands;
+    int band_count;
     const struct sdr_peak *peaks;  /* candidates found, strongest first */
     int peak_count;
     int selected;             /* index into peaks, -1 for none */
