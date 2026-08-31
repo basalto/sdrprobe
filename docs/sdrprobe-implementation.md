@@ -64,6 +64,7 @@ Defaults:
 | `--technology` | from `--view` | What the recording's sidecar calls it |
 | `--duration` | off | Quit after n seconds |
 | `--headless` | off | Acquire with no window |
+| `--survey-range` | none | Open the band survey on `low:high` and sweep it |
 | `--arfcn` | none | Tune a GSM 900 downlink channel |
 | `--gsm-features` | all | SCH refinements: filter, finecfo, trellis, none |
 | `--dc-filter` | `on` | Spectrum/waterfall DC-spike removal |
@@ -392,6 +393,7 @@ a source rectangle with negative height.
 - `2`: spectrum view.
 - `3`: I/Q scatter view.
 - `4`: waterfall view.
+- `5`: band survey: sweep a range, chart it, and measure a chosen candidate.
 - Up/Down: narrow/widen the active view's manual scale. Magnitude changes its
   upper magnitude bound, spectrum changes its lower dBFS bound, scatter
   changes its symmetric full-scale bound, and waterfall changes its lower

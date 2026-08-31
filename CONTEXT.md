@@ -139,8 +139,28 @@ A zero-to-one measure of how tone-like a window of samples is, near one for a pu
 _Avoid_: Correlation, match score
 
 **Channel power scan**:
-A retuning sweep across a band that charts each channel's received power and flags the channels carrying a reference tone, to help choose a calibration channel.
-_Avoid_: Spectrum sweep, survey
+A retuning sweep across a band that charts each channel's received power and flags the channels carrying a reference tone, to help choose a calibration channel. It walks a technology's channel grid; a sweep across an arbitrary frequency range is a band survey, which is a different thing.
+_Avoid_: Spectrum sweep, band survey (that is the wideband one)
+
+**Band survey**:
+A retuning sweep across an operator-chosen frequency range that charts received power and marks where activity stands above the local noise floor, to find what is on the air before anything is known about it.
+_Avoid_: Spectrum analyser, scanner, channel power scan
+
+**Survey step**:
+One retune in that sweep, contributing the usable middle of its sampled span; the outer edges are discarded because the tuner's response rolls off there.
+_Avoid_: Sample block, channel, bin
+
+**Signal candidate**:
+A peak standing far enough above its local floor to be worth looking at, before anything is known about what it carries.
+_Avoid_: Signal, transmitter, detection, station
+
+**Occupied bandwidth**:
+The width of a candidate between the points where it falls a stated number of decibels below its peak, the drop being held clear of the noise floor and reported alongside the width.
+_Avoid_: Channel width, baud, bitrate
+
+**Band plan**:
+A static table mapping frequency ranges to the service allocated there; it says what a frequency is *for*, never what a signal *is*, and a carrier found inside an allocation has not thereby been identified.
+_Avoid_: Identification, classification, detection
 
 **Power centroid**:
 A power-weighted mean frequency across a channel, used as the fallback carrier estimate when no reference tone is present.
