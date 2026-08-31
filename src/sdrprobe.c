@@ -54,6 +54,21 @@ static void print_supported_gains(const int *gains, int count) {
     fputc('\n', stderr);
 }
 
+/* The tuner chip, not the USB bridge: it sets the achievable gains and the
+   oscillator whose error the PPM correction compensates, so a capture is worth
+   labelling with it, and --list-devices is worth printing it. */
+static const char *tuner_name(rtlsdr_dev_t *dev) {
+    switch (rtlsdr_get_tuner_type(dev)) {
+    case RTLSDR_TUNER_E4000:  return "E4000";
+    case RTLSDR_TUNER_FC0012: return "FC0012";
+    case RTLSDR_TUNER_FC0013: return "FC0013";
+    case RTLSDR_TUNER_FC2580: return "FC2580";
+    case RTLSDR_TUNER_R820T:  return "R820T";
+    case RTLSDR_TUNER_R828D:  return "R828D";
+    default: return "unknown";
+    }
+}
+
 static int configure_receiver(struct app *app) {
     int *gains = NULL;
     int gain_count = 0;
@@ -66,8 +81,10 @@ static int configure_receiver(struct app *app) {
         fprintf(stderr, "No supported RTLSDR devices found.\n");
         return -1;
     }
-    if (rtlsdr_open(&app->dev, 0) < 0) {
-        fprintf(stderr, "Failed to open RTL-SDR receiver index 0.\n");
+    if (rtlsdr_open(&app->dev, (uint32_t)app->options.device_index) < 0) {
+        fprintf(stderr, "Failed to open RTL-SDR receiver index %d. "
+                        "Try --list-devices.\n",
+                app->options.device_index);
         return -1;
     }
 
@@ -193,20 +210,8 @@ static int configure_receiver(struct app *app) {
     const char *device_name = rtlsdr_get_device_name(0);
     snprintf(app->source_label, sizeof(app->source_label), "RTL-SDR: %s",
              device_name ? device_name : "receiver 0");
-    /* The tuner chip, not the USB bridge: it sets the achievable gains and the
-       oscillator whose error the PPM correction compensates, so a capture is
-       worth labelling with it. */
-    const char *tuner = "unknown";
-    switch (rtlsdr_get_tuner_type(app->dev)) {
-    case RTLSDR_TUNER_E4000:  tuner = "E4000"; break;
-    case RTLSDR_TUNER_FC0012: tuner = "FC0012"; break;
-    case RTLSDR_TUNER_FC0013: tuner = "FC0013"; break;
-    case RTLSDR_TUNER_FC2580: tuner = "FC2580"; break;
-    case RTLSDR_TUNER_R820T:  tuner = "R820T"; break;
-    case RTLSDR_TUNER_R828D:  tuner = "R828D"; break;
-    default: break;
-    }
-    snprintf(app->tuner_label, sizeof(app->tuner_label), "%s", tuner);
+    snprintf(app->tuner_label, sizeof(app->tuner_label), "%s",
+             tuner_name(app->dev));
     result = 0;
 
 done:
@@ -436,7 +441,8 @@ int start_acquisition(struct app *app) {
         return -1;
     }
     acquisition_attach_source(&app->acq, app->dev, app->capture,
-                              app->applied_sample_rate, app->options.file_path);
+                              app->applied_sample_rate, app->options.file_path,
+                              !app->options.play_once);
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
         app->receiver_mode ? receiver_worker : file_worker, &app->acq);
@@ -686,6 +692,39 @@ static void draw_option_row(int active, const char **labels, int count,
    (top-left), the current tab's numbered options (below it), and the buttons
    (tabs, Settings, Calibration, health) on the right. The mode display renders
    below it. */
+/* Start a timestamped 2 s capture in captures/, with a sidecar describing the
+   tuning it was taken at. The tuning goes to acquisition only so it can be
+   written into that sidecar; the write itself happens on the acquisition
+   thread, upstream of the display's lossy block slot, so a capture never
+   inherits the frames the renderer dropped. Files are timestamped, so
+   re-recording never overwrites one. */
+int start_capture_record(struct app *app, const char *basename,
+                         const char *technology, int arfcn,
+                         double carrier_offset_hz, double seconds) {
+    mkdir("captures", 0755); /* ignore EEXIST */
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    char stamp[32];
+    strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+    char path[256];
+    snprintf(path, sizeof(path), "captures/%s_%s.bin", basename, stamp);
+
+    struct acquisition_record_request req = {
+        app->applied_frequency, app->applied_sample_rate,
+        app->applied_gain_tenths, app->applied_manual_gain, app->applied_ppm,
+        arfcn, carrier_offset_hz, technology,
+        app->source_label, app->tuner_label, seconds
+    };
+    if (acquisition_start_recording(&app->acq, path, &req) < 0) {
+        fprintf(stderr, "Cannot start recording to %s: %s\n", path,
+                strerror(errno));
+        return -1;
+    }
+    fprintf(stderr, "Recording %.1f s to %s\n", seconds, path);
+    return 0;
+}
+
 static void draw_header(const struct app *app) {
     static const char *scope_opts[4] = {
         "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall"
@@ -722,6 +761,32 @@ static int handle_tab_input(struct app *app) {
 /* --- GSM analysis view (band survey: channel scan + ARFCN waterfall) --- */
 
 
+/* What a scripted recording is labelled. The frequency is in the sidecar
+   either way; the technology is the operator's intent, so it comes from
+   --view rather than from a guess about what lives at this frequency. */
+static void cli_record_labels(const struct options *options,
+                              const char **basename,
+                              const char **technology) {
+    if (options->arfcn) {
+        static char named[32];
+        snprintf(named, sizeof(named), "gsm_arfcn%d", options->arfcn);
+        *basename = named;
+        *technology = "gsm";
+    } else if (options->technology) {
+        *basename = options->technology;
+        *technology = options->technology;
+    } else if (options->view == START_VIEW_GSM) {
+        *basename = "gsm";
+        *technology = "gsm";
+    } else if (options->view == START_VIEW_ADSB) {
+        *basename = "adsb";
+        *technology = "adsb";
+    } else {
+        *basename = "raw";
+        *technology = "raw";
+    }
+}
+
 static int run_gui(struct app *app) {
     struct slot_snapshot snapshot;
     int result = 0;
@@ -745,6 +810,16 @@ static int run_gui(struct app *app) {
 
     sdr_dsp_init(&app->dsp);
     app->view = VIEW_MAGNITUDE;
+    switch (app->options.view) {
+    case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM; break;
+    case START_VIEW_SCATTER:   app->view = VIEW_SCATTER; break;
+    case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL; break;
+    case START_VIEW_GSM:       set_tab(app, TAB_DECODE);
+                               set_decode(app, DECODE_GSM); break;
+    case START_VIEW_ADSB:      set_tab(app, TAB_DECODE);
+                               set_decode(app, DECODE_ADSB); break;
+    default: break;
+    }
 
     sigset_t worker_signals;
     sigset_t original_mask;
@@ -759,7 +834,8 @@ static int run_gui(struct app *app) {
         return -1;
     }
     acquisition_attach_source(&app->acq, app->dev, app->capture,
-                              app->applied_sample_rate, app->options.file_path);
+                              app->applied_sample_rate, app->options.file_path,
+                              !app->options.play_once);
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
         app->receiver_mode ? receiver_worker : file_worker, &app->acq);
@@ -777,8 +853,23 @@ static int run_gui(struct app *app) {
                 strerror(thread_result));
         return -1;
     }
+    /* A recording asked for on the command line starts as soon as the worker
+       is up, exactly as the button's does. */
+    if (app->options.record_seconds > 0.0) {
+        const char *basename;
+        const char *technology;
+        cli_record_labels(&app->options, &basename, &technology);
+        start_capture_record(app, basename, technology, app->options.arfcn,
+                             app->options.arfcn ? 400000.0 : 0.0,
+                             app->options.record_seconds);
+    }
+    double run_started = GetTime();
+
     while (!signal_stop_requested) {
         if (WindowShouldClose())
+            break;
+        if (app->options.duration_seconds > 0.0 &&
+            GetTime() - run_started >= app->options.duration_seconds)
             break;
 
         /* Quit is checked before the precedence chain, so it means the same
@@ -916,6 +1007,166 @@ static int run_gui(struct app *app) {
     return result;
 }
 
+/* Print the receivers attached, and whether each can actually be opened. The
+   second half is the useful half: "found but busy" is the state that otherwise
+   shows up as a bare failure to start. */
+static int list_devices(void) {
+    uint32_t count = rtlsdr_get_device_count();
+
+    if (count == 0) {
+        printf("No RTL-SDR devices found.\n");
+        return 0;
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        const char *name = rtlsdr_get_device_name(i);
+        rtlsdr_dev_t *dev = NULL;
+        printf("%u: %s\n", i, name ? name : "unknown");
+        if (rtlsdr_open(&dev, i) < 0) {
+            printf("   in use by another process, or not accessible\n");
+            continue;
+        }
+        int gain_count = rtlsdr_get_tuner_gains(dev, NULL);
+        int gains[64];
+        if (gain_count > 0 && gain_count <= (int)(sizeof(gains) / sizeof(*gains)) &&
+            rtlsdr_get_tuner_gains(dev, gains) == gain_count)
+            printf("   tuner %s   gains %.1f..%.1f dB (%d steps)\n",
+                   tuner_name(dev), gains[0] / 10.0,
+                   gains[gain_count - 1] / 10.0, gain_count);
+        else
+            printf("   tuner %s\n", tuner_name(dev));
+        rtlsdr_close(dev);
+    }
+    return 0;
+}
+
+static double monotonic_seconds(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+}
+
+/* Print what one block's worth of decoding produced. The views keep the same
+   results on screen; this is the same data as lines, so a capture can be
+   checked from a script without a display or a person. */
+static void print_new_decodes(struct app *app, double now, int gsm)
+{
+    if (gsm) {
+        int had = app->gsm.sch_valid;
+        double before = app->gsm.sch_time;
+        update_gsm_sch(app, now);
+        if (!app->gsm.sch_valid || (had && app->gsm.sch_time == before))
+            return;
+        const struct gsm_sch_result *sch = &app->gsm.sch;
+        printf("SCH  BSIC %d (NCC %d, BCC %d)  frame %d (T1/T2/T3 %d/%d/%d)"
+               "  match %.2f%s\n",
+               sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
+               sch->t2, sch->t3, (double)sch->confidence,
+               app->gsm.continuity.implausible ? "  [T1 JUMPED]" : "");
+    } else {
+        int before = app->adsb.log_count;
+        uint64_t frames = app->adsb.frames_total;
+        update_adsb(app, now);
+        int added = (int)(app->adsb.frames_total - frames);
+        if (added <= 0)
+            return;
+        (void)before;
+        /* The log is newest-first, so walk the new rows back to front to
+           print them in the order they arrived. */
+        for (int i = added - 1; i >= 0; i--) {
+            const struct adsb_log_entry *e = &app->adsb.log[i];
+            printf("%s  %s  %-3s  %-42s  %s\n", e->stamp, e->icao, e->label,
+                   e->detail, e->raw);
+        }
+    }
+    fflush(stdout);
+}
+
+/* Acquire with no window: start the worker, optionally record, and stop when
+   the recording finishes, the duration elapses, or a signal arrives. Nothing
+   here touches raylib, and nothing needs the frame loop -- recording tees off
+   inside the acquisition thread, upstream of the display's block slot. */
+static int run_headless(struct app *app) {
+    const char *basename;
+    const char *technology;
+    int recording_started = 0;
+    int result = 0;
+    double started;
+
+    if (start_acquisition(app) < 0) {
+        fprintf(stderr, "Cannot start acquisition: %s\n",
+                app->settings_error[0] ? app->settings_error : "unknown");
+        return -1;
+    }
+    started = monotonic_seconds();
+    if (app->options.record_seconds > 0.0) {
+        cli_record_labels(&app->options, &basename, &technology);
+        if (start_capture_record(app, basename, technology,
+                                 app->options.arfcn,
+                                 app->options.arfcn ? 400000.0 : 0.0,
+                                 app->options.record_seconds) < 0) {
+            stop_acquisition(app);
+            return -1;
+        }
+        recording_started = 1;
+    } else if (app->options.duration_seconds <= 0.0 &&
+               !app->options.play_once) {
+        fprintf(stderr, "Acquiring headless; Ctrl-C to stop.\n");
+    }
+
+    int decode_gsm = app->options.technology &&
+                     strcmp(app->options.technology, "gsm") == 0;
+    if (app->options.decode)
+        sdr_dsp_init(&app->dsp);
+
+    while (!signal_stop_requested) {
+        struct timespec tick = { 0, 100 * 1000000L };
+        struct slot_snapshot snapshot;
+        uint64_t bytes = 0;
+        char path[ACQUISITION_PATH_MAX];
+        int recording = acquisition_recording_status(&app->acq, &bytes, path,
+                                                     sizeof(path));
+
+        int have_new = consume_latest(&app->acq, &snapshot);
+        if (have_new && app->options.decode) {
+            double now = monotonic_seconds() - started;
+            /* The spectrum is not needed to decode -- process_block's return
+               only says whether it updated -- but the magnitudes and centred
+               I/Q it fills in are. */
+            process_block(app, now);
+            if (app->pair_count > 0)
+                print_new_decodes(app, now, decode_gsm);
+        }
+        if (snapshot.worker_failed) {
+            fprintf(stderr, "Acquisition failed: %s\n", snapshot.worker_error);
+            result = -1;
+            break;
+        }
+        if (snapshot.worker_done && !recording) {
+            if (app->options.decode)
+                fprintf(stderr, "End of capture.\n");
+            break;
+        }
+        if (recording_started && !recording) {
+            printf("%s\n", path);
+            break;
+        }
+        if (app->options.duration_seconds > 0.0 &&
+            monotonic_seconds() - started >= app->options.duration_seconds)
+            break;
+        /* Only idle when there was nothing to do: a capture being decoded
+           delivers blocks as fast as the pacer allows, and sleeping through
+           them would drop the ones the slot overwrites. */
+        if (!have_new)
+            nanosleep(&tick, NULL);
+    }
+    if (recording_started && signal_stop_requested)
+        fprintf(stderr, "Stopped early; the capture is short but its sidecar "
+                        "records what was written.\n");
+    if (stop_acquisition(app) < 0)
+        result = -1;
+    return result;
+}
+
 int main(int argc, char **argv) {
     struct app *app;
     int result = 1;
@@ -926,6 +1177,20 @@ int main(int argc, char **argv) {
         usage(argv[0]);
         return 1;
     }
+    if (options.list_devices)
+        return list_devices();
+    /* An ARFCN names a channel; the receiver is tuned 400 kHz below it so the
+       carrier sits inside the span rather than on its DC spike, which is what
+       the GSM view does when a channel is clicked. */
+    if (options.arfcn) {
+        uint32_t channel_hz;
+        if (!gsm_downlink_hz((unsigned int)options.arfcn, &channel_hz)) {
+            fprintf(stderr, "ARFCN %d is not a GSM 900 downlink channel.\n",
+                    options.arfcn);
+            return 1;
+        }
+        options.frequency = channel_hz - 400000U;
+    }
 
     app = calloc(1, sizeof(*app));
     if (!app) {
@@ -934,9 +1199,19 @@ int main(int argc, char **argv) {
     }
     app->options = options;
     app->receiver_mode = options.file_path == NULL;
-    app->remove_dc = 1;
+    app->remove_dc = options.remove_dc;
     view_gsm_defaults(app);
     view_scope_defaults(app);
+    if (options.gsm_features_seen) {
+        app->gsm.opt_filter = (options.gsm_features & GSM_OPT_FILTER) != 0;
+        app->gsm.opt_finecfo = (options.gsm_features & GSM_OPT_FINECFO) != 0;
+        app->gsm.opt_trellis = (options.gsm_features & GSM_OPT_TRELLIS) != 0;
+    }
+    if (options.arfcn) {
+        /* Both the GSM view and a recording's sidecar read this. */
+        app->scan_selected_arfcn = options.arfcn;
+        app->gsm.selected_hz = (double)options.frequency + 400000.0;
+    }
 
     /* Before any path that can reach cleanup, which touches this. */
     int record_mutex_result = acquisition_init(&app->acq);
@@ -965,6 +1240,10 @@ int main(int argc, char **argv) {
     if (install_signal_handlers(app) < 0)
         goto cleanup;
 
+    if (options.headless) {
+        result = run_headless(app) == 0 ? 0 : 1;
+        goto cleanup;
+    }
     gui_result = run_gui(app);
     result = gui_result == 0 ? 0 : 1;
 

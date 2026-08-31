@@ -275,7 +275,12 @@ void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params) {
 }
 
 void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
-    Rectangle plot = params->plot;
+    /* The caption goes above the frame, in a strip reserved inside the
+       rectangle, which is what every chart here does. It used to sit inside
+       the box, so a log packed beside a chart looked shorter than its
+       neighbour by exactly the strip the neighbour reserved. */
+    Rectangle outer = params->plot;
+    Rectangle plot = sdrgui_chart_area(outer, 0.0f, 25.0f);
     DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
 
@@ -299,11 +304,10 @@ void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
     int show_raw = x_raw + raw_minimum <= right;
     int detail_width = (show_raw ? x_raw - 12 : right) - x_detail;
 
-    if (params->caption && params->caption[0]) {
-        sdrgui_text_fit(params->caption, x_time, y, 16,
-                        (float)(right - x_time), (Color){ 151, 174, 188, 255 });
-        y += 24;
-    }
+    if (params->caption && params->caption[0])
+        sdrgui_text_fit(params->caption, (int)plot.x, (int)outer.y, 16,
+                        (float)(right - (int)plot.x),
+                        (Color){ 151, 174, 188, 255 });
 
     /* Column header. */
     DrawText("TIME", x_time, y, 16, (Color){ 126, 151, 166, 255 });

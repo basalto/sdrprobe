@@ -185,48 +185,52 @@ static void check_chrome(void) {
    square scatter. The 1000x540 case is the app's minimum window: the GSM
    layout's comment records that a panel that small pushes its own button out
    of itself, so hold_button is pinned there too. */
-#define ADSB_RECTS 9
+#define ADSB_RECTS 10
 
 struct adsb_case {
     float width, height;
     struct expected rect[ADSB_RECTS];
+    float header_left;
     float header_right;
 };
 
 static const struct adsb_case adsb_cases[] = {
     { 1100.0f, 720.0f, {
+        { "record_button", 810.00f, 100.00f, 130.00f, 26.00f },
         { "retune_button", 470.00f, 82.00f, 220.00f, 30.00f },
         { "view_toggle", 950.00f, 100.00f, 130.00f, 26.00f },
-        { "hold_button", 954.00f, 396.80f, 112.00f, 22.00f },
-        { "chart[0]", 82.00f, 150.00f, 320.00f, 226.80f },
-        { "chart[1]", 416.00f, 150.00f, 320.00f, 226.80f },
-        { "chart[2]", 750.00f, 150.00f, 320.00f, 226.80f },
-        { "log_full", 82.00f, 124.00f, 988.00f, 566.00f },
-        { "log_split", 82.00f, 392.80f, 666.80f, 297.20f },
-        { "scatter", 772.80f, 392.80f, 297.20f, 297.20f },
-    }, 938.00f },
+        { "hold_button", 954.00f, 400.28f, 112.00f, 22.00f },
+        { "chart[0]", 82.00f, 156.00f, 320.00f, 224.28f },
+        { "chart[1]", 416.00f, 156.00f, 320.00f, 224.28f },
+        { "chart[2]", 750.00f, 156.00f, 320.00f, 224.28f },
+        { "log_full", 82.00f, 138.00f, 988.00f, 552.00f },
+        { "log_split", 82.00f, 396.28f, 670.28f, 293.72f },
+        { "scatter", 776.28f, 396.28f, 293.72f, 293.72f },
+    }, 22.00f, 798.00f },
     { 1280.0f, 800.0f, {
+        { "record_button", 990.00f, 100.00f, 130.00f, 26.00f },
         { "retune_button", 470.00f, 82.00f, 220.00f, 30.00f },
         { "view_toggle", 1130.00f, 100.00f, 130.00f, 26.00f },
-        { "hold_button", 1134.00f, 430.40f, 112.00f, 22.00f },
-        { "chart[0]", 82.00f, 150.00f, 380.00f, 260.40f },
-        { "chart[1]", 476.00f, 150.00f, 380.00f, 260.40f },
-        { "chart[2]", 870.00f, 150.00f, 380.00f, 260.40f },
-        { "log_full", 82.00f, 124.00f, 1168.00f, 646.00f },
-        { "log_split", 82.00f, 426.40f, 800.40f, 343.60f },
-        { "scatter", 906.40f, 426.40f, 343.60f, 343.60f },
-    }, 1118.00f },
+        { "hold_button", 1134.00f, 433.88f, 112.00f, 22.00f },
+        { "chart[0]", 82.00f, 156.00f, 380.00f, 257.88f },
+        { "chart[1]", 476.00f, 156.00f, 380.00f, 257.88f },
+        { "chart[2]", 870.00f, 156.00f, 380.00f, 257.88f },
+        { "log_full", 82.00f, 138.00f, 1168.00f, 632.00f },
+        { "log_split", 82.00f, 429.88f, 803.88f, 340.12f },
+        { "scatter", 909.88f, 429.88f, 340.12f, 340.12f },
+    }, 22.00f, 978.00f },
     { 1000.0f, 540.0f, {
+        { "record_button", 710.00f, 100.00f, 130.00f, 26.00f },
         { "retune_button", 470.00f, 82.00f, 220.00f, 30.00f },
         { "view_toggle", 850.00f, 100.00f, 130.00f, 26.00f },
-        { "hold_button", 854.00f, 321.20f, 112.00f, 22.00f },
-        { "chart[0]", 82.00f, 150.00f, 286.67f, 151.20f },
-        { "chart[1]", 382.67f, 150.00f, 286.67f, 151.20f },
-        { "chart[2]", 683.33f, 150.00f, 286.67f, 151.20f },
-        { "log_full", 82.00f, 124.00f, 888.00f, 386.00f },
-        { "log_split", 82.00f, 317.20f, 671.20f, 192.80f },
-        { "scatter", 777.20f, 317.20f, 192.80f, 192.80f },
-    }, 838.00f },
+        { "hold_button", 854.00f, 324.68f, 112.00f, 22.00f },
+        { "chart[0]", 82.00f, 156.00f, 286.67f, 148.68f },
+        { "chart[1]", 382.67f, 156.00f, 286.67f, 148.68f },
+        { "chart[2]", 683.33f, 156.00f, 286.67f, 148.68f },
+        { "log_full", 82.00f, 138.00f, 888.00f, 372.00f },
+        { "log_split", 82.00f, 320.68f, 674.68f, 189.32f },
+        { "scatter", 780.68f, 320.68f, 189.32f, 189.32f },
+    }, 22.00f, 698.00f },
 };
 
 static void check_adsb(void) {
@@ -234,11 +238,39 @@ static void check_adsb(void) {
         const struct adsb_case *w = &adsb_cases[c];
         struct adsb_layout l = adsb_layout_for(w->width, w->height);
         Rectangle got[ADSB_RECTS] = {
-            l.retune_button, l.view_toggle, l.hold_button, l.chart[0],
-            l.chart[1], l.chart[2], l.log_full, l.log_split, l.scatter
+            l.record_button, l.retune_button, l.view_toggle, l.hold_button,
+            l.chart[0], l.chart[1], l.chart[2], l.log_full, l.log_split,
+            l.scatter
         };
         for (int i = 0; i < ADSB_RECTS; i++)
             check(w->width, w->height, w->rect[i].name, got[i], &w->rect[i]);
+        if (fabsf(l.header_left - w->header_left) > 0.01f) {
+            fprintf(stderr, "%.0fx%.0f header_left: got %.2f, expected %.2f\n",
+                    w->width, w->height, l.header_left, w->header_left);
+            failures++;
+        }
+        /* The header text has to stop before the buttons on its rows, which
+           is the property header_right exists for. */
+        if (l.header_right > l.record_button.x) {
+            fprintf(stderr, "%.0fx%.0f header text runs under record_button\n",
+                    w->width, w->height);
+            failures++;
+        }
+        if (l.record_button.x + l.record_button.width > l.view_toggle.x) {
+            fprintf(stderr, "%.0fx%.0f record_button runs into view_toggle\n",
+                    w->width, w->height);
+            failures++;
+        }
+        /* Both lower panels start on the same row and end on the same one, so
+           the log and the scatter read as a pair rather than as two panels
+           that happen to be adjacent. */
+        if (fabsf(l.log_split.y - l.scatter.y) > 0.01f ||
+            fabsf((l.log_split.y + l.log_split.height) -
+                  (l.scatter.y + l.scatter.height)) > 0.01f) {
+            fprintf(stderr, "%.0fx%.0f log_split and scatter are not aligned\n",
+                    w->width, w->height);
+            failures++;
+        }
         if (fabsf(l.header_right - w->header_right) > 0.01f) {
             fprintf(stderr, "%.0fx%.0f header_right: got %.2f, expected %.2f\n",
                     w->width, w->height, l.header_right, w->header_right);
