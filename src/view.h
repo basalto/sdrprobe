@@ -19,6 +19,7 @@ int clicked(Rectangle rectangle);
 void draw_button(Rectangle rectangle, const char *label, int primary);
 int retune_receiver(struct app *app, uint32_t frequency, int ppm);
 void set_tab(struct app *app, int new_tab);
+void set_decode(struct app *app, int kind);
 void adjust_waterfall_scale(struct app *app, int zoom_in);
 int scan_strongest_arfcn(const struct app *app);
 int scan_strongest_bcch(const struct app *app);
@@ -76,6 +77,18 @@ void recompute_magnitude_bins(struct app *app);
 void decay_spectrum_peak(struct app *app, double now);
 void adjust_active_scale(struct app *app, int zoom_in);
 
+
+/* Band survey (Scope view 5): sweep a range, find what stands above the local
+   floor, and measure whichever candidate is selected. */
+void view_survey_defaults(struct app *app);
+void view_survey_enter(struct app *app);
+void view_survey_leave(struct app *app);
+void update_survey(struct app *app, double now);
+void handle_survey_input(struct app *app);
+void draw_survey(struct app *app);
+/* True while a range field is taking typed input, so the frame loop leaves the
+   number keys and Esc to the field rather than switching views or quitting. */
+int survey_editing(const struct app *app);
 
 /* Help overlay: what each chart plots and how to read it. Orthogonal to the
    tabs like calibration is, reachable with `h` from every view. */

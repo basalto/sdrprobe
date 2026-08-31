@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include "acquisition.h"
+#include "band_plan.h"
 #include "adsb_dsp.h"
 #include "gsm_dsp.h"
 #include "options.h"
@@ -93,7 +94,8 @@ enum view_kind {
     VIEW_MAGNITUDE,
     VIEW_SPECTRUM,
     VIEW_SCATTER,
-    VIEW_WATERFALL
+    VIEW_WATERFALL,
+    VIEW_SURVEY
 };
 /* Top-level tabs. TAB_SCOPE must be 0 (zero-initialised default). See
    docs/adr/0008-top-level-tab-navigation.md. */
@@ -260,8 +262,70 @@ struct help_overlay {
     float content_height;
 };
 
+/*
+ * The band survey's own state: the range being swept, the power found across
+ * it, the candidates standing above the local floor, and the measurement of
+ * whichever one is selected.
+ *
+ * SURVEY_BINS caps the array; a narrow range gets finer bins than a wide one,
+ * because the alternative is either an unusable resolution across 1.7 GHz or
+ * an array nobody can draw. The resolution actually in use is reported on
+ * screen rather than left to be inferred.
+ */
+#define SURVEY_BINS 8192
+#define SURVEY_MAX_PEAKS 64
+#define SURVEY_MIN_BIN_HZ 50000.0
+#define SURVEY_SETTLE_SECONDS 0.10
+#define SURVEY_USABLE_SPAN 0.8      /* of each step, discarding the roll-off */
+#define SURVEY_MEASURE_SECONDS 2.0
+#define SURVEY_MIN_PROMINENCE_DB 8.0f
+#define SURVEY_BANDWIDTH_DB 20.0f
+#define SURVEY_SENTINEL_DBFS (-300.0f)
+#define SURVEY_OFFSET_HZ 300000.0   /* keep a candidate off the DC spike */
+
+struct survey_view {
+    char from[24];
+    int from_length;
+    char to[24];
+    int to_length;
+    int focus;                  /* 0 = from, 1 = to */
+
+    double lower_hz;            /* the range actually swept */
+    double upper_hz;
+    int bins;                   /* of SURVEY_BINS, in use for this range */
+    float power[SURVEY_BINS];
+
+    int sweeping;
+    int step;
+    int step_count;
+    double step_started_at;
+    int step_folded;            /* a block has been folded into this step */
+    uint32_t return_frequency;  /* tuning to restore when the view is left */
+    int return_valid;
+
+    struct sdr_peak peaks[SURVEY_MAX_PEAKS];
+    int peak_count;
+    int selected;               /* index into peaks, -1 for none */
+    int hover;
+
+    /* Measuring the selected candidate, once retuned to it. */
+    int measuring;
+    double measure_started_at;
+    double measure_expected_hz;
+    int measure_blocks;
+    int measure_hits;           /* blocks the candidate was actually up in */
+    double measure_centre_sum;
+    double measure_centre_square_sum;
+    float measure_first_prominence;
+    struct sdr_carrier_report report;
+    int report_valid;
+
+    char status[200];
+};
+
 struct app {
     struct scope_view sv;
+    struct survey_view survey;
     struct gsm_view gsm;
     struct adsb_view adsb;
     struct settings_panel set;

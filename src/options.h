@@ -31,6 +31,7 @@ enum start_view {
     START_VIEW_SPECTRUM,
     START_VIEW_SCATTER,
     START_VIEW_WATERFALL,
+    START_VIEW_SURVEY,
     START_VIEW_GSM,
     START_VIEW_ADSB
 };
@@ -72,6 +73,11 @@ struct options {
     int gsm_features;         /* GSM_OPT_* bitmask for the SCH decoder */
     int gsm_features_seen;
     int remove_dc;            /* the DC-spike filter, on unless told otherwise */
+    /* Band survey: the range to load into the view, and whether to start
+       sweeping it without waiting to be asked. */
+    uint32_t survey_from_hz;
+    uint32_t survey_to_hz;
+    int survey_seen;
 };
 
 /* An upper bound on the two time flags. Not a limit anyone should meet: it

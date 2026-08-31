@@ -5,6 +5,8 @@
 
 #include <raylib.h>
 
+#include "sdr_dsp.h"
+
 /*
  * SDR visual components: reusable pieces of the display that render one kind of
  * signal information from plain data and geometry, without knowing the
@@ -159,6 +161,37 @@ void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params);
    outer rectangle instead, and so hovered and clicked a channel one or two to
    the right of the bar under the pointer. */
 int sdrgui_scan_chart_channel_at(Rectangle outer, int count, Vector2 point);
+
+/* --- Band survey --- */
+
+struct sdrgui_survey_params {
+    Rectangle plot;
+    const float *power_dbfs;  /* `count` bins spanning lower_hz..upper_hz */
+    int count;
+    float sentinel;           /* bins not yet swept; not drawn */
+    double lower_hz;
+    double upper_hz;
+    const struct sdr_peak *peaks;  /* candidates found, strongest first */
+    int peak_count;
+    int selected;             /* index into peaks, -1 for none */
+    int hover;                /* likewise */
+    int swept_bins;           /* progress: bins measured so far */
+    int sweeping;
+    const char *empty_notice;
+};
+
+/* Power against absolute frequency across a swept range, with candidates
+   ticked above the trace. The tick matters: at 1.7 GHz across a 1000 px panel
+   a 200 kHz signal is a fifth of a pixel wide, and a mark that scales with the
+   signal would be invisible exactly when the survey is most useful. */
+void sdrgui_survey_chart(const struct sdrgui_survey_params *params);
+
+/* The candidate under `point`, or -1 when the cursor is elsewhere. Ships with
+   the chart for the reason sdrgui_scan_chart_channel_at() exists: the plot
+   sits inside the rectangle by a gutter only the component knows. */
+int sdrgui_survey_chart_peak_at(Rectangle outer,
+                                const struct sdrgui_survey_params *params,
+                                Vector2 point);
 
 /* --- Decoded-message log --- */
 

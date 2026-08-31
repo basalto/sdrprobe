@@ -489,3 +489,197 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
         sdrgui_cursor_readout(plot, mouse, text);
     }
 }
+
+/* --- Band survey --- */
+
+/* Where the trace goes inside the rectangle the chart was handed: one
+   derivation for the drawing and the hit test both, so they cannot disagree
+   about where a candidate is. */
+static Rectangle survey_chart_area(Rectangle outer) {
+    Rectangle plot = sdrgui_chart_area(outer,
+                                       (float)(MeasureText("-100", 16) + 10.0f),
+                                       25.0f);
+    /* This chart carries two rows under the trace -- the frequency labels and
+       the caption counting the candidates -- so it reserves them here rather
+       than drawing them past its own rectangle and onto the panel below,
+       which is what it did first. */
+    plot.height -= 40.0f;
+    if (plot.height < 40.0f)
+        plot.height = 40.0f;
+    return plot;
+}
+
+static float survey_x_for_hz(Rectangle plot, double lower_hz, double upper_hz,
+                             double hz) {
+    double span = upper_hz - lower_hz;
+    if (span <= 0.0)
+        return plot.x;
+    return plot.x + (float)((hz - lower_hz) / span) * plot.width;
+}
+
+static double survey_hz_for_bin(const struct sdrgui_survey_params *params,
+                                int bin) {
+    if (params->count <= 1)
+        return params->lower_hz;
+    return params->lower_hz + (params->upper_hz - params->lower_hz) *
+                                  ((double)bin + 0.5) / (double)params->count;
+}
+
+int sdrgui_survey_chart_peak_at(Rectangle outer,
+                                const struct sdrgui_survey_params *params,
+                                Vector2 point) {
+    Rectangle plot = survey_chart_area(outer);
+    int nearest = -1;
+    float nearest_distance = 0.0f;
+
+    if (!params || params->peak_count <= 0 ||
+        !CheckCollisionPointRec(point, plot))
+        return -1;
+    /* Nearest candidate within a finger's width, rather than the one exactly
+       under the pixel: a carrier can be a fraction of a pixel wide here, and
+       an exact hit test would be unusable. */
+    for (int i = 0; i < params->peak_count; i++) {
+        double hz = survey_hz_for_bin(params, params->peaks[i].index);
+        float x = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, hz);
+        float distance = fabsf(point.x - x);
+        if (distance > 8.0f)
+            continue;
+        if (nearest < 0 || distance < nearest_distance) {
+            nearest = i;
+            nearest_distance = distance;
+        }
+    }
+    return nearest;
+}
+
+void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
+    Rectangle outer = params->plot;
+    Rectangle plot = survey_chart_area(outer);
+    char text[160];
+
+    DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
+
+    float minimum = -110.0f;
+    float maximum = -20.0f;
+    int measured = 0;
+    for (int i = 0; i < params->count; i++) {
+        float power = params->power_dbfs[i];
+        if (power <= params->sentinel)
+            continue;
+        if (!measured || power < minimum)
+            minimum = power;
+        if (!measured || power > maximum)
+            maximum = power;
+        measured = 1;
+    }
+    if (!measured) {
+        minimum = -110.0f;
+        maximum = -20.0f;
+    }
+    minimum -= 3.0f;
+    maximum += 6.0f;   /* room above the trace for the candidate ticks */
+    if (maximum - minimum < 20.0f)
+        maximum = minimum + 20.0f;
+
+    for (int division = 0; division <= 4; division++) {
+        float y = plot.y + plot.height * division / 4.0f;
+        float value = maximum - (maximum - minimum) * division / 4.0f;
+        DrawLine((int)plot.x, (int)y, (int)(plot.x + plot.width), (int)y,
+                 (Color){ 170, 190, 200, division == 4 ? 100 : 40 });
+        snprintf(text, sizeof(text), "%.0f", value);
+        DrawText(text, (int)plot.x - MeasureText(text, 16) - 10, (int)y - 8, 16,
+                 (Color){ 151, 174, 188, 255 });
+    }
+    DrawText("dBFS", (int)plot.x, (int)outer.y, 16,
+             (Color){ 151, 174, 188, 255 });
+
+    /* The trace: one vertical mark per bin, because a survey array is usually
+       wider than the panel and a line would hide the narrow signals that are
+       the point of it. */
+    for (int i = 0; i < params->count; i++) {
+        float power = params->power_dbfs[i];
+        if (power <= params->sentinel)
+            continue;
+        float x = plot.x + (float)i * plot.width / (float)params->count;
+        float y = sdrgui_plot_y(plot, power, minimum, maximum);
+        DrawLine((int)x, (int)(plot.y + plot.height), (int)x, (int)y,
+                 (Color){ 70, 120, 180, 200 });
+    }
+
+    /* Candidates, ticked above the trace so a 200 kHz signal in a 1.7 GHz
+       sweep is still findable. */
+    for (int i = 0; i < params->peak_count; i++) {
+        double hz = survey_hz_for_bin(params, params->peaks[i].index);
+        float x = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, hz);
+        float y = sdrgui_plot_y(plot, params->peaks[i].power_dbfs, minimum,
+                                maximum);
+        Color color = (Color){ 99, 228, 170, 255 };
+        if (i == params->selected)
+            color = (Color){ 255, 174, 62, 255 };
+        else if (i == params->hover)
+            color = (Color){ 235, 242, 246, 255 };
+        DrawLine((int)x, (int)y - 12, (int)x, (int)y - 2, color);
+        DrawCircle((int)x, (int)y - 14, 3.0f, color);
+        if (i == params->selected)
+            DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
+                     (Color){ 255, 174, 62, 90 });
+    }
+
+    /* How far the sweep has got. */
+    if (params->sweeping && params->count > 0) {
+        float x = plot.x + (float)params->swept_bins * plot.width /
+                               (float)params->count;
+        DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
+                 (Color){ 250, 190, 74, 200 });
+    }
+
+    DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
+
+    /* Frequency axis, in whatever unit keeps the labels readable. */
+    double span_hz = params->upper_hz - params->lower_hz;
+    for (int division = 0; division <= 4; division++) {
+        double hz = params->lower_hz + span_hz * division / 4.0;
+        float x = plot.x + plot.width * division / 4.0f;
+        if (span_hz >= 100e6)
+            snprintf(text, sizeof(text), "%.0f", hz / 1e6);
+        else if (span_hz >= 2e6)
+            snprintf(text, sizeof(text), "%.1f", hz / 1e6);
+        else
+            snprintf(text, sizeof(text), "%.3f", hz / 1e6);
+        int width = MeasureText(text, 16);
+        int at = (int)x - width / 2;
+        if (division == 0)
+            at = (int)plot.x;
+        if (division == 4)
+            at = (int)(plot.x + plot.width) - width;
+        DrawText(text, at, (int)(plot.y + plot.height + 8), 16,
+                 (Color){ 151, 174, 188, 255 });
+    }
+    snprintf(text, sizeof(text),
+             "frequency (MHz)   %d candidates above the local floor",
+             params->peak_count);
+    sdrgui_text_fit(text, (int)plot.x, (int)(plot.y + plot.height + 30), 16,
+                    plot.width, (Color){ 187, 205, 216, 255 });
+
+    if (!measured && params->empty_notice && params->empty_notice[0])
+        DrawText(params->empty_notice, (int)plot.x + 12,
+                 (int)(plot.y + plot.height / 2.0f) - 8, 17,
+                 (Color){ 187, 205, 216, 255 });
+
+    /* Cursor readout: the frequency under the pointer, and the candidate it
+       would select. */
+    float x_fraction;
+    float y_fraction;
+    Vector2 mouse;
+    if (sdrgui_plot_cursor(plot, &x_fraction, &y_fraction, &mouse)) {
+        double hz = params->lower_hz + span_hz * (double)x_fraction;
+        int at = sdrgui_survey_chart_peak_at(outer, params, mouse);
+        if (at >= 0)
+            snprintf(text, sizeof(text), "%.4f MHz   %.1f dBFS   click to inspect",
+                     survey_hz_for_bin(params, params->peaks[at].index) / 1e6,
+                     (double)params->peaks[at].power_dbfs);
+        else
+            snprintf(text, sizeof(text), "%.4f MHz", hz / 1e6);
+        sdrgui_cursor_readout(plot, mouse, text);
+    }
+}

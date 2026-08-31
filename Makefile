@@ -11,7 +11,8 @@ all: sdrprobe
 
 DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/adsb_dsp.c
 APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
-	$(SRC)/view_adsb.c $(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
+	$(SRC)/view_adsb.c $(SRC)/view_survey.c $(SRC)/band_plan.c \
+	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/app.h $(SRC)/view.h
@@ -50,6 +51,14 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/sdr_dsp.c -lm
 	./$(BUILD)/gsm_dsp_test
 
+# The band plan is a table, not DSP: its own check, and the only one here that
+# links nothing at all.
+check-band-plan: $(TESTS)/band_plan_test.c $(SRC)/band_plan.c $(SRC)/band_plan.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/band_plan_test \
+		$(TESTS)/band_plan_test.c $(SRC)/band_plan.c
+	./$(BUILD)/band_plan_test
+
 check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_dsp_test \
@@ -67,7 +76,7 @@ check-layout: $(TESTS)/layout_test.c $(SRC)/gsm_layout.h \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
 	./$(BUILD)/layout_test
 
-check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp
+check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan
 
 # White-box diagnostic walk through the GSM SCH chain (not a unit test). It
 # compiles gsm_dsp.c in (to reach its statics), so it links only sdr_dsp.c.
@@ -91,4 +100,4 @@ probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-dsp check-layout probe-gsm-chain probe-adsb-chain clean
+.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout probe-gsm-chain probe-adsb-chain clean
