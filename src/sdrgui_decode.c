@@ -204,9 +204,11 @@ void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params) {
     DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
 
+    /* Three of these sit side by side in both decode views, so a title wider
+       than its own chart would print across the neighbour's. */
     if (params->title && params->title[0])
-        DrawText(params->title, (int)plot.x, (int)outer.y, 16,
-                 (Color){ 151, 174, 188, 255 });
+        sdrgui_text_fit(params->title, (int)plot.x, (int)outer.y, 16,
+                        plot.width, (Color){ 151, 174, 188, 255 });
 
     if (params->count <= 0) {
         const char *notice = params->empty_notice ? params->empty_notice : "";
@@ -249,8 +251,15 @@ void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params) {
             DrawLineEx((Vector2){x1, y1}, (Vector2){x2, y2}, 1.5f, (Color){ 120, 230, 255, 200 });
         }
     } else if (params->type == SDRGUI_BURST_BAR) {
-        /* Draw as individual bars. */
-        float bar_width = dx > 1.5f ? dx - 1.0f : 1.0f;
+        /* Draw as individual bars, at least a pixel wide. The gap between
+           bars is worth having only when there is room for it: at 148 bits in
+           a 285 px panel the spacing is 1.9 px, and subtracting a pixel of gap
+           left 0.9, which truncates to a rectangle 0 px wide -- the whole
+           chart drew nothing. It looked like the decoder had produced no soft
+           magnitudes, and only showed up at some window widths. */
+        int bar_width = dx > 2.0f ? (int)(dx - 1.0f) : (int)dx;
+        if (bar_width < 1)
+            bar_width = 1;
         float base_y = sdrgui_plot_y(plot, 0.0f, params->y_min, params->y_max);
         
         /* Highlight the 64-bit training sequence region in a distinct color. */
@@ -266,9 +275,9 @@ void sdrgui_burst_chart(const struct sdrgui_burst_chart_params *params) {
                           : (Color){ 149, 205, 232, 220 }; /* Light blue for data */
 
             if (params->data[i] >= 0.0f) {
-                DrawRectangle((int)x, (int)y, (int)bar_width, (int)(base_y - y), color);
+                DrawRectangle((int)x, (int)y, bar_width, (int)(base_y - y), color);
             } else {
-                DrawRectangle((int)x, (int)base_y, (int)bar_width, (int)(y - base_y), color);
+                DrawRectangle((int)x, (int)base_y, bar_width, (int)(y - base_y), color);
             }
         }
     }

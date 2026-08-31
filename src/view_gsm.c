@@ -262,17 +262,44 @@ void draw_gsm(struct app *app) {
                 bparams.count = sym->count;
                 sdrgui_burst_chart(&bparams);
 
+                /* Soft magnitudes are raw |Im|, so their scale is the
+                   signal's: tens of thousands on a strong capture, thousandths
+                   on a weak live burst. An absolute axis therefore shows
+                   either nothing useful or nothing at all -- a live ARFCN drew
+                   an empty panel while decoding perfectly well. What the chart
+                   is for is which bits within one burst were weak, so it plots
+                   each magnitude against the burst's own 90th percentile.
+
+                   Not against the maximum, for the reason the constellation
+                   below records: the largest bar would then touch the top of
+                   every burst by construction, and how far the rest sat below
+                   it would depend on that one bar. Genuine outliers keep going
+                   past 1.0 instead, up to the axis top. */
+                float soft[GSM_SCH_BURST_BITS];
+                int soft_count = sym->count < GSM_SCH_BURST_BITS
+                                     ? sym->count : GSM_SCH_BURST_BITS;
+                double soft_sorted[GSM_SCH_BURST_BITS];
+                for (int i = 0; i < soft_count; i++)
+                    soft_sorted[i] = sym->soft_mag[i];
+                qsort(soft_sorted, (size_t)soft_count, sizeof(*soft_sorted),
+                      compare_double);
+                double soft_reference =
+                    soft_sorted[(int)((double)(soft_count - 1) * 0.9)];
+                if (soft_reference < 1e-12)
+                    soft_reference = 1e-12;
+                for (int i = 0; i < soft_count; i++) {
+                    float value = (float)(sym->soft_mag[i] / soft_reference);
+                    soft[i] = value > 1.4f ? 1.4f : value;
+                }
                 bparams.plot = r_soft;
-                bparams.data = sym->soft_mag;
+                bparams.data = soft;
+                bparams.count = soft_count;
                 bparams.type = SDRGUI_BURST_BAR;
                 bparams.y_min = 0.0f;
-                float mx = 0.1f;
-                for(int i=0; i<sym->count; i++) {
-                    if (sym->soft_mag[i] > mx) mx = sym->soft_mag[i];
-                }
-                bparams.y_max = mx * 1.1f;
-                bparams.title = "Soft Symbol Magnitudes (|Im|)";
+                bparams.y_max = 1.4f;
+                bparams.title = "Soft Symbol Magnitudes";
                 sdrgui_burst_chart(&bparams);
+                bparams.count = sym->count;
 
                 bparams.plot = r_phase;
                 bparams.data = sym->phase;
