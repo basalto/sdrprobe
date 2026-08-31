@@ -1,3 +1,4 @@
+#include "adsb_layout.h"
 #include "chrome_layout.h"
 #include "gsm_layout.h"
 
@@ -6,8 +7,8 @@
 #include <string.h>
 
 /*
- * Golden-rect check for the layouts: the GSM decode view, and the window
- * chrome shared by every screen.
+ * Golden-rect check for the layouts: the GSM decode view, the ADS-B decode
+ * view, and the window chrome shared by every screen.
  *
  * Every rectangle, at several window sizes, pinned to the value it had when
  * the layout was consolidated into gsm_layout_for(). Layout had no test before
@@ -180,8 +181,90 @@ static void check_chrome(void) {
     }
 }
 
+/* The ADS-B view, whose analysis mode packs three charts over a log and a
+   square scatter. The 1000x540 case is the app's minimum window: the GSM
+   layout's comment records that a panel that small pushes its own button out
+   of itself, so hold_button is pinned there too. */
+#define ADSB_RECTS 9
+
+struct adsb_case {
+    float width, height;
+    struct expected rect[ADSB_RECTS];
+    float header_right;
+};
+
+static const struct adsb_case adsb_cases[] = {
+    { 1100.0f, 720.0f, {
+        { "retune_button", 470.00f, 82.00f, 220.00f, 30.00f },
+        { "view_toggle", 950.00f, 100.00f, 130.00f, 26.00f },
+        { "hold_button", 954.00f, 396.80f, 112.00f, 22.00f },
+        { "chart[0]", 82.00f, 150.00f, 320.00f, 226.80f },
+        { "chart[1]", 416.00f, 150.00f, 320.00f, 226.80f },
+        { "chart[2]", 750.00f, 150.00f, 320.00f, 226.80f },
+        { "log_full", 82.00f, 124.00f, 988.00f, 566.00f },
+        { "log_split", 82.00f, 392.80f, 666.80f, 297.20f },
+        { "scatter", 772.80f, 392.80f, 297.20f, 297.20f },
+    }, 938.00f },
+    { 1280.0f, 800.0f, {
+        { "retune_button", 470.00f, 82.00f, 220.00f, 30.00f },
+        { "view_toggle", 1130.00f, 100.00f, 130.00f, 26.00f },
+        { "hold_button", 1134.00f, 430.40f, 112.00f, 22.00f },
+        { "chart[0]", 82.00f, 150.00f, 380.00f, 260.40f },
+        { "chart[1]", 476.00f, 150.00f, 380.00f, 260.40f },
+        { "chart[2]", 870.00f, 150.00f, 380.00f, 260.40f },
+        { "log_full", 82.00f, 124.00f, 1168.00f, 646.00f },
+        { "log_split", 82.00f, 426.40f, 800.40f, 343.60f },
+        { "scatter", 906.40f, 426.40f, 343.60f, 343.60f },
+    }, 1118.00f },
+    { 1000.0f, 540.0f, {
+        { "retune_button", 470.00f, 82.00f, 220.00f, 30.00f },
+        { "view_toggle", 850.00f, 100.00f, 130.00f, 26.00f },
+        { "hold_button", 854.00f, 321.20f, 112.00f, 22.00f },
+        { "chart[0]", 82.00f, 150.00f, 286.67f, 151.20f },
+        { "chart[1]", 382.67f, 150.00f, 286.67f, 151.20f },
+        { "chart[2]", 683.33f, 150.00f, 286.67f, 151.20f },
+        { "log_full", 82.00f, 124.00f, 888.00f, 386.00f },
+        { "log_split", 82.00f, 317.20f, 671.20f, 192.80f },
+        { "scatter", 777.20f, 317.20f, 192.80f, 192.80f },
+    }, 838.00f },
+};
+
+static void check_adsb(void) {
+    for (unsigned c = 0; c < sizeof(adsb_cases) / sizeof(adsb_cases[0]); c++) {
+        const struct adsb_case *w = &adsb_cases[c];
+        struct adsb_layout l = adsb_layout_for(w->width, w->height);
+        Rectangle got[ADSB_RECTS] = {
+            l.retune_button, l.view_toggle, l.hold_button, l.chart[0],
+            l.chart[1], l.chart[2], l.log_full, l.log_split, l.scatter
+        };
+        for (int i = 0; i < ADSB_RECTS; i++)
+            check(w->width, w->height, w->rect[i].name, got[i], &w->rect[i]);
+        if (fabsf(l.header_right - w->header_right) > 0.01f) {
+            fprintf(stderr, "%.0fx%.0f header_right: got %.2f, expected %.2f\n",
+                    w->width, w->height, l.header_right, w->header_right);
+            failures++;
+        }
+        /* The two panels that share the lower row must not overlap, whatever
+           the numbers above say -- that is the property the pins are there to
+           protect, and it is worth stating once rather than inferring. */
+        if (l.log_split.x + l.log_split.width > l.scatter.x + 0.01f) {
+            fprintf(stderr, "%.0fx%.0f log_split runs into scatter\n",
+                    w->width, w->height);
+            failures++;
+        }
+        if (l.hold_button.x < l.scatter.x - 0.01f ||
+            l.hold_button.x + l.hold_button.width >
+                l.scatter.x + l.scatter.width + 0.01f) {
+            fprintf(stderr, "%.0fx%.0f hold_button escapes the scatter\n",
+                    w->width, w->height);
+            failures++;
+        }
+    }
+}
+
 int main(void) {
     check_chrome();
+    check_adsb();
     for (unsigned c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
         float w = cases[c].width, h = cases[c].height;
         struct gsm_layout l = gsm_layout_for(w, h);

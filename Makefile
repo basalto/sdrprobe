@@ -13,7 +13,8 @@ DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/adsb_dsp.c
 APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
-APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/app.h $(SRC)/view.h
+APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
+	$(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
@@ -55,12 +56,12 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 		$(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c -lm
 	./$(BUILD)/adsb_dsp_test
 
-# Layout check: the GSM view's rectangles and the window chrome, pinned at
-# several window sizes. Needs raylib's headers for the Rectangle type but not
+# Layout check: the GSM and ADS-B views' rectangles and the window chrome,
+# pinned at several window sizes. Needs raylib's headers for the Rectangle type but not
 # the library -- both layouts are pure functions of the window size, which is
 # what makes them testable without opening a window.
 check-layout: $(TESTS)/layout_test.c $(SRC)/gsm_layout.h \
-		$(SRC)/chrome_layout.h
+		$(SRC)/adsb_layout.h $(SRC)/chrome_layout.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
