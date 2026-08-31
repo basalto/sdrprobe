@@ -269,17 +269,138 @@ static int preamble_at(const float *m, size_t i, size_t pair_count) {
     return 1;
 }
 
+/* The four preamble pulse offsets, and the twelve quiet samples between and
+   after them. preamble_at() checks the same sixteen samples as a pattern; this
+   is the pair of means behind that pattern. */
+static const int preamble_pulses[4] = { 0, 2, 7, 9 };
+static const int preamble_quiet[12] = { 1, 3, 4, 5, 6, 8,
+                                        10, 11, 12, 13, 14, 15 };
+
+float adsb_preamble_score(const float *magnitudes, size_t index,
+                          size_t pair_count) {
+    float high = 0.0f;
+    float quiet = 0.0f;
+
+    if (!magnitudes || index + ADSB_PREAMBLE_SAMPLES > pair_count)
+        return 0.0f;
+    for (int i = 0; i < 4; i++)
+        high += magnitudes[index + (size_t)preamble_pulses[i]];
+    for (int i = 0; i < 12; i++)
+        quiet += magnitudes[index + (size_t)preamble_quiet[i]];
+    high /= 4.0f;
+    quiet /= 12.0f;
+    if (quiet <= 1e-6f)
+        quiet = 1e-6f;
+    return high / quiet;
+}
+
+size_t adsb_modulate_frame(const uint8_t *bytes, int byte_count,
+                           float high, float noise, float *magnitudes,
+                           size_t start, size_t capacity) {
+    if (!bytes || !magnitudes)
+        return 0;
+    if (byte_count != ADSB_SHORT_BYTES && byte_count != ADSB_LONG_BYTES)
+        return 0;
+    int bits = byte_count * 8;
+    size_t samples = (size_t)ADSB_PREAMBLE_SAMPLES +
+                     (size_t)bits * ADSB_SAMPLES_PER_BIT;
+    if (start + samples > capacity)
+        return 0;
+
+    float *frame = magnitudes + start;
+    for (int i = 0; i < ADSB_PREAMBLE_SAMPLES; i++)
+        frame[i] = noise;
+    for (int i = 0; i < 4; i++)
+        frame[preamble_pulses[i]] = high;
+    for (int bit = 0; bit < bits; bit++) {
+        int set = (bytes[bit >> 3] >> (7 - (bit & 7))) & 1;
+        float *pair = frame + ADSB_PREAMBLE_SAMPLES +
+                      (size_t)bit * ADSB_SAMPLES_PER_BIT;
+        /* Energy in the first half is a one, in the second half a zero -- the
+           same convention the bit slicer below reads. */
+        pair[0] = set ? high : noise;
+        pair[1] = set ? noise : high;
+    }
+    return samples;
+}
+
+/* Fill in what the accepted attempt at `index` looked like. Called once per
+   buffer, after the scan, so the landscape is computed for the frame being
+   shown rather than for every false preamble the scan walked past. */
+static void fill_trace(struct adsb_frame_trace *trace, const float *m,
+                       size_t pair_count, size_t index, int df, int bit_count,
+                       int crc_ok, const uint8_t *bytes, double time_seconds) {
+    memset(trace, 0, sizeof(*trace));
+    trace->valid = 1;
+    trace->crc_ok = crc_ok;
+    trace->downlink_format = df;
+    trace->bit_count = bit_count;
+    /* A frame that failed its CRC has no address: those bits are noise that
+       happened to land in the address field. */
+    trace->icao = crc_ok ? (((uint32_t)bytes[1] << 16) |
+                            ((uint32_t)bytes[2] << 8) | bytes[3])
+                         : 0u;
+    trace->time_seconds = time_seconds;
+
+    trace->landscape_center = ADSB_TRACE_HALF_WIDTH;
+    for (int k = -ADSB_TRACE_HALF_WIDTH; k <= ADSB_TRACE_HALF_WIDTH; k++) {
+        long at = (long)index + k;
+        float score = 0.0f;
+        if (at >= 0)
+            score = adsb_preamble_score(m, (size_t)at, pair_count);
+        trace->landscape[k + ADSB_TRACE_HALF_WIDTH] = score;
+    }
+
+    float high = 0.0f;
+    for (int i = 0; i < 4; i++)
+        high += m[index + (size_t)preamble_pulses[i]];
+    high /= 4.0f;
+    trace->preamble_high = high;
+    float scale = high > 1e-6f ? high : 1e-6f;
+
+    size_t frame_samples = (size_t)ADSB_PREAMBLE_SAMPLES +
+                           (size_t)bit_count * ADSB_SAMPLES_PER_BIT;
+    for (size_t n = 0; n < frame_samples && index + n < pair_count; n++)
+        trace->envelope[n] = m[index + n] / scale;
+
+    const float *data = m + index + ADSB_PREAMBLE_SAMPLES;
+    for (int bit = 0; bit < bit_count; bit++) {
+        float first = data[bit * ADSB_SAMPLES_PER_BIT];
+        float second = data[bit * ADSB_SAMPLES_PER_BIT + 1];
+        float sum = first + second;
+        trace->bit[bit] = (uint8_t)(first > second);
+        if (sum <= 1e-6f)
+            continue;
+        trace->margin[bit] = (first - second) / sum;
+        trace->confidence[bit] = fabsf(trace->margin[bit]);
+        trace->amplitude[bit] = sum / (2.0f * scale);
+    }
+}
+
 size_t adsb_demod(struct adsb_decoder *dec, const float *magnitudes,
                   size_t pair_count, double time_seconds,
-                  struct adsb_message *out, size_t out_capacity) {
+                  struct adsb_message *out, size_t out_capacity,
+                  struct adsb_frame_trace *trace,
+                  struct adsb_demod_stats *stats) {
+    struct adsb_demod_stats counts;
     size_t written = 0;
     size_t i = 0;
+    /* The last DF17/18-shaped attempt seen, held back for fill_trace. */
+    size_t traced_index = 0;
+    uint8_t traced_bytes[ADSB_LONG_BYTES];
+    int traced_df = 0;
+    int traced_bits = 0;
+    int traced_crc_ok = 0;
+    int have_traced = 0;
+
+    memset(&counts, 0, sizeof(counts));
     while (i + ADSB_PREAMBLE_SAMPLES + ADSB_LONG_BITS * ADSB_SAMPLES_PER_BIT
            <= pair_count) {
         if (!preamble_at(magnitudes, i, pair_count)) {
             i++;
             continue;
         }
+        counts.preambles++;
         const float *data = magnitudes + i + ADSB_PREAMBLE_SAMPLES;
         uint8_t bytes[ADSB_LONG_BYTES];
         memset(bytes, 0, sizeof(bytes));
@@ -293,8 +414,21 @@ size_t adsb_demod(struct adsb_decoder *dec, const float *magnitudes,
         int df = (bytes[0] >> 3) & 0x1F;
         int byte_count = adsb_frame_length_bits(df) / 8;
 
+        if (df == 17 || df == 18) {
+            counts.attempts++;
+            traced_crc_ok = adsb_crc(bytes, byte_count) == 0;
+            if (!traced_crc_ok)
+                counts.crc_failed++;
+            memcpy(traced_bytes, bytes, sizeof(traced_bytes));
+            traced_index = i;
+            traced_df = df;
+            traced_bits = byte_count * 8;
+            have_traced = 1;
+        }
+
         struct adsb_message msg;
         if (adsb_decode_frame(bytes, byte_count, &msg)) {
+            counts.decoded++;
             if (msg.kind == ADSB_KIND_AIRBORNE_POSITION)
                 resolve_position(dec, time_seconds, &msg);
             if (written < out_capacity)
@@ -306,5 +440,10 @@ size_t adsb_demod(struct adsb_decoder *dec, const float *magnitudes,
         }
         i++;
     }
+    if (trace && have_traced)
+        fill_trace(trace, magnitudes, pair_count, traced_index, traced_df,
+                   traced_bits, traced_crc_ok, traced_bytes, time_seconds);
+    if (stats)
+        *stats = counts;
     return written;
 }
