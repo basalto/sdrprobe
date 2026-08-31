@@ -26,6 +26,11 @@ after dump1090's `modesInitRTLSDR()`.
 - **Channel power scan** — sweeps the GSM 900 downlink band and charts
   per‑ARFCN power, flagging **BCCH** channels (those carrying an FCCH tone) so
   you can pick a good calibration reference.
+- **ADS‑B frame analysis** — an analysis mode beside the message log charting
+  one Mode S frame's decode: preamble score landscape, per‑bit decision
+  confidence, magnitude envelope, and a bit‑decision scatter, plus a decode
+  funnel (preambles → squitter‑shaped → CRC failed → decoded) that says whether
+  an empty log means a silent band or frames that are failing.
 - **Calibration‑health indicator** — a top‑right circle (grey/green/red) plus an
   opt‑in periodic drift re‑check that retunes to the calibrated ARFCN and warns
   on drift.

@@ -55,7 +55,15 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   suggestion. The ADS-B view decodes 1090 MHz Mode S extended squitters
   (DF17/18) and shows a newest-first log of decoded messages (time, ICAO, decoded
   fields, and the raw hex frame); it offers a retune-to-1090 affordance on a
-  live receiver when tuned elsewhere. A top-right
+  live receiver when tuned elsewhere. A header line reports the decode funnel
+  (preambles accepted, squitter-shaped attempts, CRC failures, decoded), which
+  is what separates a silent band from frames that are arriving and failing, and
+  a View: Analysis toggle adds three charts of the last frame's trace (preamble
+  score landscape, pulse-position bit confidence, magnitude envelope) with a
+  bit-decision scatter beside the log. The trace latches the most recent
+  attempt, pass or fail -- a frame that failed its CRC is the one worth seeing,
+  and it prints no ICAO because those bits are not an address. "Hold last good"
+  pins the last CRC-valid frame instead. A top-right
   circle shows calibration health (grey uncalibrated, green FCCH-backed lock,
   amber checking, red drift); the optional Settings "Auto GSM drift check"
   periodically retunes to the calibrated ARFCN to re-verify and warns on drift
@@ -129,6 +137,10 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   figure quoted in that text (window sizes, thresholds, decay rates) comes from
   a constant in `acquisition.h`, `sdr_dsp.h` or `gsm_dsp.h`; change one of those
   and the help is what goes stale.
+- `src/adsb_layout.h` — where the ADS-B decode view puts things, in the shape
+  of `gsm_layout.h` and for the same reason: the analysis mode packs three
+  charts over a log and a square scatter, and both modes' log rectangles are
+  derived here so the view only picks one. Covered by `tests/layout_test.c`.
 - `src/gsm_layout.h` — where the GSM decode view puts things: one struct of
   rectangles derived from the window size by a pure function, so the panels
   that share a row cannot drift apart and the whole layout is testable without

@@ -81,6 +81,30 @@ The bounded, newest-first list of recently decoded messages shown to the user;
 older entries fall off as new ones arrive.
 _Avoid_: Queue, history buffer, aircraft table
 
+**Frame trace**:
+The intermediate demodulation data kept for one recovered Mode S frame so the
+decode can be seen: where the frame was found, how far each pulse-position bit
+stood from its decision boundary, and the magnitudes behind both.
+_Avoid_: Capture, recording, snapshot
+
+**Preamble score**:
+How well the magnitude pattern at one sample offset matches the four-pulse Mode
+S preamble; the evidence behind accepting a frame, expressed as a number.
+_Avoid_: Correlation (the GSM training-sequence term), coherence (a Probe term
+for tone-likeness)
+
+**Decision margin**:
+How far a pulse-position bit's two half-interval magnitudes stood apart,
+relative to their sum; the confidence behind one hard bit decision.
+_Avoid_: Soft symbol, SNR, amplitude
+
+**Decode funnel**:
+The counts of what each stage of demodulation accepted and passed on —
+preambles, extended-squitter-shaped frames, CRC failures, decoded messages —
+reported so that an empty message log distinguishes a silent band from frames
+that are arriving and failing.
+_Avoid_: Yield, error rate, statistics
+
 ## GSM synchronisation
 
 **SCH**:
