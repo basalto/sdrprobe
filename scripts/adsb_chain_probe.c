@@ -148,12 +148,23 @@ static void consistency_sweep(FILE *f) {
     size_t kind_id = 0, kind_pos = 0, kind_vel = 0, kind_other = 0;
     size_t global_positions = 0;
     double t = 0.0;
-    
+    struct adsb_demod_stats stats, totals;
+    struct adsb_frame_trace trace, last_trace;
+    memset(&totals, 0, sizeof(totals));
+    memset(&last_trace, 0, sizeof(last_trace));
+
     rewind(f);
     while (fread(raw, 1, BLOCK_BYTES, f) == BLOCK_BYTES) {
         size_t pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, I, Q, M, BLOCK_PAIRS);
-        size_t count = adsb_demod(&dec, M, pairs, t, out, 128);
-        
+        memset(&trace, 0, sizeof(trace));
+        size_t count = adsb_demod(&dec, M, pairs, t, out, 128, &trace, &stats);
+        totals.preambles += stats.preambles;
+        totals.attempts += stats.attempts;
+        totals.crc_failed += stats.crc_failed;
+        totals.decoded += stats.decoded;
+        if (trace.valid)
+            last_trace = trace;
+
         total_frames += count;
         for (size_t i = 0; i < count; i++) {
             if (out[i].kind == ADSB_KIND_IDENTIFICATION) kind_id++;
@@ -175,6 +186,61 @@ static void consistency_sweep(FILE *f) {
     printf("    - Velocities     : %zu\n", kind_vel);
     printf("    - Other/Unknown  : %zu\n", kind_other);
     printf("  Global CPR positions resolved: %zu\n", global_positions);
+
+    puts("");
+    puts("  DECODE FUNNEL (what the demodulator threw away)");
+    printf("    Preambles accepted   : %llu\n",
+           (unsigned long long)totals.preambles);
+    printf("    DF17/18-shaped       : %llu\n",
+           (unsigned long long)totals.attempts);
+    printf("    CRC failures         : %llu\n",
+           (unsigned long long)totals.crc_failed);
+    printf("    Decoded              : %llu\n",
+           (unsigned long long)totals.decoded);
+
+    if (last_trace.valid) {
+        puts("");
+        puts("  FRAME TRACE of the last attempt (what the charts draw)");
+        printf("    DF%d  %d bits  CRC %s",
+               last_trace.downlink_format, last_trace.bit_count,
+               last_trace.crc_ok ? "valid" : "FAILED");
+        if (last_trace.crc_ok)
+            printf("  ICAO %06X", last_trace.icao);
+        printf("\n");
+        printf("    preamble high        : %.1f\n", last_trace.preamble_high);
+
+        /* The landscape's shape is the reason for its width: the peak has to
+           stand alone in the field either side of it. */
+        float peak = last_trace.landscape[last_trace.landscape_center];
+        float sum = 0.0f, worst = 0.0f;
+        for (int i = 0; i < ADSB_TRACE_LANDSCAPE; i++) {
+            sum += last_trace.landscape[i];
+            if (i != last_trace.landscape_center &&
+                last_trace.landscape[i] > worst)
+                worst = last_trace.landscape[i];
+        }
+        printf("    landscape (+/-%d)     : peak %.2f  mean %.2f  runner-up %.2f\n",
+               ADSB_TRACE_HALF_WIDTH, peak,
+               sum / (float)ADSB_TRACE_LANDSCAPE, worst);
+        printf("    landscape profile    : ");
+        for (int i = 0; i < ADSB_TRACE_LANDSCAPE; i += 4) {
+            float level = peak > 0.0f ? last_trace.landscape[i] / peak : 0.0f;
+            putchar(level > 0.8f ? '#' : level > 0.5f ? '+'
+                                       : level > 0.25f ? '.' : ' ');
+        }
+        printf("\n");
+
+        float lowest = 1.0f, mean_conf = 0.0f;
+        for (int b = 0; b < last_trace.bit_count; b++) {
+            mean_conf += last_trace.confidence[b];
+            if (last_trace.confidence[b] < lowest)
+                lowest = last_trace.confidence[b];
+        }
+        mean_conf /= (float)last_trace.bit_count;
+        printf("    bit confidence       : mean %.3f  worst %.3f\n",
+               mean_conf, lowest);
+    }
+
     
     puts("");
     puts("  CONCLUSION");

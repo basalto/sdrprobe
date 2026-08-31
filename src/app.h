@@ -177,6 +177,18 @@ struct adsb_view {
     int log_count;
     uint64_t frames_total;
     uint64_t positions_total;
+
+    /* Analysis mode: the charts drawn from one frame's trace, and the funnel
+       counters that say what never became a message. `trace` is the most
+       recent attempt whatever its outcome, because a frame that failed its CRC
+       is the one worth looking at; `good_trace` is the last one that passed,
+       for the Hold last good toggle to pin. */
+    int analysis_mode;
+    int hold_last_good;
+    struct adsb_frame_trace trace;
+    struct adsb_frame_trace good_trace;
+    struct adsb_demod_stats block_stats;   /* the latest block alone */
+    struct adsb_demod_stats totals;        /* accumulated over the session */
 };
 
 /*

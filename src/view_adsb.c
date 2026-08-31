@@ -9,8 +9,18 @@
 #include <time.h>
 
 #include "view.h"
-#include "gsm_layout.h"
+#include "adsb_layout.h"
 #include "sdrgui.h"
+
+/*
+ * The Decode tab's Mode S / ADS-B screen: the message log, and an analysis
+ * mode that draws one frame's trace.
+ *
+ * The log says what decoded. The analysis mode says what did not and why --
+ * where the frame was found, how far each pulse-position bit stood from its
+ * decision boundary, and the magnitudes behind both -- which is the difference
+ * between "nothing is transmitting" and "frames are arriving and failing".
+ */
 
 int adsb_tuned(const struct app *app) {
     long delta = (long)app->applied_frequency - (long)DEFAULT_FREQUENCY;
@@ -19,15 +29,15 @@ int adsb_tuned(const struct app *app) {
     return delta < 200000 && app->applied_sample_rate >= 2000000U;
 }
 
-static Rectangle adsb_retune_button(void) {
-    return (Rectangle){ 470.0f, 82.0f, 220.0f, 30.0f };
+static struct adsb_layout adsb_layout_now(void) {
+    return adsb_layout_for((float)GetScreenWidth(), (float)GetScreenHeight());
 }
 
-static Rectangle adsb_log_rect(void) {
-    float width = (float)GetScreenWidth();
-    float top = 124.0f;
-    return (Rectangle){ 82.0f, top, width - 112.0f,
-                        (float)GetScreenHeight() - top - 30.0f };
+/* Analysis panels are worth drawing only when Mode S could actually be there;
+   off 1090 MHz the retune affordance is the useful thing to show, not three
+   empty charts. */
+static int adsb_analysis_visible(const struct app *app) {
+    return app->adsb.analysis_mode && adsb_tuned(app);
 }
 
 static void adsb_log_push(struct app *app, const struct adsb_log_entry *entry) {
@@ -92,10 +102,24 @@ static void adsb_format(const struct adsb_message *msg,
 void update_adsb(struct app *app, double now) {
     if (!app->have_samples || app->pair_count == 0)
         return;
+    struct adsb_frame_trace trace;
+    struct adsb_demod_stats stats;
+    memset(&trace, 0, sizeof(trace));
     size_t count = adsb_demod(&app->adsb.decoder, app->magnitudes,
                               app->pair_count, now, app->adsb.scratch,
                               sizeof(app->adsb.scratch) /
-                                  sizeof(app->adsb.scratch[0]));
+                                  sizeof(app->adsb.scratch[0]),
+                              &trace, &stats);
+    app->adsb.block_stats = stats;
+    app->adsb.totals.preambles += stats.preambles;
+    app->adsb.totals.attempts += stats.attempts;
+    app->adsb.totals.crc_failed += stats.crc_failed;
+    app->adsb.totals.decoded += stats.decoded;
+    if (trace.valid) {
+        app->adsb.trace = trace;
+        if (trace.crc_ok)
+            app->adsb.good_trace = trace;
+    }
     size_t emitted = count;
     size_t capacity = sizeof(app->adsb.scratch) / sizeof(app->adsb.scratch[0]);
     if (emitted > capacity)
@@ -114,27 +138,173 @@ void update_adsb(struct app *app, double now) {
 }
 
 void handle_adsb_input(struct app *app) {
+    struct adsb_layout l = adsb_layout_now();
+
     if (IsKeyPressed(KEY_ESCAPE)) {
         set_tab(app, TAB_SCOPE);
         return;
     }
+    if (clicked(l.view_toggle)) {
+        app->adsb.analysis_mode = !app->adsb.analysis_mode;
+        return;
+    }
+    if (adsb_analysis_visible(app) && clicked(l.hold_button)) {
+        app->adsb.hold_last_good = !app->adsb.hold_last_good;
+        return;
+    }
     if (!adsb_tuned(app) && app->receiver_mode &&
-        clicked(adsb_retune_button())) {
+        clicked(l.retune_button)) {
         retune_receiver(app, DEFAULT_FREQUENCY, app->applied_ppm);
     }
 }
 
+/* The trace the charts draw: the most recent attempt, or the last frame that
+   passed its CRC when the reader has pinned that instead. */
+static const struct adsb_frame_trace *adsb_shown_trace(const struct app *app) {
+    if (app->adsb.hold_last_good && app->adsb.good_trace.valid)
+        return &app->adsb.good_trace;
+    return &app->adsb.trace;
+}
+
+/* One line above the charts saying which frame they are showing. A frame that
+   failed its CRC has no address to print -- those bits are noise that landed
+   in the address field -- so the outcome is all this line claims. */
+static void draw_trace_caption(const struct app *app, Rectangle first_chart,
+                               const struct adsb_frame_trace *trace) {
+    char text[200];
+    int y = (int)first_chart.y - 22;
+
+    if (!trace->valid) {
+        DrawText("No Mode S frame traced yet", (int)first_chart.x, y, 17,
+                 (Color){ 151, 174, 188, 255 });
+        return;
+    }
+    const char *held = app->adsb.hold_last_good && app->adsb.good_trace.valid
+                           ? "   [held]"
+                           : "";
+    if (trace->crc_ok)
+        snprintf(text, sizeof(text),
+                 "Last frame   DF%d   %d bits   CRC valid   ICAO %06X%s",
+                 trace->downlink_format, trace->bit_count, trace->icao, held);
+    else
+        snprintf(text, sizeof(text),
+                 "Last frame   DF%d   %d bits   CRC FAILED   no address%s",
+                 trace->downlink_format, trace->bit_count, held);
+    DrawText(text, (int)first_chart.x, y, 17,
+             trace->crc_ok ? (Color){ 120, 230, 255, 255 }
+                           : (Color){ 255, 140, 130, 255 });
+}
+
+static void draw_trace_charts(const struct adsb_layout *l,
+                              const struct adsb_frame_trace *trace) {
+    const char *waiting = "waiting for a Mode S frame...";
+    int bits = trace->valid ? trace->bit_count : 0;
+
+    /* Preamble score either side of the accepted offset. A lock is a peak
+       standing alone; the axis top follows the peak so a weak frame still
+       fills the chart. */
+    float peak = 1.0f;
+    for (int i = 0; i < ADSB_TRACE_LANDSCAPE; i++)
+        if (trace->landscape[i] > peak)
+            peak = trace->landscape[i];
+    struct sdrgui_burst_chart_params params = {
+        l->chart[0], trace->valid ? trace->landscape : NULL,
+        trace->valid ? ADSB_TRACE_LANDSCAPE : 0, SDRGUI_BURST_LINE,
+        0.0f, peak * 1.1f, "Preamble Score Landscape", waiting
+    };
+    sdrgui_burst_chart(&params);
+
+    /* How far each pulse-position bit stood from its decision boundary. */
+    params.plot = l->chart[1];
+    params.data = trace->valid ? trace->confidence : NULL;
+    params.count = bits;
+    params.type = SDRGUI_BURST_BAR;
+    params.y_min = 0.0f;
+    params.y_max = 1.0f;
+    params.title = "Pulse-Position Bit Confidence";
+    sdrgui_burst_chart(&params);
+
+    /* The frame as the receiver saw it, over the preamble's own level. */
+    params.plot = l->chart[2];
+    params.data = trace->valid ? trace->envelope : NULL;
+    params.count = trace->valid
+                       ? ADSB_PREAMBLE_SAMPLES + bits * ADSB_SAMPLES_PER_BIT
+                       : 0;
+    params.type = SDRGUI_BURST_LINE;
+    params.y_max = 1.2f;
+    params.title = "Frame Magnitude Envelope";
+    sdrgui_burst_chart(&params);
+}
+
+/* Every bit's decision plotted as its signed margin against its amplitude:
+   two tight clusters left and right is a clean frame, a smear through the
+   middle is a frame that decoded by luck. Not a constellation -- Mode S
+   carries no modulated symbols and no phase. */
+static void draw_decision_scatter(const struct app *app,
+                                  const struct adsb_layout *l,
+                                  const struct adsb_frame_trace *trace) {
+    float x[ADSB_LONG_BITS];
+    float y[ADSB_LONG_BITS];
+    int n = trace->valid ? trace->bit_count : 0;
+
+    if (n > ADSB_LONG_BITS)
+        n = ADSB_LONG_BITS;
+    for (int i = 0; i < n; i++) {
+        x[i] = trace->margin[i];
+        /* A clean bit puts half the preamble's energy in one half-interval, so
+           centre the axis on that: 0 is the expected amplitude, not zero
+           signal. Clamp so an outlier stays at the rim of the panel. */
+        y[i] = trace->amplitude[i] * 2.0f - 1.0f;
+        if (y[i] > 1.4f)
+            y[i] = 1.4f;
+        if (y[i] < -1.4f)
+            y[i] = -1.4f;
+    }
+    struct sdrgui_constellation_params params = {
+        l->scatter, x, y, trace->bit, n, "Bit decisions",
+        "waiting for a Mode S frame..."
+    };
+    sdrgui_constellation(&params);
+    draw_button(l->hold_button, "Hold last good", app->adsb.hold_last_good);
+}
+
 void draw_adsb(struct app *app) {
-    char text[160];
+    struct adsb_layout l = adsb_layout_now();
+    const struct adsb_demod_stats *total = &app->adsb.totals;
+    const struct adsb_demod_stats *block = &app->adsb.block_stats;
+    int analysis = adsb_analysis_visible(app);
+    char text[240];
+
     snprintf(text, sizeof(text),
              "1090 MHz extended squitter   frames decoded: %llu   positions: %llu",
              (unsigned long long)app->adsb.frames_total,
              (unsigned long long)app->adsb.positions_total);
-    DrawText(text, 22, 88, 17, (Color){ 187, 205, 216, 255 });
+    sdrgui_text_fit(text, 22, 88, 17, l.header_right - 22.0f,
+                    (Color){ 187, 205, 216, 255 });
+
+    /* The decode funnel. Preambles with no decodes behind them is the state
+       the message log cannot express: an empty log looks the same whether the
+       band is silent or every frame is failing its parity. */
+    snprintf(text, sizeof(text),
+             "funnel   preambles %llu -> shaped %llu -> CRC failed %llu -> decoded %llu   block %llu/%llu/%llu/%llu",
+             (unsigned long long)total->preambles,
+             (unsigned long long)total->attempts,
+             (unsigned long long)total->crc_failed,
+             (unsigned long long)total->decoded,
+             (unsigned long long)block->preambles,
+             (unsigned long long)block->attempts,
+             (unsigned long long)block->crc_failed,
+             (unsigned long long)block->decoded);
+    Color funnel_color = (Color){ 151, 174, 188, 255 };
+    if (total->attempts > 0 && total->decoded == 0)
+        funnel_color = (Color){ 250, 190, 74, 255 };
+    sdrgui_text_fit(text, 22, 110, 16, l.header_right - 22.0f, funnel_color);
+
+    draw_button(l.view_toggle, analysis ? "View: Log" : "View: Analysis", 0);
 
     if (!adsb_tuned(app)) {
         if (app->receiver_mode) {
-            draw_button(adsb_retune_button(), "Retune to 1090 MHz", 1);
+            draw_button(l.retune_button, "Retune to 1090 MHz", 1);
         } else {
             DrawText("Capture is not 1090 MHz / 2 MS/s; no Mode S expected",
                      470, 88, 17, (Color){ 250, 190, 74, 255 });
@@ -151,11 +321,17 @@ void draw_adsb(struct app *app) {
         rows[i].highlight = app->adsb.log[i].highlight;
     }
     struct sdrgui_message_log_params params = {
-        adsb_log_rect(), rows, app->adsb.log_count,
+        analysis ? l.log_split : l.log_full, rows, app->adsb.log_count,
         "Decoded messages (newest first)",
         app->have_samples ? "Listening for Mode S frames..."
                           : "Waiting for samples..."
     };
     sdrgui_message_log(&params);
-}
 
+    if (analysis) {
+        const struct adsb_frame_trace *trace = adsb_shown_trace(app);
+        draw_trace_caption(app, l.chart[0], trace);
+        draw_trace_charts(&l, trace);
+        draw_decision_scatter(app, &l, trace);
+    }
+}

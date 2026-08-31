@@ -60,6 +60,75 @@ struct adsb_message {
     double   longitude_deg;
 };
 
+/*
+ * What one recovered frame looked like, kept so the decode can be visualised.
+ *
+ * The demodulator throws all of this away as soon as it has the bits, which is
+ * why an empty message log says nothing about why it is empty. A frame trace
+ * is the same work expressed as numbers a chart can draw: where the frame was
+ * found, how far each bit stood from its decision boundary, and the magnitudes
+ * behind both. Filled for the last attempt in a buffer, pass or fail -- a
+ * frame that failed its CRC is the one worth looking at.
+ */
+#define ADSB_TRACE_HALF_WIDTH 32
+#define ADSB_TRACE_LANDSCAPE (2 * ADSB_TRACE_HALF_WIDTH + 1)
+#define ADSB_TRACE_SAMPLES \
+    (ADSB_PREAMBLE_SAMPLES + ADSB_LONG_BITS * ADSB_SAMPLES_PER_BIT)
+
+struct adsb_frame_trace {
+    int      valid;           /* 0 until an attempt has been traced */
+    int      crc_ok;          /* the attempt's CRC remainder was zero */
+    int      downlink_format;
+    int      bit_count;       /* ADSB_SHORT_BITS or ADSB_LONG_BITS */
+    uint32_t icao;            /* 0 unless crc_ok: a failed frame has no address */
+    double   time_seconds;
+
+    /* Preamble score either side of the accepted offset; the peak should stand
+       alone at landscape_center, which is always ADSB_TRACE_HALF_WIDTH. */
+    float    landscape[ADSB_TRACE_LANDSCAPE];
+    int      landscape_center;
+
+    /* Per pulse-position bit, bit_count entries. */
+    float    confidence[ADSB_LONG_BITS]; /* |first-second| / (first+second) */
+    float    margin[ADSB_LONG_BITS];     /* signed: (first-second) / (sum) */
+    float    amplitude[ADSB_LONG_BITS];  /* (first+second) / (2*preamble_high) */
+    uint8_t  bit[ADSB_LONG_BITS];        /* the hard decision taken */
+
+    /* The frame's magnitudes over preamble_high: 1.0 is a full pulse. Entries
+       past the frame's own length are zero. */
+    float    envelope[ADSB_TRACE_SAMPLES];
+    float    preamble_high;   /* mean of the four preamble pulses, raw units */
+};
+
+/*
+ * What a pass over one buffer accepted and threw away. Counted, never
+ * repaired: ADR-0009 drops a bad frame and this does not change that, it only
+ * stops the drop being silent. Each counter is a subset of the one above it.
+ */
+struct adsb_demod_stats {
+    uint64_t preambles;   /* the preamble pattern was accepted */
+    uint64_t attempts;    /* ... and the frame was DF17/18-shaped */
+    uint64_t crc_failed;  /* ... and its CRC remainder was nonzero */
+    uint64_t decoded;     /* ... and it parsed into a message */
+};
+
+/* How well the magnitude pattern at `index` matches the Mode S preamble: the
+   mean of the four pulse samples over the mean of the twelve quiet ones. Zero
+   when the window runs past the buffer. This is the evidence preamble_at()
+   already weighs, expressed as a number; the acceptance decision stays with
+   preamble_at(), so scoring changes nothing about what decodes. */
+float adsb_preamble_score(const float *magnitudes, size_t index,
+                          size_t pair_count);
+
+/* Write a frame into a magnitude buffer as a receiver would see it: the
+   four-pulse preamble, then one pulse per bit at ADSB_SAMPLES_PER_BIT samples
+   per bit, `high` for a pulse over a `noise` floor. Returns the samples
+   written, 0 if it does not fit. Exposed so the checks demodulate a signal
+   they built rather than asserting against bytes they also wrote. */
+size_t adsb_modulate_frame(const uint8_t *bytes, int byte_count,
+                           float high, float noise, float *magnitudes,
+                           size_t start, size_t capacity);
+
 /* Mode S CRC-24 remainder over byte_count bytes (data + parity). For an
    uncorrupted DF17/18 extended squitter the remainder is zero. */
 uint32_t adsb_crc(const uint8_t *bytes, int byte_count);
@@ -104,9 +173,17 @@ void adsb_decoder_init(struct adsb_decoder *dec);
 /* Scan a magnitude buffer for Mode S frames, decode the DF17/18 ones, resolve
    positions via the decoder's pairing cache, and write decoded messages into
    out (up to out_capacity). time_seconds stamps every frame found in this
-   buffer, used only for even/odd pairing. Returns the number written. */
+   buffer, used only for even/odd pairing. Returns the number written.
+
+   `trace` and `stats` are optional (NULL to skip) and change nothing about
+   what decodes. trace is filled for the last DF17/18-shaped attempt in the
+   buffer, whether or not its CRC passed; its landscape is computed once, after
+   the scan, so a buffer full of false preambles costs nothing. stats is
+   overwritten with this buffer's counts, not accumulated. */
 size_t adsb_demod(struct adsb_decoder *dec, const float *magnitudes,
                   size_t pair_count, double time_seconds,
-                  struct adsb_message *out, size_t out_capacity);
+                  struct adsb_message *out, size_t out_capacity,
+                  struct adsb_frame_trace *trace,
+                  struct adsb_demod_stats *stats);
 
 #endif
