@@ -60,7 +60,13 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   then names the allocation from `src/band_plan.c` and offers to point a
   decoder at it. The band plan is a lookup and the UI says so: see
   `docs/adr/0011-band-plan-is-a-lookup.md`, which is the boundary this view
-  exists next to. `--survey-range low:high` opens the view and sweeps that
+  exists next to. The band plan is also
+  drawn behind the trace as shaded regions, named where there is room, so a
+  peak reads against what the region is allocated to; `+`/`-` zoom the chart,
+  `Left`/`Right` walk the zoomed window, `0` returns to the whole sweep, and
+  the wheel zooms over the chart. Zooming re-draws the same measurements rather
+  than re-sweeping, and the level axis follows what is on screen.
+  `--survey-range low:high` opens the view and sweeps that
   range without waiting to be asked; in the Decode tab, keys 1/2 switch between GSM band
   analysis and ADS-B. The Settings button (or `s`) changes center frequency and, for a live receiver, gain while running; it also toggles the
   default-on spectrum/waterfall DC-spike filter. The HUD reports noise,

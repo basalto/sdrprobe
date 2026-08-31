@@ -282,6 +282,10 @@ struct help_overlay {
 #define SURVEY_BANDWIDTH_DB 20.0f
 #define SURVEY_SENTINEL_DBFS (-300.0f)
 #define SURVEY_OFFSET_HZ 300000.0   /* keep a candidate off the DC spike */
+#define SURVEY_ZOOM_STEP 1.6        /* per key press */
+#define SURVEY_PAN_FRACTION 0.25    /* of the visible span, per key press */
+#define SURVEY_MIN_SPAN_HZ 100000.0 /* no closer than this */
+#define SURVEY_MAX_BANDS 48         /* allocations drawn behind the trace */
 
 struct survey_view {
     char from[24];
@@ -292,6 +296,10 @@ struct survey_view {
 
     double lower_hz;            /* the range actually swept */
     double upper_hz;
+    /* What of it is on screen. Zooming narrows this window without resampling
+       the array, so the same measurements are simply drawn larger. */
+    double view_lower_hz;
+    double view_upper_hz;
     int bins;                   /* of SURVEY_BINS, in use for this range */
     float power[SURVEY_BINS];
 

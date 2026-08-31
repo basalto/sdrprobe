@@ -19,7 +19,8 @@ after dump1090's `modesInitRTLSDR()`.
   Pick one and it retunes and measures it: occupied bandwidth, prominence,
   duty (continuous, intermittent, bursty) and frequency stability, plus the
   allocation the frequency falls in — a band-plan lookup, never a claim about
-  what the signal *is*.
+  what the signal *is*. Portuguese/European allocations are shaded behind the
+  trace; `+`/`-` zoom, `Left`/`Right` pan, `0` resets.
 - **Live or file** — a real RTL‑SDR dongle, or paced, looping hardware‑free
   playback of a raw capture (`--file`).
 - **Runtime settings** — center frequency (Hz or `K`/`M`/`G`), gain (live),

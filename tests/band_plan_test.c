@@ -35,9 +35,14 @@ static void test_known_frequencies(void) {
     check_name("FM broadcast", 100100000.0, "FM broadcast");
     check_name("airband", 121500000.0, "VHF airband");
     check_name("ADS-B", 1090000000.0, "Mode S / ADS-B");
-    check_name("GSM downlink", 943200000.0, "GSM 900 downlink");
-    check_name("GSM uplink", 890200000.0, "GSM 900 uplink");
-    check_name("DAB", 227360000.0, "VHF band III");
+    check_name("GSM downlink", 943200000.0, "GSM 900 / LTE B8 downlink");
+    check_name("GSM uplink", 890200000.0, "GSM 900 / LTE B8 uplink");
+    check_name("DAB", 227360000.0, "VHF band III / DAB+");
+    /* The 700 MHz band was cleared for mobile in Portugal in 2020, so UHF
+       television stops at 694 rather than at the older 790. */
+    check_name("UHF television", 650000000.0, "UHF television");
+    check_name("cleared 700 MHz", 763000000.0, "LTE band 28 downlink");
+    check_none("the 694-703 guard", 700000000.0);
     check_name("PMR446", 446100000.0, "PMR446");
 }
 
