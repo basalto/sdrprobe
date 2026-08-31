@@ -15,6 +15,28 @@ int gsm_downlink_hz(unsigned int arfcn, uint32_t *frequency_hz) {
     return 1;
 }
 
+int gsm_arfcn_for_hz(double hz) {
+    int nearest = 0;
+    double nearest_away = 0.0;
+
+    for (unsigned int arfcn = 1; arfcn <= 124; arfcn++) {
+        uint32_t carrier;
+        if (!gsm_downlink_hz(arfcn, &carrier))
+            continue;
+        double away = fabs(hz - (double)carrier);
+        if (nearest == 0 || away < nearest_away) {
+            nearest = (int)arfcn;
+            nearest_away = away;
+        }
+    }
+    /* Half a channel: beyond that the frequency belongs to no channel rather
+       than to the closest one, which would name a channel for any frequency
+       in the band including the gaps at its edges. */
+    if (nearest == 0 || nearest_away > 100000.0)
+        return 0;
+    return nearest;
+}
+
 int gsm_fcch_detect(const float *i_samples, const float *q_samples,
                     size_t pair_count, double sample_rate,
                     double target_offset_hz, double search_half_width_hz,
