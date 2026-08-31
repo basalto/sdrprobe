@@ -49,6 +49,11 @@ struct gsm_fcch_result {
    out-of-range ARFCN. */
 int gsm_downlink_hz(unsigned int arfcn, uint32_t *frequency_hz);
 
+/* The downlink channel whose carrier is nearest `hz`, or 0 when nothing is
+   within half a channel of it. The inverse of the map above, for a caller
+   holding a measured frequency and wanting the channel it belongs to. */
+int gsm_arfcn_for_hz(double hz);
+
 /* Detect the FCCH pure tone near target_offset_hz (baseband) within
    +/- search_window_hz. Returns 1 (and sets result->detected) when the peak
    coherence meets the internal threshold; result->confidence carries the peak

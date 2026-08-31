@@ -26,6 +26,13 @@ static void check_size(const char *name, size_t actual, size_t expected) {
     }
 }
 
+static void check_int(const char *name, long actual, long expected) {
+    if (actual != expected) {
+        fprintf(stderr, "%s: got %ld, expected %ld\n", name, actual, expected);
+        failures++;
+    }
+}
+
 /* GSM calibration exercises the plugin's channel map plus the generic centroid
    estimate and PPM correction it reuses from sdr_dsp. */
 static void test_cellular_calibration(void) {
@@ -416,6 +423,24 @@ static void check_real_capture(const char *path, int bsic, int ncc, int bcc,
     }
 }
 
+/* The channel map both ways: a frequency in the middle of a channel names it,
+   and a frequency outside the band names none. */
+static void test_arfcn_for_hz(void) {
+    for (unsigned int arfcn = 1; arfcn <= 124; arfcn += 17) {
+        uint32_t carrier = 0;
+        char name[48];
+        gsm_downlink_hz(arfcn, &carrier);
+        snprintf(name, sizeof(name), "arfcn %u round trip", arfcn);
+        check_int(name, gsm_arfcn_for_hz((double)carrier), (long)arfcn);
+        snprintf(name, sizeof(name), "arfcn %u off by 40 kHz", arfcn);
+        check_int(name, gsm_arfcn_for_hz((double)carrier + 40000.0),
+                  (long)arfcn);
+    }
+    check_int("below the band", gsm_arfcn_for_hz(900000000.0), 0);
+    check_int("above the band", gsm_arfcn_for_hz(1000000000.0), 0);
+    check_int("in the gap below ARFCN 1", gsm_arfcn_for_hz(935000000.0), 0);
+}
+
 int main(void) {
     test_cellular_calibration();
     test_fcch_detection();
@@ -429,6 +454,8 @@ int main(void) {
        30 to 16, which these floors catch. */
     check_real_capture("testfiles/gsm_arfcn_69.bin", 59, 7, 3, 25);
     check_real_capture("testfiles/gsm_arfcn_73.bin", 56, 7, 0, 25);
+
+    test_arfcn_for_hz();
 
     if (failures) {
         fprintf(stderr, "%d gsm_dsp check(s) failed\n", failures);

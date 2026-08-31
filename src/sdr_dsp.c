@@ -172,6 +172,238 @@ int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
     return 1;
 }
 
+/* The median level of the bins within `window` either side of `centre`,
+   skipping the hump itself (lower..upper) and any bin never measured. A median
+   rather than a mean because the neighbour of a strong carrier is exactly
+   where a mean floor goes wrong: it rises toward the carrier and buries the
+   weaker signal beside it, which is the one a survey exists to show. Returns
+   NAN when there is nothing to measure a floor from. */
+static float local_floor(const float *power_dbfs, int count, float sentinel,
+                         int centre, int lower, int upper, int window,
+                         float *workspace) {
+    int gathered = 0;
+    int from = centre - window;
+    int to = centre + window;
+
+    if (from < 0)
+        from = 0;
+    if (to > count - 1)
+        to = count - 1;
+    for (int i = from; i <= to; i++) {
+        if (i >= lower && i <= upper)
+            continue;
+        if (power_dbfs[i] <= sentinel)
+            continue;
+        workspace[gathered++] = power_dbfs[i];
+    }
+    if (gathered == 0)
+        return NAN;
+    qsort(workspace, (size_t)gathered, sizeof(*workspace), compare_float);
+    return workspace[gathered / 2];
+}
+
+/*
+ * Topographic prominence: how far this peak stands above the lowest point that
+ * must be crossed to reach anything higher. It is the right measure here and a
+ * "how far above the local floor" rule is not, because the shoulder of a
+ * strong carrier sits far above the floor while being no signal at all -- the
+ * first cut of this function reported three signals where there were two, and
+ * four where a gap split two humps. Crossing to a higher peak costs a shoulder
+ * almost nothing, so its prominence collapses and it drops out, while a weak
+ * carrier beside a strong one keeps the full drop to the floor between them.
+ *
+ * The walk is bounded: prominence is judged within `window` bins either side,
+ * which keeps a smooth ramp from costing a full pass per bin, and matches what
+ * a reader means by "stands out around here" anyway. Unmeasured bins end the
+ * walk like the array's edge does.
+ */
+static float topographic_prominence(const float *power_dbfs, int count,
+                                    float sentinel, int at, int window) {
+    float level = power_dbfs[at];
+    float left_saddle = level;
+    float right_saddle = level;
+    int steps;
+
+    steps = 0;
+    for (int i = at - 1; i >= 0 && steps < window; i--, steps++) {
+        if (power_dbfs[i] <= sentinel || power_dbfs[i] > level)
+            break;
+        if (power_dbfs[i] < left_saddle)
+            left_saddle = power_dbfs[i];
+    }
+    steps = 0;
+    for (int i = at + 1; i < count && steps < window; i++, steps++) {
+        if (power_dbfs[i] <= sentinel || power_dbfs[i] > level)
+            break;
+        if (power_dbfs[i] < right_saddle)
+            right_saddle = power_dbfs[i];
+    }
+    return level - (left_saddle > right_saddle ? left_saddle : right_saddle);
+}
+
+static int compare_peaks(const void *left, const void *right) {
+    const struct sdr_peak *a = left;
+    const struct sdr_peak *b = right;
+    return (a->power_dbfs < b->power_dbfs) - (a->power_dbfs > b->power_dbfs);
+}
+
+int sdr_dsp_find_peaks(const float *power_dbfs, int count, float sentinel,
+                       float min_prominence_db, float bandwidth_db,
+                       float *sort_workspace, struct sdr_peak *peaks,
+                       int max_peaks) {
+    int found = 0;
+    int window = count / 4;
+
+    if (!power_dbfs || !sort_workspace || !peaks || count <= 2 ||
+        max_peaks <= 0)
+        return 0;
+    if (window > 1024)
+        window = 1024;
+    if (window < 16)
+        window = 16;
+
+    for (int i = 1; i < count - 1; i++) {
+        if (power_dbfs[i] <= sentinel)
+            continue;
+        /* A local maximum, taking a flat top only once. */
+        if (!(power_dbfs[i] >= power_dbfs[i - 1] &&
+              power_dbfs[i] > power_dbfs[i + 1]))
+            continue;
+        if (topographic_prominence(power_dbfs, count, sentinel, i, window) <
+            min_prominence_db)
+            continue;
+
+        struct sdr_peak candidate;
+        candidate.index = i;
+        candidate.power_dbfs = power_dbfs[i];
+        /* Out to the -bandwidth_db points, stopping where the sweep did. */
+        float threshold = power_dbfs[i] - bandwidth_db;
+        candidate.lower_index = i;
+        while (candidate.lower_index > 0 &&
+               power_dbfs[candidate.lower_index - 1] > sentinel &&
+               power_dbfs[candidate.lower_index - 1] >= threshold)
+            candidate.lower_index--;
+        candidate.upper_index = i;
+        while (candidate.upper_index < count - 1 &&
+               power_dbfs[candidate.upper_index + 1] > sentinel &&
+               power_dbfs[candidate.upper_index + 1] >= threshold)
+            candidate.upper_index++;
+
+        int width = candidate.upper_index - candidate.lower_index + 1;
+        int floor_window = width * 8 < 16 ? 16 : width * 8;
+        candidate.floor_dbfs = local_floor(power_dbfs, count, sentinel, i,
+                                           candidate.lower_index,
+                                           candidate.upper_index, floor_window,
+                                           sort_workspace);
+        if (!isfinite(candidate.floor_dbfs))
+            continue;
+        candidate.prominence_db = candidate.power_dbfs - candidate.floor_dbfs;
+
+        if (found < max_peaks) {
+            peaks[found++] = candidate;
+        } else {
+            /* Full: keep the strongest, not the first to arrive. */
+            int weakest = 0;
+            for (int k = 1; k < found; k++)
+                if (peaks[k].power_dbfs < peaks[weakest].power_dbfs)
+                    weakest = k;
+            if (candidate.power_dbfs > peaks[weakest].power_dbfs)
+                peaks[weakest] = candidate;
+        }
+    }
+    qsort(peaks, (size_t)found, sizeof(*peaks), compare_peaks);
+    return found;
+}
+
+int sdr_dsp_characterise_carrier(const float *spectrum_dbfs, size_t bin_count,
+                                 double centre_hz, double sample_rate,
+                                 double expected_hz,
+                                 double search_half_width_hz,
+                                 float bandwidth_db, float *sort_workspace,
+                                 struct sdr_carrier_report *report) {
+    if (!spectrum_dbfs || !sort_workspace || !report || bin_count < 4 ||
+        sample_rate <= 0.0)
+        return 0;
+
+    double bin_hz = sample_rate / (double)bin_count;
+    double lower_hz = centre_hz - sample_rate / 2.0;
+    double from_hz = expected_hz - search_half_width_hz;
+    double to_hz = expected_hz + search_half_width_hz;
+    int from = (int)((from_hz - lower_hz) / bin_hz);
+    int to = (int)((to_hz - lower_hz) / bin_hz);
+    int peak;
+
+    if (from < 0)
+        from = 0;
+    if (to > (int)bin_count - 1)
+        to = (int)bin_count - 1;
+    if (from >= to)
+        return 0;
+
+    peak = from;
+    for (int i = from; i <= to; i++)
+        if (spectrum_dbfs[i] > spectrum_dbfs[peak])
+            peak = i;
+
+    /* A first pass at the width, to know which bins to keep out of the floor;
+       the width is then taken again against a threshold that cannot fall into
+       the floor it just measured. */
+    float threshold = spectrum_dbfs[peak] - bandwidth_db;
+    int lower = peak;
+    while (lower > 0 && spectrum_dbfs[lower - 1] >= threshold)
+        lower--;
+    int upper = peak;
+    while (upper < (int)bin_count - 1 && spectrum_dbfs[upper + 1] >= threshold)
+        upper++;
+
+    int width = upper - lower + 1;
+    int window = width * 8 < 32 ? 32 : width * 8;
+    float floor_dbfs = local_floor(spectrum_dbfs, (int)bin_count,
+                                   SDR_DSP_DBFS_FLOOR - 1.0f, peak, lower,
+                                   upper, window, sort_workspace);
+    /* No floor to measure against means the "carrier" is the whole window --
+       a flat spectrum, in other words, in which there is nothing to report. */
+    if (!isfinite(floor_dbfs))
+        return 0;
+    report->floor_dbfs = floor_dbfs;
+    report->peak_dbfs = spectrum_dbfs[peak];
+    report->prominence_db = report->peak_dbfs - report->floor_dbfs;
+    if (report->prominence_db <= 0.0f)
+        return 0;
+
+    /* Re-take the width, holding the threshold clear of the floor. */
+    float guarded = floor_dbfs + 3.0f;
+    if (threshold < guarded)
+        threshold = guarded;
+    report->bandwidth_ref_db = report->peak_dbfs - threshold;
+    lower = peak;
+    while (lower > 0 && spectrum_dbfs[lower - 1] >= threshold)
+        lower--;
+    upper = peak;
+    while (upper < (int)bin_count - 1 && spectrum_dbfs[upper + 1] >= threshold)
+        upper++;
+    width = upper - lower + 1;
+
+    /* Power-weighted centre across the occupied bins, so a carrier between two
+       bins is not reported at whichever of them happened to win. */
+    double weight_sum = 0.0;
+    double weighted_hz = 0.0;
+    for (int i = lower; i <= upper; i++) {
+        double weight = pow(10.0, (spectrum_dbfs[i] - report->floor_dbfs) / 10.0);
+        if (weight <= 1.0)
+            continue;
+        weight -= 1.0; /* the floor itself carries no information */
+        weighted_hz += weight * (lower_hz + ((double)i + 0.5) * bin_hz);
+        weight_sum += weight;
+    }
+    report->centre_hz = weight_sum > 0.0
+                            ? weighted_hz / weight_sum
+                            : lower_hz + ((double)peak + 0.5) * bin_hz;
+    report->offset_hz = report->centre_hz - centre_hz;
+    report->bandwidth_hz = (double)width * bin_hz;
+    return 1;
+}
+
 int sdr_dsp_estimate_channel_center(const float *spectrum_dbfs,
                                     size_t bin_count,
                                     double lower_frequency_hz,

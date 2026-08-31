@@ -55,6 +55,66 @@ int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
                          float *sort_workspace,
                          struct sdr_signal_stats *stats);
 
+/*
+ * A peak standing above its local noise floor: what a band survey finds before
+ * anything is known about what it carries.
+ */
+struct sdr_peak {
+    int   index;           /* bin of the peak in the array searched */
+    float power_dbfs;
+    float floor_dbfs;      /* robust local floor either side of it */
+    float prominence_db;   /* power - floor */
+    int   lower_index;     /* where it falls bandwidth_db below the peak */
+    int   upper_index;
+};
+
+/*
+ * Find local maxima standing at least min_prominence_db above a robust local
+ * floor, strongest first, and return how many were written.
+ *
+ * The floor is a median of the bins either side, not a mean: beside a strong
+ * carrier a mean is dragged up far enough to hide a weaker neighbour, which is
+ * the case a survey most needs to show. Bins holding `sentinel` were never
+ * measured; they bound a hump rather than joining it, so an unswept gap cannot
+ * merge two candidates into one.
+ *
+ * sort_workspace must hold at least `count` floats.
+ */
+int sdr_dsp_find_peaks(const float *power_dbfs, int count, float sentinel,
+                       float min_prominence_db, float bandwidth_db,
+                       float *sort_workspace, struct sdr_peak *peaks,
+                       int max_peaks);
+
+/*
+ * What one carrier looks like in a spectrum: where it actually sits, how far
+ * it stands above the floor around it, and how wide it is between the points
+ * where it falls bandwidth_db below its peak.
+ *
+ * A weak carrier may not have bandwidth_db of room above the floor, and
+ * measuring its width down there would measure the noise instead. The
+ * threshold is held 3 dB clear of the floor in that case, and
+ * bandwidth_ref_db reports the drop actually used so the figure can be
+ * labelled with the truth rather than with the request.
+ *
+ * Returns 0 when nothing stands above the floor within the search window.
+ */
+struct sdr_carrier_report {
+    double centre_hz;
+    double offset_hz;      /* from the receiver's centre frequency */
+    float  peak_dbfs;
+    float  floor_dbfs;
+    float  prominence_db;
+    double bandwidth_hz;
+    float  bandwidth_ref_db;  /* dB below the peak the width was taken at */
+};
+
+int sdr_dsp_characterise_carrier(const float *spectrum_dbfs, size_t bin_count,
+                                 double centre_hz, double sample_rate,
+                                 double expected_hz,
+                                 double search_half_width_hz,
+                                 float bandwidth_db, float *sort_workspace,
+                                 struct sdr_carrier_report *report);
+
 int sdr_dsp_estimate_channel_center(const float *spectrum_dbfs,
                                     size_t bin_count,
                                     double lower_frequency_hz,

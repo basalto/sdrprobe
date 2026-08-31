@@ -25,6 +25,13 @@ static void check_size(const char *name, size_t actual, size_t expected) {
     }
 }
 
+static void check_int(const char *name, long actual, long expected) {
+    if (actual != expected) {
+        fprintf(stderr, "%s: got %ld, expected %ld\n", name, actual, expected);
+        failures++;
+    }
+}
+
 static void test_conversion(void) {
     const uint8_t bytes[] = {127, 128, 255};
     float i[2] = {99.0f, 99.0f};
@@ -216,6 +223,148 @@ static void test_channel_powers(void) {
     free(spectrum);
 }
 
+/* A survey array with three humps of known place, width and height over a
+   -95 dBFS floor. */
+#define SURVEY_BINS 600
+#define SURVEY_SENTINEL (-300.0f)
+
+static void place_hump(float *power, int centre, int half_width, float peak,
+                       float floor_level) {
+    for (int i = centre - half_width; i <= centre + half_width; i++) {
+        if (i < 0 || i >= SURVEY_BINS)
+            continue;
+        double away = fabs((double)(i - centre)) / (double)(half_width + 1);
+        float level = (float)(peak - (peak - floor_level) * away * away);
+        if (level > power[i])
+            power[i] = level;
+    }
+}
+
+static void test_find_peaks(void) {
+    static float power[SURVEY_BINS];
+    static float workspace[SURVEY_BINS];
+    struct sdr_peak peaks[8];
+
+    for (int i = 0; i < SURVEY_BINS; i++)
+        power[i] = -95.0f;
+    place_hump(power, 100, 4, -40.0f, -95.0f);
+    place_hump(power, 300, 8, -55.0f, -95.0f);
+    place_hump(power, 450, 2, -70.0f, -95.0f);
+
+    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, 6.0f,
+                                   20.0f, workspace, peaks, 8);
+    check_int("peaks found", found, 3);
+    if (found == 3) {
+        check_int("strongest peak bin", peaks[0].index, 100);
+        check_int("second peak bin", peaks[1].index, 300);
+        check_int("third peak bin", peaks[2].index, 450);
+        check_close("strongest peak level", peaks[0].power_dbfs, -40.0, 0.01);
+        check_close("strongest prominence", peaks[0].prominence_db, 55.0, 1.0);
+        /* The -20 dB width of the widest hump is broader than the narrowest. */
+        int wide = peaks[1].upper_index - peaks[1].lower_index;
+        int narrow = peaks[2].upper_index - peaks[2].lower_index;
+        if (wide <= narrow) {
+            fprintf(stderr, "occupied width did not follow hump width: %d vs %d\n",
+                    wide, narrow);
+            failures++;
+        }
+    }
+}
+
+/* The case a mean floor gets wrong: a weak carrier sitting beside a strong
+   one, which is exactly what a survey has to show. */
+static void test_peak_beside_a_strong_neighbour(void) {
+    static float power[SURVEY_BINS];
+    static float workspace[SURVEY_BINS];
+    struct sdr_peak peaks[8];
+
+    for (int i = 0; i < SURVEY_BINS; i++)
+        power[i] = -95.0f;
+    place_hump(power, 200, 10, -35.0f, -95.0f);
+    place_hump(power, 240, 3, -72.0f, -95.0f);
+
+    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, 6.0f,
+                                   20.0f, workspace, peaks, 8);
+    check_int("both neighbours found", found, 2);
+    if (found == 2) {
+        check_int("the strong one leads", peaks[0].index, 200);
+        check_int("the weak neighbour survives", peaks[1].index, 240);
+    }
+}
+
+/* Unswept bins bound a hump instead of joining it, so a gap in the sweep
+   cannot fuse two candidates into one. */
+static void test_sentinel_splits_humps(void) {
+    static float power[SURVEY_BINS];
+    static float workspace[SURVEY_BINS];
+    struct sdr_peak peaks[8];
+
+    for (int i = 0; i < SURVEY_BINS; i++)
+        power[i] = -95.0f;
+    place_hump(power, 100, 6, -50.0f, -95.0f);
+    place_hump(power, 140, 6, -50.0f, -95.0f);
+    for (int i = 118; i <= 122; i++)
+        power[i] = SURVEY_SENTINEL;
+
+    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, 6.0f,
+                                   20.0f, workspace, peaks, 8);
+    check_int("humps either side of a gap stay separate", found, 2);
+}
+
+/* Characterising one carrier: a bump of known centre and width in a spectrum
+   whose bins map to real frequencies. */
+static void test_characterise_carrier(void) {
+    const size_t bins = 2048;
+    const double sample_rate = 2000000.0;
+    const double centre_hz = 1000000000.0;
+    const double bin_hz = sample_rate / (double)bins;
+    const double carrier_hz = centre_hz + 400000.0;
+    float *spectrum = malloc(bins * sizeof(*spectrum));
+    float *workspace = malloc(bins * sizeof(*workspace));
+    struct sdr_carrier_report report;
+
+    if (!spectrum || !workspace) {
+        fprintf(stderr, "characterise allocation failed\n");
+        exit(2);
+    }
+    for (size_t i = 0; i < bins; i++)
+        spectrum[i] = -100.0f;
+    /* 100 kHz wide, centred where we said. */
+    int centre_bin = (int)((carrier_hz - (centre_hz - sample_rate / 2.0)) / bin_hz);
+    int half = (int)(50000.0 / bin_hz);
+    for (int i = centre_bin - half; i <= centre_bin + half; i++) {
+        double away = fabs((double)(i - centre_bin)) / (double)(half + 1);
+        spectrum[i] = (float)(-45.0 - 25.0 * away * away);
+    }
+
+    int ok = sdr_dsp_characterise_carrier(spectrum, bins, centre_hz,
+                                          sample_rate, carrier_hz, 200000.0,
+                                          20.0f, workspace, &report);
+    check_int("carrier characterised", ok, 1);
+    if (ok) {
+        check_close("carrier centre", report.centre_hz / 1e6,
+                    carrier_hz / 1e6, 0.002);       /* within 2 kHz */
+        check_close("carrier offset", report.offset_hz / 1e3, 400.0, 2.0);
+        check_close("carrier peak", report.peak_dbfs, -45.0, 0.5);
+        check_close("carrier bandwidth", report.bandwidth_hz / 1e3, 100.0,
+                    10.0);                           /* within 10% */
+        if (report.prominence_db < 40.0f) {
+            fprintf(stderr, "carrier prominence only %.1f dB\n",
+                    report.prominence_db);
+            failures++;
+        }
+    }
+    /* Nothing there: an empty window must not invent a carrier. */
+    for (size_t i = 0; i < bins; i++)
+        spectrum[i] = -100.0f;
+    check_int("flat spectrum yields no carrier",
+              sdr_dsp_characterise_carrier(spectrum, bins, centre_hz,
+                                           sample_rate, carrier_hz, 200000.0,
+                                           20.0f, workspace, &report), 0);
+    free(spectrum);
+    free(workspace);
+}
+
 int main(void) {
     test_conversion();
     test_standard_block();
@@ -224,6 +373,10 @@ int main(void) {
     test_signal_stats();
     test_spectrum();
     test_channel_powers();
+    test_find_peaks();
+    test_peak_beside_a_strong_neighbour();
+    test_sentinel_splits_humps();
+    test_characterise_carrier();
 
     if (failures) {
         fprintf(stderr, "%d sdr_dsp check(s) failed\n", failures);
