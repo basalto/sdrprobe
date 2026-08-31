@@ -286,10 +286,22 @@ void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
     int x_label = x_icao + 84;
     int x_detail = x_label + 64;
     int x_raw = x_detail + 430;
+    int right = (int)(plot.x + plot.width) - pad;
     int y = (int)plot.y + pad;
 
+    /* The raw column sits at a fixed offset, which is fine in a full-width
+       panel and not fine in a narrow one: it used to draw past the panel's own
+       right edge and over whatever sat beside it. Give it up when there is no
+       room, and let the decoded text take the space instead -- every field is
+       drawn through sdrgui_text_fit now, so a column that does not fit is
+       shortened rather than spilled. */
+    const int raw_minimum = 170;
+    int show_raw = x_raw + raw_minimum <= right;
+    int detail_width = (show_raw ? x_raw - 12 : right) - x_detail;
+
     if (params->caption && params->caption[0]) {
-        DrawText(params->caption, x_time, y, 16, (Color){ 151, 174, 188, 255 });
+        sdrgui_text_fit(params->caption, x_time, y, 16,
+                        (float)(right - x_time), (Color){ 151, 174, 188, 255 });
         y += 24;
     }
 
@@ -297,8 +309,10 @@ void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
     DrawText("TIME", x_time, y, 16, (Color){ 126, 151, 166, 255 });
     DrawText("ICAO", x_icao, y, 16, (Color){ 126, 151, 166, 255 });
     DrawText("TYPE", x_label, y, 16, (Color){ 126, 151, 166, 255 });
-    DrawText("DECODED MESSAGE", x_detail, y, 16, (Color){ 126, 151, 166, 255 });
-    DrawText("RAW (hex)", x_raw, y, 16, (Color){ 126, 151, 166, 255 });
+    sdrgui_text_fit("DECODED MESSAGE", x_detail, y, 16, (float)detail_width,
+                    (Color){ 126, 151, 166, 255 });
+    if (show_raw)
+        DrawText("RAW (hex)", x_raw, y, 16, (Color){ 126, 151, 166, 255 });
     y += 22;
     DrawLine(x_time, y - 4, (int)(plot.x + plot.width) - pad, y - 4,
              (Color){ 82, 109, 126, 160 });
@@ -324,8 +338,11 @@ void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
         DrawText(row->time, x_time, row_y, 18, (Color){ 160, 178, 190, 255 });
         DrawText(row->icao, x_icao, row_y, 18, id_color);
         DrawText(row->label, x_label, row_y, 18, (Color){ 149, 205, 232, 255 });
-        DrawText(row->detail, x_detail, row_y, 18,
-                 (Color){ 213, 226, 234, 255 });
-        DrawText(row->raw, x_raw, row_y, 18, (Color){ 130, 150, 162, 255 });
+        sdrgui_text_fit(row->detail, x_detail, row_y, 18,
+                        (float)detail_width, (Color){ 213, 226, 234, 255 });
+        if (show_raw)
+            sdrgui_text_fit(row->raw, x_raw, row_y, 18,
+                            (float)(right - x_raw),
+                            (Color){ 130, 150, 162, 255 });
     }
 }
