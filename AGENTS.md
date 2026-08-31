@@ -28,6 +28,23 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   intended, re-bless the numbers in `tests/layout_test.c` in the same
   commit, so the diff shows what shifted.
 - `./sdrprobe [--frequency Hz|K|M|G] [--sample-rate S/s] [--gain max|auto|dB] [--ppm N]`
+  plus the scripted flags: `--list-devices` (what is attached and whether it can
+  be opened, which is how a busy dongle announces itself), `--device N`,
+  `--view NAME` to open on a screen, `--record-seconds N` with `--technology`
+  to capture from startup, `--duration N` to quit by itself, and `--headless`
+  to acquire with no window at all. `--headless --record-seconds N` is the way
+  to make a capture without a display; it prints the path on stdout. Recording
+  tees off inside the acquisition thread, so a headless capture is the same
+  bytes a windowed one would be -- re-recording a capture through it decodes
+  identically. `--arfcn N` tunes a GSM 900 downlink channel the way clicking it
+  in the scan chart does (centre 400 kHz below the carrier) and labels a
+  recording with the channel and offset; `--gsm-features filter,finecfo,trellis`
+  (or `none`) picks the SCH refinements; `--dc-filter on|off` and `--once`
+  (play a capture through once instead of looping) round it out. `--headless
+  --decode` prints decoded messages to stdout -- SCH lines for GSM, message-log
+  rows for ADS-B -- which is how to check a capture from a script:
+  `./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode
+  --once` prints BSIC 56, the invariant CLAUDE.md records for that file.
   opens magnitude, spectrum, I/Q scatter, and waterfall views. It needs a real
   RTL-SDR dongle by default; `--file capture.bin` (e.g.
   `testfiles/adsb_modes1.bin`) enables paced, looping hardware-free playback. A
@@ -44,11 +61,14 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   the SCH and prints the BSIC (NCC/BCC) and frame number above the scan chart,
   with a decode constellation of the demodulated SCH symbols beside it (small
   Amp/Derot toggles switch amplitude and differential/derotated views), and a
-  Record button saves ~2 s of raw I/Q to `captures/` to build a GSM capture,
+  Record button saves ~2 s of raw I/Q to `captures/` to build a capture,
   writing a `.json` sidecar beside it with the tuning the samples were taken
-  at (centre frequency, sample rate, gain, PPM, tuner, the GSM ARFCN and its
-  carrier offset) plus a short-block count that is non-zero only when the
-  capture is not contiguous. The
+  at (centre frequency, sample rate, gain, PPM, tuner, the technology it was
+  recorded for, and for GSM the ARFCN and its carrier offset) plus a
+  short-block count that is non-zero only when the capture is not contiguous.
+  The ADS-B view has the same button; recording is shared
+  (`start_capture_record()`), because it is not a property of either decode
+  view. The
   Calibration button (or `c`), below Settings, opens button-driven GSM 900
   cellular calibration for ARFCN 1-124 as a full-screen overlay over any tab,
   including expected/measured carrier markers and a stability-gated PPM

@@ -42,7 +42,12 @@ decode transmitted messages.
 ```text
 sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
              [--gain max|auto|dB] [--ppm signed_integer]
-             [--file capture.bin]
+             [--file capture.bin] [--device index]
+             [--view magnitude|spectrum|scatter|waterfall|gsm|adsb]
+             [--record-seconds n] [--technology gsm|adsb|raw]
+             [--arfcn 1-124] [--gsm-features list] [--dc-filter on|off]
+             [--duration n] [--once] [--headless] [--decode]
+             [--list-devices]
 ```
 
 Defaults:
@@ -53,6 +58,34 @@ Defaults:
 | `--sample-rate` | `2000000` | I/Q pairs per second |
 | `--gain` | ~`30` | Supported manual gain nearest 30 dB |
 | `--ppm` | `0` | Signed tuner frequency correction |
+| `--device` | `0` | Which receiver to open |
+| `--view` | magnitude | Screen to open on |
+| `--record-seconds` | off | Record from startup, into `captures/` |
+| `--technology` | from `--view` | What the recording's sidecar calls it |
+| `--duration` | off | Quit after n seconds |
+| `--headless` | off | Acquire with no window |
+| `--arfcn` | none | Tune a GSM 900 downlink channel |
+| `--gsm-features` | all | SCH refinements: filter, finecfo, trellis, none |
+| `--dc-filter` | `on` | Spectrum/waterfall DC-spike removal |
+| `--once` | off | Play a capture once instead of looping |
+| `--decode` | off | Headless: print decoded messages to stdout |
+
+`--record-seconds` and `--duration` accept a positive number of seconds up to
+`MAX_RUN_SECONDS`. `--headless` needs no display: it starts the acquisition
+worker, records if asked, and stops when the recording finishes, the duration
+elapses, or a signal arrives, printing the capture path on stdout. It rejects
+`--view`, which has no meaning without a window; `--technology` labels the
+sidecar there instead. `--list-devices` prints each receiver and whether it can
+be opened, then exits.
+
+`--arfcn` is a frequency, so it rejects `--frequency` alongside it: the
+receiver is tuned 400 kHz below the channel, exactly as clicking the channel in
+the scan chart does, and a recording made this way carries the ARFCN and the
+carrier offset in its sidecar. `--once` applies to capture playback only.
+`--decode` requires `--headless` and a technology to decode -- from
+`--technology`, or implied by `--arfcn` -- and prints one line per SCH decode
+or per decoded Mode S message. It runs the same decoders the views run, so what
+it prints is what the screen would have shown.
 
 Frequency accepts plain integer Hz or a decimal value with a case-insensitive
 SI suffix: `K` = 1,000, `M` = 1,000,000, and `G` = 1,000,000,000. For example,

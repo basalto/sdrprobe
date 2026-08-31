@@ -54,7 +54,38 @@ make                 # builds ./sdrprobe
 ```
 ./sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
            [--gain max|auto|dB] [--ppm signed_integer] [--file capture.bin]
+           [--device index] [--view magnitude|spectrum|scatter|waterfall|gsm|adsb]
+           [--record-seconds n] [--technology gsm|adsb|raw] [--arfcn 1-124]
+           [--gsm-features list] [--dc-filter on|off] [--duration n] [--once]
+           [--headless] [--decode] [--list-devices]
 ```
+
+Scripted use, no window and no clicking:
+
+```sh
+./sdrprobe --list-devices                       # what is attached, and is it free
+./sdrprobe --headless --record-seconds 3 \
+           --technology adsb                    # capture 3 s + sidecar, print the path
+./sdrprobe --view adsb --duration 20            # open on a screen, quit by itself
+./sdrprobe --headless --arfcn 73 --record-seconds 2   # a GSM channel, sidecar and all
+
+# Decode a capture with no window and no clicking:
+./sdrprobe --file testfiles/adsb_cpr_pair.bin \
+           --headless --technology adsb --decode --once
+./sdrprobe --file testfiles/gsm_arfcn_73.bin \
+           --headless --arfcn 73 --decode --once
+#   SCH  BSIC 56 (NCC 7, BCC 0)  frame 2090358 (T1/T2/T3 1576/10/21)  match 0.87
+
+# What each SCH refinement is worth, measured rather than assumed:
+for f in none filter filter,finecfo,trellis; do
+  ./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 \
+             --decode --once --gsm-features $f | grep -c SCH
+done   # 6, 13, 29
+```
+
+A recording lands in `captures/<technology>_<stamp>.bin` with a `.json` sidecar
+recording the tuning it was taken at, so a capture never has to be explained in
+prose afterwards.
 
 Keys and controls:
 
@@ -65,6 +96,7 @@ Keys and controls:
 | `s` or Settings button | change frequency, gain, PPM, DC filter |
 | `c` or Calibration button | open GSM 900 calibration |
 | `h` | help: what each chart plots and how to read it |
+| Record 2s button | save raw I/Q + sidecar to `captures/` (GSM and ADS-B views) |
 | `q`, `Esc`, `Ctrl‑C` | quit |
 
 ## Calibrating the receiver
