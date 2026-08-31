@@ -29,6 +29,7 @@
 static volatile sig_atomic_t signal_stop_requested = 0;
 
 void set_tab(struct app *app, int new_tab);
+void set_decode(struct app *app, int kind);
 
 static void on_signal(int signal_number) {
     (void)signal_number;
@@ -673,7 +674,7 @@ void set_tab(struct app *app, int new_tab) {
 }
 
 /* Switch the Decode sub-view. Entering/leaving GSM manages its tuning. */
-static void set_decode(struct app *app, int kind) {
+void set_decode(struct app *app, int kind) {
     if (kind == (int)app->decode)
         return;
     if (app->decode == DECODE_GSM)
@@ -736,15 +737,16 @@ int start_capture_record(struct app *app, const char *basename,
 }
 
 static void draw_header(const struct app *app) {
-    static const char *scope_opts[4] = {
-        "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall"
+    static const char *scope_opts[5] = {
+        "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall",
+        "5 survey"
     };
     static const char *decode_opts[2] = { "1 GSM", "2 ADS-B" };
 
     DrawText("sdrprobe signal visualizer", 22, 14, 24,
              (Color){ 225, 236, 245, 255 });
     if (app->tab == TAB_SCOPE)
-        draw_option_row((int)app->view, scope_opts, 4,
+        draw_option_row((int)app->view, scope_opts, 5,
                         "Up/Down scale   h help   Esc quit");
     else
         draw_option_row((int)app->decode, decode_opts, 2,
@@ -867,6 +869,8 @@ static int run_gui(struct app *app) {
     case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM; break;
     case START_VIEW_SCATTER:   app->view = VIEW_SCATTER; break;
     case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL; break;
+    case START_VIEW_SURVEY:    app->view = VIEW_SURVEY;
+                               view_survey_enter(app); break;
     case START_VIEW_GSM:       set_decode(app, DECODE_GSM);
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB);
@@ -933,7 +937,7 @@ static int run_gui(struct app *app) {
                 handle_gsm_input(app);
             else
                 handle_adsb_input(app);
-        } else if (IsKeyPressed(KEY_ESCAPE)) {
+        } else if (IsKeyPressed(KEY_ESCAPE) && !survey_editing(app)) {
             break;
         }
 
@@ -946,24 +950,40 @@ static int run_gui(struct app *app) {
 
         if (app->tab == TAB_SCOPE && !app->settings_open &&
             !app->calibration_open) {
-            enum view_kind selected = app->view;
-            if (IsKeyPressed(KEY_ONE))
-                selected = VIEW_MAGNITUDE;
-            if (IsKeyPressed(KEY_TWO))
-                selected = VIEW_SPECTRUM;
-            if (IsKeyPressed(KEY_THREE))
-                selected = VIEW_SCATTER;
-            if (IsKeyPressed(KEY_FOUR))
-                selected = VIEW_WATERFALL;
-            if (selected != app->view) {
-                app->view = selected;
-                if (selected == VIEW_SCATTER)
-                    clear_scatter(app);
+            /* While a survey range field has focus the digits belong to it,
+               not to the view switcher. */
+            if (!survey_editing(app)) {
+                enum view_kind selected = app->view;
+                if (IsKeyPressed(KEY_ONE))
+                    selected = VIEW_MAGNITUDE;
+                if (IsKeyPressed(KEY_TWO))
+                    selected = VIEW_SPECTRUM;
+                if (IsKeyPressed(KEY_THREE))
+                    selected = VIEW_SCATTER;
+                if (IsKeyPressed(KEY_FOUR))
+                    selected = VIEW_WATERFALL;
+                if (IsKeyPressed(KEY_FIVE))
+                    selected = VIEW_SURVEY;
+                if (selected != app->view) {
+                    /* Leaving the survey puts the receiver back where it was
+                       before the sweep walked it away. */
+                    if (app->view == VIEW_SURVEY)
+                        view_survey_leave(app);
+                    app->view = selected;
+                    if (selected == VIEW_SCATTER)
+                        clear_scatter(app);
+                    if (selected == VIEW_SURVEY)
+                        view_survey_enter(app);
+                }
+                if (app->view != VIEW_SURVEY) {
+                    if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP))
+                        adjust_active_scale(app, 1);
+                    if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))
+                        adjust_active_scale(app, 0);
+                }
             }
-            if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP))
-                adjust_active_scale(app, 1);
-            if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))
-                adjust_active_scale(app, 0);
+            if (app->view == VIEW_SURVEY)
+                handle_survey_input(app);
         }
 
         decay_spectrum_peak(app, now);
@@ -973,6 +993,9 @@ static int run_gui(struct app *app) {
             update_waterfall(app);
             update_scan(app);
             update_calibration_measurement(app);
+            if (app->tab == TAB_SCOPE && app->view == VIEW_SURVEY &&
+                !app->calibration_open)
+                update_survey(app, now);
         }
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_ADSB && !app->calibration_open)
@@ -1002,15 +1025,19 @@ static int run_gui(struct app *app) {
                 else
                     draw_adsb(app);
             } else {
-                draw_base_hud(app, &snapshot);
-                if (app->view == VIEW_MAGNITUDE)
-                    draw_magnitude(app);
-                else if (app->view == VIEW_SPECTRUM)
-                    draw_spectrum(app);
-                else if (app->view == VIEW_SCATTER)
-                    draw_scatter(app);
-                else
-                    draw_waterfall(app, 0);
+                if (app->view == VIEW_SURVEY) {
+                    draw_survey(app);
+                } else {
+                    draw_base_hud(app, &snapshot);
+                    if (app->view == VIEW_MAGNITUDE)
+                        draw_magnitude(app);
+                    else if (app->view == VIEW_SPECTRUM)
+                        draw_spectrum(app);
+                    else if (app->view == VIEW_SCATTER)
+                        draw_scatter(app);
+                    else
+                        draw_waterfall(app, 0);
+                }
             }
             draw_header(app);
             if (app->settings_open)
@@ -1223,6 +1250,7 @@ int main(int argc, char **argv) {
     app->remove_dc = options.remove_dc;
     view_gsm_defaults(app);
     view_scope_defaults(app);
+    view_survey_defaults(app);
     if (options.gsm_features_seen) {
         app->gsm.opt_filter = (options.gsm_features & GSM_OPT_FILTER) != 0;
         app->gsm.opt_finecfo = (options.gsm_features & GSM_OPT_FINECFO) != 0;

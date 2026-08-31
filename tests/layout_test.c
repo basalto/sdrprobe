@@ -1,6 +1,7 @@
 #include "adsb_layout.h"
 #include "chrome_layout.h"
 #include "gsm_layout.h"
+#include "survey_layout.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -8,7 +9,7 @@
 
 /*
  * Golden-rect check for the layouts: the GSM decode view, the ADS-B decode
- * view, and the window chrome shared by every screen.
+ * view, the band survey, and the window chrome shared by every screen.
  *
  * Every rectangle, at several window sizes, pinned to the value it had when
  * the layout was consolidated into gsm_layout_for(). Layout had no test before
@@ -294,9 +295,102 @@ static void check_adsb(void) {
     }
 }
 
+/* The band survey. Its lower row is a pair like the ADS-B view's, and its
+   inspect button lives inside a panel that a short window shrinks. */
+#define SURVEY_RECTS 8
+
+struct survey_case {
+    float width, height;
+    struct expected rect[SURVEY_RECTS];
+    float header_left;
+    float header_right;
+};
+
+static const struct survey_case survey_cases[] = {
+    { 1100.0f, 720.0f, {
+        { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
+        { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
+        { "sweep_button", 414.00f, 128.00f, 120.00f, 30.00f },
+        { "stop_button", 544.00f, 128.00f, 90.00f, 30.00f },
+        { "chart", 82.00f, 196.00f, 988.00f, 222.30f },
+        { "peak_list", 82.00f, 444.30f, 414.96f, 245.70f },
+        { "detail", 516.96f, 444.30f, 553.04f, 245.70f },
+        { "inspect_button", 528.96f, 650.00f, 236.00f, 28.00f },
+    }, 82.00f, 950.00f },
+    { 1280.0f, 800.0f, {
+        { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
+        { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
+        { "sweep_button", 414.00f, 128.00f, 120.00f, 30.00f },
+        { "stop_button", 544.00f, 128.00f, 90.00f, 30.00f },
+        { "chart", 82.00f, 196.00f, 1168.00f, 258.30f },
+        { "peak_list", 82.00f, 480.30f, 490.56f, 289.70f },
+        { "detail", 592.56f, 480.30f, 657.44f, 289.70f },
+        { "inspect_button", 604.56f, 730.00f, 236.00f, 28.00f },
+    }, 82.00f, 1130.00f },
+    { 1000.0f, 540.0f, {
+        { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
+        { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
+        { "sweep_button", 414.00f, 128.00f, 120.00f, 30.00f },
+        { "stop_button", 544.00f, 128.00f, 90.00f, 30.00f },
+        { "chart", 82.00f, 196.00f, 888.00f, 141.30f },
+        { "peak_list", 82.00f, 363.30f, 372.96f, 146.70f },
+        { "detail", 474.96f, 363.30f, 495.04f, 146.70f },
+        { "inspect_button", 486.96f, 470.00f, 236.00f, 28.00f },
+    }, 82.00f, 850.00f },
+};
+
+static void check_survey(void) {
+    for (unsigned c = 0; c < sizeof(survey_cases) / sizeof(survey_cases[0]);
+         c++) {
+        const struct survey_case *w = &survey_cases[c];
+        struct survey_layout l = survey_layout_for(w->width, w->height);
+        Rectangle got[SURVEY_RECTS] = {
+            l.from_field, l.to_field, l.sweep_button, l.stop_button, l.chart,
+            l.peak_list, l.detail, l.inspect_button
+        };
+        for (int i = 0; i < SURVEY_RECTS; i++)
+            check(w->width, w->height, w->rect[i].name, got[i], &w->rect[i]);
+        if (fabsf(l.header_left - w->header_left) > 0.01f ||
+            fabsf(l.header_right - w->header_right) > 0.01f) {
+            fprintf(stderr, "%.0fx%.0f survey header bounds moved\n",
+                    w->width, w->height);
+            failures++;
+        }
+        /* The properties the numbers protect. */
+        if (l.peak_list.x + l.peak_list.width > l.detail.x + 0.01f) {
+            fprintf(stderr, "%.0fx%.0f peak_list runs into detail\n",
+                    w->width, w->height);
+            failures++;
+        }
+        if (fabsf(l.peak_list.y - l.detail.y) > 0.01f ||
+            fabsf((l.peak_list.y + l.peak_list.height) -
+                  (l.detail.y + l.detail.height)) > 0.01f) {
+            fprintf(stderr, "%.0fx%.0f the lower panels are not aligned\n",
+                    w->width, w->height);
+            failures++;
+        }
+        if (l.inspect_button.x < l.detail.x ||
+            l.inspect_button.x + l.inspect_button.width >
+                l.detail.x + l.detail.width + 0.01f ||
+            l.inspect_button.y < l.detail.y ||
+            l.inspect_button.y + l.inspect_button.height >
+                l.detail.y + l.detail.height + 0.01f) {
+            fprintf(stderr, "%.0fx%.0f inspect_button escapes the panel\n",
+                    w->width, w->height);
+            failures++;
+        }
+        if (l.chart.y + l.chart.height > l.peak_list.y + 0.01f) {
+            fprintf(stderr, "%.0fx%.0f the chart overlaps the row below\n",
+                    w->width, w->height);
+            failures++;
+        }
+    }
+}
+
 int main(void) {
     check_chrome();
     check_adsb();
+    check_survey();
     for (unsigned c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
         float w = cases[c].width, h = cases[c].height;
         struct gsm_layout l = gsm_layout_for(w, h);

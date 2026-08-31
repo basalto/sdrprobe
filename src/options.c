@@ -14,9 +14,10 @@ void usage(const char *program) {
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
-            "          [--view magnitude|spectrum|scatter|waterfall|gsm|adsb]\n"
+            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb]\n"
             "          [--record-seconds n] [--technology gsm|adsb|raw]\n"
             "          [--arfcn 1-124] [--gsm-features list] [--dc-filter on|off]\n"
+            "          [--survey-range low:high]\n"
             "          [--duration n] [--once] [--headless] [--decode]\n"
             "          [--list-devices]\n"
             "\n"
@@ -33,6 +34,8 @@ void usage(const char *program) {
             "  --gsm-features    SCH decoder refinements to enable: any of\n"
             "                    filter,finecfo,trellis, or none (default all)\n"
             "  --dc-filter       spectrum/waterfall DC-spike removal\n"
+            "  --survey-range    open the band survey on this range and sweep\n"
+            "                    it, for example 88M:108M\n"
             "  --once            play a capture through once instead of looping\n"
             "  --decode          headless: print decoded messages to stdout\n"
             "  --list-devices    print the receivers found, and exit\n",
@@ -169,6 +172,7 @@ int parse_view(const char *text, enum start_view *view) {
         { "spectrum", START_VIEW_SPECTRUM },
         { "scatter", START_VIEW_SCATTER },
         { "waterfall", START_VIEW_WATERFALL },
+        { "survey", START_VIEW_SURVEY },
         { "gsm", START_VIEW_GSM },
         { "adsb", START_VIEW_ADSB }
     };
@@ -289,6 +293,23 @@ int parse_options(int argc, char **argv, struct options *options) {
                 parse_view(argv[++i], &options->view) < 0)
                 return -1;
             view_seen = 1;
+        } else if (strcmp(option, "--survey-range") == 0) {
+            /* LOW:HIGH, each in the same spellings --frequency takes. */
+            if (options->survey_seen || i + 1 >= argc)
+                return -1;
+            const char *text = argv[++i];
+            const char *colon = strchr(text, ':');
+            char low[32];
+            if (!colon || (size_t)(colon - text) >= sizeof(low))
+                return -1;
+            memcpy(low, text, (size_t)(colon - text));
+            low[colon - text] = '\0';
+            if (parse_frequency(low, &options->survey_from_hz) < 0 ||
+                parse_frequency(colon + 1, &options->survey_to_hz) < 0 ||
+                options->survey_to_hz <= options->survey_from_hz)
+                return -1;
+            options->survey_seen = 1;
+            options->view = START_VIEW_SURVEY;
         } else if (strcmp(option, "--arfcn") == 0) {
             if (options->arfcn || i + 1 >= argc ||
                 parse_int(argv[++i], &options->arfcn) < 0 ||
@@ -355,7 +376,10 @@ int parse_options(int argc, char **argv, struct options *options) {
        window that is not being opened has no screen to start on. */
     if (options->file_path && device_seen)
         return -1;
-    if (options->headless && view_seen)
+    if (options->headless && (view_seen || options->survey_seen))
+        return -1;
+    if (options->survey_seen && view_seen &&
+        options->view != START_VIEW_SURVEY)
         return -1;
     /* An ARFCN is a frequency; naming both leaves no way to say which wins. */
     if (options->arfcn && frequency_seen)
