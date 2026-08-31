@@ -55,15 +55,7 @@ static Rectangle gsm_const_derot_button(void) {
 }
 
 static int gsm_scan_arfcn_at(Vector2 point, Rectangle rect) {
-    if (!CheckCollisionPointRec(point, rect))
-        return 0;
-    double fraction = (point.x - rect.x) / rect.width;
-    int arfcn = 1 + (int)(fraction * 124.0);
-    if (arfcn < 1)
-        arfcn = 1;
-    if (arfcn > 124)
-        arfcn = 124;
-    return arfcn;
+    return sdrgui_scan_chart_channel_at(rect, 124, point);
 }
 
 /* Select an ARFCN and show it in the waterfall above: on a live receiver retune

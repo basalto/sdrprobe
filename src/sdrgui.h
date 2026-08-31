@@ -150,6 +150,16 @@ struct sdrgui_scan_chart_params {
 /* Per-channel power bar chart with BCCH highlighting and a hover readout. */
 void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params);
 
+/* The channel under `point` in a scan chart drawn into `outer`, or 0 when the
+   cursor is not over the plot itself.
+
+   The component owns this for the same reason it owns its gutter: the bars sit
+   inside `outer` by a margin that depends on how wide the axis labels render,
+   which the caller cannot know. Callers used to map the cursor across the
+   outer rectangle instead, and so hovered and clicked a channel one or two to
+   the right of the bar under the pointer. */
+int sdrgui_scan_chart_channel_at(Rectangle outer, int count, Vector2 point);
+
 /* --- Decoded-message log --- */
 
 struct sdrgui_message_log_row {
