@@ -33,6 +33,7 @@ enum help_topic {
     HELP_BURST,
     HELP_CONSTELLATION,
     HELP_ADSB,
+    HELP_ADSB_ANALYSIS,
     HELP_CALIBRATION,
     HELP_TOPIC_COUNT
 };
@@ -337,7 +338,62 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "\n"
     "Every row here passed its 24-bit CRC. There is no error correction: a "
     "frame with a bad remainder is dropped rather than repaired, so the log "
-    "shows what arrived intact, not a best guess at what was sent."
+    "shows what arrived intact, not a best guess at what was sent. What it "
+    "dropped is what the funnel line and the next topic's charts are for."
+},
+{
+    "ADS-B analysis",
+    "ADS-B frame analysis charts",
+    "Where: the Decode tab's ADS-B view with View: Analysis. Three charts of one "
+    "Mode S frame, a bit-decision scatter, and the log kept beside them.\n"
+    "\n"
+    "Which frame: the most recent attempt -- a preamble that was accepted and "
+    "produced a DF17/18-shaped frame -- whether or not its CRC passed. A frame "
+    "that failed is the one worth looking at, so it is not the one thrown away. "
+    "The caption says which, and a failed frame shows no ICAO: those bits are "
+    "not an address, they are noise that landed in the address field. Hold last "
+    "good pins the last frame that passed, to compare against.\n"
+    "\n"
+    "The funnel line above the charts is the quickest answer to a log that "
+    "stays empty. Preambles accepted, then how many were squitter-shaped, then "
+    "how many failed their CRC, then how many decoded -- totals first, then the "
+    "latest block. No preambles at all is a silent band, an antenna, or the "
+    "wrong tuning. Preambles with no decodes behind them is a signal you are "
+    "receiving badly, and the line turns amber to say so.\n"
+    "\n"
+    "Preamble Score Landscape. The preamble match score at each sample offset "
+    "either side of the frame: the mean of the four pulse samples over the mean "
+    "of the twelve quiet ones. One peak standing clear of the field is a "
+    "confident lock. A peak with a near-equal runner-up beside it means the "
+    "frame could have been sliced half a microsecond off, and every bit after "
+    "it inherits that.\n"
+    "\n"
+    "Pulse-Position Bit Confidence. One bar per bit: how far its two half "
+    "intervals stood apart, over their sum. A Mode S bit is energy in the first "
+    "half for a one and the second half for a zero, so 1.0 is a bit with all "
+    "its energy on one side and 0 is a coin toss. Tall even bars are a clean "
+    "frame; a dip partway through is where the aircraft's signal faded or "
+    "another transmitter sat on top of it, and that is where a CRC failure "
+    "comes from.\n"
+    "\n"
+    "Frame Magnitude Envelope. The frame as the receiver saw it, divided by the "
+    "preamble's own level, so 1.0 is a full pulse whatever the gain was. The "
+    "first sixteen samples are the preamble -- pulses at 0, 2, 7 and 9 -- and "
+    "the rest is two samples per bit. Pulses that do not reach 1.0 are a weak "
+    "frame; a flat top across many samples is clipping, and clipping breaks the "
+    "comparison the bit decisions are made on.\n"
+    "\n"
+    "Bit decisions. Every bit as a point: sideways is its signed margin, so "
+    "left is a zero and right is a one, and up is how much energy the bit "
+    "carried relative to the preamble. Two tight clusters at the left and right "
+    "edges is a clean frame. Points crowding the centre line decoded by luck. "
+    "Vertical spread means the amplitude moved during the frame. It is not a "
+    "constellation: Mode S is pulse-position, with no modulated symbols and no "
+    "phase in it.\n"
+    "\n"
+    "Every frame in the log passed its CRC, so the log alone cannot show you a "
+    "marginal signal. These charts can: a frame whose bits sit near the centre "
+    "of the scatter decoded this time and will not next time."
 },
 {
     "Calibration",
@@ -428,7 +484,7 @@ static int help_topic_for_screen(const struct app *app) {
         return app->scan_open ? HELP_SCAN : HELP_CALIBRATION;
     if (app->tab == TAB_DECODE) {
         if (app->decode == DECODE_ADSB)
-            return HELP_ADSB;
+            return app->adsb.analysis_mode ? HELP_ADSB_ANALYSIS : HELP_ADSB;
         if (app->scan_selected_arfcn > 0 && app->gsm_analysis_mode)
             return HELP_BURST;
         return HELP_SCAN;
