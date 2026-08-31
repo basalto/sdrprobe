@@ -148,6 +148,13 @@ void handle_adsb_input(struct app *app) {
         app->adsb.analysis_mode = !app->adsb.analysis_mode;
         return;
     }
+    if (clicked(l.record_button)) {
+        /* No channel and no carrier offset: Mode S sits on 1090 MHz itself,
+           so the recorded centre is the carrier. */
+        start_capture_record(app, "adsb", "adsb", 0, 0.0,
+                             ACQUISITION_RECORD_BUTTON_SECONDS);
+        return;
+    }
     if (adsb_analysis_visible(app) && clicked(l.hold_button)) {
         app->adsb.hold_last_good = !app->adsb.hold_last_good;
         return;
@@ -170,10 +177,19 @@ static const struct adsb_frame_trace *adsb_shown_trace(const struct app *app) {
    failed its CRC has no address to print -- those bits are noise that landed
    in the address field -- so the outcome is all this line claims. */
 static void draw_trace_caption(const struct app *app, Rectangle first_chart,
-                               const struct adsb_frame_trace *trace) {
-    char text[200];
+                               const struct adsb_frame_trace *trace,
+                               int recording, const char *record_path,
+                               uint64_t record_bytes) {
+    char text[400];
     int y = (int)first_chart.y - 22;
 
+    if (recording) {
+        snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
+                 record_path, record_bytes / 1e6);
+        DrawText(text, (int)first_chart.x, y, 17,
+                 (Color){ 255, 202, 105, 255 });
+        return;
+    }
     if (!trace->valid) {
         DrawText("No Mode S frame traced yet", (int)first_chart.x, y, 17,
                  (Color){ 151, 174, 188, 255 });
@@ -273,13 +289,22 @@ void draw_adsb(struct app *app) {
     const struct adsb_demod_stats *total = &app->adsb.totals;
     const struct adsb_demod_stats *block = &app->adsb.block_stats;
     int analysis = adsb_analysis_visible(app);
-    char text[240];
+    uint64_t record_bytes = 0;
+    char record_path[ACQUISITION_PATH_MAX];
+    int recording = acquisition_recording_status(&app->acq, &record_bytes,
+                                                 record_path,
+                                                 sizeof(record_path));
+    int header_x = (int)l.header_left;
+    char text[400];
+
+    draw_button(l.record_button, recording ? "Recording..." : "Record 2s",
+                recording);
 
     snprintf(text, sizeof(text),
              "1090 MHz extended squitter   frames decoded: %llu   positions: %llu",
              (unsigned long long)app->adsb.frames_total,
              (unsigned long long)app->adsb.positions_total);
-    sdrgui_text_fit(text, 22, 88, 17, l.header_right - 22.0f,
+    sdrgui_text_fit(text, header_x, 88, 17, l.header_right - l.header_left,
                     (Color){ 187, 205, 216, 255 });
 
     /* The decode funnel. Preambles with no decodes behind them is the state
@@ -298,7 +323,8 @@ void draw_adsb(struct app *app) {
     Color funnel_color = (Color){ 151, 174, 188, 255 };
     if (total->attempts > 0 && total->decoded == 0)
         funnel_color = (Color){ 250, 190, 74, 255 };
-    sdrgui_text_fit(text, 22, 110, 16, l.header_right - 22.0f, funnel_color);
+    sdrgui_text_fit(text, header_x, 110, 16, l.header_right - l.header_left,
+                    funnel_color);
 
     draw_button(l.view_toggle, analysis ? "View: Log" : "View: Analysis", 0);
 
@@ -311,6 +337,18 @@ void draw_adsb(struct app *app) {
         }
     }
 
+    /* Log mode has no caption row of its own for a recording notice -- the
+       analysis mode puts it above the charts -- so the log's own caption
+       carries it. */
+    char log_caption[400];
+    if (recording && !analysis)
+        snprintf(log_caption, sizeof(log_caption),
+                 "Recording raw I/Q to %s  (%.1f MB)", record_path,
+                 record_bytes / 1e6);
+    else
+        snprintf(log_caption, sizeof(log_caption),
+                 "Decoded messages (newest first)");
+
     struct sdrgui_message_log_row rows[ADSB_LOG_CAPACITY];
     for (int i = 0; i < app->adsb.log_count; i++) {
         rows[i].time = app->adsb.log[i].stamp;
@@ -322,7 +360,7 @@ void draw_adsb(struct app *app) {
     }
     struct sdrgui_message_log_params params = {
         analysis ? l.log_split : l.log_full, rows, app->adsb.log_count,
-        "Decoded messages (newest first)",
+        log_caption,
         app->have_samples ? "Listening for Mode S frames..."
                           : "Waiting for samples..."
     };
@@ -330,7 +368,8 @@ void draw_adsb(struct app *app) {
 
     if (analysis) {
         const struct adsb_frame_trace *trace = adsb_shown_trace(app);
-        draw_trace_caption(app, l.chart[0], trace);
+        draw_trace_caption(app, l.chart[0], trace, recording, record_path,
+                           record_bytes);
         draw_trace_charts(&l, trace);
         draw_decision_scatter(app, &l, trace);
     }

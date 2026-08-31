@@ -33,6 +33,8 @@ static void record_write_sidecar(struct acquisition *acq, double seconds) {
        for an older capture, where some fields may be unknown. */
     fprintf(f, "  \"provenance\": \"recorded by sdrprobe\",\n");
     fprintf(f, "  \"format\": \"unsigned 8-bit interleaved I/Q, 127.5 = zero\",\n");
+    if (acq->record_technology[0])
+        fprintf(f, "  \"technology\": \"%s\",\n", acq->record_technology);
     fprintf(f, "  \"center_frequency_hz\": %u,\n", acq->record_frequency_hz);
     fprintf(f, "  \"sample_rate_hz\": %u,\n", acq->record_sample_rate);
     if (acq->record_manual_gain)
@@ -300,6 +302,15 @@ void *file_worker(void *arg) {
             filled += got;
             position += got;
             if (position == acq->capture_bytes) {
+                /* One pass only: publish whatever the last block holds and
+                   report a clean end, so a script decoding a capture stops
+                   instead of decoding it again. */
+                if (!acq->capture_loop) {
+                    if (filled > 0)
+                        publish_block(acq, block, (uint32_t)filled);
+                    finish_worker(acq, NULL);
+                    return NULL;
+                }
                 if (fseeko(acq->capture, 0, SEEK_SET) != 0) {
                     snprintf(error, sizeof(error), "Cannot loop capture: %s",
                              strerror(errno));
@@ -385,6 +396,8 @@ int acquisition_start_recording(struct acquisition *acq, const char *path,
     acq->record_ppm = req->ppm;
     acq->record_arfcn = req->arfcn;
     acq->record_carrier_offset_hz = req->carrier_offset_hz;
+    snprintf(acq->record_technology, sizeof(acq->record_technology), "%s",
+             req->technology ? req->technology : "");
     snprintf(acq->record_source, sizeof(acq->record_source), "%s",
              req->source ? req->source : "");
     snprintf(acq->record_tuner, sizeof(acq->record_tuner), "%s",
@@ -393,7 +406,10 @@ int acquisition_start_recording(struct acquisition *acq, const char *path,
     acq->record_file = file;
     acq->record_bytes = 0;
     acq->record_short_blocks = 0;
-    acq->record_limit_bytes = (uint64_t)(2.0 * (double)req->sample_rate * 2.0);
+    double seconds = req->seconds > 0.0 ? req->seconds
+                                       : ACQUISITION_RECORD_BUTTON_SECONDS;
+    acq->record_limit_bytes =
+        (uint64_t)(seconds * (double)req->sample_rate * 2.0);
     acq->recording = 1; /* the acquisition thread writes from here on */
     pthread_mutex_unlock(&acq->record_mutex);
     return 0;
@@ -441,9 +457,10 @@ void acquisition_destroy(struct acquisition *acq) {
 
 void acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
                                FILE *capture, uint32_t sample_rate,
-                               const char *capture_path) {
+                               const char *capture_path, int capture_loop) {
     acq->dev = dev;
     acq->capture = capture;
     acq->sample_rate = sample_rate;
     acq->capture_path = capture_path;
+    acq->capture_loop = capture_loop;
 }

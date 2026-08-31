@@ -23,6 +23,13 @@ void adjust_waterfall_scale(struct app *app, int zoom_in);
 int scan_strongest_arfcn(const struct app *app);
 int scan_strongest_bcch(const struct app *app);
 int start_scan(struct app *app);
+/* Start a timestamped capture in captures/, with the sidecar describing the
+   tuning it was taken at. `basename` names the file, `technology` goes in the
+   sidecar, and the GSM fields are 0 for a technology that has no channel.
+   Shared because recording is not a property of either decode view. */
+int start_capture_record(struct app *app, const char *basename,
+                         const char *technology, int arfcn,
+                         double carrier_offset_hz, double seconds);
 int compare_double(const void *left, const void *right);
 
 /* GSM band-analysis view. */

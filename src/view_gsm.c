@@ -127,33 +127,17 @@ static Rectangle gsm_record_button(void) {
 
 
 
-/* Start a 2 s capture of the inspected channel. The tuning goes to
-   acquisition only so it can be written into the capture's sidecar; the write
-   itself happens on the acquisition thread, upstream of the display's lossy
-   block slot. Files are timestamped so re-recording never overwrites one. */
+/* Start a 2 s capture of the inspected channel. gsm_tune_selected tunes
+   400 kHz below the channel, so the carrier sits that far above the recorded
+   centre -- a decoder needs that and cannot recover it from the samples. */
 void start_record(struct app *app) {
-    mkdir("captures", 0755); /* ignore EEXIST */
-    time_t now = time(NULL);
-    struct tm local;
-    localtime_r(&now, &local);
-    char stamp[32];
-    strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
-    char path[256];
-    snprintf(path, sizeof(path), "captures/gsm_arfcn%d_%s.bin",
-             app->scan_selected_arfcn > 0 ? app->scan_selected_arfcn : 0, stamp);
+    char basename[64];
+    int arfcn = app->scan_selected_arfcn > 0 ? app->scan_selected_arfcn : 0;
 
-    struct acquisition_record_request req = {
-        app->applied_frequency, app->applied_sample_rate,
-        app->applied_gain_tenths, app->applied_manual_gain, app->applied_ppm,
-        app->scan_selected_arfcn,
-        /* gsm_tune_selected tunes 400 kHz below the channel, so the carrier
-           sits that far above the recorded centre. */
-        app->scan_selected_arfcn > 0 ? 400000.0 : 0.0,
-        app->source_label, app->tuner_label
-    };
-    if (acquisition_start_recording(&app->acq, path, &req) < 0)
-        fprintf(stderr, "Cannot start recording to %s: %s\n", path,
-                strerror(errno));
+    snprintf(basename, sizeof(basename), "gsm_arfcn%d", arfcn);
+    start_capture_record(app, basename, "gsm", arfcn,
+                         arfcn > 0 ? 400000.0 : 0.0,
+                         ACQUISITION_RECORD_BUTTON_SECONDS);
 }
 
 static Rectangle gsm_opt_button(int index) {

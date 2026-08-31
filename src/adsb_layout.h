@@ -17,6 +17,7 @@
  * whole value is being a function of the window size alone.
  */
 struct adsb_layout {
+    Rectangle record_button;   /* Record 2s, beside the view toggle */
     Rectangle retune_button;   /* shown only when tuned away from 1090 MHz */
     Rectangle view_toggle;     /* View: Log / View: Analysis */
     Rectangle hold_button;     /* Hold last good, inside the scatter panel */
@@ -24,6 +25,8 @@ struct adsb_layout {
     Rectangle log_full;        /* log mode: the whole panel */
     Rectangle log_split;       /* analysis mode: lower left */
     Rectangle scatter;         /* analysis mode: square, lower right */
+    float header_left;         /* x where the header text starts, clear of
+                                  the record button on the same rows */
     float header_right;        /* x where the header text must stop */
 };
 
@@ -32,8 +35,11 @@ static inline struct adsb_layout adsb_layout_for(float width, float height) {
     const float left = 82.0f;
     const float right_margin = 30.0f;
     const float bottom_margin = 30.0f;
-    const float log_top = 124.0f;    /* log mode, unchanged from before */
-    const float analysis_top = 150.0f;
+    /* Clear of the two header rows above them: the funnel line is 16 px at
+       y = 110, so a panel starting at 124 crowded it. The analysis mode needs
+       a further row for the caption naming the frame on show. */
+    const float log_top = 138.0f;
+    const float analysis_top = 156.0f;
     const float gap = 14.0f;
     float usable = width - left - right_margin;
 
@@ -43,9 +49,13 @@ static inline struct adsb_layout adsb_layout_for(float width, float height) {
     l.retune_button = (Rectangle){ 470.0f, 82.0f, 220.0f, 30.0f };
     /* Clear of the Calibration button, which chrome_layout.h anchors to the
        right edge down to y = 92. The GSM view's toggle sits at the same y for
-       the same reason. */
+       the same reason. Record sits beside the toggle: both act on the view as
+       a whole rather than on one panel, so they belong together. */
     l.view_toggle = (Rectangle){ width - 150.0f, 100.0f, 130.0f, 26.0f };
-    l.header_right = l.view_toggle.x - 12.0f;
+    l.record_button = (Rectangle){ l.view_toggle.x - 140.0f, 100.0f,
+                                   130.0f, 26.0f };
+    l.header_left = 22.0f;
+    l.header_right = l.record_button.x - 12.0f;
 
     l.log_full = (Rectangle){ left, log_top, usable,
                               height - log_top - bottom_margin };

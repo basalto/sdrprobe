@@ -119,6 +119,7 @@ struct acquisition {
     int record_ppm;
     int record_arfcn;
     double record_carrier_offset_hz;
+    char record_technology[16];
     char record_source[320];
     char record_tuner[32];
     char record_started_at[32];
@@ -129,6 +130,7 @@ struct acquisition {
     FILE *capture;
     uint32_t sample_rate;
     const char *capture_path;
+    int capture_loop;       /* 0 = stop at the end instead of wrapping */
 };
 
 /* What a capture's sidecar records about the tuning it was taken at. The
@@ -142,15 +144,27 @@ struct acquisition_record_request {
     int ppm;
     int arfcn;              /* 0 when not tuned via the GSM view */
     double carrier_offset_hz;
+    /* Which technology the capture was taken for ("gsm", "adsb"). The reader
+       of a raw .bin cannot tell from the samples, and the GSM fields below
+       being absent says only that no channel was selected. */
+    const char *technology;
     const char *source;
     const char *tuner;
+    /* How long to record for. The buttons pass
+       ACQUISITION_RECORD_BUTTON_SECONDS; --record-seconds passes its own. */
+    double seconds;
 };
+
+/* What the Record buttons capture. Long enough for a GSM multiframe and for
+   Mode S traffic to show up, short enough to keep a test capture in the tens
+   of megabytes. */
+#define ACQUISITION_RECORD_BUTTON_SECONDS 2.0
 
 /* Hand acquisition the source to read from. Must be called before starting a
    worker: these handles are borrowed, and nothing else sets them. */
 void acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
                                FILE *capture, uint32_t sample_rate,
-                               const char *capture_path);
+                               const char *capture_path, int capture_loop);
 
 void publish_block(struct acquisition *acq, const unsigned char *data,
                    uint32_t len);
