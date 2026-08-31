@@ -20,8 +20,9 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 - `make check-dsp` — builds and runs deterministic, hardware-free DSP
   checks; it does not require raylib. It runs the per-technology checks
   `check-sdr-dsp` (generic core),
-  `check-gsm-dsp` (GSM plugin), and `check-adsb-dsp` (Mode S / ADS-B plugin);
-  each can be built and run on its own.
+  `check-gsm-dsp` (GSM plugin), `check-adsb-dsp` (Mode S / ADS-B plugin) and
+  `check-band-plan` (the frequency allocation table); each can be built and run
+  on its own.
 - `make check-layout` — pins the GSM decode view's rectangles and the window chrome at
   several window sizes. Needs raylib's headers for the `Rectangle` type but not the
   library, and opens no window. A failure means geometry moved; if that was
@@ -45,11 +46,22 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   rows for ADS-B -- which is how to check a capture from a script:
   `./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode
   --once` prints BSIC 56, the invariant CLAUDE.md records for that file.
-  opens magnitude, spectrum, I/Q scatter, and waterfall views. It needs a real
+  opens magnitude, spectrum, I/Q scatter, waterfall and band-survey views. It needs a real
   RTL-SDR dongle by default; `--file capture.bin` (e.g.
   `testfiles/adsb_modes1.bin`) enables paced, looping hardware-free playback. A
   top-of-window tab bar switches between Scope and Decode. In the Scope tab,
-  keys 1/2/3/4 switch views; in the Decode tab, keys 1/2 switch between GSM band
+  keys 1/2/3/4/5 switch views, the fifth being the band survey: it sweeps an
+  operator-set range (default 24-1766 MHz, the R820T's span) in 1.6 MHz steps,
+  charts the power across it, and marks the peaks standing 8 dB above their
+  local floor by topographic prominence -- not height above a floor, which
+  reports a strong carrier's shoulder as a signal. Selecting a candidate, by
+  click or with Up/Down, retunes 300 kHz off it (never onto the DC spike) and
+  measures occupied bandwidth, duty and frequency stability over two seconds,
+  then names the allocation from `src/band_plan.c` and offers to point a
+  decoder at it. The band plan is a lookup and the UI says so: see
+  `docs/adr/0011-band-plan-is-a-lookup.md`, which is the boundary this view
+  exists next to. `--survey-range low:high` opens the view and sweeps that
+  range without waiting to be asked; in the Decode tab, keys 1/2 switch between GSM band
   analysis and ADS-B. The Settings button (or `s`) changes center frequency and, for a live receiver, gain while running; it also toggles the
   default-on spectrum/waterfall DC-spike filter. The HUD reports noise,
   estimated SNR, clipping, and full-scale headroom for gain selection. Up/Down
@@ -157,6 +169,11 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   figure quoted in that text (window sizes, thresholds, decay rates) comes from
   a constant in `acquisition.h`, `sdr_dsp.h` or `gsm_dsp.h`; change one of those
   and the help is what goes stale.
+- `src/band_plan.{c,h}` — the frequency-to-allocation table and its lookup. No
+  DSP, no GUI, no receiver, and its own `make check-band-plan`, which walks the
+  whole table for overlaps and unreachable entries because most of what goes
+  wrong with a table is typing.
+- `src/view_survey.c`, `src/survey_layout.h` — the band survey and its layout.
 - `src/adsb_layout.h` — where the ADS-B decode view puts things, in the shape
   of `gsm_layout.h` and for the same reason: the analysis mode packs three
   charts over a log and a square scatter, and both modes' log rectangles are

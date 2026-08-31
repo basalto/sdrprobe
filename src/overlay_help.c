@@ -28,6 +28,7 @@ enum help_topic {
     HELP_SPECTRUM,
     HELP_WATERFALL,
     HELP_SCATTER,
+    HELP_SURVEY,
     HELP_QUALITY,
     HELP_SCAN,
     HELP_BURST,
@@ -71,7 +72,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "pairs, where 180.3 is full scale.\n"
     "\n"
     "Keys\n"
-    "1-4   Scope tab: magnitude, spectrum, I/Q scatter, waterfall\n"
+    "1-5   Scope tab: magnitude, spectrum, I/Q scatter, waterfall, survey\n"
     "1-2   Decode tab: GSM, ADS-B\n"
     "Up/Down   stretch or compress the active chart's scale\n"
     "s   Settings: centre frequency, gain, PPM, DC-spike filter\n"
@@ -191,6 +192,53 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "shape stands out against the noise filling it. Up/Down changes the axis "
     "range; the line under the plot gives the current limit and how many "
     "points the latest block contributed."
+},
+{
+    "Band survey",
+    "Band survey (Scope, key 5)",
+    "Every other view shows the 2 MHz the receiver is tuned to. This one sweeps "
+    "a range you choose and shows what is on it, which is the question you "
+    "start with when you do not already know where to look.\n"
+    "\n"
+    "How it sweeps: the receiver is retuned in steps of 1.6 MHz -- the usable "
+    "middle of its 2 MHz span, the edges being where the tuner's response rolls "
+    "off -- and one block's spectrum is folded into the chart at each step. The "
+    "whole tuner, 24 to 1766 MHz, is about a thousand steps and a few minutes. "
+    "A single band is seconds. The bin width in use is on the header line while "
+    "it sweeps: a narrow range gets finer bins than a wide one.\n"
+    "\n"
+    "Candidates are the green ticks above the trace: peaks standing at least "
+    "8 dB above the noise either side of them, judged by how far you would have "
+    "to descend to reach anything higher. That measure -- not simply height "
+    "above a floor -- is what stops the shoulder of a strong carrier being "
+    "reported as a signal of its own, and what keeps a weak carrier beside a "
+    "strong one from being swallowed. They are called candidates because that "
+    "is all they are: something is radiating there.\n"
+    "\n"
+    "Selecting one, by clicking it or with Up and Down, retunes to it and "
+    "measures it for two seconds. The receiver is deliberately parked 300 kHz "
+    "off the frequency, so the carrier is never measured on top of the "
+    "receiver's own DC spike.\n"
+    "\n"
+    "What the panel then reports:\n"
+    "peak power and how far it stands above the local floor;\n"
+    "occupied bandwidth, between the points where it falls a stated number of "
+    "dB below its peak -- the drop is held clear of the noise, and the figure "
+    "used is printed beside the width;\n"
+    "duty, the fraction of blocks the carrier was actually up in. Continuous is "
+    "a broadcast; intermittent or bursty is traffic, and one GSM channel can be "
+    "either depending on whether anyone is talking;\n"
+    "stability, how far the measured centre wandered. A kilohertz is a stable "
+    "carrier; tens of kilohertz is something hopping, drifting, or too weak to "
+    "measure well.\n"
+    "\n"
+    "The band plan line names the service allocated to that frequency, and "
+    "carries the words 'a frequency lookup, not a detection' because that is "
+    "exactly what it is. Nothing has been demodulated. A carrier inside the GSM "
+    "downlink allocation is a carrier inside an allocation -- it could be an "
+    "interferer, a harmonic, or a neighbour's amplifier leaking. When the "
+    "allocation has a decoder in this program, the button offers to point it "
+    "there, which is an invitation to go and find out rather than an answer."
 },
 {
     "Signal quality",
@@ -495,6 +543,8 @@ static int help_topic_for_screen(const struct app *app) {
             return HELP_BURST;
         return HELP_SCAN;
     }
+    if (app->view == VIEW_SURVEY)
+        return HELP_SURVEY;
     if (app->view == VIEW_SPECTRUM)
         return HELP_SPECTRUM;
     if (app->view == VIEW_SCATTER)

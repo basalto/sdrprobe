@@ -11,9 +11,15 @@ after dump1090's `modesInitRTLSDR()`.
 
 ## Features
 
-- **Four live views** — magnitude over time, dBFS spectrum (average + peak
-  hold), I/Q scatter, and a frequency/time waterfall. Cursor readouts on every
-  plot; Up/Down rescales the active chart.
+- **Five live views** — magnitude over time, dBFS spectrum (average + peak
+  hold), I/Q scatter, a frequency/time waterfall, and a band survey. Cursor
+  readouts on every plot; Up/Down rescales the active chart.
+- **Band survey** — sweep any range up to the tuner's full span, chart the
+  power across it, and mark the peaks standing above their local noise floor.
+  Pick one and it retunes and measures it: occupied bandwidth, prominence,
+  duty (continuous, intermittent, bursty) and frequency stability, plus the
+  allocation the frequency falls in — a band-plan lookup, never a claim about
+  what the signal *is*.
 - **Live or file** — a real RTL‑SDR dongle, or paced, looping hardware‑free
   playback of a raw capture (`--file`).
 - **Runtime settings** — center frequency (Hz or `K`/`M`/`G`), gain (live),
@@ -54,7 +60,9 @@ make                 # builds ./sdrprobe
 ```
 ./sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
            [--gain max|auto|dB] [--ppm signed_integer] [--file capture.bin]
-           [--device index] [--view magnitude|spectrum|scatter|waterfall|gsm|adsb]
+           [--device index]
+           [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb]
+           [--survey-range low:high]
            [--record-seconds n] [--technology gsm|adsb|raw] [--arfcn 1-124]
            [--gsm-features list] [--dc-filter on|off] [--duration n] [--once]
            [--headless] [--decode] [--list-devices]
@@ -67,6 +75,7 @@ Scripted use, no window and no clicking:
 ./sdrprobe --headless --record-seconds 3 \
            --technology adsb                    # capture 3 s + sidecar, print the path
 ./sdrprobe --view adsb --duration 20            # open on a screen, quit by itself
+./sdrprobe --survey-range 88M:108M              # sweep a band and show what is on it
 ./sdrprobe --headless --arfcn 73 --record-seconds 2   # a GSM channel, sidecar and all
 
 # Decode a capture with no window and no clicking:
@@ -91,7 +100,7 @@ Keys and controls:
 
 | Input | Action |
 | --- | --- |
-| `1` `2` `3` `4` | magnitude / spectrum / scatter / waterfall view |
+| `1` `2` `3` `4` `5` | magnitude / spectrum / scatter / waterfall / band survey |
 | `Up` / `Down` | narrow / widen the active chart's scale |
 | `s` or Settings button | change frequency, gain, PPM, DC filter |
 | `c` or Calibration button | open GSM 900 calibration |
