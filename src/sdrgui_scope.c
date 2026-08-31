@@ -635,9 +635,11 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
 
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
 
-    /* Frequency axis, in whatever unit keeps the labels readable. */
+    /* Frequency axis, in whatever unit keeps the labels readable. A chart with
+       no span yet gets no labels: five zeroes would be a reading, and there is
+       nothing to read. */
     double span_hz = params->upper_hz - params->lower_hz;
-    for (int division = 0; division <= 4; division++) {
+    for (int division = 0; division <= 4 && span_hz > 0.0; division++) {
         double hz = params->lower_hz + span_hz * division / 4.0;
         float x = plot.x + plot.width * division / 4.0f;
         if (span_hz >= 100e6)
