@@ -8,11 +8,37 @@
  * constellation, the per-burst analysis charts, and the message log.
  */
 
+/* Where the bars actually go inside the rectangle the chart was handed. One
+   derivation, used by the drawing and by the hit test below, so the two cannot
+   disagree about where a bar is -- which is exactly how the selection came to
+   sit a channel or two off. */
+static Rectangle scan_chart_area(Rectangle outer) {
+    return sdrgui_chart_area(outer, (float)(MeasureText("-100", 16) + 10.0f),
+                             25.0f);
+}
+
+int sdrgui_scan_chart_channel_at(Rectangle outer, int count, Vector2 point) {
+    Rectangle plot = scan_chart_area(outer);
+    float bar_width;
+    int index;
+
+    if (count <= 0 || !CheckCollisionPointRec(point, plot))
+        return 0;
+    bar_width = plot.width / (float)count;
+    if (bar_width <= 0.0f)
+        return 0;
+    index = (int)((point.x - plot.x) / bar_width);
+    if (index < 0)
+        index = 0;
+    if (index >= count)
+        index = count - 1;
+    return index + 1;
+}
+
 void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
     char text[160];
     Rectangle outer = params->plot;
-    Rectangle plot = sdrgui_chart_area(outer, (float)(MeasureText("-100", 16) + 10.0f),
-                                    25.0f);
+    Rectangle plot = scan_chart_area(outer);
 
     /* Power range for the vertical axis. */
     float minimum = 0.0f;

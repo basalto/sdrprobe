@@ -147,15 +147,7 @@ void update_scan(struct app *app) {
 }
 
 static int scan_arfcn_at(const struct app *app, Vector2 point) {
-    if (!CheckCollisionPointRec(point, app->plot))
-        return 0;
-    double fraction = (point.x - app->plot.x) / app->plot.width;
-    int arfcn = 1 + (int)(fraction * 124.0);
-    if (arfcn < 1)
-        arfcn = 1;
-    if (arfcn > 124)
-        arfcn = 124;
-    return arfcn;
+    return sdrgui_scan_chart_channel_at(app->plot, 124, point);
 }
 
 void draw_scan(struct app *app) {
