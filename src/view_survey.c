@@ -107,12 +107,22 @@ static void survey_zoom(struct survey_view *s, double factor) {
     survey_clamp_view(s);
 }
 
-static void survey_pan(struct survey_view *s, double fraction) {
+/* Panning a window that already spans the whole sweep cannot move it, and a
+   key that silently does nothing reads as a broken key. Say which it is. */
+static void survey_pan(struct app *app, double fraction) {
+    struct survey_view *s = &app->survey;
     double span = s->view_upper_hz - s->view_lower_hz;
+    double before = s->view_lower_hz;
 
     s->view_lower_hz += span * fraction;
     s->view_upper_hz += span * fraction;
     survey_clamp_view(s);
+    if (s->view_lower_hz == before && s->bins > 0)
+        snprintf(s->status, sizeof(s->status),
+                 "Already showing %s of the sweep; zoom in first (+ or the "
+                 "wheel over the chart).",
+                 span >= (s->upper_hz - s->lower_hz) - 1.0 ? "all"
+                                                           : "the end");
 }
 
 /* The allocations overlapping what is on screen, for the chart to shade. */
@@ -480,28 +490,47 @@ void handle_survey_input(struct app *app) {
     }
 
     /* Zoom and pan. The chart can hold 1.7 GHz, where a 200 kHz carrier is a
-       fifth of a pixel; +/- narrow the window and Left/Right walk it, without
-       resampling anything -- the same measurements, drawn larger. */
-    if (IsKeyPressed(KEY_EQUAL) || IsKeyPressedRepeat(KEY_EQUAL) ||
-        IsKeyPressed(KEY_KP_ADD) || IsKeyPressedRepeat(KEY_KP_ADD)) {
+       fifth of a pixel; zoom narrows the window and Left/Right walk it,
+       without resampling anything -- the same measurements, drawn larger.
+
+       Zoom is read as a character rather than as a key, which matters more
+       than it looks. raylib names keys after physical positions on a US
+       keyboard, so KEY_EQUAL and KEY_MINUS are the keys a US board prints
+       = and - on. On a Portuguese layout the key printed + sits where a US
+       board has [, and the one printed - sits where it has /, so binding the
+       physical keys meant the zoom did nothing at all here -- and, because a
+       window spanning the whole sweep cannot pan, Left and Right looked dead
+       too. GetCharPressed reports what the layout actually produced.
+
+       The keypad and the US positions stay as fallbacks: a numpad + is the
+       same key everywhere. */
+    if (s->focus < 0) {
+        int typed;
+        while ((typed = GetCharPressed()) != 0) {
+            if (typed == '+' || typed == '=')
+                survey_zoom(s, 1.0 / SURVEY_ZOOM_STEP);
+            else if (typed == '-' || typed == '_')
+                survey_zoom(s, SURVEY_ZOOM_STEP);
+            else if (typed == '0')
+                survey_reset_view(s);
+        }
+    }
+    if (IsKeyPressed(KEY_KP_ADD) || IsKeyPressedRepeat(KEY_KP_ADD) ||
+        IsKeyPressed(KEY_EQUAL) || IsKeyPressedRepeat(KEY_EQUAL)) {
         survey_zoom(s, 1.0 / SURVEY_ZOOM_STEP);
         return;
     }
-    if (IsKeyPressed(KEY_MINUS) || IsKeyPressedRepeat(KEY_MINUS) ||
-        IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressedRepeat(KEY_KP_SUBTRACT)) {
+    if (IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressedRepeat(KEY_KP_SUBTRACT) ||
+        IsKeyPressed(KEY_MINUS) || IsKeyPressedRepeat(KEY_MINUS)) {
         survey_zoom(s, SURVEY_ZOOM_STEP);
         return;
     }
     if (IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT)) {
-        survey_pan(s, -SURVEY_PAN_FRACTION);
+        survey_pan(app, -SURVEY_PAN_FRACTION);
         return;
     }
     if (IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) {
-        survey_pan(s, SURVEY_PAN_FRACTION);
-        return;
-    }
-    if (IsKeyPressed(KEY_ZERO)) {
-        survey_reset_view(s);
+        survey_pan(app, SURVEY_PAN_FRACTION);
         return;
     }
     /* The wheel zooms too, about the same anchor, since a hand already on the
