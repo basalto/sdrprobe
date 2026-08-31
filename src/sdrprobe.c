@@ -419,6 +419,16 @@ int stop_acquisition(struct app *app) {
 }
 
 int start_acquisition(struct app *app) {
+    /* One worker at a time, and it is worth refusing rather than trusting the
+       callers: two workers reading the same receiver deliver no blocks at all
+       and deadlock the shutdown join, which is a great deal harder to read
+       than an error here. stop_acquisition() clears the flag, so the ordinary
+       stop-then-start path is unaffected. */
+    if (app->acq.worker_started) {
+        snprintf(app->settings_error, sizeof(app->settings_error),
+                 "Acquisition is already running");
+        return -1;
+    }
     pthread_mutex_lock(&app->acq.latest.mutex);
     app->acq.latest.stop = 0;
     app->acq.latest.ready = 0;
@@ -810,16 +820,6 @@ static int run_gui(struct app *app) {
 
     sdr_dsp_init(&app->dsp);
     app->view = VIEW_MAGNITUDE;
-    switch (app->options.view) {
-    case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM; break;
-    case START_VIEW_SCATTER:   app->view = VIEW_SCATTER; break;
-    case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL; break;
-    case START_VIEW_GSM:       set_tab(app, TAB_DECODE);
-                               set_decode(app, DECODE_GSM); break;
-    case START_VIEW_ADSB:      set_tab(app, TAB_DECODE);
-                               set_decode(app, DECODE_ADSB); break;
-    default: break;
-    }
 
     sigset_t worker_signals;
     sigset_t original_mask;
@@ -853,6 +853,27 @@ static int run_gui(struct app *app) {
                 strerror(thread_result));
         return -1;
     }
+    /* The starting screen is applied here, with the worker already running,
+       because entering the GSM view is not a passive act: it retunes and can
+       start a band scan, and retuning stops and restarts acquisition. Done
+       before the worker existed, that left one worker started by the retune
+       and a second started below, both reading the same device -- no blocks
+       ever arrived and the shutdown join hung.
+
+       The decode kind is set before the tab for a related reason: it defaults
+       to GSM, so switching to the Decode tab first would enter the GSM view
+       and immediately leave it again, retuning twice on the way to ADS-B. */
+    switch (app->options.view) {
+    case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM; break;
+    case START_VIEW_SCATTER:   app->view = VIEW_SCATTER; break;
+    case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL; break;
+    case START_VIEW_GSM:       set_decode(app, DECODE_GSM);
+                               set_tab(app, TAB_DECODE); break;
+    case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB);
+                               set_tab(app, TAB_DECODE); break;
+    default: break;
+    }
+
     /* A recording asked for on the command line starts as soon as the worker
        is up, exactly as the button's does. */
     if (app->options.record_seconds > 0.0) {
