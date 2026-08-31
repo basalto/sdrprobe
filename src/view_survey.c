@@ -638,9 +638,23 @@ void draw_survey(struct app *app) {
                         (Color){ 190, 208, 218, 255 });
     }
 
+    /* Before the first sweep the chart has no range of its own, so it shows
+       the one in the fields: an axis labelled with the range about to be swept
+       is worth more than an axis labelled zero five times. */
+    double shown_lower = s->lower_hz;
+    double shown_upper = s->upper_hz;
+    if (s->bins <= 0 || shown_upper <= shown_lower) {
+        uint32_t from_hz;
+        uint32_t to_hz;
+        if (parse_frequency(s->from, &from_hz) == 0 &&
+            parse_frequency(s->to, &to_hz) == 0 && to_hz > from_hz) {
+            shown_lower = (double)from_hz;
+            shown_upper = (double)to_hz;
+        }
+    }
     struct sdrgui_survey_params params = {
-        l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS, s->lower_hz,
-        s->upper_hz, s->peaks, s->peak_count, s->selected, s->hover,
+        l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS, shown_lower,
+        shown_upper, s->peaks, s->peak_count, s->selected, s->hover,
         s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
                     : s->bins,
         s->sweeping,
