@@ -39,6 +39,16 @@ Running the app without hardware — always prefer this over asking for a dongle
 
 ```sh
 ./sdrprobe --file testfiles/adsb_modes1.bin   # paced, looping playback
+./sdrprobe --view adsb --duration 20          # open on a screen, quit by itself
+```
+
+Checking a capture decodes, with no window and nothing to click — the fastest
+way to see whether a change to the DSP helped or hurt:
+
+```sh
+./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode --once
+./sdrprobe --file testfiles/adsb_cpr_pair.bin --headless --technology adsb --decode --once
+./sdrprobe --headless --record-seconds 2 --technology adsb   # live capture + sidecar
 ```
 
 Built binaries (`./sdrprobe`, `build/`) and `captures/` are gitignored.
@@ -142,7 +152,12 @@ Its shape:
 - Signal conventions match dump1090 and are not free parameters: unsigned 8-bit
   interleaved I/Q with 127.5 = zero, 2 MS/s (1 sample = 0.5 µs), block size
   `16*16384`.
-- Test captures are `testfiles/<tech>_<detail>.bin`. The two GSM captures must
+- Test captures are `testfiles/<tech>_<detail>.bin`, each with a `.json`
+  sidecar. `adsb_cpr_pair.bin` is the only one recorded by the app itself
+  (`"provenance": "recorded by sdrprobe"`, 29.7 dB, R820T); it must keep
+  decoding 6 frames with 1 global CPR position resolved, which is what makes it
+  worth keeping — it is the only capture that exercises the even/odd pairing
+  cache end to end. `adsb_modes1.bin` is denser but its provenance is unknown. The two GSM captures must
   keep decoding their own BSIC in `check-gsm-dsp` — 59 (NCC 7 / BCC 3) for
   `gsm_arfcn_69.bin`, 56 (NCC 7 / BCC 0) for `gsm_arfcn_73.bin` — with frame
   numbers that increase and track the burst timeline. Those real-signal
