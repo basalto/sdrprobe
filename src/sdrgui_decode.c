@@ -18,21 +18,12 @@ static Rectangle scan_chart_area(Rectangle outer) {
 }
 
 int sdrgui_scan_chart_channel_at(Rectangle outer, int count, Vector2 point) {
-    Rectangle plot = scan_chart_area(outer);
-    float bar_width;
-    int index;
+    /* Channels are 1-based; the geometry is 0-based, and 0 means "no
+       channel". */
+    int index = sdrgui_bar_index_at(scan_chart_area(outer), count, point.x,
+                                    point.y);
 
-    if (count <= 0 || !CheckCollisionPointRec(point, plot))
-        return 0;
-    bar_width = plot.width / (float)count;
-    if (bar_width <= 0.0f)
-        return 0;
-    index = (int)((point.x - plot.x) / bar_width);
-    if (index < 0)
-        index = 0;
-    if (index >= count)
-        index = count - 1;
-    return index + 1;
+    return index < 0 ? 0 : index + 1;
 }
 
 void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
@@ -77,7 +68,7 @@ void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
                  (int)y - 8, 16, (Color){ 151, 174, 188, 255 });
     }
 
-    float bar_width = plot.width / (float)params->count;
+    float bar_width = sdrgui_bar_width(plot, params->count);
     Vector2 mouse = GetMousePosition();
     int hover = params->hover;
     for (int chan = 1; chan <= params->count; chan++) {
@@ -89,7 +80,7 @@ void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
             level = 0.0f;
         if (level > 1.0f)
             level = 1.0f;
-        float x = plot.x + (float)(chan - 1) * bar_width;
+        float x = sdrgui_bar_left(plot, params->count, chan - 1);
         float height = level * plot.height;
         int is_bcch = params->bcch_conf[chan] >= params->bcch_min_conf;
         Color color = is_bcch ? (Color){ 99, 228, 170, 255 }
@@ -107,7 +98,7 @@ void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
 
     /* Selected/inspected channel marker: a bright vertical band and a cap. */
     if (params->selected >= 1 && params->selected <= params->count) {
-        float x = plot.x + (float)(params->selected - 1) * bar_width;
+        float x = sdrgui_bar_left(plot, params->count, params->selected - 1);
         float w = bar_width > 2.0f ? bar_width : 2.0f;
         DrawRectangle((int)x, (int)plot.y, (int)w, (int)plot.height,
                       (Color){ 120, 230, 255, 40 });
