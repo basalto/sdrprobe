@@ -18,6 +18,7 @@ and what it would take. The gap is meant to be measurable rather than felt.
 | `check-options` | the whole command line: every flag, every rejection, every implication |
 | `check-survey` | the survey window's zoom, pan, clamp and sweep-target arithmetic |
 | `check-survey-sweep` | the sweep's step plan, fold, and what measuring a candidate adds up to |
+| `check-suspect` | candidates that look like the receiver: its reference comb, and the DC offset at a step centre |
 | `check-calibration` | the lock gate, its robust statistics, and the state machine that fills its buffer |
 | `check-layout` | GSM, ADS-B and survey view geometry |
 | `check-geometry` | where a chart's plot sits, and which bar the pointer is over |

@@ -33,7 +33,9 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 - The rest of the unit layer, one suite per module, each a `make check-*` of
   its own and all of them in `make check`:
   `check-survey-sweep` (the sweep's step plan, its fold into the survey array,
-  and what measuring a candidate adds up to), `check-scan` (how the GSM
+  and what measuring a candidate adds up to), `check-suspect` (candidates that
+  look like the receiver rather than the band -- its own reference comb, and
+  the DC offset at a step centre), `check-scan` (how the GSM
   downlink is covered and which channel the scan hands back),
   `check-adsb-analysis` (whether Mode S could be there, which frame the
   analysis charts describe, the message log, the funnel),
