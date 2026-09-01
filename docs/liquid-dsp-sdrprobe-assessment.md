@@ -33,7 +33,7 @@ On an i5-8265U with AVX2, medians of three runs:
 | Stage | per block | of the 65.5 ms budget |
 | --- | ---: | ---: |
 | byte → I/Q + magnitude | 0.22 ms | 0.3% |
-| signal statistics | 9.3 ms | 14% |
+| signal statistics | 1.4 ms | 2% |
 | magnitude peak bins | 0.10 ms | 0.2% |
 | DC removal | 0.24 ms | 0.4% |
 | spectrum, 64 × 2048-point FFT | 4.2 ms | 6% |
@@ -42,8 +42,8 @@ On an i5-8265U with AVX2, medians of three runs:
 | GSM SCH decode, all refinements | 20.7 ms | 32% |
 | FCCH tone detection | 1.6 ms | 2.5% |
 
-The Scope tab spends about 14 ms of every 65.5 ms; the GSM view, which adds the
-SCH decode, about 35 ms. Live runs report zero overwritten blocks, which is the
+The Scope tab spends about 7 ms of every 65.5 ms; the GSM view, which adds the
+SCH decode, about 28 ms. Live runs report zero overwritten blocks, which is the
 same statement from the other side: the renderer keeps up with the receiver and
 then waits.
 
@@ -57,12 +57,27 @@ it.
 So SIMD is not a reason to adopt liquid-dsp here, and hand-vectorising the
 local FFT would buy half a millisecond in sixty-five.
 
-**Where the time actually goes is worth knowing anyway.** The largest Scope-path
-cost is `sdr_dsp_signal_stats`, and almost all of it is one `qsort` of 131072
-floats to recover two percentiles. That is an algorithmic cost, not a
-vectorisation one: quickselect for the two ranks, or a histogram over the
-magnitudes, would make it O(n) and cut most of those 9 ms. If this program ever
-does need the time back, that is where it is — not in the FFT, and not in SIMD.
+**What the measurement did find, and what came of it.** The largest Scope-path
+cost was `sdr_dsp_signal_stats`, and almost all of it was one `qsort` of 131072
+floats to recover two percentiles — an algorithmic cost, not a vectorisation
+one. It now selects each rank in place instead, three-way partitioned because
+magnitudes of 8-bit samples repeat in their thousands and a two-way split on
+equal keys is quadratic on exactly that input. Built from the same source and
+run back to back on the same machine:
+
+| | per block |
+| --- | ---: |
+| sorting the block | 12.3 – 13.6 ms |
+| selecting two ranks | 1.4 – 2.2 ms |
+
+About nine times faster, and the values are bit-identical: selection returns
+the element the sort would have placed at that rank, which `check-sdr-dsp`
+verifies against a sorted reference over blocks of duplicates, sorted and
+reversed input, all-equal input, and short blocks where the rank clamps bite.
+
+So the one real cost in this program was worth about 11 ms a block, and SIMD
+would not have found it. That is the shape of the answer to "should we
+vectorise": measure first, and the thing you find is usually not a loop.
 
 ## API fit
 

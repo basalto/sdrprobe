@@ -1,6 +1,7 @@
 #include "sdr_dsp.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <stdlib.h>
 
 #define PI_F 3.14159265358979323846f
@@ -125,6 +126,74 @@ static int compare_float(const void *left, const void *right) {
     return (a > b) - (a < b);
 }
 
+/* The index nearest_rank() reads for a percentile: one before the ceiling of
+   p*count, clamped into the array. Shared so that selecting a rank without
+   sorting picks exactly the element sorting would have picked. */
+static size_t rank_index(size_t count, double percentile) {
+    size_t rank = (size_t)ceil(percentile * (double)count);
+
+    if (rank < 1)
+        rank = 1;
+    if (rank > count)
+        rank = count;
+    return rank - 1;
+}
+
+/*
+ * Put the k-th smallest element of values[low..high] at index k, with
+ * everything before it no greater and everything after no smaller -- the
+ * arrangement sorting would give at that index, for the cost of a pass rather
+ * than a sort.
+ *
+ * Three-way partitioning is not an optimisation here but a requirement: these
+ * are magnitudes of 8-bit samples, so the same values recur in their
+ * thousands, and a two-way split on equal keys is quadratic on exactly that
+ * input. Median-of-three keeps sorted and reversed blocks off the worst case
+ * as well.
+ */
+static void select_nth(float *values, size_t low_index, size_t high_index,
+                       size_t k) {
+    ptrdiff_t low = (ptrdiff_t)low_index;
+    ptrdiff_t high = (ptrdiff_t)high_index;
+    ptrdiff_t target = (ptrdiff_t)k;
+
+    while (low < high) {
+        ptrdiff_t mid = low + (high - low) / 2;
+        float a = values[low];
+        float b = values[mid];
+        float c = values[high];
+        float pivot;
+        ptrdiff_t less = low;
+        ptrdiff_t i = low;
+        ptrdiff_t greater = high;
+
+        if (a < b)
+            pivot = b < c ? b : (a < c ? c : a);
+        else
+            pivot = a < c ? a : (b < c ? c : b);
+
+        while (i <= greater) {
+            if (values[i] < pivot) {
+                float swap = values[less];
+                values[less++] = values[i];
+                values[i++] = swap;
+            } else if (values[i] > pivot) {
+                float swap = values[greater];
+                values[greater--] = values[i];
+                values[i] = swap;
+            } else {
+                i++;
+            }
+        }
+        if (target < less)
+            high = less - 1;
+        else if (target > greater)
+            low = greater + 1;
+        else
+            return;   /* target landed inside the run equal to the pivot */
+    }
+}
+
 static float nearest_rank(const float *sorted, size_t count,
                           double percentile) {
     size_t rank = (size_t)ceil(percentile * (double)count);
@@ -156,9 +225,24 @@ int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
         if (absolute_q > strongest_component)
             strongest_component = absolute_q;
     }
-    qsort(sort_workspace, pair_count, sizeof(*sort_workspace), compare_float);
-    stats->noise_magnitude = nearest_rank(sort_workspace, pair_count, 0.10);
-    stats->signal_magnitude = nearest_rank(sort_workspace, pair_count, 0.995);
+    /* Two percentiles out of 131072 magnitudes. Sorting the block to read two
+       of its elements cost about 9 ms of the 65.5 ms a block covers -- the
+       largest single cost in the frame -- and sorting is not what is being
+       asked for. Selecting each rank in place is linear, and picks exactly the
+       element the sort would have put there.
+
+       The second selection searches only above the first: selecting a rank
+       leaves the array partitioned around it, so the higher percentile cannot
+       have moved below. */
+    size_t noise_index = rank_index(pair_count, 0.10);
+    size_t signal_index = rank_index(pair_count, 0.995);
+
+    select_nth(sort_workspace, 0, pair_count - 1, noise_index);
+    stats->noise_magnitude = sort_workspace[noise_index];
+    if (signal_index > noise_index)
+        select_nth(sort_workspace, noise_index + 1, pair_count - 1,
+                   signal_index);
+    stats->signal_magnitude = sort_workspace[signal_index];
     float noise = fmaxf(stats->noise_magnitude, 1e-12f);
     float signal = fmaxf(stats->signal_magnitude, noise);
     stats->snr_db = 20.0f * log10f(signal / noise);
