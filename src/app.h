@@ -15,6 +15,7 @@
 #include "gsm_dsp.h"
 #include "options.h"
 #include "sdr_dsp.h"
+#include "survey_sweep.h"
 
 
 /*
@@ -267,40 +268,12 @@ struct help_overlay {
  * it, the candidates standing above the local floor, and the measurement of
  * whichever one is selected.
  *
- * SURVEY_BINS caps the array; a narrow range gets finer bins than a wide one,
- * because the alternative is either an unusable resolution across 1.7 GHz or
- * an array nobody can draw. The resolution actually in use is reported on
- * screen rather than left to be inferred.
+ * The sweep's own arithmetic -- how many steps, how many bins, when a step is
+ * done, what a measurement adds up to -- lives in survey_sweep.h, with the
+ * constants that go with it; the window's lives in survey_window.h. What is
+ * left here is this view's state and the few numbers only the view uses.
  */
-#define SURVEY_BINS 8192
-/* Room for every candidate a wide sweep turns up, not just the loudest few.
-   At 64 a full-tuner sweep filled the list with FM and DAB and marked nothing
-   above 1 GHz, because the cap keeps the strongest and the strongest are all
-   in the broadcast bands. A candidate costs 24 bytes; being stingy here buys
-   nothing and hides whole allocations. */
-#define SURVEY_MAX_PEAKS 512
-/* How wide a survey bin is: the range spread over the array, but never finer
-   than the FFT that fills it -- asking for more resolution than the spectrum
-   has only interpolates noise. A narrow sweep therefore gets a detailed
-   picture rather than the fixed 50 kHz bins this used to have, which drew a
-   2 MHz scan as forty bars. */
 #define SURVEY_SCAN_HALF_SPAN_HZ 2000000.0  /* "scan this frequency" window */
-#define SURVEY_SETTLE_SECONDS 0.10
-/* How long to sit on each step. One block catches whatever is transmitting at
-   that instant, which is the wrong tool for anything bursty: a channel that
-   keys up for 200 ms every few seconds is simply absent from most steps.
-   Dwelling longer peak-holds across the blocks that arrive, so a burst
-   anywhere in the dwell leaves its mark. The cost is linear -- doubling the
-   dwell doubles the sweep. */
-#define SURVEY_DWELL_DEFAULT 0.10
-#define SURVEY_DWELL_MIN 0.02
-#define SURVEY_DWELL_MAX 10.0
-#define SURVEY_USABLE_SPAN 0.8      /* of each step, discarding the roll-off */
-#define SURVEY_MEASURE_SECONDS 2.0
-#define SURVEY_MIN_PROMINENCE_DB 8.0f
-#define SURVEY_BANDWIDTH_DB 20.0f
-#define SURVEY_SENTINEL_DBFS (-300.0f)
-#define SURVEY_OFFSET_HZ 300000.0   /* keep a candidate off the DC spike */
 #define SURVEY_ZOOM_STEP 1.6        /* per key press */
 #define SURVEY_PAN_FRACTION 0.25    /* of the visible span, per key press */
 #define SURVEY_MIN_SPAN_HZ 100000.0 /* no closer than this */
@@ -348,6 +321,7 @@ struct survey_view {
     int bins;                   /* of SURVEY_BINS, in use for this range */
     float power[SURVEY_BINS];
 
+    struct survey_plan plan;    /* what the running sweep is working through */
     int sweeping;
     int step;
     int step_count;
@@ -373,11 +347,7 @@ struct survey_view {
     int measuring;
     double measure_started_at;
     double measure_expected_hz;
-    int measure_blocks;
-    int measure_hits;           /* blocks the candidate was actually up in */
-    double measure_centre_sum;
-    double measure_centre_square_sum;
-    float measure_first_prominence;
+    struct survey_measurement measure;
     struct sdr_carrier_report report;
     int report_valid;
 
