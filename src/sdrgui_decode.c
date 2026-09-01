@@ -70,6 +70,14 @@ void sdrgui_scan_chart(const struct sdrgui_scan_chart_params *params) {
 
     float bar_width = sdrgui_bar_width(plot, params->count);
     Vector2 mouse = GetMousePosition();
+
+    /* `measured` was set while working out the range above: no channel has a
+       reading, so say why the chart is empty rather than leaving a blank box
+       that reads as broken. */
+    if (!measured && params->empty_notice && params->empty_notice[0])
+        sdrgui_text_fit(params->empty_notice, (int)plot.x + 12,
+                        (int)(plot.y + plot.height / 2.0f) - 8, 17,
+                        plot.width - 24.0f, (Color){ 151, 174, 188, 255 });
     int hover = params->hover;
     for (int chan = 1; chan <= params->count; chan++) {
         float power = params->power[chan];
