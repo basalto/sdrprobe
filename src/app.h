@@ -112,24 +112,16 @@ struct calibration {
     uint32_t tune_hz;
     double measured_hz;
     double offset_hz;
-    int measurements;
     float peak_dbfs;
     float floor_dbfs;
     float prominence_db;
     double peak_hz;
     double started_at;
-    double recent_ppm[CALIBRATION_RECENT];
-    int recent_count;
-    int recent_head;
-    double recent_center;
-    double recent_spread;
-    double recent_sem;
-    int fcch_locked;
     float fcch_confidence;
-    int source;
-    int fcch_miss;
-    int fcch_hits;
-    int stable;
+    /* Which source the residuals came from, the ring of them, and whether the
+       gate is satisfied -- all in calibration_gate.h, where it can be
+       checked. */
+    struct calibration_tracker track;
     uint32_t return_frequency;
     int suggested_ppm;
     uint32_t gsm_cal_expected_hz;  /* calibrated carrier */

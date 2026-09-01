@@ -130,4 +130,124 @@ static inline int calibration_hold_through_miss(int consecutive_misses) {
     return consecutive_misses < CALIBRATION_FCCH_MISS_LIMIT;
 }
 
+/*
+ * The state around the gate: which source the residuals came from, how long a
+ * tone lock has been without a burst, and the ring of recent residuals with
+ * the statistics computed over it.
+ *
+ * The gate above is only as good as the buffer it reads, and keeping that
+ * buffer honest is a state machine, not an expression: the source can change
+ * under it, and when it does every residual already in it belongs to a
+ * different measurement of a different thing. ADR-0004 exists because a
+ * correction was once accepted from a buffer holding both.
+ */
+struct calibration_tracker {
+    int source;
+    int fcch_locked;
+    int fcch_miss;   /* consecutive blocks with no tone, while locked to one */
+    int fcch_hits;
+    int measurements;
+    double recent_ppm[CALIBRATION_RECENT];
+    int recent_count;
+    int recent_head;
+    double recent_center;
+    double recent_spread;
+    double recent_sem;
+    int stable;
+};
+
+/* Empty the residual buffer and everything derived from it, keeping the
+   source. Called whenever what is being measured changes. */
+static inline void calibration_tracker_reset(struct calibration_tracker *t) {
+    t->measurements = 0;
+    t->recent_count = 0;
+    t->recent_head = 0;
+    t->recent_center = 0.0;
+    t->recent_spread = 0.0;
+    t->recent_sem = 0.0;
+    t->stable = 0;
+}
+
+/* Start again from nothing: a new channel, or a calibration just opened. */
+static inline void calibration_tracker_init(struct calibration_tracker *t) {
+    calibration_tracker_reset(t);
+    t->source = CALIBRATION_SOURCE_CENTROID;
+    t->fcch_locked = 0;
+    t->fcch_miss = 0;
+    t->fcch_hits = 0;
+}
+
+/* What this block can contribute. */
+enum calibration_action {
+    CALIBRATION_USE_FCCH,     /* a tone was found: record its residual */
+    CALIBRATION_HOLD_TONE,    /* no tone this block, but the lock holds */
+    CALIBRATION_USE_CENTROID, /* record the centroid's residual */
+    CALIBRATION_NOTHING       /* neither: record nothing */
+};
+
+/*
+ * Advance the tracker for one block, and say what it may record.
+ *
+ * The rules, in the order they matter:
+ *
+ * - A tone always wins, and arriving on a centroid buffer empties it. FCCH and
+ *   centroid residuals differ by many PPM; a buffer holding both has a centre
+ *   belonging to neither and a standard error small enough to pass the gate.
+ * - A tone lock rides out CALIBRATION_FCCH_MISS_LIMIT burst-free blocks
+ *   without recording anything, because GSM sends an FCCH ten times a
+ *   multiframe and a gap is normal. Recording a centroid residual during that
+ *   gap would be the mixing above; dropping the lock at the first gap would
+ *   thrash between sources every multiframe.
+ * - Past the limit the lock is given up and the buffer emptied, because what
+ *   follows is a different measurement.
+ * - With no tone and no carrier there is nothing to record, and the buffer is
+ *   emptied rather than left to age: the residuals in it describe a signal
+ *   that is no longer there.
+ */
+static inline enum calibration_action
+calibration_track(struct calibration_tracker *t, int have_fcch,
+                  int have_centroid) {
+    if (have_fcch) {
+        if (!calibration_source_matches(t->source, CALIBRATION_SOURCE_FCCH)) {
+            t->source = CALIBRATION_SOURCE_FCCH;
+            calibration_tracker_reset(t);
+            t->fcch_hits = 0;
+        }
+        t->fcch_miss = 0;
+        t->fcch_locked = 1;
+        t->fcch_hits++;
+        return CALIBRATION_USE_FCCH;
+    }
+    if (t->source == CALIBRATION_SOURCE_FCCH) {
+        t->fcch_miss++;
+        if (calibration_hold_through_miss(t->fcch_miss))
+            return CALIBRATION_HOLD_TONE;
+        t->source = CALIBRATION_SOURCE_CENTROID;
+        t->fcch_locked = 0;
+        calibration_tracker_reset(t);
+        t->fcch_hits = 0;
+        return have_centroid ? CALIBRATION_USE_CENTROID : CALIBRATION_NOTHING;
+    }
+    t->fcch_locked = 0;
+    if (!have_centroid) {
+        calibration_tracker_reset(t);
+        return CALIBRATION_NOTHING;
+    }
+    return CALIBRATION_USE_CENTROID;
+}
+
+/* Record one residual and recompute what the gate reads. */
+static inline void calibration_tracker_observe(struct calibration_tracker *t,
+                                               double observed_ppm) {
+    t->measurements++;
+    t->recent_ppm[t->recent_head] = observed_ppm;
+    t->recent_head = (t->recent_head + 1) % CALIBRATION_RECENT;
+    if (t->recent_count < CALIBRATION_RECENT)
+        t->recent_count++;
+    robust_center_spread(t->recent_ppm, t->recent_count, &t->recent_center,
+                         &t->recent_spread);
+    t->recent_sem = calibration_standard_error(t->recent_spread,
+                                               t->recent_count);
+}
+
 #endif
