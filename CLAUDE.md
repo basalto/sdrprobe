@@ -18,9 +18,16 @@ make check-gsm-dsp    # GSM plugin (+ the core it reuses)
 make check-adsb-dsp   # Mode S / ADS-B plugin
 make check-band-plan  # the frequency allocation table
 make check-options    # the command line: every flag, value, and rejection
-make check-survey     # the band survey's window arithmetic (no window needed)
-make check-calibration # the frequency-correction lock gate and its statistics
+make check-survey     # the survey window's zoom, pan and clamp arithmetic
+make check-survey-sweep # the sweep's step plan, fold, and measurement
+make check-calibration # the lock gate, and the machine that fills its buffer
+make check-scan       # the band scan's coverage and the channel it chooses
+make check-adsb-analysis # trace latching, the message log, the funnel
+make check-gsm-continuity # whether consecutive SCH decodes hang together
+make check-acquisition # the block slot, both its modes, and its shutdown
 make check-layout     # GSM view geometry (raylib headers only, no window)
+make check-geometry   # where a chart's plot sits, and which bar is under the pointer
+make check-input      # which control a key press reaches
 make check-pipelines  # the built program over testfiles/, asserting on stdout
 make clean
 ```

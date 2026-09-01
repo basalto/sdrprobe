@@ -30,6 +30,21 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   `check-gsm-dsp` (GSM plugin), `check-adsb-dsp` (Mode S / ADS-B plugin) and
   `check-band-plan` (the frequency allocation table); each can be built and run
   on its own.
+- The rest of the unit layer, one suite per module, each a `make check-*` of
+  its own and all of them in `make check`:
+  `check-survey-sweep` (the sweep's step plan, its fold into the survey array,
+  and what measuring a candidate adds up to), `check-scan` (how the GSM
+  downlink is covered and which channel the scan hands back),
+  `check-adsb-analysis` (whether Mode S could be there, which frame the
+  analysis charts describe, the message log, the funnel),
+  `check-gsm-continuity` (whether consecutive SCH decodes hang together --
+  the hyperframe wrap included), `check-acquisition` (the block slot, both its
+  modes, and the shutdown of a lossless publisher), `check-geometry` (where a
+  chart's plot sits inside it and which bar the pointer is over) and
+  `check-input` (which control a key press reaches). Each exists because
+  something in that area decided things from inside a file that links raylib;
+  `.scratch/testability/` records what each one moved and what a mutation of
+  it breaks.
 - `make check-options` — the whole command line: every flag, every value
   spelling, every rejection, and the flags that imply others. It is the
   program's other user interface and the only one a script has, so a rejection
