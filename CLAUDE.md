@@ -25,6 +25,7 @@ make check-calibration # the lock gate, and the machine that fills its buffer
 make check-scan       # the band scan's coverage and the channel it chooses
 make check-adsb-analysis # trace latching, the message log, the funnel
 make check-gsm-continuity # whether consecutive SCH decodes hang together
+make check-gsm-bcch   # four bursts to a System Information message
 make check-acquisition # the block slot, both its modes, and its shutdown
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
@@ -134,6 +135,11 @@ Tabs are presentation only, not the boundary (ADR-0010).
 - `src/gsm_dsp.{c,h}` (`gsm_`) — GSM 900: ARFCN map, FCCH tone detector, SCH
   decoder (differential GMSK demod → training-sequence sync → rate-1/2 Viterbi →
   parity → BSIC + frame number).
+- `src/gsm_bcch.{c,h}` — one layer further, and on the Decoder side of the
+  context map: four normal bursts → deinterleave → rate-1/2 soft Viterbi →
+  (224,184) Fire code → a System Information message (MCC, MNC, LAC, Cell
+  Identity). Complete and checked; nothing feeds it until a burst equaliser
+  exists (`.scratch/gsm-bcch/`).
 - `src/adsb_dsp.{c,h}` (`adsb_`) — Mode S: preamble detect, PPM bit demod, CRC-24,
   DF17/18 field parse, CPR position with an even/odd pairing cache.
 

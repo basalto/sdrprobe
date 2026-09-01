@@ -16,7 +16,7 @@ BUILD=build
 
 all: sdrprobe
 
-DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/adsb_dsp.c
+DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c
 APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_survey.c $(SRC)/band_plan.c \
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
@@ -27,7 +27,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/app.h $(SRC)/view.h
-DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
+DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
 GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
@@ -129,6 +129,16 @@ check-geometry: $(TESTS)/sdrgui_geometry_test.c $(TESTS)/check.h \
 		$(TESTS)/sdrgui_geometry_test.c -lm
 	$(Q)./$(BUILD)/sdrgui_geometry_test
 
+# The BCCH: four bursts to a System Information message. The Decoder context's
+# side of GSM -- interleaving, the Fire code, the convolutional code, and what
+# the message says. No samples, no receiver.
+check-gsm-bcch: $(TESTS)/gsm_bcch_test.c $(TESTS)/check.h $(SRC)/gsm_bcch.c \
+		$(SRC)/gsm_bcch.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_bcch_test \
+		$(TESTS)/gsm_bcch_test.c $(SRC)/gsm_bcch.c -lm
+	$(Q)./$(BUILD)/gsm_bcch_test
+
 # Whether consecutive SCH decodes hang together: the hyperframe wrap, the
 # elapsed time a frame number is judged against, and a BSIC that changes.
 check-gsm-continuity: $(TESTS)/gsm_continuity_test.c $(TESTS)/check.h \
@@ -210,7 +220,7 @@ CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
-	check-gsm-continuity check-geometry check-input
+	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -266,4 +276,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check hooks check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
