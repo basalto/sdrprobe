@@ -407,6 +407,12 @@ int main(void) {
        30 to 16, which these floors catch. */
     check_real_capture("testfiles/gsm_arfcn_69.bin", 59, 7, 3, 25);
     check_real_capture("testfiles/gsm_arfcn_73.bin", 56, 7, 0, 25);
+    /* A third cell, a different operator, and -- the reason it is here -- a
+       BCC of 6 where the other two are 3 and 0. The BCC picks the training
+       sequence every normal burst is found by, so this is the capture that
+       says the demodulator works for more than the one sequence it was
+       written against. */
+    check_real_capture("testfiles/gsm_arfcn_113.bin", 38, 4, 6, 25);
 
     test_arfcn_for_hz();
 
