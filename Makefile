@@ -22,7 +22,7 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
-	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/chrome_layout.h \
+	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
@@ -108,6 +108,17 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 		$(TESTS)/calibration_gate_test.c -lm
 	$(Q)./$(BUILD)/calibration_gate_test
 
+# The sweep itself: the step plan, the fold, and what measuring a candidate
+# adds up to. None of it is visible when it is wrong -- a gap between steps
+# hides whatever transmits in it and the chart looks right -- so the arithmetic
+# is the only place it can be caught.
+check-survey-sweep: $(TESTS)/survey_sweep_test.c $(TESTS)/check.h \
+		$(SRC)/survey_sweep.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_sweep_test \
+		$(TESTS)/survey_sweep_test.c -lm
+	$(Q)./$(BUILD)/survey_sweep_test
+
 # The band survey's window arithmetic: zoom, pan, and what Sweep would sweep.
 # No raylib, no receiver, no window -- which is the point. Every one of these
 # decisions previously had to be checked by building an instrumented binary and
@@ -127,7 +138,8 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # appends its counts to CHECK_TALLY so the total below is real rather than a
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
 CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
-	check-options check-survey check-calibration check-layout
+	check-options check-survey check-survey-sweep check-calibration \
+	check-layout
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -175,4 +187,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean

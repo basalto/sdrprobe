@@ -313,8 +313,6 @@ static int survey_start(struct app *app) {
     struct survey_view *s = &app->survey;
     uint32_t from_hz;
     uint32_t to_hz;
-    double span;
-    double step_span;
 
     if (!app->receiver_mode) {
         snprintf(s->status, sizeof(s->status),
@@ -327,55 +325,46 @@ static int survey_start(struct app *app) {
                  "Use Hz or a K/M/G value, for example 88M");
         return -1;
     }
-    if (to_hz <= from_hz) {
-        snprintf(s->status, sizeof(s->status),
-                 "The high edge must be above the low one.");
-        return -1;
-    }
-
-    if (parse_seconds(s->dwell, &s->dwell_seconds) < 0 ||
-        s->dwell_seconds < SURVEY_DWELL_MIN ||
-        s->dwell_seconds > SURVEY_DWELL_MAX) {
+    if (parse_seconds(s->dwell, &s->dwell_seconds) < 0) {
         snprintf(s->status, sizeof(s->status),
                  "Dwell must be between %.2f and %.0f seconds.",
                  SURVEY_DWELL_MIN, SURVEY_DWELL_MAX);
         return -1;
     }
 
-    span = (double)to_hz - (double)from_hz;
-    step_span = (double)app->applied_sample_rate * SURVEY_USABLE_SPAN;
-    if (step_span < 1.0) {
-        snprintf(s->status, sizeof(s->status), "Sample rate is too low to sweep.");
+    switch (survey_plan_make((double)from_hz, (double)to_hz,
+                             (double)app->applied_sample_rate,
+                             SDR_DSP_FFT_SIZE, s->dwell_seconds, &s->plan)) {
+    case SURVEY_PLAN_BAD_RANGE:
+        snprintf(s->status, sizeof(s->status),
+                 "The high edge must be above the low one.");
         return -1;
+    case SURVEY_PLAN_BAD_DWELL:
+        snprintf(s->status, sizeof(s->status),
+                 "Dwell must be between %.2f and %.0f seconds.",
+                 SURVEY_DWELL_MIN, SURVEY_DWELL_MAX);
+        return -1;
+    case SURVEY_PLAN_BAD_RATE:
+        snprintf(s->status, sizeof(s->status),
+                 "Sample rate is too low to sweep.");
+        return -1;
+    case SURVEY_PLAN_OK:
+        break;
     }
 
-    s->lower_hz = (double)from_hz;
-    s->upper_hz = (double)to_hz;
-    /* As many bins as the array holds, unless that would be finer than the
-       FFT feeding them: past that point the extra bins carry no more
-       information than the ones beside them. */
-    double finest_hz = (double)app->applied_sample_rate /
-                       (double)SDR_DSP_FFT_SIZE;
-    double bin_hz = span / (double)SURVEY_BINS;
-    if (bin_hz < finest_hz)
-        bin_hz = finest_hz;
-    s->bins = (int)(span / bin_hz);
-    if (s->bins > SURVEY_BINS)
-        s->bins = SURVEY_BINS;
-    if (s->bins < 16)
-        s->bins = 16;
+    s->lower_hz = s->plan.lower_hz;
+    s->upper_hz = s->plan.upper_hz;
+    s->bins = s->plan.bins;
     survey_clear(s);
 
     survey_reset_view(s);
-    s->step_count = (int)ceil(span / step_span);
-    if (s->step_count < 1)
-        s->step_count = 1;
+    s->step_count = s->plan.step_count;
     s->step = 0;
     s->step_folded = 0;
     s->sweeping = 1;
     view_survey_enter(app);
 
-    double first = s->lower_hz + step_span / 2.0;
+    double first = survey_plan_step_centre(&s->plan, 0);
     if (retune_receiver(app, (uint32_t)llround(first), app->applied_ppm) < 0) {
         s->sweeping = 0;
         snprintf(s->status, sizeof(s->status),
@@ -386,13 +375,11 @@ static int survey_start(struct app *app) {
     /* What this is going to cost, before it is spent: a long dwell over a wide
        range is minutes, and knowing that up front is the difference between
        patience and pressing Stop. */
-    double estimate = (double)s->step_count *
-                      (SURVEY_SETTLE_SECONDS + s->dwell_seconds);
     snprintf(s->status, sizeof(s->status),
              "Sweeping %.3f - %.3f MHz in %d steps, %.2f s each: about %s.",
              s->lower_hz / 1e6, s->upper_hz / 1e6, s->step_count,
              s->dwell_seconds,
-             estimate < 90.0 ? "a minute" : "a few minutes");
+             s->plan.seconds < 90.0 ? "a minute" : "a few minutes");
     return 0;
 }
 
@@ -406,24 +393,18 @@ static void survey_fold_block(struct app *app) {
     double centre = (double)app->applied_frequency;
     double bin_hz = rate / (double)SDR_DSP_FFT_SIZE;
     double lower = centre - rate / 2.0;
-    double usable = rate * SURVEY_USABLE_SPAN / 2.0;
 
     for (int i = 0; i < SDR_DSP_FFT_SIZE; i++) {
         double hz = lower + ((double)i + 0.5) * bin_hz;
-        if (fabs(hz - centre) > usable)
+        int bin;
+
+        if (!survey_fold_keeps(hz, centre, rate))
             continue;
-        if (hz < s->lower_hz || hz >= s->upper_hz)
+        bin = survey_plan_bin_at(&s->plan, hz);
+        if (bin < 0)
             continue;
-        int bin = (int)((hz - s->lower_hz) / (s->upper_hz - s->lower_hz) *
-                        (double)s->bins);
-        if (bin < 0 || bin >= s->bins)
-            continue;
-        float power = app->spectrum_average[i];
-        /* Peak-hold within the bin: a survey bin is usually wider than an FFT
-           bin, and a narrow carrier averaged with the noise beside it is a
-           carrier the survey would miss. */
-        if (s->power[bin] <= SURVEY_SENTINEL_DBFS || power > s->power[bin])
-            s->power[bin] = power;
+        s->power[bin] = survey_fold_hold(s->power[bin],
+                                         app->spectrum_average[i]);
     }
 }
 
@@ -449,11 +430,7 @@ static void survey_select(struct app *app, int index) {
         return;
     s->selected = index;
     s->report_valid = 0;
-    s->measure_blocks = 0;
-    s->measure_hits = 0;
-    s->measure_centre_sum = 0.0;
-    s->measure_centre_square_sum = 0.0;
-    s->measure_first_prominence = 0.0f;
+    survey_measure_reset(&s->measure);
     hz = survey_bin_hz(s, s->peaks[index].index);
     s->measure_expected_hz = hz;
     /* Stepping the list with Up/Down can land on a candidate the window is
@@ -486,26 +463,19 @@ static void survey_select(struct app *app, int index) {
 static void survey_measure_block(struct app *app) {
     struct survey_view *s = &app->survey;
     struct sdr_carrier_report report;
+    int found;
 
-    if (!sdr_dsp_characterise_carrier(app->spectrum_average, SDR_DSP_FFT_SIZE,
-                                      (double)app->applied_frequency,
-                                      (double)app->applied_sample_rate,
-                                      s->measure_expected_hz, 200000.0,
-                                      SURVEY_BANDWIDTH_DB,
-                                      app->magnitude_sorted, &report)) {
-        s->measure_blocks++;
-        return;
-    }
-    s->measure_blocks++;
-    if (s->measure_first_prominence <= 0.0f)
-        s->measure_first_prominence = report.prominence_db;
-    /* "Up" means at least half the prominence it was first seen with: a
-       bursty transmitter is present in some blocks and absent in others, and
-       that fraction is the duty this view reports. */
-    if (report.prominence_db >= s->measure_first_prominence / 2.0f) {
-        s->measure_hits++;
-        s->measure_centre_sum += report.centre_hz;
-        s->measure_centre_square_sum += report.centre_hz * report.centre_hz;
+    found = sdr_dsp_characterise_carrier(app->spectrum_average,
+                                         SDR_DSP_FFT_SIZE,
+                                         (double)app->applied_frequency,
+                                         (double)app->applied_sample_rate,
+                                         s->measure_expected_hz, 200000.0,
+                                         SURVEY_BANDWIDTH_DB,
+                                         app->magnitude_sorted, &report);
+    /* The duty rule -- what counts as the candidate being up in this block --
+       is in survey_sweep.h with the rest of the arithmetic. */
+    if (survey_measure_observe(&s->measure, found, report.prominence_db,
+                               report.centre_hz)) {
         s->report = report;
         s->report_valid = 1;
     }
@@ -516,9 +486,10 @@ void update_survey(struct app *app, double now) {
 
     if (s->sweeping) {
         double elapsed = now - s->step_started_at;
-        double step_span = (double)app->applied_sample_rate * SURVEY_USABLE_SPAN;
+        enum survey_step_phase phase = survey_step_phase_at(
+            elapsed, s->dwell_seconds, s->step, s->step_count);
 
-        if (elapsed < SURVEY_SETTLE_SECONDS)
+        if (phase == SURVEY_STEP_SETTLING)
             return;
         /* Every block that arrives during the dwell is folded in, and the fold
            is a peak hold, so a burst anywhere inside the dwell leaves its mark
@@ -527,12 +498,12 @@ void update_survey(struct app *app, double now) {
            to be transmitting at that instant. */
         survey_fold_block(app);
         s->step_folded = 1;
-        if (elapsed < SURVEY_SETTLE_SECONDS + s->dwell_seconds) {
+        if (phase == SURVEY_STEP_DWELLING) {
             survey_find_peaks(app);
             return;
         }
         s->step++;
-        if (s->step >= s->step_count) {
+        if (phase == SURVEY_STEP_FINISHED) {
             s->sweeping = 0;
             survey_find_peaks(app);
             snprintf(s->status, sizeof(s->status),
@@ -548,7 +519,7 @@ void update_survey(struct app *app, double now) {
                 retune_receiver(app, s->return_frequency, app->applied_ppm);
             return;
         }
-        double next = s->lower_hz + ((double)s->step + 0.5) * step_span;
+        double next = survey_plan_step_centre(&s->plan, s->step);
         if (retune_receiver(app, (uint32_t)llround(next), app->applied_ppm) < 0) {
             s->sweeping = 0;
             snprintf(s->status, sizeof(s->status),
@@ -567,7 +538,7 @@ void update_survey(struct app *app, double now) {
             s->measuring = 0;
             snprintf(s->status, sizeof(s->status),
                      "Measured %.4f MHz over %d blocks.",
-                     s->measure_expected_hz / 1e6, s->measure_blocks);
+                     s->measure_expected_hz / 1e6, s->measure.blocks);
         }
     }
 }
@@ -1066,26 +1037,19 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
         DrawText(text, (int)rect.x + 12, y, 17, (Color){ 213, 226, 234, 255 });
         y += line;
 
-        if (s->measure_blocks > 0) {
-            double fraction = (double)s->measure_hits /
-                              (double)s->measure_blocks;
-            const char *duty = fraction > 0.9 ? "continuous"
-                             : fraction > 0.3 ? "intermittent"
-                                              : "bursty";
+        if (s->measure.blocks > 0) {
+            double duty = survey_measure_duty(&s->measure);
+
             snprintf(text, sizeof(text), "duty               %s  (%d/%d blocks)",
-                     duty, s->measure_hits, s->measure_blocks);
+                     survey_measure_duty_label(duty), s->measure.hits,
+                     s->measure.blocks);
             DrawText(text, (int)rect.x + 12, y, 17,
                      (Color){ 213, 226, 234, 255 });
             y += line;
         }
-        if (s->measure_hits > 1) {
-            double mean = s->measure_centre_sum / (double)s->measure_hits;
-            double variance = s->measure_centre_square_sum /
-                                  (double)s->measure_hits - mean * mean;
-            if (variance < 0.0)
-                variance = 0.0;
+        if (s->measure.hits > 1) {
             snprintf(text, sizeof(text), "stability          +/- %.1f kHz",
-                     sqrt(variance) / 1e3);
+                     survey_measure_spread_hz(&s->measure) / 1e3);
             DrawText(text, (int)rect.x + 12, y, 17,
                      (Color){ 213, 226, 234, 255 });
             y += line;
