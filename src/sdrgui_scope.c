@@ -762,6 +762,15 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
                  params->peak_count, params->lower_hz / 1e6,
                  params->upper_hz / 1e6, params->data_lower_hz / 1e6,
                  params->data_upper_hz / 1e6);
+    else if (params->suspicious_count > 0)
+        /* The zoom hint gives way to the warning, which is the more urgent
+           of the two and only appears when there is something to warn about.
+           What the mark means is in the help overlay, with the rest of the
+           explanations. */
+        snprintf(text, sizeof(text),
+                 "frequency (MHz)   %d candidates, %d marked * look like "
+                 "the receiver",
+                 params->peak_count, params->suspicious_count);
     else
         snprintf(text, sizeof(text),
                  "frequency (MHz)   %d candidates above the local floor"

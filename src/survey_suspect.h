@@ -34,6 +34,23 @@
 #define RECEIVER_COMB_HZ (RECEIVER_REFERENCE_HZ / 2.0)
 
 /*
+ * How far a comb tone's *reported* frequency can sit from the multiple it
+ * really is on.
+ *
+ * Half a survey bin is the obvious answer and it is not enough. A candidate is
+ * reported at the bin holding the peak-held maximum, which noise and the
+ * tuner's own error can pull a bin or two off centre: the same 648 MHz tone
+ * came back 18.1 kHz low in one sweep of 470-690 MHz and 11.5 kHz high in the
+ * next, and a 590.4 MHz one 5.3 kHz high in an 80 MHz sweep whose bins are
+ * only 9.8 kHz wide. Tying the tolerance to the bin missed all three.
+ *
+ * 25 kHz covers what has been measured with margin, and it costs almost
+ * nothing: the comb is spaced 14.4 MHz, so a real signal falling inside 25 kHz
+ * of a multiple by chance is one candidate in about three hundred.
+ */
+#define RECEIVER_COMB_TOLERANCE_HZ 25000.0
+
+/*
  * The width a pure carrier measures at, given the FFT looking at it. A tone
  * has no bandwidth of its own; what is measured is the window's response,
  * about four bins of it at the -20 dB point. A candidate this narrow is a
@@ -121,7 +138,9 @@ static inline int survey_is_unresolved(double bandwidth_hz, double sample_rate,
 
 /*
  * How far from a reported frequency the truth may be: half a survey bin, but
- * never finer than the FFT that filled it.
+ * never finer than the FFT that filled it. This is the quantisation alone --
+ * the step-centre test uses it, because a step centre is an exact frequency
+ * the receiver was told to tune to.
  */
 static inline double survey_suspect_tolerance(const struct survey_plan *plan,
                                               double sample_rate,
@@ -130,6 +149,18 @@ static inline double survey_suspect_tolerance(const struct survey_plan *plan,
     double resolution = survey_resolution_hz(sample_rate, fft_size) / 2.0;
 
     return half_bin > resolution ? half_bin : resolution;
+}
+
+/* The comb needs more room than quantisation explains: see
+   RECEIVER_COMB_TOLERANCE_HZ. */
+static inline double survey_comb_tolerance(const struct survey_plan *plan,
+                                           double sample_rate, int fft_size) {
+    double quantisation = survey_suspect_tolerance(plan, sample_rate,
+                                                   fft_size);
+
+    return quantisation > RECEIVER_COMB_TOLERANCE_HZ
+               ? quantisation
+               : RECEIVER_COMB_TOLERANCE_HZ;
 }
 
 /*
@@ -145,7 +176,8 @@ static inline unsigned survey_suspect(const struct survey_plan *plan, double hz,
     double tolerance = survey_suspect_tolerance(plan, sample_rate, fft_size);
     unsigned flags = SURVEY_SUSPECT_NONE;
 
-    if (survey_reference_harmonic(hz, tolerance))
+    if (survey_reference_harmonic(hz, survey_comb_tolerance(plan, sample_rate,
+                                                            fft_size)))
         flags |= SURVEY_SUSPECT_REFERENCE;
     if (!dc_filtered && survey_at_step_centre(plan, hz, tolerance))
         flags |= SURVEY_SUSPECT_STEP_CENTRE;

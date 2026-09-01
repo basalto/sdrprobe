@@ -525,18 +525,9 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     app->applied_ppm = rtlsdr_get_freq_correction(app->dev);
     app->spectrum_ready = 0;
     app->spectrum_peak_ready = 0;
-    if (recreate_waterfall(app, app->plot, 1) < 0) {
-        set_frequency_correction(app->dev, old_ppm);
-        rtlsdr_set_center_freq(app->dev, old_frequency);
-        rtlsdr_reset_buffer(app->dev);
-        app->applied_frequency = old_frequency;
-        app->applied_ppm = old_ppm;
-        if (start_acquisition(app) < 0)
-            snprintf(app->calibration_status,
-                     sizeof(app->calibration_status),
-                     "Waterfall failed and acquisition could not restart");
-        return -1;
-    }
+    /* The waterfall's history now belongs to a frequency the receiver has
+       left, but rebuilding it is drawing, and this runs on paths with no
+       window: view_scope_resize_if_needed() notices and clears it. */
     if (start_acquisition(app) < 0) {
         set_frequency_correction(app->dev, old_ppm);
         rtlsdr_set_center_freq(app->dev, old_frequency);
@@ -1174,6 +1165,11 @@ static void print_new_decodes(struct app *app, double now, int gsm)
    here touches raylib, and nothing needs the frame loop -- recording tees off
    inside the acquisition thread, upstream of the display's block slot. */
 static int run_headless(struct app *app) {
+    /* raylib writes its own notices to stdout, and stdout here is a data
+       stream someone is parsing. Nothing should reach raylib on this path,
+       but a stray line would corrupt a survey rather than merely clutter it. */
+    SetTraceLogLevel(LOG_NONE);
+
     const char *basename;
     const char *technology;
     int recording_started = 0;
@@ -1206,7 +1202,7 @@ static int run_headless(struct app *app) {
         }
         recording_started = 1;
     } else if (app->options.duration_seconds <= 0.0 &&
-               !app->options.play_once) {
+               !app->options.play_once && !app->options.survey_report) {
         fprintf(stderr, "Acquiring headless; Ctrl-C to stop.\n");
     }
 

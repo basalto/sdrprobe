@@ -30,8 +30,10 @@ static struct survey_plan uhf_plan(void) {
     return plan;
 }
 
+/* The comb's tolerance, which is what every check below is about. The
+   quantisation-only one is exercised through the step-centre tests. */
 static double tolerance_of(const struct survey_plan *plan) {
-    return survey_suspect_tolerance(plan, RATE, FFT);
+    return survey_comb_tolerance(plan, RATE, FFT);
 }
 
 /*
@@ -57,14 +59,18 @@ static void test_the_comb_that_was_measured(void) {
     }
 
     /*
-     * 647.9819 MHz was in the same list and is deliberately *not* here. It is
-     * 18 kHz below 648.0, and half a survey bin is 13 -- so bin quantisation
-     * does not explain it and the comb test rightly does not claim it. Widening
-     * the tolerance to swallow it would buy one uncertain candidate and cost
-     * the selectivity the whole warning rests on.
+     * 647.9819 MHz is 18.1 kHz below 648.0, which half a survey bin (13.4 kHz)
+     * does not explain -- and for a while this check asserted it was therefore
+     * not claimable. Then the same tone came back at 648.0115 in the next
+     * sweep of the same range, 11.5 kHz the other way. One tone, two readings
+     * 30 kHz apart: the reported frequency is the peak-held maximum bin, not
+     * the centre, and noise moves it. Both readings are harmonic 45.
      */
-    check_int("647.9819 MHz is too far off the comb to claim",
-              survey_reference_harmonic(647.9819e6, tolerance), 0);
+    check_int("647.9819 MHz, read low", survey_reference_harmonic(647.9819e6,
+                                                                  tolerance),
+              45);
+    check_int("648.0115 MHz, the same tone read high",
+              survey_reference_harmonic(648.0115e6, tolerance), 45);
 
     /* And the measured refinements of two of them, which land within 400 Hz
        of the exact multiple. */
@@ -119,8 +125,8 @@ static void test_the_tolerance(void) {
     double tolerance = tolerance_of(&plan);
     double exact = 40.0 * RECEIVER_COMB_HZ;
 
-    check_msg(tolerance > 1000.0 && tolerance < 100000.0,
-              "a tolerance of %.0f Hz is not half a survey bin\n", tolerance);
+    check_close("the comb's tolerance is its floor on this sweep", tolerance,
+                RECEIVER_COMB_TOLERANCE_HZ, 1.0);
     check_int("exactly on the multiple",
               survey_reference_harmonic(exact, tolerance), 40);
     check_int("just inside the tolerance",
@@ -143,6 +149,63 @@ static void test_the_tolerance(void) {
 }
 
 /*
+ * The tolerance floor, and why it is a floor.
+ *
+ * A narrow sweep has fine bins -- an 80 MHz range gives 9.8 kHz of them, so
+ * half a bin is 4.9 kHz. A live sweep of exactly that range reported a comb
+ * tone at 590.4053 MHz, 5.3 kHz above the multiple, and a tolerance tied to
+ * the bin missed it by four hundred hertz. The floor is what stops the test
+ * getting *less* able to recognise the comb the closer it looks.
+ */
+static void test_the_tolerance_has_a_floor(void) {
+    struct survey_plan narrow;
+    double tolerance;
+
+    survey_plan_make(540e6, 620e6, RATE, FFT, 0.05, &narrow);
+    check_msg(survey_suspect_tolerance(&narrow, RATE, FFT) <
+                  RECEIVER_COMB_TOLERANCE_HZ,
+              "an 80 MHz sweep's bins are no longer finer than the floor, so "
+              "this check is not exercising it\n");
+    tolerance = survey_comb_tolerance(&narrow, RATE, FFT);
+    check_close("the floor governs", tolerance, RECEIVER_COMB_TOLERANCE_HZ,
+                1.0);
+    check_int("and 590.4053 MHz is recognised",
+              survey_reference_harmonic(590.4053e6, tolerance), 41);
+
+    /* The other three from the same sweep, which the bin-width tolerance did
+       catch, must not stop being recognised. */
+    check_int("576.0010", survey_reference_harmonic(576.0010e6, tolerance), 40);
+    check_int("604.7998", survey_reference_harmonic(604.7998e6, tolerance), 42);
+    check_int("619.2041", survey_reference_harmonic(619.2041e6, tolerance), 43);
+    /* 561.5771 is 22.9 kHz below harmonic 39, so the narrow sweep did not mark
+       it -- but the wide sweep of 470-690 MHz reported the same tone at
+       561.5906 and did. One tone the bin-width tolerance saw only when the
+       bins happened to be coarse enough. */
+    check_int("561.5771, missed by the bin-width tolerance",
+              survey_reference_harmonic(561.5771e6, tolerance), 39);
+
+    /* And the twelve from that sweep that are not on the comb must still not
+       be. These are the real false-positive risk of a wider tolerance. */
+    {
+        const double others[] = { 544.9365e6, 553.2568e6, 569.8975e6,
+                                  582.2510e6, 587.0264e6, 588.7256e6,
+                                  589.7510e6, 600.0049e6 };
+        int flagged = 0;
+        double worst = 0.0;
+
+        for (size_t i = 0; i < sizeof(others) / sizeof(*others); i++)
+            if (survey_reference_harmonic(others[i], tolerance)) {
+                flagged++;
+                worst = others[i];
+            }
+        check_msg(flagged == 0,
+                  "%d of the sweep's real candidates were called harmonics "
+                  "(e.g. %.4f MHz)\n",
+                  flagged, worst / 1e6);
+    }
+}
+
+/*
  * A wide sweep has coarse bins and so a wide tolerance. Even at the full
  * tuner's 213 kHz bins the comb test must stay selective: 213 kHz either side
  * of a 14.4 MHz spacing is under 3% of the band.
@@ -153,7 +216,7 @@ static void test_a_coarse_sweep_stays_selective(void) {
     int flagged = 0;
 
     survey_plan_make(24e6, 1766e6, RATE, FFT, 0.10, &plan);
-    tolerance = survey_suspect_tolerance(&plan, RATE, FFT);
+    tolerance = survey_comb_tolerance(&plan, RATE, FFT);
     check_msg(tolerance > 100000.0,
               "a full-tuner sweep should have coarse bins, not %.0f Hz\n",
               tolerance);
@@ -383,6 +446,7 @@ int main(void) {
     test_the_comb_that_was_measured();
     test_real_signals_are_left_alone();
     test_the_tolerance();
+    test_the_tolerance_has_a_floor();
     test_a_coarse_sweep_stays_selective();
     test_step_centres();
     test_unresolved_width();

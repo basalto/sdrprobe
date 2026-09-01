@@ -111,6 +111,7 @@ int recreate_waterfall(struct app *app, Rectangle plot,
         app->sv.waterfall_rows = height;
     app->sv.waterfall_ready = 1;
     render_waterfall(app);
+    app->sv.waterfall_tuned_hz = app->applied_frequency;
     return 0;
 }
 
@@ -469,6 +470,12 @@ int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
                   (int)plot.height != app->sv.waterfall_height;
     if (!resized) {
         app->plot = plot;
+        /* Retuning does not rebuild the waterfall itself -- tuning a receiver
+           is not a drawing operation, and it happens on paths that have no
+           window at all. What it leaves behind is a history gathered at
+           another frequency, which the view throws away here. */
+        if (app->sv.waterfall_tuned_hz != app->applied_frequency)
+            return recreate_waterfall(app, plot, 1);
         return 0;
     }
     if (recreate_scatter(app, plot) < 0)
