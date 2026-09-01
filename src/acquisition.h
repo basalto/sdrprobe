@@ -82,7 +82,6 @@ struct slot_snapshot {
 #define DRIFT_MIN_MEASUREMENTS 8
 #define DRIFT_RECENT 64
 
-#define TAB_COUNT 2
 
 /*
  * What acquisition owns.

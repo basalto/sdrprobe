@@ -23,19 +23,21 @@ and what it would take. The gap is meant to be measurable rather than felt.
 
 ## Not reachable
 
-One ticket each in `issues/`. They are ordered by what a bug there would cost
-an operator, not by how easy the extraction is.
+Nothing outstanding. All eight tickets in `issues/` are resolved; each records
+what moved, what it is checked by, and what a mutation of it breaks.
 
-| # | Area | Why it matters |
-| --- | --- | --- |
-| 01 | survey sweep state machine | decides what is measured and what is reported as a signal |
-| 02 | acquisition slot semantics | decides whether the program sees the signal at all |
-| 03 | scan step machine and BCCH choice | picks the channel the operator then studies |
-| 04 | ADS-B analysis latching | decides which frame the charts are describing |
-| 05 | calibration state machine | decides when a correction is applied to every frequency shown |
-| 06 | GSM SCH continuity | decides whether a decode is called trustworthy |
-| 07 | frame-loop input precedence | decides which control a key press reaches |
-| 08 | component hit tests | decides what the pointer selected |
+Four of them found real faults on the way, which is the argument for the whole
+exercise:
+
+| # | Found |
+| --- | --- |
+| 06 | the SCH hyperframe wrap was reported as a jump, and so was any gap longer than one T1 tick |
+| 07 | `q`, `h`, `s` and `c` fired from under a survey field that was being typed into -- a stray letter quit the program |
+| 08 | (the premise, not a fault) the hit-test geometry was already pure; it only needed to leave a `.c` that links raylib |
+| 04 | (an assumption, not a fault) Hold pins the last frame that *passed*, and a newer passing frame replaces it |
+
+Add a ticket here when a decision is added that a check cannot reach, rather
+than leaving the gap implicit.
 
 ## Working rule
 

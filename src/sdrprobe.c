@@ -758,6 +758,21 @@ static void draw_header(const struct app *app) {
     draw_health_indicator(app);
 }
 
+/* The flags the precedence chain in input_route.h reads, and nothing else. */
+static struct input_state input_state_now(const struct app *app) {
+    struct input_state state;
+
+    state.help_open = app->help.open;
+    state.settings_open = app->settings_open;
+    state.calibration_open = app->calibration_open;
+    state.scan_open = app->scan_open;
+    state.tab = app->tab;
+    /* survey_editing() is the only text focus outside the settings panel:
+       the survey's range and dwell fields. */
+    state.text_focus = survey_editing(app);
+    return state;
+}
+
 static int handle_tab_input(struct app *app) {
     for (int i = 0; i < TAB_COUNT; i++) {
         if (clicked(tab_rect(i))) {
@@ -802,6 +817,7 @@ static void cli_record_labels(const struct options *options,
 static int run_gui(struct app *app) {
     struct slot_snapshot snapshot;
     int result = 0;
+    int break_requested = 0;
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(1100, 720, "sdrprobe signal visualizer");
@@ -897,49 +913,67 @@ static int run_gui(struct app *app) {
             GetTime() - run_started >= app->options.duration_seconds)
             break;
 
-        /* Quit is checked before the precedence chain, so it means the same
-           thing from every screen. The exception is the Settings panel, which
-           is taking typed input: losing half-entered settings to a stray
-           letter is worse than having to leave the panel first. */
-        if (IsKeyPressed(KEY_Q) && !app->settings_open)
+        /* Who gets this frame's input. The precedence is in input_route.h,
+           where it can be checked; what each target does with the keys is its
+           own handler's business. */
+        struct input_state input = input_state_now(app);
+        int shortcuts = input_shortcuts_live(&input);
+
+        /* Quit is checked before the chain, so it means the same thing from
+           every screen -- except while something is taking typed input, where
+           losing a half-entered value to a stray letter is worse than having
+           to click away first. */
+        if (shortcuts && IsKeyPressed(KEY_Q))
             break;
 
-        if (app->help.open) {
-            /* Help is the outermost overlay: it can be raised over a view or
-               over calibration, and takes every key while it is up. */
+        if (input_help_opens(&input) && IsKeyPressed(KEY_H)) {
+            open_help(app);
+        } else switch (input_route(&input)) {
+        case INPUT_TARGET_HELP:
             handle_help_input(app);
-        } else if (app->settings_open) {
+            break;
+        case INPUT_TARGET_SETTINGS:
             if (IsKeyPressed(KEY_ESCAPE))
                 app->settings_open = 0;
             else
                 handle_settings_input(app);
-        } else if (IsKeyPressed(KEY_H)) {
-            open_help(app);
-        } else if (app->calibration_open) {
-            if (app->scan_open)
-                handle_scan_input(app);
-            else
-                handle_calibration_input(app);
-        } else if (handle_tab_input(app)) {
-            /* Tab switched this frame; skip per-tab input. */
-        } else if (clicked(settings_button()) || IsKeyPressed(KEY_S)) {
-            open_settings(app);
-        } else if (clicked(calibration_button()) || IsKeyPressed(KEY_C)) {
-            if (app->tab == TAB_DECODE && app->decode == DECODE_GSM)
-                leave_gsm(app);
-            open_calibration(app);
-        } else if (app->tab == TAB_DECODE) {
-            if (IsKeyPressed(KEY_ONE))
-                set_decode(app, DECODE_GSM);
-            else if (IsKeyPressed(KEY_TWO))
-                set_decode(app, DECODE_ADSB);
-            if (app->decode == DECODE_GSM)
-                handle_gsm_input(app);
-            else
-                handle_adsb_input(app);
-        } else if (IsKeyPressed(KEY_ESCAPE) && !survey_editing(app)) {
+            break;
+        case INPUT_TARGET_SCAN:
+            handle_scan_input(app);
+            break;
+        case INPUT_TARGET_CALIBRATION:
+            handle_calibration_input(app);
+            break;
+        case INPUT_TARGET_DECODE:
+        case INPUT_TARGET_SCOPE:
+            /* A click on a button is unambiguous whatever has focus; only the
+               letter that stands for it is suppressed while typing. */
+            if (handle_tab_input(app)) {
+                /* Tab switched this frame; skip per-tab input. */
+            } else if (clicked(settings_button()) ||
+                       (shortcuts && IsKeyPressed(KEY_S))) {
+                open_settings(app);
+            } else if (clicked(calibration_button()) ||
+                       (shortcuts && IsKeyPressed(KEY_C))) {
+                if (app->tab == TAB_DECODE && app->decode == DECODE_GSM)
+                    leave_gsm(app);
+                open_calibration(app);
+            } else if (input.tab == TAB_DECODE) {
+                if (IsKeyPressed(KEY_ONE))
+                    set_decode(app, DECODE_GSM);
+                else if (IsKeyPressed(KEY_TWO))
+                    set_decode(app, DECODE_ADSB);
+                if (app->decode == DECODE_GSM)
+                    handle_gsm_input(app);
+                else
+                    handle_adsb_input(app);
+            } else if (IsKeyPressed(KEY_ESCAPE) && !input.text_focus) {
+                break_requested = 1;
+            }
             break;
         }
+        if (break_requested)
+            break;
 
         double now = GetTime();
 
@@ -948,11 +982,10 @@ static int run_gui(struct app *app) {
             break;
         }
 
-        if (app->tab == TAB_SCOPE && !app->settings_open &&
-            !app->calibration_open) {
+        if (input_route(&input) == INPUT_TARGET_SCOPE) {
             /* While a survey range field has focus the digits belong to it,
                not to the view switcher. */
-            if (!survey_editing(app)) {
+            if (input_view_keys_live(&input)) {
                 enum view_kind selected = app->view;
                 if (IsKeyPressed(KEY_ONE))
                     selected = VIEW_MAGNITUDE;

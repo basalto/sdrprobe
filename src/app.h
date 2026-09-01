@@ -87,10 +87,9 @@ enum view_kind {
 };
 /* Top-level tabs. TAB_SCOPE must be 0 (zero-initialised default). See
    docs/adr/0008-top-level-tab-navigation.md. */
-enum active_tab {
-    TAB_SCOPE,
-    TAB_DECODE
-};
+/* The tabs, and the precedence chain that decides which control a key press
+   reaches, are in a header the checks can reach. */
+#include "input_route.h"
 
 struct band_scan {
     double step_started_at;
