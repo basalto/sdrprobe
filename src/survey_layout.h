@@ -21,7 +21,9 @@ struct survey_layout {
     Rectangle chart;           /* power across the swept range */
     Rectangle peak_list;       /* lower left: the candidates found */
     Rectangle detail;          /* lower right: the selected one */
-    Rectangle inspect_button;  /* inside detail, when a decoder fits the band */
+    Rectangle scan_button;      /* inside detail: sweep around the candidate */
+    Rectangle waterfall_button; /* inside detail: watch it over time */
+    Rectangle inspect_button;   /* inside detail, when a decoder fits the band */
     float header_left;         /* x where the status text starts */
     float header_right;        /* x where it must stop */
 };
@@ -77,19 +79,27 @@ static inline struct survey_layout survey_layout_for(float width,
         detail_w = 160.0f;
     l.detail = (Rectangle){ detail_x, lower_y, detail_w, lower_h };
 
-    /* Bottom left of the detail panel, clamped inside it: a short window makes
-       the panel small, and gsm_layout.h records what happens to a button that
-       is only positioned by an offset from its panel's edge. */
-    float button_w = 236.0f;
-    if (button_w > detail_w - 24.0f)
-        button_w = detail_w - 24.0f;
+    /* The panel's actions, two rows along its bottom: the two that always
+       apply share the upper row, and the handoff to a decoder -- which only
+       appears when the band plan names one, and carries a long label -- takes
+       the lower row to itself. Clamped inside the panel, because a short
+       window makes it small and gsm_layout.h records what happens to a button
+       positioned only by an offset from its panel's edge. */
+    float button_w = (detail_w - 36.0f) / 2.0f;
     if (button_w < 80.0f)
         button_w = 80.0f;
-    float button_y = l.detail.y + l.detail.height - 40.0f;
-    if (button_y < l.detail.y)
-        button_y = l.detail.y;
-    l.inspect_button = (Rectangle){ l.detail.x + 12.0f, button_y, button_w,
-                                    28.0f };
+    float lower_row = l.detail.y + l.detail.height - 40.0f;
+    float upper_row = lower_row - 36.0f;
+    if (upper_row < l.detail.y) {
+        upper_row = l.detail.y;
+        lower_row = l.detail.y;
+    }
+    l.scan_button = (Rectangle){ l.detail.x + 12.0f, upper_row, button_w,
+                                 28.0f };
+    l.waterfall_button = (Rectangle){ l.detail.x + 24.0f + button_w, upper_row,
+                                      button_w, 28.0f };
+    l.inspect_button = (Rectangle){ l.detail.x + 12.0f, lower_row,
+                                    detail_w - 24.0f, 28.0f };
     return l;
 }
 
