@@ -72,13 +72,9 @@ struct slot_snapshot {
 /* The calibration constants and the stability gate live in a header that
    depends on nothing, so they can be checked without a window (ADR-0012). */
 #include "calibration_gate.h"
-#define SCAN_BAND_LOWER_HZ 935100000.0
-#define SCAN_BAND_UPPER_HZ 959900000.0
-#define SCAN_EDGE_MARGIN_HZ 200000.0
-#define SCAN_STEP_SETTLE_SECONDS 0.35
-#define SCAN_STEP_PROBE_SECONDS 0.45
-#define SCAN_SENTINEL_DBFS (-300.0f)
-#define SCAN_BCCH_MIN_CONF 0.85f
+/* The band scan's step plan and its channel choice live beside the same
+   argument, in scan_plan.h. */
+#include "scan_plan.h"
 #define DRIFT_CHECK_INTERVAL_SECONDS 300.0
 #define DRIFT_CHECK_SETTLE_SECONDS 2.0
 #define DRIFT_CHECK_MEASURE_SECONDS 3.0

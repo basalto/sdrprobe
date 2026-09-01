@@ -23,7 +23,7 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h $(SRC)/chrome_layout.h \
-	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/app.h $(SRC)/view.h
+	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
@@ -108,6 +108,14 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 		$(TESTS)/calibration_gate_test.c -lm
 	$(Q)./$(BUILD)/calibration_gate_test
 
+# The GSM 900 band scan: how the downlink is covered, and which channel the
+# operator is handed at the end. That single ARFCN is the scan's whole output.
+check-scan: $(TESTS)/scan_plan_test.c $(TESTS)/check.h $(SRC)/scan_plan.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/scan_plan_test \
+		$(TESTS)/scan_plan_test.c -lm
+	$(Q)./$(BUILD)/scan_plan_test
+
 # The handoff between the acquisition thread and the renderer: the
 # overwriteable slot (ADR-0002), the lossless mode scripted playback needs, and
 # the file worker driven against a real capture. Links librtlsdr for the device
@@ -151,7 +159,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
 CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
 	check-options check-survey check-survey-sweep check-calibration \
-	check-layout check-acquisition
+	check-layout check-acquisition check-scan
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -199,4 +207,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean

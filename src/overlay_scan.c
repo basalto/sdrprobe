@@ -18,29 +18,14 @@
  * choice; calibration consumes it.
  */
 
+/* Both selectors, and the plan below, are in scan_plan.h; these are the
+   adapters that hand it the arrays out of struct app. */
 int scan_strongest_arfcn(const struct app *app) {
-    int best = 0;
-    float best_power = SCAN_SENTINEL_DBFS;
-    for (int arfcn = 1; arfcn <= 124; arfcn++) {
-        if (app->scan_power[arfcn] > best_power) {
-            best_power = app->scan_power[arfcn];
-            best = arfcn;
-        }
-    }
-    return best;
+    return scan_select_strongest(app->scan_power);
 }
 
 int scan_strongest_bcch(const struct app *app) {
-    int best = 0;
-    float best_power = SCAN_SENTINEL_DBFS;
-    for (int arfcn = 1; arfcn <= 124; arfcn++) {
-        if (app->scan_bcch_conf[arfcn] >= SCAN_BCCH_MIN_CONF &&
-            app->scan_power[arfcn] > best_power) {
-            best_power = app->scan_power[arfcn];
-            best = arfcn;
-        }
-    }
-    return best;
+    return scan_select_bcch(app->scan_power, app->scan_bcch_conf);
 }
 
 int start_scan(struct app *app) {
@@ -49,22 +34,13 @@ int start_scan(struct app *app) {
                  "Channel scan requires a live RTL-SDR receiver");
         return -1;
     }
-    double accept_half = app->applied_sample_rate / 2.0 - SCAN_EDGE_MARGIN_HZ;
-    if (accept_half < 100000.0) {
+    if (scan_plan_make((double)app->applied_sample_rate, &app->bandscan.plan) !=
+        SCAN_PLAN_OK) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Channel scan requires a sample rate of at least 1 MS/s");
         return -1;
     }
-    app->bandscan.accept_half_hz = accept_half;
-    app->bandscan.step_hz = 2.0 * accept_half;
-    app->bandscan.first_center_hz = SCAN_BAND_LOWER_HZ + accept_half;
-    int count = 0;
-    double center = app->bandscan.first_center_hz;
-    while (center - accept_half < SCAN_BAND_UPPER_HZ) {
-        count++;
-        center += app->bandscan.step_hz;
-    }
-    app->scan_step_count = count;
+    app->scan_step_count = app->bandscan.plan.step_count;
     for (int arfcn = 0; arfcn < 125; arfcn++) {
         app->scan_power[arfcn] = SCAN_SENTINEL_DBFS;
         app->scan_bcch_conf[arfcn] = 0.0f;
@@ -72,7 +48,8 @@ int start_scan(struct app *app) {
     app->scan_selected_arfcn = 0;
     app->bandscan.return_frequency = app->applied_frequency;
     app->scan_step = 0;
-    if (retune_receiver(app, (uint32_t)llround(app->bandscan.first_center_hz),
+    if (retune_receiver(app,
+                        (uint32_t)llround(app->bandscan.plan.first_center_hz),
                         app->applied_ppm) < 0)
         return -1;
     app->bandscan.step_started_at = GetTime();
@@ -85,7 +62,10 @@ void update_scan(struct app *app) {
     if (!app->scan_running || !app->spectrum_ready)
         return;
     double elapsed = GetTime() - app->bandscan.step_started_at;
-    if (elapsed < SCAN_STEP_SETTLE_SECONDS)
+    enum scan_step_phase phase = scan_step_phase_at(elapsed, app->scan_step,
+                                                    app->scan_step_count);
+
+    if (phase == SCAN_STEP_SETTLING)
         return;
 
     double center = (double)app->applied_frequency;
@@ -93,8 +73,8 @@ void update_scan(struct app *app) {
     double upper = center + app->applied_sample_rate / 2.0;
     sdr_dsp_channel_powers(app->spectrum_average, SDR_DSP_FFT_SIZE,
                               lower, upper,
-                              center - app->bandscan.accept_half_hz,
-                              center + app->bandscan.accept_half_hz,
+                              center - app->bandscan.plan.accept_half_hz,
+                              center + app->bandscan.plan.accept_half_hz,
                               GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
                               1, 124, app->scan_power);
 
@@ -106,26 +86,24 @@ void update_scan(struct app *app) {
     for (int arfcn = 1; arfcn <= 124; arfcn++) {
         double channel = GSM900_BASE_HZ +
                          (double)arfcn * GSM900_ARFCN_SPACING_HZ;
-        if (channel < center - app->bandscan.accept_half_hz ||
-            channel > center + app->bandscan.accept_half_hz)
+        if (!scan_plan_covers(&app->bandscan.plan, center, channel))
             continue;
         struct gsm_fcch_result fcch;
         double target = channel - center + GSM_FCCH_TONE_HZ;
         gsm_fcch_detect(app->i_samples, app->q_samples,
                                app->pair_count, app->applied_sample_rate,
                                target, GSM_FCCH_SEARCH_HALF_HZ, &fcch);
-        if (fcch.confidence > app->scan_bcch_conf[arfcn])
-            app->scan_bcch_conf[arfcn] = fcch.confidence;
+        app->scan_bcch_conf[arfcn] =
+            scan_hold_confidence(app->scan_bcch_conf[arfcn], fcch.confidence);
     }
 
-    if (elapsed < SCAN_STEP_SETTLE_SECONDS + SCAN_STEP_PROBE_SECONDS)
+    if (phase == SCAN_STEP_PROBING)
         return; /* keep probing this step for more FCCH bursts */
 
     app->scan_step++;
-    if (app->scan_step >= app->scan_step_count) {
+    if (phase == SCAN_STEP_FINISHED) {
         app->scan_running = 0;
-        int bcch = scan_strongest_bcch(app);
-        int chosen = bcch > 0 ? bcch : scan_strongest_arfcn(app);
+        int chosen = scan_choose(app->scan_power, app->scan_bcch_conf);
         if (chosen > 0 && app->gsm_autoselect_pending &&
             app->tab == TAB_DECODE && app->decode == DECODE_GSM &&
             !app->calibration_open) {
@@ -137,8 +115,7 @@ void update_scan(struct app *app) {
         }
         return;
     }
-    double next = app->bandscan.first_center_hz +
-                  (double)app->scan_step * app->bandscan.step_hz;
+    double next = scan_plan_step_centre(&app->bandscan.plan, app->scan_step);
     if (retune_receiver(app, (uint32_t)llround(next), app->applied_ppm) < 0) {
         app->scan_running = 0;
         return;
