@@ -17,7 +17,7 @@ void usage(const char *program) {
             "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb]\n"
             "          [--record-seconds n] [--technology gsm|adsb|raw]\n"
             "          [--arfcn 1-124] [--gsm-features list] [--dc-filter on|off]\n"
-            "          [--survey-range low:high]\n"
+            "          [--survey-range low:high] [--survey-dwell seconds]\n"
             "          [--duration n] [--once] [--headless] [--decode]\n"
             "          [--list-devices]\n"
             "\n"
@@ -36,6 +36,8 @@ void usage(const char *program) {
             "  --dc-filter       spectrum/waterfall DC-spike removal\n"
             "  --survey-range    open the band survey on this range and sweep\n"
             "                    it, for example 88M:108M\n"
+            "  --survey-dwell    seconds to sit on each step; longer catches\n"
+            "                    transmitters that are not always on\n"
             "  --once            play a capture through once instead of looping\n"
             "  --decode          headless: print decoded messages to stdout\n"
             "  --list-devices    print the receivers found, and exit\n",
@@ -310,6 +312,10 @@ int parse_options(int argc, char **argv, struct options *options) {
                 return -1;
             options->survey_seen = 1;
             options->view = START_VIEW_SURVEY;
+        } else if (strcmp(option, "--survey-dwell") == 0) {
+            if (options->survey_dwell_seconds > 0.0 || i + 1 >= argc ||
+                parse_seconds(argv[++i], &options->survey_dwell_seconds) < 0)
+                return -1;
         } else if (strcmp(option, "--arfcn") == 0) {
             if (options->arfcn || i + 1 >= argc ||
                 parse_int(argv[++i], &options->arfcn) < 0 ||

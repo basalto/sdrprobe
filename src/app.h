@@ -273,9 +273,23 @@ struct help_overlay {
  * screen rather than left to be inferred.
  */
 #define SURVEY_BINS 8192
-#define SURVEY_MAX_PEAKS 64
+/* Room for every candidate a wide sweep turns up, not just the loudest few.
+   At 64 a full-tuner sweep filled the list with FM and DAB and marked nothing
+   above 1 GHz, because the cap keeps the strongest and the strongest are all
+   in the broadcast bands. A candidate costs 24 bytes; being stingy here buys
+   nothing and hides whole allocations. */
+#define SURVEY_MAX_PEAKS 512
 #define SURVEY_MIN_BIN_HZ 50000.0
 #define SURVEY_SETTLE_SECONDS 0.10
+/* How long to sit on each step. One block catches whatever is transmitting at
+   that instant, which is the wrong tool for anything bursty: a channel that
+   keys up for 200 ms every few seconds is simply absent from most steps.
+   Dwelling longer peak-holds across the blocks that arrive, so a burst
+   anywhere in the dwell leaves its mark. The cost is linear -- doubling the
+   dwell doubles the sweep. */
+#define SURVEY_DWELL_DEFAULT 0.10
+#define SURVEY_DWELL_MIN 0.02
+#define SURVEY_DWELL_MAX 10.0
 #define SURVEY_USABLE_SPAN 0.8      /* of each step, discarding the roll-off */
 #define SURVEY_MEASURE_SECONDS 2.0
 #define SURVEY_MIN_PROMINENCE_DB 8.0f
@@ -287,15 +301,41 @@ struct help_overlay {
 #define SURVEY_MIN_SPAN_HZ 100000.0 /* no closer than this */
 #define SURVEY_MAX_BANDS 48         /* allocations drawn behind the trace */
 
+/*
+ * What a sweep produced, kept so that drilling into a region can be undone.
+ * "Sweep region" narrows the swept range to the region, which throws away
+ * everything outside it -- and re-sweeping to get it back costs minutes. A
+ * copy costs 44 KB and comes back instantly.
+ */
+struct survey_snapshot {
+    int valid;
+    double lower_hz;
+    double upper_hz;
+    int bins;
+    float power[SURVEY_BINS];
+    struct sdr_peak peaks[SURVEY_MAX_PEAKS];
+    int peak_count;
+    char from[24];
+    char to[24];
+};
+
 struct survey_view {
     char from[24];
     int from_length;
     char to[24];
     int to_length;
-    int focus;                  /* 0 = from, 1 = to */
+    char dwell[12];
+    int dwell_length;
+    int focus;                  /* 0 = from, 1 = to, 2 = dwell */
+    double dwell_seconds;       /* parsed at the start of a sweep */
 
     double lower_hz;            /* the range actually swept */
     double upper_hz;
+    /* The range currently typed in the fields. Before the first sweep there is
+       no swept range, and the chart, the zoom and the drag all need something
+       to work against -- so they work against this. */
+    double field_lower_hz;
+    double field_upper_hz;
     /* What of it is on screen. Zooming narrows this window without resampling
        the array, so the same measurements are simply drawn larger. */
     double view_lower_hz;
@@ -316,6 +356,14 @@ struct survey_view {
     int selected;               /* index into peaks, -1 for none */
     int hover;
 
+    /* Dragging a rectangle across the chart to zoom into it. A press only
+       becomes a drag once the pointer has moved; below that it is a click,
+       and a click selects a candidate. */
+    int drag_active;
+    float drag_from_x;
+    double drag_from_hz;
+    double drag_to_hz;
+
     /* Measuring the selected candidate, once retuned to it. */
     int measuring;
     double measure_started_at;
@@ -327,6 +375,8 @@ struct survey_view {
     float measure_first_prominence;
     struct sdr_carrier_report report;
     int report_valid;
+
+    struct survey_snapshot previous;
 
     char status[200];
 };

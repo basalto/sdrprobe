@@ -78,6 +78,7 @@ struct options {
     uint32_t survey_from_hz;
     uint32_t survey_to_hz;
     int survey_seen;
+    double survey_dwell_seconds;  /* 0 = leave the view's own default */
 };
 
 /* An upper bound on the two time flags. Not a limit anyone should meet: it

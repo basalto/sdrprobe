@@ -58,39 +58,86 @@ static double survey_bin_width_hz(const struct survey_view *s) {
     return (s->upper_hz - s->lower_hz) / (double)s->bins;
 }
 
-/* Clamp the visible window inside the swept range, and no narrower than
+/*
+ * The range everything is measured against: what was swept once a sweep has
+ * run, and what is typed in the fields before that. Without the second half
+ * the view has no extent until the first sweep, and zooming, panning and
+ * dragging a rectangle all quietly did nothing on a freshly opened survey --
+ * they were dividing by a span of zero.
+ */
+static double survey_data_lower(const struct survey_view *s) {
+    return s->bins > 0 ? s->lower_hz : s->field_lower_hz;
+}
+
+static double survey_data_upper(const struct survey_view *s) {
+    return s->bins > 0 ? s->upper_hz : s->field_upper_hz;
+}
+
+/* Clamp the visible window inside that range, and no narrower than
    SURVEY_MIN_SPAN_HZ. */
 static void survey_clamp_view(struct survey_view *s) {
+    double lower = survey_data_lower(s);
+    double upper = survey_data_upper(s);
     double span;
 
-    if (s->upper_hz <= s->lower_hz) {
-        s->view_lower_hz = s->lower_hz;
-        s->view_upper_hz = s->upper_hz;
+    if (upper <= lower) {
+        s->view_lower_hz = lower;
+        s->view_upper_hz = upper;
         return;
     }
     span = s->view_upper_hz - s->view_lower_hz;
     if (span < SURVEY_MIN_SPAN_HZ)
         span = SURVEY_MIN_SPAN_HZ;
-    if (span > s->upper_hz - s->lower_hz)
-        span = s->upper_hz - s->lower_hz;
-    if (s->view_lower_hz < s->lower_hz)
-        s->view_lower_hz = s->lower_hz;
-    if (s->view_lower_hz + span > s->upper_hz)
-        s->view_lower_hz = s->upper_hz - span;
+    if (span > upper - lower)
+        span = upper - lower;
+    if (s->view_lower_hz < lower)
+        s->view_lower_hz = lower;
+    if (s->view_lower_hz + span > upper)
+        s->view_lower_hz = upper - span;
     s->view_upper_hz = s->view_lower_hz + span;
 }
 
 static void survey_reset_view(struct survey_view *s) {
-    s->view_lower_hz = s->lower_hz;
-    s->view_upper_hz = s->upper_hz;
+    s->view_lower_hz = survey_data_lower(s);
+    s->view_upper_hz = survey_data_upper(s);
+}
+
+/* Keep the field range current, and before the first sweep keep the window on
+   it: editing the range should move the chart it is about to sweep. */
+static void survey_refresh_fields(struct survey_view *s) {
+    uint32_t from_hz;
+    uint32_t to_hz;
+    double lower;
+    double upper;
+
+    if (parse_frequency(s->from, &from_hz) < 0 ||
+        parse_frequency(s->to, &to_hz) < 0 || to_hz <= from_hz)
+        return;
+    lower = (double)from_hz;
+    upper = (double)to_hz;
+    if (lower == s->field_lower_hz && upper == s->field_upper_hz)
+        return;
+    s->field_lower_hz = lower;
+    s->field_upper_hz = upper;
+    /* Typing a range means wanting that range, so the window follows the
+       fields. Without this a zoomed window and an edited field would disagree
+       about what the one Sweep button is going to sweep. */
+    s->view_lower_hz = lower;
+    s->view_upper_hz = upper;
+    if (s->bins > 0)
+        survey_clamp_view(s);
 }
 
 /* Zoom about an anchor: the selected candidate when there is one, so zooming
    in keeps what you picked in sight, otherwise the middle of the window. */
 static void survey_zoom(struct survey_view *s, double factor) {
-    double span = s->view_upper_hz - s->view_lower_hz;
-    double anchor = s->view_lower_hz + span / 2.0;
+    double span;
+    double anchor;
 
+    if (s->view_upper_hz <= s->view_lower_hz)
+        survey_reset_view(s);
+    span = s->view_upper_hz - s->view_lower_hz;
+    anchor = s->view_lower_hz + span / 2.0;
     if (span <= 0.0)
         return;
     if (s->selected >= 0 && s->selected < s->peak_count) {
@@ -111,18 +158,73 @@ static void survey_zoom(struct survey_view *s, double factor) {
    key that silently does nothing reads as a broken key. Say which it is. */
 static void survey_pan(struct app *app, double fraction) {
     struct survey_view *s = &app->survey;
-    double span = s->view_upper_hz - s->view_lower_hz;
-    double before = s->view_lower_hz;
+    double span;
+    double before;
+
+    if (s->view_upper_hz <= s->view_lower_hz)
+        survey_reset_view(s);
+    span = s->view_upper_hz - s->view_lower_hz;
+    before = s->view_lower_hz;
 
     s->view_lower_hz += span * fraction;
     s->view_upper_hz += span * fraction;
     survey_clamp_view(s);
-    if (s->view_lower_hz == before && s->bins > 0)
+    if (s->view_lower_hz == before)
         snprintf(s->status, sizeof(s->status),
-                 "Already showing %s of the sweep; zoom in first (+ or the "
+                 "Already showing %s of the range; zoom in first (+ or the "
                  "wheel over the chart).",
-                 span >= (s->upper_hz - s->lower_hz) - 1.0 ? "all"
-                                                           : "the end");
+                 span >= (survey_data_upper(s) - survey_data_lower(s)) - 1.0
+                     ? "all"
+                     : "the end");
+}
+
+/* Candidates inside the window on screen. Zooming into a band and still
+   being shown a list of what is loudest elsewhere is no use, so the list, the
+   count and the Up/Down walk all follow the window. */
+static int survey_peak_visible(const struct survey_view *s, int index) {
+    double hz;
+
+    if (index < 0 || index >= s->peak_count)
+        return 0;
+    if (s->view_upper_hz <= s->view_lower_hz)
+        return 1;
+    hz = survey_bin_hz(s, s->peaks[index].index);
+    return hz >= s->view_lower_hz && hz <= s->view_upper_hz;
+}
+
+static int survey_visible_count(const struct survey_view *s) {
+    int count = 0;
+
+    for (int i = 0; i < s->peak_count; i++)
+        if (survey_peak_visible(s, i))
+            count++;
+    return count;
+}
+
+/* The nth visible candidate, as an index into peaks; -1 when there is none. */
+static int survey_nth_visible(const struct survey_view *s, int n) {
+    int seen = 0;
+
+    for (int i = 0; i < s->peak_count; i++) {
+        if (!survey_peak_visible(s, i))
+            continue;
+        if (seen == n)
+            return i;
+        seen++;
+    }
+    return -1;
+}
+
+static int survey_visible_rank(const struct survey_view *s, int index) {
+    int seen = 0;
+
+    for (int i = 0; i < s->peak_count; i++) {
+        if (i == index)
+            return seen;
+        if (survey_peak_visible(s, i))
+            seen++;
+    }
+    return -1;
 }
 
 /* The allocations overlapping what is on screen, for the chart to shade. */
@@ -152,6 +254,9 @@ void view_survey_defaults(struct app *app) {
     s->from_length = (int)strlen(s->from);
     snprintf(s->to, sizeof(s->to), "1766M");
     s->to_length = (int)strlen(s->to);
+    snprintf(s->dwell, sizeof(s->dwell), "%.2f", SURVEY_DWELL_DEFAULT);
+    s->dwell_length = (int)strlen(s->dwell);
+    s->dwell_seconds = SURVEY_DWELL_DEFAULT;
     s->selected = -1;
     s->hover = -1;
     /* No field is focused until one is clicked, so the number keys keep
@@ -179,6 +284,11 @@ void view_survey_enter(struct app *app) {
         s->from_length = (int)strlen(s->from);
         survey_format_hz(s->to, sizeof(s->to), app->options.survey_to_hz);
         s->to_length = (int)strlen(s->to);
+        if (app->options.survey_dwell_seconds > 0.0) {
+            snprintf(s->dwell, sizeof(s->dwell), "%.2f",
+                     app->options.survey_dwell_seconds);
+            s->dwell_length = (int)strlen(s->dwell);
+        }
         app->options.survey_seen = 0;   /* only the first entry */
         survey_start(app);
     }
@@ -228,6 +338,15 @@ static int survey_start(struct app *app) {
         return -1;
     }
 
+    if (parse_seconds(s->dwell, &s->dwell_seconds) < 0 ||
+        s->dwell_seconds < SURVEY_DWELL_MIN ||
+        s->dwell_seconds > SURVEY_DWELL_MAX) {
+        snprintf(s->status, sizeof(s->status),
+                 "Dwell must be between %.2f and %.0f seconds.",
+                 SURVEY_DWELL_MIN, SURVEY_DWELL_MAX);
+        return -1;
+    }
+
     span = (double)to_hz - (double)from_hz;
     step_span = (double)app->applied_sample_rate * SURVEY_USABLE_SPAN;
     if (step_span < 1.0) {
@@ -262,8 +381,16 @@ static int survey_start(struct app *app) {
         return -1;
     }
     s->step_started_at = GetTime();
-    snprintf(s->status, sizeof(s->status), "Sweeping %.3f - %.3f MHz",
-             s->lower_hz / 1e6, s->upper_hz / 1e6);
+    /* What this is going to cost, before it is spent: a long dwell over a wide
+       range is minutes, and knowing that up front is the difference between
+       patience and pressing Stop. */
+    double estimate = (double)s->step_count *
+                      (SURVEY_SETTLE_SECONDS + s->dwell_seconds);
+    snprintf(s->status, sizeof(s->status),
+             "Sweeping %.3f - %.3f MHz in %d steps, %.2f s each: about %s.",
+             s->lower_hz / 1e6, s->upper_hz / 1e6, s->step_count,
+             s->dwell_seconds,
+             estimate < 90.0 ? "a minute" : "a few minutes");
     return 0;
 }
 
@@ -391,9 +518,14 @@ void update_survey(struct app *app, double now) {
 
         if (elapsed < SURVEY_SETTLE_SECONDS)
             return;
-        if (!s->step_folded) {
-            survey_fold_block(app);
-            s->step_folded = 1;
+        /* Every block that arrives during the dwell is folded in, and the fold
+           is a peak hold, so a burst anywhere inside the dwell leaves its mark
+           even though the blocks either side of it were quiet. That is the
+           whole point of dwelling: one block only ever catches what happened
+           to be transmitting at that instant. */
+        survey_fold_block(app);
+        s->step_folded = 1;
+        if (elapsed < SURVEY_SETTLE_SECONDS + s->dwell_seconds) {
             survey_find_peaks(app);
             return;
         }
@@ -443,6 +575,8 @@ void handle_survey_input(struct app *app) {
     struct survey_layout l = survey_layout_now();
     int character;
 
+    survey_refresh_fields(s);
+
     /* Typing into whichever range field has focus. The same spellings the
        Settings panel takes, because parse_frequency is the same parser. */
     if (s->focus >= 0 && IsKeyPressed(KEY_ESCAPE)) {
@@ -454,10 +588,14 @@ void handle_survey_input(struct app *app) {
                     character == '.' || character == 'k' || character == 'K' ||
                     character == 'm' || character == 'M' || character == 'g' ||
                     character == 'G';
-        char *text = s->focus == 0 ? s->from : s->to;
-        int *length = s->focus == 0 ? &s->from_length : &s->to_length;
+        char *text = s->focus == 0 ? s->from
+                                   : s->focus == 1 ? s->to : s->dwell;
+        int *length = s->focus == 0 ? &s->from_length
+                                    : s->focus == 1 ? &s->to_length
+                                                    : &s->dwell_length;
         int capacity = s->focus == 0 ? (int)sizeof(s->from)
-                                     : (int)sizeof(s->to);
+                                     : s->focus == 1 ? (int)sizeof(s->to)
+                                                     : (int)sizeof(s->dwell);
         if (valid && *length < capacity - 1) {
             text[(*length)++] = (char)character;
             text[*length] = '\0';
@@ -468,13 +606,52 @@ void handle_survey_input(struct app *app) {
             s->from[--s->from_length] = '\0';
         if (s->focus == 1 && s->to_length > 0)
             s->to[--s->to_length] = '\0';
+        if (s->focus == 2 && s->dwell_length > 0)
+            s->dwell[--s->dwell_length] = '\0';
     }
     if (clicked(l.from_field))
         s->focus = 0;
     if (clicked(l.to_field))
         s->focus = 1;
+    if (clicked(l.dwell_field))
+        s->focus = 2;
+    /* One Sweep, and it sweeps what the chart is showing. Zoomed in, that is
+       the window; zoomed out or never zoomed, the window is the whole range in
+       the fields, so it is the same thing. There used to be two buttons, and
+       they did the same thing except in the one case where the view had been
+       narrowed -- a distinction the operator had to keep in their head to use
+       the pair correctly.
+
+       Editing the range re-anchors the window on it, so the fields and the
+       window can never disagree about what Sweep is about to do. */
     if (clicked(l.sweep_button) || IsKeyPressed(KEY_ENTER)) {
+        double from = s->view_lower_hz;
+        double to = s->view_upper_hz;
+        int narrowing = s->bins > 0 && to > from &&
+                        (from > s->lower_hz + 1.0 || to < s->upper_hz - 1.0);
+
         s->focus = -1;
+        if (narrowing) {
+            /* Keep the survey this is about to replace: sweeping the window
+               throws away everything outside it, and getting that back would
+               cost minutes. Reset zoom restores it instantly instead. */
+            struct survey_snapshot *keep = &s->previous;
+            keep->valid = 1;
+            keep->lower_hz = s->lower_hz;
+            keep->upper_hz = s->upper_hz;
+            keep->bins = s->bins;
+            memcpy(keep->power, s->power, (size_t)s->bins * sizeof(*s->power));
+            memcpy(keep->peaks, s->peaks,
+                   (size_t)s->peak_count * sizeof(*s->peaks));
+            keep->peak_count = s->peak_count;
+            snprintf(keep->from, sizeof(keep->from), "%s", s->from);
+            snprintf(keep->to, sizeof(keep->to), "%s", s->to);
+
+            survey_format_hz(s->from, sizeof(s->from), (uint32_t)llround(from));
+            s->from_length = (int)strlen(s->from);
+            survey_format_hz(s->to, sizeof(s->to), (uint32_t)llround(to));
+            s->to_length = (int)strlen(s->to);
+        }
         survey_start(app);
         return;
     }
@@ -546,40 +723,135 @@ void handle_survey_input(struct app *app) {
     /* Up and Down walk the candidate list. The scale keys mean nothing in
        this view, and a list you can step through is how you compare two
        carriers without hunting for them with the pointer. */
-    if (s->peak_count > 0 &&
+    int visible = survey_visible_count(s);
+    if (visible > 0 &&
         (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))) {
-        int next = s->selected + 1;
-        if (next >= s->peak_count)
-            next = 0;
-        survey_select(app, next);
+        int rank = s->selected >= 0 ? survey_visible_rank(s, s->selected) : -1;
+        survey_select(app, survey_nth_visible(s, (rank + 1) % visible));
         return;
     }
-    if (s->peak_count > 0 &&
+    if (visible > 0 &&
         (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP))) {
-        int previous = s->selected <= 0 ? s->peak_count - 1 : s->selected - 1;
-        survey_select(app, previous);
+        int rank = s->selected >= 0 ? survey_visible_rank(s, s->selected) : 0;
+        if (rank <= 0)
+            rank = visible;
+        survey_select(app, survey_nth_visible(s, rank - 1));
+        return;
+    }
+
+    /* Back out one level: the zoom first, then the region sweep that narrowed
+       the swept range, then the tuner's full span. It never starts a sweep on
+       its own -- a full sweep is minutes, and that is not something a button
+       press should commit you to without saying so. */
+    if (clicked(l.reset_button) && !s->sweeping) {
+        s->focus = -1;
+        if (s->view_upper_hz > s->view_lower_hz &&
+            (s->view_lower_hz > s->lower_hz + 1.0 ||
+             s->view_upper_hz < s->upper_hz - 1.0)) {
+            survey_reset_view(s);
+            snprintf(s->status, sizeof(s->status),
+                     "Showing the whole sweep, %.3f - %.3f MHz.",
+                     s->lower_hz / 1e6, s->upper_hz / 1e6);
+        } else if (s->previous.valid) {
+            /* Put the earlier survey back on the chart, measurements and all.
+               Restoring only the range fields left the chart still showing the
+               region, which is not what "reset" means to anyone looking at
+               it. */
+            struct survey_snapshot *keep = &s->previous;
+            s->lower_hz = keep->lower_hz;
+            s->upper_hz = keep->upper_hz;
+            s->bins = keep->bins;
+            memcpy(s->power, keep->power,
+                   (size_t)keep->bins * sizeof(*s->power));
+            memcpy(s->peaks, keep->peaks,
+                   (size_t)keep->peak_count * sizeof(*s->peaks));
+            s->peak_count = keep->peak_count;
+            snprintf(s->from, sizeof(s->from), "%s", keep->from);
+            s->from_length = (int)strlen(s->from);
+            snprintf(s->to, sizeof(s->to), "%s", keep->to);
+            s->to_length = (int)strlen(s->to);
+            s->selected = -1;
+            s->hover = -1;
+            s->report_valid = 0;
+            s->measuring = 0;
+            keep->valid = 0;
+            survey_refresh_fields(s);
+            survey_reset_view(s);
+            snprintf(s->status, sizeof(s->status),
+                     "Back to the sweep of %.3f - %.3f MHz; %d candidates.",
+                     s->lower_hz / 1e6, s->upper_hz / 1e6, s->peak_count);
+        } else {
+            snprintf(s->from, sizeof(s->from), "24M");
+            s->from_length = (int)strlen(s->from);
+            snprintf(s->to, sizeof(s->to), "1766M");
+            s->to_length = (int)strlen(s->to);
+            snprintf(s->status, sizeof(s->status),
+                     "Range set to the whole tuner; press Sweep to survey it.");
+        }
         return;
     }
 
     /* Hover and selection, in the chart and in the list. */
     struct sdrgui_survey_params params = {
-        l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS, s->lower_hz,
-        s->upper_hz, s->view_lower_hz, s->view_upper_hz, NULL, 0,
-        s->peaks, s->peak_count, s->selected, -1,
+        l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS,
+        survey_data_lower(s), survey_data_upper(s),
+        s->view_upper_hz > s->view_lower_hz ? s->view_lower_hz
+                                            : survey_data_lower(s),
+        s->view_upper_hz > s->view_lower_hz ? s->view_upper_hz
+                                            : survey_data_upper(s),
+        NULL, 0, s->peaks, s->peak_count, s->selected, -1,
         s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
                     : s->bins,
-        s->sweeping, ""
+        s->sweeping, 0, 0.0, 0.0, ""
     };
-    s->hover = sdrgui_survey_chart_peak_at(l.chart, &params, GetMousePosition());
-    if (s->hover >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        survey_select(app, s->hover);
-        return;
+    Vector2 mouse = GetMousePosition();
+    double hz_at = sdrgui_survey_chart_hz_at(l.chart, &params, mouse);
+    s->hover = sdrgui_survey_chart_peak_at(l.chart, &params, mouse);
+
+    /* Press, drag, release: a rectangle across the chart zooms to what it
+       covers. A press that does not move is a click, and a click selects the
+       candidate under it -- so the two gestures share a button without either
+       having to be modal. */
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && isfinite(hz_at)) {
+        s->drag_active = 1;
+        s->drag_from_x = mouse.x;
+        s->drag_from_hz = hz_at;
+        s->drag_to_hz = hz_at;
+    }
+    if (s->drag_active) {
+        if (isfinite(hz_at))
+            s->drag_to_hz = hz_at;
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+            double from = s->drag_from_hz < s->drag_to_hz ? s->drag_from_hz
+                                                          : s->drag_to_hz;
+            double to = s->drag_from_hz < s->drag_to_hz ? s->drag_to_hz
+                                                        : s->drag_from_hz;
+            int dragged = fabsf(mouse.x - s->drag_from_x) >= 5.0f;
+            s->drag_active = 0;
+            if (dragged && to - from >= SURVEY_MIN_SPAN_HZ) {
+                s->view_lower_hz = from;
+                s->view_upper_hz = to;
+                survey_clamp_view(s);
+                snprintf(s->status, sizeof(s->status),
+                         "Zoomed to %.3f - %.3f MHz.   0 shows the whole sweep"
+                         " again.", s->view_lower_hz / 1e6,
+                         s->view_upper_hz / 1e6);
+            } else if (dragged) {
+                snprintf(s->status, sizeof(s->status),
+                         "That is narrower than %.0f kHz; nothing to zoom to.",
+                         SURVEY_MIN_SPAN_HZ / 1e3);
+            } else if (s->hover >= 0) {
+                survey_select(app, s->hover);
+            }
+            return;
+        }
     }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
-        CheckCollisionPointRec(GetMousePosition(), l.peak_list)) {
-        int row = (int)((GetMousePosition().y - (l.peak_list.y + 44.0f)) / 22.0f);
-        if (row >= 0 && row < s->peak_count)
-            survey_select(app, row);
+        CheckCollisionPointRec(mouse, l.peak_list)) {
+        int row = (int)((mouse.y - (l.peak_list.y + 44.0f)) / 22.0f);
+        int index = survey_nth_visible(s, row);
+        if (row >= 0 && index >= 0)
+            survey_select(app, index);
         return;
     }
 
@@ -609,26 +881,37 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
     const struct survey_view *s = &app->survey;
     char text[160];
 
+    int visible = survey_visible_count(s);
+
     DrawRectangleRec(rect, (Color){ 6, 10, 17, 255 });
     DrawRectangleLinesEx(rect, 1.0f, (Color){ 82, 109, 126, 255 });
-    snprintf(text, sizeof(text), "Candidates (%d)", s->peak_count);
+    if (visible == s->peak_count)
+        snprintf(text, sizeof(text), "Candidates (%d)", s->peak_count);
+    else
+        snprintf(text, sizeof(text), "Candidates (%d of %d, in view)", visible,
+                 s->peak_count);
     DrawText(text, (int)rect.x + 12, (int)rect.y + 10, 16,
              (Color){ 151, 174, 188, 255 });
     DrawText("FREQUENCY        LEVEL     ABOVE FLOOR", (int)rect.x + 12,
              (int)rect.y + 30, 15, (Color){ 126, 151, 166, 255 });
 
-    if (s->peak_count == 0) {
-        DrawText(s->sweeping ? "sweeping..." : "nothing found yet",
+    if (visible == 0) {
+        DrawText(s->sweeping ? "sweeping..."
+                             : s->peak_count > 0 ? "none in this window"
+                                                 : "nothing found yet",
                  (int)rect.x + 12, (int)rect.y + 56, 16,
                  (Color){ 150, 172, 188, 255 });
         return;
     }
     int rows = (int)((rect.height - 54.0f) / 22.0f);
-    if (rows > s->peak_count)
-        rows = s->peak_count;
-    for (int i = 0; i < rows; i++) {
-        float y = rect.y + 44.0f + (float)i * 22.0f;
+    if (rows > visible)
+        rows = visible;
+    for (int row = 0; row < rows; row++) {
+        int i = survey_nth_visible(s, row);
+        float y = rect.y + 44.0f + (float)row * 22.0f;
         Color color = (Color){ 213, 226, 234, 255 };
+        if (i < 0)
+            break;
         if (i == s->selected) {
             DrawRectangle((int)rect.x + 4, (int)y - 3, (int)rect.width - 8, 22,
                           (Color){ 255, 174, 62, 40 });
@@ -643,8 +926,8 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
         sdrgui_text_fit(text, (int)rect.x + 12, (int)y, 17,
                         rect.width - 24.0f, color);
     }
-    if (rows < s->peak_count) {
-        snprintf(text, sizeof(text), "... %d more", s->peak_count - rows);
+    if (rows < visible) {
+        snprintf(text, sizeof(text), "... %d more", visible - rows);
         DrawText(text, (int)rect.x + 12,
                  (int)(rect.y + rect.height - 20.0f), 15,
                  (Color){ 126, 151, 166, 255 });
@@ -760,23 +1043,29 @@ void draw_survey(struct app *app) {
     struct survey_layout l = survey_layout_now();
     char text[240];
 
+    survey_refresh_fields(s);
+
     DrawText("Range", (int)l.from_field.x, (int)l.from_field.y - 20, 16,
              (Color){ 157, 180, 194, 255 });
     DrawText("to", (int)l.to_field.x, (int)l.to_field.y - 20, 16,
              (Color){ 157, 180, 194, 255 });
+    DrawText("dwell (s)", (int)l.dwell_field.x, (int)l.dwell_field.y - 20, 16,
+             (Color){ 157, 180, 194, 255 });
     sdrgui_text_field(l.from_field, s->from, s->focus == 0);
     sdrgui_text_field(l.to_field, s->to, s->focus == 1);
+    sdrgui_text_field(l.dwell_field, s->dwell, s->focus == 2);
     draw_button(l.sweep_button, s->sweeping ? "Sweeping" : "Sweep",
                 !s->sweeping);
+    draw_button(l.reset_button, "Reset zoom", 0);
     if (s->sweeping)
         draw_button(l.stop_button, "Stop", 0);
 
     if (s->sweeping) {
         snprintf(text, sizeof(text),
-                 "step %d / %d   %.3f MHz   bin %.0f kHz",
+                 "step %d / %d   %.3f MHz   bin %.0f kHz   dwell %.2f s",
                  s->step + 1, s->step_count,
                  app->applied_frequency / 1e6,
-                 survey_bin_width_hz(s) / 1e3);
+                 survey_bin_width_hz(s) / 1e3, s->dwell_seconds);
         sdrgui_text_fit(text, (int)l.header_left, 168, 17,
                         l.header_right - l.header_left,
                         (Color){ 250, 190, 74, 255 });
@@ -786,21 +1075,11 @@ void draw_survey(struct app *app) {
                         (Color){ 190, 208, 218, 255 });
     }
 
-    /* Before the first sweep the chart has no range of its own, so it shows
-       the one in the fields: an axis labelled with the range about to be swept
-       is worth more than an axis labelled zero five times. */
-    double shown_lower = s->lower_hz;
-    double shown_upper = s->upper_hz;
-    if (s->bins <= 0 || shown_upper <= shown_lower) {
-        uint32_t from_hz;
-        uint32_t to_hz;
-        if (parse_frequency(s->from, &from_hz) == 0 &&
-            parse_frequency(s->to, &to_hz) == 0 && to_hz > from_hz) {
-            shown_lower = (double)from_hz;
-            shown_upper = (double)to_hz;
-        }
-    }
-    /* The window, which is the whole range until it is zoomed. */
+    /* Before the first sweep the range comes from the fields, so the axis is
+       labelled with what is about to be swept rather than with zeroes, and the
+       zoom has an extent to work on. */
+    double shown_lower = survey_data_lower(s);
+    double shown_upper = survey_data_upper(s);
     double window_lower = s->view_upper_hz > s->view_lower_hz
                               ? s->view_lower_hz : shown_lower;
     double window_upper = s->view_upper_hz > s->view_lower_hz
@@ -814,7 +1093,7 @@ void draw_survey(struct app *app) {
         s->peaks, s->peak_count, s->selected, s->hover,
         s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
                     : s->bins,
-        s->sweeping,
+        s->sweeping, s->drag_active, s->drag_from_hz, s->drag_to_hz,
         app->receiver_mode ? "press Sweep to survey the range"
                            : "a sweep needs a live receiver"
     };
