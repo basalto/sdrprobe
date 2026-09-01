@@ -28,6 +28,13 @@
 
 static volatile sig_atomic_t signal_stop_requested = 0;
 
+/* The one global the program has, read through a function so it stays one:
+   Ctrl-C during a long headless sweep should stop it, and the sweep lives in
+   another file. */
+int stop_requested(void) {
+    return signal_stop_requested != 0;
+}
+
 void set_tab(struct app *app, int new_tab);
 void set_decode(struct app *app, int kind);
 
@@ -279,7 +286,7 @@ static int open_capture(struct app *app) {
 
 
 
-static int process_block(struct app *app, double now) {
+int process_block(struct app *app, double now) {
     double sum = 0.0;
 
     app->pair_count = sdr_dsp_convert_iq(
@@ -1120,7 +1127,7 @@ static int list_devices(void) {
     return 0;
 }
 
-static double monotonic_seconds(void) {
+double monotonic_seconds(void) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
@@ -1201,6 +1208,18 @@ static int run_headless(struct app *app) {
     } else if (app->options.duration_seconds <= 0.0 &&
                !app->options.play_once) {
         fprintf(stderr, "Acquiring headless; Ctrl-C to stop.\n");
+    }
+
+    /* A headless survey is its own run: it sweeps, prints, and returns, rather
+       than sharing the block loop below with a decode. */
+    if (app->options.survey_report) {
+        int survey_result;
+
+        sdr_dsp_init(&app->dsp);
+        survey_result = survey_report_run(app);
+        if (stop_acquisition(app) < 0)
+            survey_result = -1;
+        return survey_result;
     }
 
     int decode_gsm = app->options.technology &&
