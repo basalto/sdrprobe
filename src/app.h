@@ -107,9 +107,7 @@ enum active_tab {
 
 struct band_scan {
     double step_started_at;
-    double first_center_hz;
-    double step_hz;
-    double accept_half_hz;
+    struct scan_plan plan;      /* how the downlink is covered, in scan_plan.h */
     uint32_t return_frequency;
 };
 
