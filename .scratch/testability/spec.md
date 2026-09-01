@@ -7,7 +7,7 @@ and what it would take. The gap is meant to be measurable rather than felt.
 
 ## Reachable today
 
-`make check` runs all of it, in about 18 seconds:
+`make check` runs all of it, in about twenty seconds:
 
 | Check | Covers |
 | --- | --- |
@@ -17,8 +17,15 @@ and what it would take. The gap is meant to be measurable rather than felt.
 | `check-band-plan` | the allocation table and its lookups |
 | `check-options` | the whole command line: every flag, every rejection, every implication |
 | `check-survey` | the survey window's zoom, pan, clamp and sweep-target arithmetic |
-| `check-calibration` | the lock gate, its robust statistics, and the mixed-source hazard |
+| `check-survey-sweep` | the sweep's step plan, fold, and what measuring a candidate adds up to |
+| `check-calibration` | the lock gate, its robust statistics, and the state machine that fills its buffer |
 | `check-layout` | GSM, ADS-B and survey view geometry |
+| `check-geometry` | where a chart's plot sits, and which bar the pointer is over |
+| `check-input` | which control a key press reaches |
+| `check-scan` | the band scan's coverage and the channel it chooses |
+| `check-adsb-analysis` | the tuned test, trace latching, the message log, the funnel |
+| `check-gsm-continuity` | whether consecutive SCH decodes hang together |
+| `check-acquisition` | the block slot, both its modes, and its shutdown |
 | `check-pipelines` | assembled program over captures: GSM and Mode S decode, recording and its sidecar, the flags that reach them, and that a decode is repeatable |
 
 ## Not reachable
