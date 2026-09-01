@@ -467,13 +467,50 @@ void acquisition_stop_recording(struct acquisition *acq) {
 }
 
 
+/*
+ * Everything the module needs before a worker can run: the recording mutex,
+ * the block slot's mutex, and the condition a lossless publisher waits on.
+ *
+ * These used to be split -- this function made the recording mutex and the
+ * caller made the slot's, in a different place in the startup sequence. One
+ * function means the module owns its own lifecycle, and that a check can set
+ * up an acquisition in one line rather than replicating the startup order.
+ */
 int acquisition_init(struct acquisition *acq) {
-    return pthread_mutex_init(&acq->record_mutex, NULL);
+    int result = pthread_mutex_init(&acq->record_mutex, NULL);
+
+    if (result != 0)
+        return result;
+    result = pthread_mutex_init(&acq->latest.mutex, NULL);
+    if (result != 0) {
+        pthread_mutex_destroy(&acq->record_mutex);
+        return result;
+    }
+    result = pthread_cond_init(&acq->latest.drained, NULL);
+    if (result != 0) {
+        pthread_mutex_destroy(&acq->latest.mutex);
+        pthread_mutex_destroy(&acq->record_mutex);
+        return result;
+    }
+    acq->mutex_ready = 1;
+    return 0;
 }
 
-void acquisition_destroy(struct acquisition *acq) {
+int acquisition_destroy(struct acquisition *acq) {
+    int result = 0;
+    int failed;
+
     acquisition_stop_recording(acq);
-    pthread_mutex_destroy(&acq->record_mutex);
+    if (!acq->mutex_ready)
+        return pthread_mutex_destroy(&acq->record_mutex);
+    if ((failed = pthread_cond_destroy(&acq->latest.drained)) != 0)
+        result = failed;
+    if ((failed = pthread_mutex_destroy(&acq->latest.mutex)) != 0)
+        result = failed;
+    if ((failed = pthread_mutex_destroy(&acq->record_mutex)) != 0)
+        result = failed;
+    acq->mutex_ready = 0;
+    return result;
 }
 
 

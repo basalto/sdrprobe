@@ -370,7 +370,6 @@ struct app {
     struct sdr_dsp dsp;
     rtlsdr_dev_t *dev;
     FILE *capture;
-    int record_mutex_ready;
     int window_ready;
     int signals_ready;
     int receiver_mode;
