@@ -108,3 +108,18 @@ new term rather than forbid it, and these are added:
 See `issues/`. Implement in phase order: 01 → 02 → 03 → 04 → 05 → 06.
 
 ## Comments
+
+**The two sweep buttons became one.** The spec has "Sweep" and "Sweep region"
+as separate controls, and they were built that way. In use they turned out to
+do the same thing except in the single case where the view had been narrowed,
+which left the operator holding a distinction to use the pair correctly. Sweep
+now sweeps whatever the chart is showing -- the fields when zoomed out, the
+window when zoomed in -- and typing a range re-anchors the window on it so the
+two can never disagree. "Reset zoom" backs out of a narrowed sweep by restoring
+a snapshot of the survey it replaced.
+
+**The window arithmetic moved to `src/survey_window.h`** and is checked by
+`make check-survey`. Two bugs in it reached the operator first: zoom did
+nothing before the first sweep (the window had no extent until one existed),
+and the first sweep ignored a selected region (the narrowing test required a
+completed sweep). Both were arithmetic, and neither needed hardware to catch.

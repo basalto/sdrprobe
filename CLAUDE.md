@@ -11,11 +11,12 @@ need the detail.
 
 ```sh
 make                  # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
-make check-dsp        # all four hardware-free checks below
+make check-dsp        # the four DSP checks below (not check-survey)
 make check-sdr-dsp    # one check in isolation — generic core
 make check-gsm-dsp    # GSM plugin (+ the core it reuses)
 make check-adsb-dsp   # Mode S / ADS-B plugin
 make check-band-plan  # the frequency allocation table
+make check-survey     # the band survey's window arithmetic (no window needed)
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make clean
 ```

@@ -15,8 +15,8 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
-	$(SRC)/survey_layout.h $(SRC)/chrome_layout.h $(SRC)/band_plan.h \
-	$(SRC)/app.h $(SRC)/view.h
+	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/chrome_layout.h \
+	$(SRC)/band_plan.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
@@ -77,6 +77,16 @@ check-layout: $(TESTS)/layout_test.c $(SRC)/gsm_layout.h \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
 	./$(BUILD)/layout_test
 
+# The band survey's window arithmetic: zoom, pan, and what Sweep would sweep.
+# No raylib, no receiver, no window -- which is the point. Every one of these
+# decisions previously had to be checked by building an instrumented binary and
+# running it against the dongle, and two of them shipped wrong.
+check-survey: $(TESTS)/survey_window_test.c $(SRC)/survey_window.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_window_test \
+		$(TESTS)/survey_window_test.c -lm
+	./$(BUILD)/survey_window_test
+
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan
 
 # White-box diagnostic walk through the GSM SCH chain (not a unit test). It
@@ -111,4 +121,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
