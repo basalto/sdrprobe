@@ -255,7 +255,15 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 		scripts/dsp_bench.c $(DSP_SRC) -lm
 	$(Q)./$(BUILD)/dsp_bench
 
+# Point git at the version-controlled hooks in scripts/hooks/, so `git push`
+# runs `make check` first. One setting, and the hook itself stays in the repo
+# where it can be read and changed like anything else.
+hooks:
+	$(Q)git config core.hooksPath scripts/hooks
+	@printf '  %-34s %s\n' "pre-push" \
+		"installed; git push --no-verify skips it"
+
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check hooks check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean

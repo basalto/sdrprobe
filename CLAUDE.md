@@ -30,10 +30,14 @@ make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
 make check-input      # which control a key press reaches
 make check-pipelines  # the built program over testfiles/, asserting on stdout
+make hooks            # run `make check` on every git push (once, per clone)
 make clean
 ```
 
-`make check` is the one to run before claiming a change is sound. **ADR-0012
+`make check` is the one to run before claiming a change is sound, and
+`make hooks` makes git run it for you: it points `core.hooksPath` at
+`scripts/hooks/`, whose `pre-push` refuses a push whose tree does not pass.
+`git push --no-verify` is the escape hatch. **ADR-0012
 governs what belongs in it: every decision the program makes must be reachable
 by a check that needs no window, no receiver, and no person — drawing is
 exempt, deciding is not.** The rule that keeps that true is that a function
