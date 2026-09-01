@@ -15,6 +15,7 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
+	$(SRC)/survey_layout.h $(SRC)/chrome_layout.h $(SRC)/band_plan.h \
 	$(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
