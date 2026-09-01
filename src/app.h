@@ -179,6 +179,28 @@ struct adsb_view {
  * The handoff fields stay in struct app: the scan tells this view which
  * channel to open, and calibration publishes the result this view displays.
  */
+/*
+ * What the cell has said about itself so far.
+ *
+ * One System Information message carries some of these and not others -- the
+ * identity comes from type 3, the neighbours from types 1 and 2 -- so they
+ * accumulate across blocks rather than being replaced by each. Cleared when
+ * the view tunes elsewhere, because then it is a different cell.
+ */
+struct gsm_cell {
+    int blocks;                 /* System Information messages read */
+    enum gsm_si_type last_type;
+    int have_lai;
+    int mcc;
+    int mnc;
+    int mnc_digits;
+    int lac;
+    int have_cell_id;
+    int cell_id;
+    int neighbour_count;
+    int neighbours[GSM_SI_MAX_NEIGHBOURS];
+};
+
 struct gsm_view {
     double selected_hz;         /* carrier of the selected ARFCN (0 = none) */
     uint32_t return_frequency;  /* view frequency to restore on leave */
@@ -188,6 +210,7 @@ struct gsm_view {
     struct gsm_sch_symbols sch_symbols;
     int sch_valid;
     double sch_time;
+    struct gsm_cell cell;
     int const_amplitude; /* constellation: show amplitude vs unit circle */
     int const_derotated; /* constellation: derotated sample vs differential */
     int opt_filter;
