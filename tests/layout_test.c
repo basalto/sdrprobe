@@ -3,6 +3,7 @@
 #include "gsm_layout.h"
 #include "survey_layout.h"
 
+#include "check.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -106,20 +107,16 @@ static const struct window_case cases[] = {
     } },
 };
 
-static int failures;
-
 static void check(float width, float height, const char *name,
                   Rectangle got, const struct expected *want) {
     const float tol = 0.01f;
-    if (fabsf(got.x - want->x) > tol || fabsf(got.y - want->y) > tol ||
-        fabsf(got.width - want->w) > tol || fabsf(got.height - want->h) > tol) {
-        fprintf(stderr,
-                "%.0fx%.0f %s: got %.2f %.2f %.2f %.2f, expected "
-                "%.2f %.2f %.2f %.2f\n",
-                width, height, name, got.x, got.y, got.width, got.height,
-                want->x, want->y, want->w, want->h);
-        failures++;
-    }
+    check_msg(fabsf(got.x - want->x) <= tol && fabsf(got.y - want->y) <= tol &&
+                  fabsf(got.width - want->w) <= tol &&
+                  fabsf(got.height - want->h) <= tol,
+              "%.0fx%.0f %s: got %.2f %.2f %.2f %.2f, expected "
+              "%.2f %.2f %.2f %.2f\n",
+              width, height, name, got.x, got.y, got.width, got.height, want->x,
+              want->y, want->w, want->h);
     (void)name;
 }
 
@@ -174,11 +171,9 @@ static void check_chrome(void) {
               &w->calibration);
         check(w->width, w->height, "tab[0]", l.tab[0], &w->tab0);
         check(w->width, w->height, "tab[1]", l.tab[1], &w->tab1);
-        if (fabsf(l.status_left - w->status_left) > 0.01f) {
-            fprintf(stderr, "%.0fx%.0f status_left: got %.2f, expected %.2f\n",
-                    w->width, w->height, l.status_left, w->status_left);
-            failures++;
-        }
+        check_msg(fabsf(l.status_left - w->status_left) <= 0.01f,
+                  "%.0fx%.0f status_left: got %.2f, expected %.2f\n", w->width,
+                  w->height, l.status_left, w->status_left);
     }
 }
 
@@ -245,53 +240,39 @@ static void check_adsb(void) {
         };
         for (int i = 0; i < ADSB_RECTS; i++)
             check(w->width, w->height, w->rect[i].name, got[i], &w->rect[i]);
-        if (fabsf(l.header_left - w->header_left) > 0.01f) {
-            fprintf(stderr, "%.0fx%.0f header_left: got %.2f, expected %.2f\n",
-                    w->width, w->height, l.header_left, w->header_left);
-            failures++;
-        }
+        check_msg(fabsf(l.header_left - w->header_left) <= 0.01f,
+                  "%.0fx%.0f header_left: got %.2f, expected %.2f\n", w->width,
+                  w->height, l.header_left, w->header_left);
         /* The header text has to stop before the buttons on its rows, which
            is the property header_right exists for. */
-        if (l.header_right > l.record_button.x) {
-            fprintf(stderr, "%.0fx%.0f header text runs under record_button\n",
-                    w->width, w->height);
-            failures++;
-        }
-        if (l.record_button.x + l.record_button.width > l.view_toggle.x) {
-            fprintf(stderr, "%.0fx%.0f record_button runs into view_toggle\n",
-                    w->width, w->height);
-            failures++;
-        }
+        check_msg(l.header_right <= l.record_button.x,
+                  "%.0fx%.0f header text runs under record_button\n", w->width,
+                  w->height);
+        check_msg(l.record_button.x + l.record_button.width <= l.view_toggle.x,
+                  "%.0fx%.0f record_button runs into view_toggle\n", w->width,
+                  w->height);
         /* Both lower panels start on the same row and end on the same one, so
            the log and the scatter read as a pair rather than as two panels
            that happen to be adjacent. */
-        if (fabsf(l.log_split.y - l.scatter.y) > 0.01f ||
-            fabsf((l.log_split.y + l.log_split.height) -
-                  (l.scatter.y + l.scatter.height)) > 0.01f) {
-            fprintf(stderr, "%.0fx%.0f log_split and scatter are not aligned\n",
-                    w->width, w->height);
-            failures++;
-        }
-        if (fabsf(l.header_right - w->header_right) > 0.01f) {
-            fprintf(stderr, "%.0fx%.0f header_right: got %.2f, expected %.2f\n",
-                    w->width, w->height, l.header_right, w->header_right);
-            failures++;
-        }
+        check_msg(fabsf(l.log_split.y - l.scatter.y) <= 0.01f &&
+                      fabsf((l.log_split.y + l.log_split.height) -
+                            (l.scatter.y + l.scatter.height)) <= 0.01f,
+                  "%.0fx%.0f log_split and scatter are not aligned\n", w->width,
+                  w->height);
+        check_msg(fabsf(l.header_right - w->header_right) <= 0.01f,
+                  "%.0fx%.0f header_right: got %.2f, expected %.2f\n", w->width,
+                  w->height, l.header_right, w->header_right);
         /* The two panels that share the lower row must not overlap, whatever
            the numbers above say -- that is the property the pins are there to
            protect, and it is worth stating once rather than inferring. */
-        if (l.log_split.x + l.log_split.width > l.scatter.x + 0.01f) {
-            fprintf(stderr, "%.0fx%.0f log_split runs into scatter\n",
-                    w->width, w->height);
-            failures++;
-        }
-        if (l.hold_button.x < l.scatter.x - 0.01f ||
-            l.hold_button.x + l.hold_button.width >
-                l.scatter.x + l.scatter.width + 0.01f) {
-            fprintf(stderr, "%.0fx%.0f hold_button escapes the scatter\n",
-                    w->width, w->height);
-            failures++;
-        }
+        check_msg(l.log_split.x + l.log_split.width <= l.scatter.x + 0.01f,
+                  "%.0fx%.0f log_split runs into scatter\n", w->width,
+                  w->height);
+        check_msg(l.hold_button.x >= l.scatter.x - 0.01f &&
+                      l.hold_button.x + l.hold_button.width <=
+                          l.scatter.x + l.scatter.width + 0.01f,
+                  "%.0fx%.0f hold_button escapes the scatter\n", w->width,
+                  w->height);
     }
 }
 
@@ -363,38 +344,29 @@ static void check_survey(void) {
         };
         for (int i = 0; i < SURVEY_RECTS; i++)
             check(w->width, w->height, w->rect[i].name, got[i], &w->rect[i]);
-        if (fabsf(l.header_left - w->header_left) > 0.01f ||
-            fabsf(l.header_right - w->header_right) > 0.01f) {
-            fprintf(stderr, "%.0fx%.0f survey header bounds moved\n",
-                    w->width, w->height);
-            failures++;
-        }
+        check_msg(fabsf(l.header_left - w->header_left) <= 0.01f &&
+                      fabsf(l.header_right - w->header_right) <= 0.01f,
+                  "%.0fx%.0f survey header bounds moved\n", w->width,
+                  w->height);
         /* The properties the numbers protect. */
-        if (l.peak_list.x + l.peak_list.width > l.detail.x + 0.01f) {
-            fprintf(stderr, "%.0fx%.0f peak_list runs into detail\n",
-                    w->width, w->height);
-            failures++;
-        }
-        if (fabsf(l.peak_list.y - l.detail.y) > 0.01f ||
-            fabsf((l.peak_list.y + l.peak_list.height) -
-                  (l.detail.y + l.detail.height)) > 0.01f) {
-            fprintf(stderr, "%.0fx%.0f the lower panels are not aligned\n",
-                    w->width, w->height);
-            failures++;
-        }
-        if (l.scan_button.x + l.scan_button.width >
-            l.waterfall_button.x + 0.01f) {
-            fprintf(stderr, "%.0fx%.0f the panel's upper buttons overlap\n",
-                    w->width, w->height);
-            failures++;
-        }
+        check_msg(l.peak_list.x + l.peak_list.width <= l.detail.x + 0.01f,
+                  "%.0fx%.0f peak_list runs into detail\n", w->width,
+                  w->height);
+        check_msg(fabsf(l.peak_list.y - l.detail.y) <= 0.01f &&
+                      fabsf((l.peak_list.y + l.peak_list.height) -
+                            (l.detail.y + l.detail.height)) <= 0.01f,
+                  "%.0fx%.0f the lower panels are not aligned\n", w->width,
+                  w->height);
+        check_msg(l.scan_button.x + l.scan_button.width <=
+                      l.waterfall_button.x + 0.01f,
+                  "%.0fx%.0f the panel's upper buttons overlap\n", w->width,
+                  w->height);
         /* The handoff sits on its own row, below the pair. */
-        if (l.inspect_button.y < l.scan_button.y + l.scan_button.height &&
-            l.detail.height > 80.0f) {
-            fprintf(stderr, "%.0fx%.0f inspect_button overlaps the row above\n",
-                    w->width, w->height);
-            failures++;
-        }
+        check_msg(l.inspect_button.y >=
+                          l.scan_button.y + l.scan_button.height ||
+                      l.detail.height <= 80.0f,
+                  "%.0fx%.0f inspect_button overlaps the row above\n", w->width,
+                  w->height);
         Rectangle panel_buttons[3] = { l.scan_button, l.waterfall_button,
                                        l.inspect_button };
         for (int b = 0; b < 3; b++) {
@@ -404,9 +376,8 @@ static void check_survey(void) {
                 panel_buttons[b].y < l.detail.y ||
                 panel_buttons[b].y + panel_buttons[b].height >
                     l.detail.y + l.detail.height + 0.01f) {
-                fprintf(stderr, "%.0fx%.0f panel button %d escapes the panel\n",
-                        w->width, w->height, b);
-                failures++;
+                check_msg(0, "%.0fx%.0f panel button %d escapes the panel\n",
+                          w->width, w->height, b);
             }
         }
         if (l.inspect_button.x < l.detail.x ||
@@ -415,29 +386,22 @@ static void check_survey(void) {
             l.inspect_button.y < l.detail.y ||
             l.inspect_button.y + l.inspect_button.height >
                 l.detail.y + l.detail.height + 0.01f) {
-            fprintf(stderr, "%.0fx%.0f inspect_button escapes the panel\n",
-                    w->width, w->height);
-            failures++;
+            check_msg(0, "%.0fx%.0f inspect_button escapes the panel\n",
+                      w->width, w->height);
         }
         Rectangle row[6] = { l.from_field, l.to_field, l.dwell_field,
                              l.sweep_button, l.reset_button, l.stop_button };
         for (int i = 1; i < 6; i++) {
-            if (row[i].x < row[i - 1].x + row[i - 1].width) {
-                fprintf(stderr, "%.0fx%.0f control %d overlaps the one before\n",
-                        w->width, w->height, i);
-                failures++;
-            }
+            check_msg(row[i].x >= row[i - 1].x + row[i - 1].width,
+                      "%.0fx%.0f control %d overlaps the one before\n",
+                      w->width, w->height, i);
         }
-        if (row[5].x + row[5].width > w->width) {
-            fprintf(stderr, "%.0fx%.0f the control row runs off the window\n",
-                    w->width, w->height);
-            failures++;
-        }
-        if (l.chart.y + l.chart.height > l.peak_list.y + 0.01f) {
-            fprintf(stderr, "%.0fx%.0f the chart overlaps the row below\n",
-                    w->width, w->height);
-            failures++;
-        }
+        check_msg(row[5].x + row[5].width <= w->width,
+                  "%.0fx%.0f the control row runs off the window\n", w->width,
+                  w->height);
+        check_msg(l.chart.y + l.chart.height <= l.peak_list.y + 0.01f,
+                  "%.0fx%.0f the chart overlaps the row below\n", w->width,
+                  w->height);
     }
 }
 
@@ -457,10 +421,5 @@ int main(void) {
         for (int i = 0; i < RECTS; i++)
             check(w, h, e[i].name, got[i], &e[i]);
     }
-    if (failures) {
-        fprintf(stderr, "%d layout check(s) failed\n", failures);
-        return 1;
-    }
-    puts("layout checks passed");
-    return 0;
+    return check_report("view layout");
 }

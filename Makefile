@@ -2,6 +2,13 @@ CFLAGS?=-O2 -g -Wall -W $(shell pkg-config --cflags librtlsdr)
 LDLIBS+=$(shell pkg-config --libs librtlsdr) -lm
 CC?=gcc
 
+# Commands are hidden so `make check` reads as a report rather than a wall of
+# compiler lines. V=1 shows them again, which is what you want when a build
+# fails rather than a check.
+V?=0
+Q_0=@
+Q=$(Q_$(V))
+
 SRC=src
 TESTS=tests
 VENDOR=vendor
@@ -27,11 +34,13 @@ RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 # The one intermediate object lives under $(BUILD)/ to keep the root tidy.
 $(BUILD)/raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
 	@mkdir -p $(BUILD)
-	$(CC) -O2 $(RAYGUI_FLAGS) -w -c $(SRC)/raygui_impl.c -o $@
+	$(Q)printf '  cc  %s\n' $@
+	$(Q)$(CC) -O2 $(RAYGUI_FLAGS) -w -c $(SRC)/raygui_impl.c -o $@
 
 sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 		$(GUI_SRC) $(GUI_HDR) $(BUILD)/raygui_impl.o
-	$(CC) $(CFLAGS) $(RAYGUI_FLAGS) -pthread \
+	$(Q)printf '  cc  %s\n' $@
+	$(Q)$(CC) $(CFLAGS) $(RAYGUI_FLAGS) -pthread \
 		-o $@ $(SRC)/sdrprobe.c $(APP_SRC) $(DSP_SRC) $(GUI_SRC) \
 		$(BUILD)/raygui_impl.o \
 		$(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs raylib) -pthread
@@ -39,51 +48,51 @@ sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 # Per-technology hardware-free DSP checks. Each technology's checks build and
 # run in isolation so they are easy to inspect and extend; check-dsp runs all.
 # Test sources live in $(TESTS)/ and include the DSP headers from $(SRC)/.
-check-sdr-dsp: $(TESTS)/sdr_dsp_test.c $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+check-sdr-dsp: $(TESTS)/sdr_dsp_test.c $(TESTS)/check.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/sdr_dsp_test \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/sdr_dsp_test \
 		$(TESTS)/sdr_dsp_test.c $(SRC)/sdr_dsp.c -lm
-	./$(BUILD)/sdr_dsp_test
+	$(Q)./$(BUILD)/sdr_dsp_test
 
-check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
+check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_dsp_test \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_dsp_test \
 		$(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/sdr_dsp.c -lm
-	./$(BUILD)/gsm_dsp_test
+	$(Q)./$(BUILD)/gsm_dsp_test
 
 # The band plan is a table, not DSP: its own check, and the only one here that
 # links nothing at all.
-check-band-plan: $(TESTS)/band_plan_test.c $(SRC)/band_plan.c $(SRC)/band_plan.h
+check-band-plan: $(TESTS)/band_plan_test.c $(TESTS)/check.h $(SRC)/band_plan.c $(SRC)/band_plan.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/band_plan_test \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/band_plan_test \
 		$(TESTS)/band_plan_test.c $(SRC)/band_plan.c
-	./$(BUILD)/band_plan_test
+	$(Q)./$(BUILD)/band_plan_test
 
-check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
+check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(TESTS)/check.h $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_dsp_test \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_dsp_test \
 		$(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c -lm
-	./$(BUILD)/adsb_dsp_test
+	$(Q)./$(BUILD)/adsb_dsp_test
 
 # Layout check: the GSM and ADS-B views' rectangles and the window chrome,
 # pinned at several window sizes. Needs raylib's headers for the Rectangle type but not
 # the library -- both layouts are pure functions of the window size, which is
 # what makes them testable without opening a window.
-check-layout: $(TESTS)/layout_test.c $(SRC)/gsm_layout.h \
+check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 		$(SRC)/adsb_layout.h $(SRC)/chrome_layout.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
-	./$(BUILD)/layout_test
+	$(Q)./$(BUILD)/layout_test
 
 # Command-line parsing: every flag, every rejection. Pure text in, options
 # out, so it links nothing at all.
-check-options: $(TESTS)/options_test.c $(SRC)/options.c $(SRC)/options.h
+check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/options.c $(SRC)/options.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/options_test \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/options_test \
 		$(TESTS)/options_test.c $(SRC)/options.c -lm
-	./$(BUILD)/options_test
+	$(Q)./$(BUILD)/options_test
 
 # Whole paths through the built program, over the captures in testfiles/:
 # decode, record, and the flags that reach them. Needs the binary and about ten
@@ -93,28 +102,44 @@ check-pipelines: sdrprobe $(TESTS)/pipelines.sh
 
 # When a frequency correction may be trusted (ADR-0004). Pure arithmetic, so
 # the rule can be checked clause by clause without a receiver.
-check-calibration: $(TESTS)/calibration_gate_test.c $(SRC)/calibration_gate.h
+check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/calibration_gate.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/calibration_gate_test \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/calibration_gate_test \
 		$(TESTS)/calibration_gate_test.c -lm
-	./$(BUILD)/calibration_gate_test
+	$(Q)./$(BUILD)/calibration_gate_test
 
 # The band survey's window arithmetic: zoom, pan, and what Sweep would sweep.
 # No raylib, no receiver, no window -- which is the point. Every one of these
 # decisions previously had to be checked by building an instrumented binary and
 # running it against the dongle, and two of them shipped wrong.
-check-survey: $(TESTS)/survey_window_test.c $(SRC)/survey_window.h
+check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_window.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_window_test \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_window_test \
 		$(TESTS)/survey_window_test.c -lm
-	./$(BUILD)/survey_window_test
+	$(Q)./$(BUILD)/survey_window_test
 
 # One command that says whether the tree is sound, for agents and for people.
 # ADR-0012: every decision must be reachable by a check that needs no window,
 # no receiver and nobody watching -- and reaching them has to be one step, or
 # it will not be done.
-check: check-dsp check-options check-survey check-calibration check-layout \
-	check-pipelines
+#
+# Each suite prints one line saying what it covers and how much it proved, and
+# appends its counts to CHECK_TALLY so the total below is real rather than a
+# claim. Sub-makes rather than prerequisites, so the sections stay in order.
+CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
+	check-options check-survey check-calibration check-layout
+TALLY=$(BUILD)/check-tally
+
+check: sdrprobe
+	@mkdir -p $(BUILD)
+	@rm -f $(TALLY)
+	@printf '\nsdrprobe checks -- no window, no receiver, nobody watching\n'
+	@printf '\nunits\n'
+	@CHECK_TALLY=$(TALLY) $(MAKE) --no-print-directory $(CHECK_UNITS)
+	@printf '\npipelines -- the built program over testfiles/\n'
+	@CHECK_TALLY=$(TALLY) $(MAKE) --no-print-directory check-pipelines
+	@awk '{checks += $$1; bad += $$2} END { printf \
+		"\n%d checks in %d suites, no failures\n\n", checks, NR}' $(TALLY)
 
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan
 
@@ -124,18 +149,18 @@ FILE ?= testfiles/gsm_arfcn_69.bin
 probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_chain_probe \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_chain_probe \
 		scripts/gsm_chain_probe.c $(SRC)/sdr_dsp.c -lm
-	./$(BUILD)/gsm_chain_probe $(FILE)
+	$(Q)./$(BUILD)/gsm_chain_probe $(FILE)
 
 # White-box diagnostic walk through the ADS-B Mode S decode chain.
 FILE_ADSB ?= testfiles/adsb_modes1.bin
 probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_chain_probe \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_chain_probe \
 		scripts/adsb_chain_probe.c $(SRC)/sdr_dsp.c -lm
-	./$(BUILD)/adsb_chain_probe $(FILE_ADSB)
+	$(Q)./$(BUILD)/adsb_chain_probe $(FILE_ADSB)
 
 # What the DSP costs per sample block, against the 65.5 ms one block covers.
 # BENCH_ARCH=-march=native answers the SIMD question by measuring it: the
@@ -143,9 +168,9 @@ probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 BENCH_ARCH ?=
 bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 	@mkdir -p $(BUILD)
-	$(CC) $(CFLAGS) $(BENCH_ARCH) -I$(SRC) -o $(BUILD)/dsp_bench \
+	$(Q)$(CC) $(CFLAGS) $(BENCH_ARCH) -I$(SRC) -o $(BUILD)/dsp_bench \
 		scripts/dsp_bench.c $(DSP_SRC) -lm
-	./$(BUILD)/dsp_bench
+	$(Q)./$(BUILD)/dsp_bench
 
 clean:
 	rm -rf sdrprobe $(BUILD)

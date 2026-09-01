@@ -1,3 +1,4 @@
+#include "check.h"
 #include "gsm_dsp.h"
 #include "sdr_dsp.h"
 
@@ -6,32 +7,6 @@
 #include <stdlib.h>
 
 #define PI_F 3.14159265358979323846f
-
-static int failures;
-
-static void check_close(const char *name, float actual, float expected,
-                        float tolerance) {
-    if (!isfinite(actual) || fabsf(actual - expected) > tolerance) {
-        fprintf(stderr, "%s: got %.6f, expected %.6f (+/- %.6f)\n",
-                name, actual, expected, tolerance);
-        failures++;
-    }
-}
-
-static void check_size(const char *name, size_t actual, size_t expected) {
-    if (actual != expected) {
-        fprintf(stderr, "%s: got %zu, expected %zu\n",
-                name, actual, expected);
-        failures++;
-    }
-}
-
-static void check_int(const char *name, long actual, long expected) {
-    if (actual != expected) {
-        fprintf(stderr, "%s: got %ld, expected %ld\n", name, actual, expected);
-        failures++;
-    }
-}
 
 /* GSM calibration exercises the plugin's channel map plus the generic centroid
    estimate and PPM correction it reuses from sdr_dsp. */
@@ -177,10 +152,7 @@ static void test_sch_decode(void) {
     }
     size_t written = gsm_sch_modulate(coded, sample_rate, carrier_offset, start,
                                       i, q, count);
-    if (written == 0) {
-        fprintf(stderr, "sch modulate wrote no samples\n");
-        failures++;
-    }
+    check_msg(written != 0, "sch modulate wrote no samples\n");
     /* Add mild noise on top of the burst. */
     for (size_t n = start; n < start + written; n++) {
         i[n] += 3.0f * ((float)rand() / (float)RAND_MAX - 0.5f);
@@ -275,11 +247,9 @@ static void test_sch_synthetic_channel(void) {
         for (int n = 0; n < SCH_SYN_PAIRS; n++) { ci[n] = 0.0f; cq[n] = 0.0f; }
         size_t wrote = gsm_sch_modulate(coded, fs, offset, SCH_SYN_START,
                                         ci, cq, SCH_SYN_PAIRS);
-        if (!wrote) {
-            fprintf(stderr, "synthetic-channel: modulation produced nothing\n");
-            failures++;
+        check_msg(wrote, "synthetic-channel: modulation produced nothing\n");
+        if (!wrote)
             break;
-        }
         double energy = 0.0;
         for (size_t n = SCH_SYN_START; n < SCH_SYN_START + wrote &&
                                        n < SCH_SYN_PAIRS; n++)
@@ -315,21 +285,16 @@ static void test_sch_synthetic_channel(void) {
     /* Every field, not just the BSIC: through ISI and noise the decoder must
        recover the frame number too. Measured 60/60 soft against 45/60 hard at
        3 dB, so the thresholds leave room without being vacuous. */
-    if (soft_ok * 100 < SCH_SYN_TRIALS * 95) {
-        fprintf(stderr,
-                "synthetic-channel: soft decode recovered every field on "
-                "%d/%d bursts (expected >=95%%)\n", soft_ok, SCH_SYN_TRIALS);
-        failures++;
-    }
+    check_msg(soft_ok * 100 >= SCH_SYN_TRIALS * 95,
+              "synthetic-channel: soft decode recovered every field on "
+              "%d/%d bursts (expected >=95%%)\n",
+              soft_ok, SCH_SYN_TRIALS);
     /* The soft trellis exists to beat the hard-decision fallback; if it ever
        stops doing so on the same bursts, it is not earning its complexity. */
-    if (soft_ok <= hard_ok) {
-        fprintf(stderr,
-                "synthetic-channel: soft decode %d/%d did not beat the hard "
-                "path %d/%d\n", soft_ok, SCH_SYN_TRIALS, hard_ok,
-                SCH_SYN_TRIALS);
-        failures++;
-    }
+    check_msg(soft_ok > hard_ok,
+              "synthetic-channel: soft decode %d/%d did not beat the hard "
+              "path %d/%d\n",
+              soft_ok, SCH_SYN_TRIALS, hard_ok, SCH_SYN_TRIALS);
 }
 
 /* Decode every block of a real capture and check the result against what the
@@ -384,16 +349,12 @@ static void check_real_capture(const char *path, int bsic, int ncc, int bcc,
     free(q);
     free(mag);
 
-    if (decoded < min_decoded) {
-        fprintf(stderr, "%s: only %d blocks decoded (expected >=%d)\n",
-                path, decoded, min_decoded);
-        failures++;
-    }
-    if (bsic_ok < decoded) {
-        fprintf(stderr, "%s: %d/%d decodes had BSIC %d (NCC %d, BCC %d)\n",
-                path, bsic_ok, decoded, bsic, ncc, bcc);
-        failures++;
-    }
+    check_msg(decoded >= min_decoded,
+              "%s: only %d blocks decoded (expected >=%d)\n", path, decoded,
+              min_decoded);
+    check_msg(bsic_ok >= decoded,
+              "%s: %d/%d decodes had BSIC %d (NCC %d, BCC %d)\n", path, bsic_ok,
+              decoded, bsic, ncc, bcc);
 
     /* The frame number must track real time. A wrong field layout in
        sch_parse still round-trips against an encoder that shares it -- that
@@ -402,24 +363,16 @@ static void check_real_capture(const char *path, int bsic, int ncc, int bcc,
        burst advances monotonically, so the decoded frame numbers must climb
        and must not span more than the capture itself. */
     if (decoded > 1) {
-        if (!ordered) {
-            fprintf(stderr, "%s: frame numbers are not increasing\n", path);
-            failures++;
-        }
+        check_msg(ordered, "%s: frame numbers are not increasing\n", path);
         int span = last_fn - first_fn;
-        if (span < 0 || span > 450) {
-            fprintf(stderr,
-                    "%s: frame numbers span %d frames across a ~433-frame "
-                    "capture\n", path, span);
-            failures++;
-        }
+        check_msg(span >= 0 && span <= 450,
+                  "%s: frame numbers span %d frames across a ~433-frame "
+                  "capture\n",
+                  path, span);
         /* T1 steps once per 1326 frames (~6.1 s), so a 2 s capture sees one
            value or two adjacent ones. */
-        if (max_t1 - min_t1 > 1) {
-            fprintf(stderr, "%s: T1 spans %d..%d over ~2 s\n", path,
-                    min_t1, max_t1);
-            failures++;
-        }
+        check_msg(max_t1 - min_t1 <= 1, "%s: T1 spans %d..%d over ~2 s\n", path,
+                  min_t1, max_t1);
     }
 }
 
@@ -457,10 +410,5 @@ int main(void) {
 
     test_arfcn_for_hz();
 
-    if (failures) {
-        fprintf(stderr, "%d gsm_dsp check(s) failed\n", failures);
-        return 1;
-    }
-    puts("gsm_dsp checks passed");
-    return 0;
+    return check_report("GSM 900 plugin");
 }

@@ -35,12 +35,15 @@ part comes out into a unit with a name. Logic not yet reachable is listed in
 `.scratch/testability/`, one ticket per area — add to it rather than leaving a
 gap implicit.
 
-There is no CI, no linter, and no test framework: each check is a `main()` that
-calls `test_*()` functions and increments a file-static `failures` counter via
-`check_*` helpers (`check_close`, `check_size`, `check_int`, `check_str`),
-printing `... checks passed` and returning non-zero on failure. To run a
-*single* test, temporarily comment out the other `test_*()` calls in that file's
-`main()` — there is no filter flag. `check-pipelines` is the exception: a POSIX
+There is no CI and no linter, and the test framework is one header:
+`tests/check.h` holds the counters, the comparisons (`check_int`, `check_close`,
+`check_size`, `check_str`, `check_true`, and `check_msg(condition, fmt, ...)`
+for a message of your own) and `check_report("what it covers")`, which prints
+the suite's one-line summary and returns the exit code. A check is still a
+`main()` calling `test_*()` functions; to run a *single* test, temporarily
+comment out the others — there is no filter flag. `make check` hides the
+compiler commands so it reads as a report; `make V=1 check` shows them, which
+is what you want when a build fails rather than a check. `check-pipelines` is the exception: a POSIX
 `sh` script (`tests/pipelines.sh`) that runs the built binary over the captures
 in `testfiles/` and greps its stdout, which is what proves the units are wired
 together.
