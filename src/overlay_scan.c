@@ -162,7 +162,8 @@ void draw_scan(struct app *app) {
     struct sdrgui_scan_chart_params params = {
         app->plot, app->scan_power, app->scan_bcch_conf, 124,
         SCAN_SENTINEL_DBFS, SCAN_BCCH_MIN_CONF, hover,
-        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, app->scan_selected_arfcn
+        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, app->scan_selected_arfcn,
+        "no channel measured yet"
     };
     sdrgui_scan_chart(&params);
 }

@@ -150,6 +150,9 @@ struct sdrgui_scan_chart_params {
     double base_hz;          /* channel 0 frequency, for the hover readout */
     double spacing_hz;
     int selected;            /* selected/inspected channel (0 = none) */
+    /* Drawn in the middle when no channel has been measured, so an empty
+       chart says why it is empty rather than looking broken. May be NULL. */
+    const char *empty_notice;
 };
 
 /* Per-channel power bar chart with BCCH highlighting and a hover readout. */

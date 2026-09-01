@@ -427,7 +427,9 @@ void draw_gsm(struct app *app) {
         struct sdrgui_scan_chart_params params = {
             sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
             SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
-            app->scan_selected_arfcn
+            app->scan_selected_arfcn,
+            app->receiver_mode ? "no channel measured yet -- press Scan"
+                               : "a band scan needs a live receiver"
         };
         sdrgui_scan_chart(&params);
 
@@ -448,7 +450,9 @@ void draw_gsm(struct app *app) {
         struct sdrgui_scan_chart_params params = {
             sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
             SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
-            app->scan_selected_arfcn
+            app->scan_selected_arfcn,
+            app->receiver_mode ? "no channel measured yet -- press Scan"
+                               : "a band scan needs a live receiver"
         };
         sdrgui_scan_chart(&params);
     }
@@ -590,6 +594,17 @@ void view_gsm_defaults(struct app *app) {
     app->gsm.opt_filter = 1;
     app->gsm.opt_finecfo = 1;
     app->gsm.opt_trellis = 1;
+    /*
+     * No channel has been measured yet, and the sentinel is how the chart is
+     * told so. Zero is not the sentinel: left at it, the scan chart drew all
+     * 124 channels pinned at 0 dBFS -- a full band of signal, out of an array
+     * nothing had written to. Tuning straight to a channel with --arfcn skips
+     * the scan, so this is the state the view opens in.
+     */
+    for (int arfcn = 0; arfcn < 125; arfcn++) {
+        app->scan_power[arfcn] = SCAN_SENTINEL_DBFS;
+        app->scan_bcch_conf[arfcn] = 0.0f;
+    }
 }
 
 /* Enter the GSM decode view: pick the default channel and show it in the
