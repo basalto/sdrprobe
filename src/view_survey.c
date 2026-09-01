@@ -86,6 +86,16 @@ static unsigned survey_suspect_at(const struct app *app, double hz,
                           app->remove_dc);
 }
 
+/* How many of this sweep's candidates resemble the receiver. Recomputed each
+   frame rather than stored: it is a few hundred multiplications, and a stored
+   count is one more thing that can disagree with the list beside it. */
+static int survey_suspicious_now(const struct app *app) {
+    return survey_suspect_count(&app->survey.plan, app->survey.peaks,
+                                app->survey.peak_count,
+                                (double)app->applied_sample_rate,
+                                SDR_DSP_FFT_SIZE, app->remove_dc);
+}
+
 static double survey_bin_hz(const struct survey_view *s, int bin) {
     struct survey_window w = survey_window_of(s);
 
@@ -817,7 +827,8 @@ void handle_survey_input(struct app *app) {
                                             : survey_data_lower(s),
         s->view_upper_hz > s->view_lower_hz ? s->view_upper_hz
                                             : survey_data_upper(s),
-        NULL, 0, s->peaks, s->peak_count, s->selected, -1,
+        NULL, 0, s->peaks, s->peak_count, survey_suspicious_now(app),
+        s->selected, -1,
         s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
                     : s->bins,
         s->sweeping, 0, 0.0, 0.0, ""
@@ -963,18 +974,15 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
              (Color){ 151, 174, 188, 255 });
     /* A sweep that is mostly the receiver talking to itself should say so
        before anyone clicks into it. */
-    int suspicious = survey_suspect_count(&s->plan, s->peaks, s->peak_count,
-                                          (double)app->applied_sample_rate,
-                                          SDR_DSP_FFT_SIZE, app->remove_dc);
+    int suspicious = survey_suspicious_now(app);
     if (suspicious > 0) {
-        snprintf(text, sizeof(text), "%d marked * look like the receiver",
-                 suspicious);
+        snprintf(text, sizeof(text), "%d marked *", suspicious);
         sdrgui_text_fit(text, (int)rect.x + 12 + MeasureText("Candidates (000)",
                                                              16) + 14,
                         (int)rect.y + 10, 16, rect.width - 190.0f,
                         (Color){ 250, 190, 74, 255 });
     }
-    DrawText("FREQUENCY        LEVEL     ABOVE FLOOR", (int)rect.x + 12,
+    DrawText("   FREQUENCY       LEVEL     ABOVE FLOOR", (int)rect.x + 12,
              (int)rect.y + 30, 15, (Color){ 126, 151, 166, 255 });
 
     if (visible == 0) {
@@ -1004,9 +1012,13 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
         double hz = survey_bin_hz(s, s->peaks[i].index);
         int suspect = survey_suspect_warns(survey_suspect_at(app, hz, 0.0));
 
-        snprintf(text, sizeof(text), "%12.4f MHz  %6.1f dBFS  %5.1f dB %s",
-                 hz / 1e6, (double)s->peaks[i].power_dbfs,
-                 (double)s->peaks[i].prominence_db, suspect ? "*" : "");
+        /* The marker leads the row. Trailing it put it at the end of the
+           longest line in the panel, where sdrgui_text_fit ellipsised it away
+           on exactly the rows that needed it. */
+        snprintf(text, sizeof(text), "%s %10.4f MHz  %6.1f dBFS  %5.1f dB",
+                 suspect ? "*" : " ", hz / 1e6,
+                 (double)s->peaks[i].power_dbfs,
+                 (double)s->peaks[i].prominence_db);
         if (suspect && i != s->selected && i != s->hover)
             color = (Color){ 178, 168, 140, 255 };
         sdrgui_text_fit(text, (int)rect.x + 12, (int)y, 17,
@@ -1215,7 +1227,8 @@ void draw_survey(struct app *app) {
     struct sdrgui_survey_params params = {
         l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS, shown_lower,
         shown_upper, window_lower, window_upper, bands, band_count,
-        s->peaks, s->peak_count, s->selected, s->hover,
+        s->peaks, s->peak_count, survey_suspicious_now(app),
+        s->selected, s->hover,
         s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
                     : s->bins,
         s->sweeping, s->drag_active, s->drag_from_hz, s->drag_to_hz,

@@ -189,6 +189,10 @@ struct sdrgui_survey_params {
     int band_count;
     const struct sdr_peak *peaks;  /* candidates found, strongest first */
     int peak_count;
+    /* Of those, how many resemble the receiver rather than the band. Named on
+       the caption because the chart itself cannot show it: a spur draws the
+       same as a carrier. */
+    int suspicious_count;
     int selected;             /* index into peaks, -1 for none */
     int hover;                /* likewise */
     int swept_bins;           /* progress: bins measured so far */

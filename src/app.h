@@ -221,6 +221,10 @@ struct scope_view {
     Color *waterfall_pixels;
     float *waterfall_dbfs;
     int waterfall_capacity;
+    /* The tuning its history was gathered at. When the receiver moves, every
+       row above the newest belongs to another frequency, so the view notices
+       and clears -- the same way it notices a resize. */
+    uint32_t waterfall_tuned_hz;
     int waterfall_width;
     int waterfall_height;
     int waterfall_rows;
