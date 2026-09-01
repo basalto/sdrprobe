@@ -20,7 +20,11 @@ after dump1090's `modesInitRTLSDR()`.
   duty (continuous, intermittent, bursty) and frequency stability, plus the
   allocation the frequency falls in — a band-plan lookup, never a claim about
   what the signal *is*. Portuguese/European allocations are shaded behind the
-  trace; `+`/`-` zoom, `Left`/`Right` pan, `0` resets.
+  trace; drag a rectangle to zoom, `+`/`-` zoom, `Left`/`Right` pan, `0`
+  resets, and the candidate list follows the window. A dwell field decides how
+  long each step listens, which is what catches transmitters that are not
+  always on, Sweep surveys whatever the chart is showing — the fields when zoomed
+  out, the window when zoomed in — and "Reset zoom" backs out again.
 - **Live or file** — a real RTL‑SDR dongle, or paced, looping hardware‑free
   playback of a raw capture (`--file`).
 - **Runtime settings** — center frequency (Hz or `K`/`M`/`G`), gain (live),

@@ -65,6 +65,7 @@ Defaults:
 | `--duration` | off | Quit after n seconds |
 | `--headless` | off | Acquire with no window |
 | `--survey-range` | none | Open the band survey on `low:high` and sweep it |
+| `--survey-dwell` | `0.10` | Seconds the survey sits on each step |
 | `--arfcn` | none | Tune a GSM 900 downlink channel |
 | `--gsm-features` | all | SCH refinements: filter, finecfo, trellis, none |
 | `--dc-filter` | `on` | Spectrum/waterfall DC-spike removal |

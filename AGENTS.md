@@ -62,12 +62,30 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   `docs/adr/0011-band-plan-is-a-lookup.md`, which is the boundary this view
   exists next to. The band plan is also
   drawn behind the trace as shaded regions, named where there is room, so a
-  peak reads against what the region is allocated to; `+`/`-` zoom the chart,
-  `Left`/`Right` walk the zoomed window, `0` returns to the whole sweep, and
-  the wheel zooms over the chart. Zooming re-draws the same measurements rather
+  peak reads against what the region is allocated to; dragging a rectangle across the
+  chart zooms to that span, `+`/`-` zoom, `Left`/`Right` walk the zoomed
+  window, `0` returns to the whole sweep, and the wheel zooms over the chart.
+  Zoom is read from `GetCharPressed`, not `KEY_EQUAL`/`KEY_MINUS`: raylib names
+  keys after US physical positions, and on a Portuguese layout those are
+  different keys entirely. The candidate list narrows to the visible window. Zooming re-draws the same measurements rather
   than re-sweeping, and the level axis follows what is on screen.
+  A dwell field sets how long each step listens: at the default 0.10 s a step
+  sees only what is transmitting at that instant, and raising it lets the
+  peak-holding fold catch bursty transmitters, at a cost linear in the sweep
+  time. Sweep sweeps whatever the chart is showing: the range in the fields when
+  zoomed out, the window when zoomed in -- one button, because the two differ
+  only when the view has been narrowed, and typing a range re-anchors the
+  window on it so the two can never disagree. Sweeping a zoomed window narrows
+  the swept range to it, throwing away what lay outside.
+  "Reset zoom" backs out one level for that reason: the zoom first, then the
+  whole survey the narrowed sweep replaced (a 44 KB snapshot restores the
+  measurements and candidates instantly, rather than re-sweeping for minutes),
+  then the tuner's full span in the fields. It never starts a sweep by itself.
+  Before the first sweep the view takes its extent from the range fields, so
+  zoom, pan and drag work on a freshly opened survey rather than dividing by a
+  span of zero.
   `--survey-range low:high` opens the view and sweeps that
-  range without waiting to be asked; in the Decode tab, keys 1/2 switch between GSM band
+  range without waiting to be asked, and `--survey-dwell` sets the dwell; in the Decode tab, keys 1/2 switch between GSM band
   analysis and ADS-B. The Settings button (or `s`) changes center frequency and, for a live receiver, gain while running; it also toggles the
   default-on spectrum/waterfall DC-spike filter. The HUD reports noise,
   estimated SNR, clipping, and full-scale headroom for gain selection. Up/Down
