@@ -1129,8 +1129,12 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
                             (Color){ 200, 165, 110, 255 });
             y += line - 2;
         }
-        sdrgui_text_fit("disconnect the antenna and sweep again: an artifact "
-                        "stays",
+        /* Sufficient, not necessary: a spur the dongle radiates and hears
+           back through its own antenna goes when the antenna does, and most
+           of this comb behaves that way. What survives unplugging is
+           certainly the receiver; what does not is not thereby a signal. */
+        sdrgui_text_fit("unplug the antenna and sweep again: what stays is "
+                        "the receiver",
                         (int)rect.x + 24, y, 15, rect.width - 36.0f,
                         (Color){ 126, 151, 166, 255 });
         y += line - 2;

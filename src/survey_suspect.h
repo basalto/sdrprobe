@@ -10,13 +10,20 @@
  * Why a survey candidate might have been made by the receiver rather than
  * received by it.
  *
- * The survey finds peaks; some of them are not signals at all. Sweeping
- * 470-690 MHz with the antenna disconnected still turns up a comb of narrow
- * carriers standing 20 dB above the floor, every one of them an exact multiple
- * of 14.4 MHz -- half the RTL2832U's 28.8 MHz reference clock, leaking into
- * the tuner. They sit inside the UHF television allocation, so the band plan
- * dutifully labels them "UHF television", and nothing else on the panel
- * contradicts it.
+ * The survey finds peaks; some of them are not signals at all. A sweep of
+ * 470-690 MHz turns up a dozen narrow carriers standing 20 dB above the floor
+ * whose frequencies are exact multiples of 14.4 MHz -- half the RTL2832U's
+ * 28.8 MHz reference clock. They sit inside the UHF television allocation, so
+ * the band plan dutifully labels them "UHF television", and nothing else on
+ * the panel contradicts it.
+ *
+ * Unplugging the antenna sorts them into two kinds, which is worth knowing
+ * before trusting the obvious test. Three -- 489.6, 547.2 and 604.8 MHz,
+ * harmonics 34, 38 and 42 -- stay exactly where they were, within half a
+ * decibel, run after run: those are made and heard entirely inside the
+ * receiver. The other nine go with the antenna, because the dongle radiates
+ * its clock and hears itself coming back. Both are the receiver's doing, but
+ * "unplug it and an artifact stays" holds only for the first kind.
  *
  * This is the contradiction, and it is careful about what it claims. It never
  * removes a candidate and never says a peak *is* an artifact: it says the

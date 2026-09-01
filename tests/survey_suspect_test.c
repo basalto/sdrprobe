@@ -7,12 +7,12 @@
 /*
  * Which candidates the survey should warn about.
  *
- * This exists because of a sweep of 470-690 MHz taken with the antenna
- * disconnected: the DVB-T multiplexes vanished and a comb of narrow carriers
- * 20 dB above the floor did not. Nearly all of them were exact multiples of
- * 14.4 MHz -- 489.6, 518.4, 547.2, 576.0, 590.4, 604.8, 633.6, 662.4 -- and
- * the band plan was calling every one "UHF television", correctly and
- * uselessly.
+ * This exists because of a sweep of 470-690 MHz that turned up twelve narrow
+ * carriers 20 dB above the floor on exact multiples of 14.4 MHz -- 489.6,
+ * 518.4, 547.2, 561.6, 576.0, 590.4, 604.8, 619.2, 633.6, 648.0, 662.4, 676.8
+ * -- with the band plan calling every one "UHF television", correctly and
+ * uselessly. Unplugging the antenna removed every candidate that was *not* on
+ * the comb, and left three of the twelve standing unchanged.
  *
  * The two failure directions matter differently. A missed warning costs an
  * operator an afternoon chasing a transmitter that does not exist; a false one
