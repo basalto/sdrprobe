@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
     for (int r = 0; r < runs; r++)
         sdr_dsp_signal_stats(i_samples, q_samples, magnitudes, pairs,
                              workspace, &stats);
-    report("signal statistics (sorts the block)", now_ms() - start, runs);
+    report("signal statistics (two percentiles)", now_ms() - start, runs);
 
     start = now_ms();
     for (int r = 0; r < runs; r++)

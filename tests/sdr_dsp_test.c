@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define PI_F 3.14159265358979323846f
 
@@ -223,6 +224,100 @@ static void test_channel_powers(void) {
     free(spectrum);
 }
 
+/*
+ * The percentiles must be exactly what sorting the block would have produced,
+ * not merely close: they are read off the HUD, they gate the calibration
+ * colours, and the point of selecting instead of sorting is speed, not a
+ * different answer. So compare against a sorted reference over the input
+ * shapes that break a careless selection -- heavy duplicates above all, since
+ * magnitudes come from 8-bit samples and repeat in their thousands.
+ */
+static int compare_float_test(const void *left, const void *right) {
+    float a = *(const float *)left;
+    float b = *(const float *)right;
+    return (a > b) - (a < b);
+}
+
+static void check_percentiles_match_sorting(const char *shape,
+                                            const float *magnitude,
+                                            size_t count) {
+    float *work = malloc(count * sizeof(*work));
+    float *sorted = malloc(count * sizeof(*sorted));
+    float *zeros = calloc(count, sizeof(*zeros));
+    struct sdr_signal_stats stats;
+    char name[96];
+
+    if (!work || !sorted || !zeros) {
+        fprintf(stderr, "percentile check allocation failed\n");
+        exit(2);
+    }
+    memcpy(sorted, magnitude, count * sizeof(*sorted));
+    qsort(sorted, count, sizeof(*sorted), compare_float_test);
+
+    size_t noise_rank = (size_t)ceil(0.10 * (double)count);
+    size_t signal_rank = (size_t)ceil(0.995 * (double)count);
+    if (noise_rank < 1)
+        noise_rank = 1;
+    if (signal_rank > count)
+        signal_rank = count;
+
+    if (!sdr_dsp_signal_stats(magnitude, zeros, magnitude, count, work,
+                              &stats)) {
+        fprintf(stderr, "%s: signal stats refused %zu samples\n", shape, count);
+        failures++;
+    } else {
+        snprintf(name, sizeof(name), "%s (%zu): p10 matches sorting", shape,
+                 count);
+        check_close(name, stats.noise_magnitude, sorted[noise_rank - 1], 0.0f);
+        snprintf(name, sizeof(name), "%s (%zu): p99.5 matches sorting", shape,
+                 count);
+        check_close(name, stats.signal_magnitude, sorted[signal_rank - 1],
+                    0.0f);
+    }
+    free(work);
+    free(sorted);
+    free(zeros);
+}
+
+static void test_percentiles_without_sorting(void) {
+    const size_t big = 131072;   /* one block */
+    float *values = malloc(big * sizeof(*values));
+    size_t sizes[] = { 1, 2, 3, 7, 1000 };
+
+    if (!values) {
+        fprintf(stderr, "percentile allocation failed\n");
+        exit(2);
+    }
+
+    /* The real shape: magnitudes of 8-bit samples, so a few hundred distinct
+       values across a hundred thousand samples. */
+    for (size_t i = 0; i < big; i++)
+        values[i] = (float)(rand() % 180) + (float)(rand() % 4) * 0.25f;
+    check_percentiles_match_sorting("block of duplicates", values, big);
+
+    /* The shapes a median-of-three pivot exists for. */
+    for (size_t i = 0; i < big; i++)
+        values[i] = (float)i * 0.001f;
+    check_percentiles_match_sorting("already sorted", values, big);
+    for (size_t i = 0; i < big; i++)
+        values[i] = (float)(big - i) * 0.001f;
+    check_percentiles_match_sorting("reverse sorted", values, big);
+
+    /* Every element identical: the case that makes a two-way split
+       quadratic. */
+    for (size_t i = 0; i < big; i++)
+        values[i] = 42.0f;
+    check_percentiles_match_sorting("all equal", values, big);
+
+    /* Short blocks, where the rank clamps bite. */
+    for (size_t s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+        for (size_t i = 0; i < sizes[s]; i++)
+            values[i] = (float)((i * 37) % 91) + 0.5f;
+        check_percentiles_match_sorting("short block", values, sizes[s]);
+    }
+    free(values);
+}
+
 /* A survey array with three humps of known place, width and height over a
    -95 dBFS floor. */
 #define SURVEY_BINS 600
@@ -373,6 +468,7 @@ int main(void) {
     test_signal_stats();
     test_spectrum();
     test_channel_powers();
+    test_percentiles_without_sorting();
     test_find_peaks();
     test_peak_beside_a_strong_neighbour();
     test_sentinel_splits_humps();
