@@ -78,17 +78,6 @@ void sdrgui_format_frequency_offset(char *text, size_t size, double offset) {
         snprintf(text, size, "%+.0f Hz", offset);
 }
 
-Rectangle sdrgui_chart_area(Rectangle outer, float gutter,
-                                 float caption_h) {
-    Rectangle plot = { outer.x + gutter, outer.y + caption_h,
-                       outer.width - gutter, outer.height - caption_h - 8.0f };
-    if (plot.width < 1.0f)
-        plot.width = 1.0f;
-    if (plot.height < 1.0f)
-        plot.height = 1.0f;
-    return plot;
-}
-
 /* Draw `text` at (x, y), shortened with an ellipsis if it will not fit in
    `max_width`.
  *

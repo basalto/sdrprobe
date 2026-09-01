@@ -28,7 +28,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
-GUI_HDR=$(SRC)/sdrgui.h
+GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
 RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 
 # The vendored raygui header is not -Wall -W clean; compile it in isolation.
@@ -109,6 +109,16 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 		$(TESTS)/calibration_gate_test.c -lm
 	$(Q)./$(BUILD)/calibration_gate_test
 
+# Chart geometry: where the plot sits inside a chart, and which bar the
+# pointer is over. Needs raylib's headers for Rectangle but not the library.
+check-geometry: $(TESTS)/sdrgui_geometry_test.c $(TESTS)/check.h \
+		$(SRC)/sdrgui_geometry.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
+		-o $(BUILD)/sdrgui_geometry_test \
+		$(TESTS)/sdrgui_geometry_test.c -lm
+	$(Q)./$(BUILD)/sdrgui_geometry_test
+
 # Whether consecutive SCH decodes hang together: the hyperframe wrap, the
 # elapsed time a frame number is judged against, and a BSIC that changes.
 check-gsm-continuity: $(TESTS)/gsm_continuity_test.c $(TESTS)/check.h \
@@ -179,7 +189,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
 	check-options check-survey check-survey-sweep check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
-	check-gsm-continuity
+	check-gsm-continuity check-geometry
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -227,4 +237,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean

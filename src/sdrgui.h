@@ -22,7 +22,10 @@
    its caption and `gutter` on the left for its axis labels, plus half a line at
    the bottom where the lowest label is centred on the plot edge. Components
    call this so they draw entirely within the rect they were given. */
-Rectangle sdrgui_chart_area(Rectangle outer, float gutter, float caption_h);
+/* The chart geometry -- the plotting area inside an outer rectangle, and which
+   bar a pointer is over -- is in a header that needs raylib for the Rectangle
+   type and nothing else, so it can be checked without a window. */
+#include "sdrgui_geometry.h"
 
 /* Fill x_fraction/y_fraction/mouse for the cursor over `plot`; returns 0 when
    the cursor is outside the plot. */
