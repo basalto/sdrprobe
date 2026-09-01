@@ -1,3 +1,4 @@
+#include "check.h"
 #include "sdr_dsp.h"
 
 #include <math.h>
@@ -6,32 +7,6 @@
 #include <string.h>
 
 #define PI_F 3.14159265358979323846f
-
-static int failures;
-
-static void check_close(const char *name, float actual, float expected,
-                        float tolerance) {
-    if (!isfinite(actual) || fabsf(actual - expected) > tolerance) {
-        fprintf(stderr, "%s: got %.6f, expected %.6f (+/- %.6f)\n",
-                name, actual, expected, tolerance);
-        failures++;
-    }
-}
-
-static void check_size(const char *name, size_t actual, size_t expected) {
-    if (actual != expected) {
-        fprintf(stderr, "%s: got %zu, expected %zu\n",
-                name, actual, expected);
-        failures++;
-    }
-}
-
-static void check_int(const char *name, long actual, long expected) {
-    if (actual != expected) {
-        fprintf(stderr, "%s: got %ld, expected %ld\n", name, actual, expected);
-        failures++;
-    }
-}
 
 static void test_conversion(void) {
     const uint8_t bytes[] = {127, 128, 255};
@@ -263,8 +238,7 @@ static void check_percentiles_match_sorting(const char *shape,
 
     if (!sdr_dsp_signal_stats(magnitude, zeros, magnitude, count, work,
                               &stats)) {
-        fprintf(stderr, "%s: signal stats refused %zu samples\n", shape, count);
-        failures++;
+        check_msg(0, "%s: signal stats refused %zu samples\n", shape, count);
     } else {
         snprintf(name, sizeof(name), "%s (%zu): p10 matches sorting", shape,
                  count);
@@ -358,11 +332,9 @@ static void test_find_peaks(void) {
         /* The -20 dB width of the widest hump is broader than the narrowest. */
         int wide = peaks[1].upper_index - peaks[1].lower_index;
         int narrow = peaks[2].upper_index - peaks[2].lower_index;
-        if (wide <= narrow) {
-            fprintf(stderr, "occupied width did not follow hump width: %d vs %d\n",
-                    wide, narrow);
-            failures++;
-        }
+        check_msg(wide > narrow,
+                  "occupied width did not follow hump width: %d vs %d\n", wide,
+                  narrow);
     }
 }
 
@@ -443,11 +415,8 @@ static void test_characterise_carrier(void) {
         check_close("carrier peak", report.peak_dbfs, -45.0, 0.5);
         check_close("carrier bandwidth", report.bandwidth_hz / 1e3, 100.0,
                     10.0);                           /* within 10% */
-        if (report.prominence_db < 40.0f) {
-            fprintf(stderr, "carrier prominence only %.1f dB\n",
-                    report.prominence_db);
-            failures++;
-        }
+        check_msg(report.prominence_db >= 40.0f,
+                  "carrier prominence only %.1f dB\n", report.prominence_db);
     }
     /* Nothing there: an empty window must not invent a carrier. */
     for (size_t i = 0; i < bins; i++)
@@ -474,10 +443,5 @@ int main(void) {
     test_sentinel_splits_humps();
     test_characterise_carrier();
 
-    if (failures) {
-        fprintf(stderr, "%d sdr_dsp check(s) failed\n", failures);
-        return 1;
-    }
-    puts("sdr_dsp checks passed");
-    return 0;
+    return check_report("generic DSP core");
 }

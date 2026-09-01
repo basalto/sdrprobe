@@ -1,4 +1,5 @@
 #include "band_plan.h"
+#include "check.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -10,25 +11,18 @@
  * fails here rather than quietly shadowing an allocation.
  */
 
-static int failures;
-
 static void check_name(const char *what, double hz, const char *expected) {
     const struct band_plan_entry *entry = band_plan_lookup(hz);
     const char *got = entry ? entry->name : "(none)";
-    if (strcmp(got, expected) != 0) {
-        fprintf(stderr, "%s (%.3f MHz): got \"%s\", expected \"%s\"\n",
-                what, hz / 1e6, got, expected);
-        failures++;
-    }
+    check_msg(strcmp(got, expected) == 0,
+              "%s (%.3f MHz): got \"%s\", expected \"%s\"\n", what, hz / 1e6,
+              got, expected);
 }
 
 static void check_none(const char *what, double hz) {
     const struct band_plan_entry *entry = band_plan_lookup(hz);
-    if (entry) {
-        fprintf(stderr, "%s (%.3f MHz): got \"%s\", expected no entry\n",
-                what, hz / 1e6, entry->name);
-        failures++;
-    }
+    check_msg(!entry, "%s (%.3f MHz): got \"%s\", expected no entry\n", what,
+              hz / 1e6, entry->name);
 }
 
 static void test_known_frequencies(void) {
@@ -61,58 +55,38 @@ static void test_decoders(void) {
     const struct band_plan_entry *adsb = band_plan_lookup(1090000000.0);
     const struct band_plan_entry *fm = band_plan_lookup(100100000.0);
 
-    if (!gsm || gsm->decoder != BAND_PLAN_GSM) {
-        fprintf(stderr, "GSM 900 downlink does not offer the GSM decoder\n");
-        failures++;
-    }
-    if (!adsb || adsb->decoder != BAND_PLAN_ADSB) {
-        fprintf(stderr, "1090 MHz does not offer the ADS-B decoder\n");
-        failures++;
-    }
-    if (!fm || fm->decoder != BAND_PLAN_NONE) {
-        fprintf(stderr, "FM broadcast claims a decoder this program lacks\n");
-        failures++;
-    }
+    check_msg(gsm && gsm->decoder == BAND_PLAN_GSM,
+              "GSM 900 downlink does not offer the GSM decoder\n");
+    check_msg(adsb && adsb->decoder == BAND_PLAN_ADSB,
+              "1090 MHz does not offer the ADS-B decoder\n");
+    check_msg(fm && fm->decoder == BAND_PLAN_NONE,
+              "FM broadcast claims a decoder this program lacks\n");
 }
 
 static void test_table_is_well_formed(void) {
     int count = band_plan_entry_count();
     const struct band_plan_entry *previous = NULL;
 
-    if (count < 10) {
-        fprintf(stderr, "band plan has only %d entries\n", count);
-        failures++;
-    }
+    check_msg(count >= 10, "band plan has only %d entries\n", count);
     for (int i = 0; i < count; i++) {
         const struct band_plan_entry *entry = band_plan_entry_at(i);
-        if (!entry->name || !entry->name[0]) {
-            fprintf(stderr, "entry %d has no name\n", i);
-            failures++;
+        check_msg(entry->name && entry->name[0], "entry %d has no name\n", i);
+        if (!entry->name || !entry->name[0])
             continue;
-        }
-        if (!(entry->lower_hz < entry->upper_hz)) {
-            fprintf(stderr, "%s: range is not ascending\n", entry->name);
-            failures++;
-        }
-        if (previous && entry->lower_hz < previous->upper_hz) {
-            fprintf(stderr, "%s overlaps %s\n", entry->name, previous->name);
-            failures++;
-        }
+        check_msg(entry->lower_hz < entry->upper_hz,
+                  "%s: range is not ascending\n", entry->name);
+        check_msg(!previous || entry->lower_hz >= previous->upper_hz,
+                  "%s overlaps %s\n", entry->name, previous->name);
         /* Every entry must be findable at its own midpoint: the check that
            catches an entry shadowed by a wider one written earlier. */
         double middle = (entry->lower_hz + entry->upper_hz) / 2.0;
         const struct band_plan_entry *found = band_plan_lookup(middle);
-        if (found != entry) {
-            fprintf(stderr, "%s is not reachable at its own midpoint\n",
-                    entry->name);
-            failures++;
-        }
+        check_msg(found == entry, "%s is not reachable at its own midpoint\n",
+                  entry->name);
         previous = entry;
     }
-    if (band_plan_entry_at(-1) || band_plan_entry_at(count)) {
-        fprintf(stderr, "band_plan_entry_at accepted an out-of-range index\n");
-        failures++;
-    }
+    check_msg(!band_plan_entry_at(-1) && !band_plan_entry_at(count),
+              "band_plan_entry_at accepted an out-of-range index\n");
 }
 
 int main(void) {
@@ -121,10 +95,5 @@ int main(void) {
     test_decoders();
     test_table_is_well_formed();
 
-    if (failures) {
-        fprintf(stderr, "%d band_plan check(s) failed\n", failures);
-        return 1;
-    }
-    puts("band_plan checks passed");
-    return 0;
+    return check_report("band plan");
 }

@@ -18,7 +18,9 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 - `make` — builds `sdrprobe` via pkg-config; requires librtlsdr and raylib
   development headers installed.
 - `make check` — every check below, in about 18 seconds. Nothing it runs needs
-  a window, a receiver, or a person. This is the command to run before claiming
+  a window, a receiver, or a person. It prints one line per suite saying what
+  the suite covers and how many checks it ran, and a total at the end; the
+  compiler commands are hidden, and `make V=1 check` brings them back. This is the command to run before claiming
   a change is sound, and the one to extend when adding a decision: ADR-0012
   says every decision the program makes must be reachable from here, and
   `.scratch/testability/` is the register of what is not yet.
@@ -280,9 +282,14 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `tests/options_test.c`, `tests/calibration_gate_test.c`,
   `tests/survey_window_test.c`, `tests/layout_test.c`,
   `tests/band_plan_test.c` — the rest of the unit layer, one file per module.
-  Each is a `main()` calling `test_*()` functions and counting failures; there
-  is no framework and no filter flag, so running one test alone means
-  commenting out the others.
+  Each is a `main()` calling `test_*()` functions; there is no filter flag, so
+  running one test alone means commenting out the others.
+- `tests/check.h` — the whole framework: two counters, the comparisons every
+  suite shares (`check_int`, `check_close`, `check_size`, `check_str`,
+  `check_true`, and `check_msg(condition, fmt, ...)` when the values are worth
+  printing in a shape the others cannot manage), and `check_report()`, which
+  prints the suite's summary line and returns the exit code. Assertions state
+  what must be *true*; the message says what went wrong.
 - `tests/pipelines.sh` — the end-to-end layer: the built program driven through
   its command line over `testfiles/`, asserting on stdout. POSIX sh, no
   hardware, no window.

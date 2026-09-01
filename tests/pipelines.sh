@@ -16,10 +16,22 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
 probe=./sdrprobe
 failures=0
+checks=0
 
+# Every assertion counts itself, so the suite can say how much it proved -- the
+# same contract tests/check.h gives the unit suites.
 fail() {
-    printf 'pipeline: %s\n' "$1" >&2
+    printf '    FAIL  %s\n' "$1" >&2
     failures=$((failures + 1))
+}
+
+checked() {
+    checks=$((checks + 1))
+}
+
+# One line per pipeline: what ran, and what it found.
+report() {
+    printf '    %-30s %s\n' "$1" "$2"
 }
 
 # Run the probe with a time limit and hand back its output. A pipeline that
@@ -43,6 +55,7 @@ check_gsm() {
     capture=$1
     arfcn=$2
     expected=$3
+    checked
     output=$(run --file "$capture" --headless --arfcn "$arfcn" --decode --once)
     decodes=$(printf '%s\n' "$output" | grep -c "^SCH ")
     wrong=$(printf '%s\n' "$output" | grep "^SCH " | grep -cv "BSIC $expected ")
@@ -63,20 +76,21 @@ check_gsm() {
         fail "$capture reported one frame number across $decodes decodes"
         return
     fi
-    printf '  %-34s %2d bursts, BSIC %s, %d frame numbers\n' \
-        "$(basename "$capture")" "$decodes" "$expected" "$distinct"
+    report "$(basename "$capture")" \
+        "$decodes bursts, BSIC $expected, $distinct frame numbers"
 }
 
-echo "GSM decode"
+printf '  GSM decode\n'
 check_gsm testfiles/gsm_arfcn_73.bin 73 56
 check_gsm testfiles/gsm_arfcn_69.bin 69 59
 
 # --- ADS-B: frames, and a position that needed two of them ----------------
-echo "Mode S decode"
+printf '  Mode S decode\n'
 decode_adsb() {
     run --file testfiles/adsb_cpr_pair.bin --headless --technology adsb \
         --decode --once
 }
+checked
 adsb=$(decode_adsb)
 frames=$(printf '%s\n' "$adsb" | grep -cE "^[0-9][0-9]:[0-9][0-9]:[0-9][0-9] ")
 positions=$(printf '%s\n' "$adsb" | grep -c "lat ")
@@ -86,8 +100,7 @@ elif [ "$positions" -lt 1 ]; then
     fail "adsb_cpr_pair resolved no CPR position; the even/odd pairing cache is
           the reason this capture is kept"
 else
-    printf '  %-34s %2d frames, %d resolved position(s)\n' \
-        "adsb_cpr_pair.bin" "$frames" "$positions"
+    report "adsb_cpr_pair.bin" "$frames frames, $positions resolved position(s)"
 fi
 
 # The same capture must decode the same messages every time. It did not until
@@ -95,19 +108,21 @@ fi
 # (ADR-0002), the idle poll is longer than the 65.5 ms a block covers, and the
 # count fell from 6 to 1 on a busy machine. Every assertion above is worthless
 # if this one fails -- they would pass or fail with the machine's load.
+checked
 again=$(decode_adsb | grep -cE "^[0-9][0-9]:[0-9][0-9]:[0-9][0-9] ")
 if [ "$again" -ne "$frames" ]; then
     fail "the same capture decoded $frames frames and then $again: headless
           playback is dropping blocks, so no count here means anything"
 else
-    printf '  %-34s %2d frames again\n' "run twice" "$again"
+    report "run twice" "$again frames again"
 fi
 
 # --- Recording: the file and the sidecar that explains it -----------------
 #
 # Recording tees off inside the acquisition thread, so a capture played back
 # through it exercises the same path a live one takes.
-echo "Recording"
+printf '  Recording\n'
+checked
 before=$(ls captures/ 2>/dev/null | wc -l)
 run --file testfiles/adsb_cpr_pair.bin --headless --record-seconds 1 \
     --technology adsb >/dev/null
@@ -128,8 +143,7 @@ else
     elif [ "$size" -lt 3000000 ]; then
         fail "one second at 2 MS/s produced only $size bytes"
     else
-        printf '  %-34s %s bytes, sidecar complete\n' "$(basename "$recorded")" \
-            "$size"
+        report "$(basename "$recorded")" "$size bytes, sidecar complete"
     fi
     rm -f "$recorded" "$sidecar"
 fi
@@ -137,14 +151,16 @@ fi
 # --- The flags that reach those paths -------------------------------------
 #
 # check-options proves the parser; this proves the program acts on it.
-echo "Flags"
+printf '  Flags\n'
+checked
 if ! run --file testfiles/adsb_cpr_pair.bin --headless --technology adsb \
         --decode --once | grep -q "End of capture."; then
     fail "--once did not stop at the end of the capture"
 else
-    printf '  %-34s stops at the end\n' "--once"
+    report "--once" "stops at the end"
 fi
 
+checked
 quiet=$(run --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode \
             --once --gsm-features none | grep -c "^SCH ")
 loud=$(run --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode \
@@ -152,12 +168,15 @@ loud=$(run --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode \
 if [ "$loud" -le "$quiet" ]; then
     fail "the SCH refinements decoded $loud bursts against $quiet without them"
 else
-    printf '  %-34s %d bursts against %d without them\n' "--gsm-features" \
-        "$loud" "$quiet"
+    report "--gsm-features" "$loud bursts against $quiet without them"
 fi
 
+if [ -n "${CHECK_TALLY:-}" ]; then
+    printf '%d %d\n' "$checks" "$failures" >> "$CHECK_TALLY"
+fi
 if [ "$failures" -ne 0 ]; then
-    echo "$failures pipeline check(s) failed" >&2
+    printf '  %-34s %4d checks   %d FAILED\n' "assembled program" "$checks" \
+        "$failures" >&2
     exit 1
 fi
-echo "pipeline checks passed"
+printf '  %-34s %4d checks   ok\n' "assembled program" "$checks"

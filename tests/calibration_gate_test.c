@@ -1,4 +1,5 @@
 #include "calibration_gate.h"
+#include "check.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -13,28 +14,6 @@
  * way, and every frequency the program reports afterwards is off by that
  * amount. ADR-0004 exists because such a correction was once accepted.
  */
-
-static int failures;
-
-static void check_int(const char *name, long actual, long expected) {
-    if (actual != expected) {
-        fprintf(stderr, "%s: got %ld, expected %ld\n", name, actual, expected);
-        failures++;
-    }
-}
-
-static void check_close(const char *name, double actual, double expected,
-                        double tolerance) {
-    double difference = actual - expected;
-
-    if (difference < 0.0)
-        difference = -difference;
-    if (difference > tolerance) {
-        fprintf(stderr, "%s: got %.6f, expected %.6f (+/- %.6f)\n", name,
-                actual, expected, tolerance);
-        failures++;
-    }
-}
 
 /* A lock that should pass every clause, for the cases below to spoil one at a
    time. */
@@ -110,19 +89,13 @@ static void test_robust_statistics(void) {
 
     robust_center_spread(steady, 9, &centre, &spread);
     check_close("centre of a steady run", centre, 1.0, 0.001);
-    if (spread > 0.15) {
-        fprintf(stderr, "steady run reported a spread of %.3f\n", spread);
-        failures++;
-    }
+    check_msg(spread <= 0.15, "steady run reported a spread of %.3f\n", spread);
 
     /* The point of a median and a MAD: one wild block must not move either
        much. A mean would be dragged to 5.3 by that outlier. */
     robust_center_spread(with_outlier, 9, &centre, &spread);
     check_close("one outlier does not move the centre", centre, 1.0, 0.001);
-    if (spread > 0.15) {
-        fprintf(stderr, "one outlier moved the spread to %.3f\n", spread);
-        failures++;
-    }
+    check_msg(spread <= 0.15, "one outlier moved the spread to %.3f\n", spread);
 
     robust_center_spread(identical, 8, &centre, &spread);
     check_close("identical residuals centre", centre, 3.0, 0.0001);
@@ -149,11 +122,9 @@ static void test_standard_error(void) {
                 1e-9);
     check_close("sem with nothing measured",
                 calibration_standard_error(2.0, 0), 0.0, 1e-9);
-    if (!(calibration_standard_error(2.0, 64) <
-          calibration_standard_error(2.0, 16))) {
-        fprintf(stderr, "the standard error did not fall with more residuals\n");
-        failures++;
-    }
+    check_msg(calibration_standard_error(2.0, 64) <
+                  calibration_standard_error(2.0, 16),
+              "the standard error did not fall with more residuals\n");
 
     /* The case the gate is built around: per-block scatter far too wide to
        trust, whose centre is nevertheless known well enough after enough
@@ -206,14 +177,11 @@ static void test_sources_never_mix(void) {
     double from_either = fabs(centre - from_fcch) < fabs(centre - from_centroid)
                              ? fabs(centre - from_fcch)
                              : fabs(centre - from_centroid);
-    if (error > CALIBRATION_MAX_SEM_PPM || from_either < 1.0) {
-        fprintf(stderr,
-                "a mixed buffer no longer demonstrates the hazard "
-                "(centre %.2f, %.2f PPM from the nearer source, sem %.2f); "
-                "re-read ADR-0004 before relaxing the source reset\n",
-                centre, from_either, error);
-        failures++;
-    }
+    check_msg(error <= CALIBRATION_MAX_SEM_PPM && from_either >= 1.0,
+              "a mixed buffer no longer demonstrates the hazard "
+              "(centre %.2f, %.2f PPM from the nearer source, sem %.2f); "
+              "re-read ADR-0004 before relaxing the source reset\n",
+              centre, from_either, error);
 }
 
 /* A tone lock rides out the gaps between bursts rather than thrashing. */
@@ -235,10 +203,5 @@ int main(void) {
     test_sources_never_mix();
     test_tone_lock_holds_through_gaps();
 
-    if (failures) {
-        fprintf(stderr, "%d calibration gate check(s) failed\n", failures);
-        return 1;
-    }
-    puts("calibration gate checks passed");
-    return 0;
+    return check_report("calibration gate");
 }

@@ -1,3 +1,4 @@
+#include "check.h"
 #include "survey_window.h"
 
 #include <math.h>
@@ -15,34 +16,15 @@
  * by a person using the program, and both are arithmetic.
  */
 
-static int failures;
-
 static void check_span(const char *name, const struct survey_window *w,
                        double lower_mhz, double upper_mhz) {
     double lower = w->view_lower_hz / 1e6;
     double upper = w->view_upper_hz / 1e6;
 
-    if (fabs(lower - lower_mhz) > 0.001 || fabs(upper - upper_mhz) > 0.001) {
-        fprintf(stderr, "%s: got %.3f-%.3f MHz, expected %.3f-%.3f\n", name,
-                lower, upper, lower_mhz, upper_mhz);
-        failures++;
-    }
-}
-
-static void check_int(const char *name, long actual, long expected) {
-    if (actual != expected) {
-        fprintf(stderr, "%s: got %ld, expected %ld\n", name, actual, expected);
-        failures++;
-    }
-}
-
-static void check_close(const char *name, double actual, double expected,
-                        double tolerance) {
-    if (!isfinite(actual) || fabs(actual - expected) > tolerance) {
-        fprintf(stderr, "%s: got %.6f, expected %.6f (+/- %.6f)\n", name,
-                actual, expected, tolerance);
-        failures++;
-    }
+    check_msg(fabs(lower - lower_mhz) <= 0.001 &&
+                  fabs(upper - upper_mhz) <= 0.001,
+              "%s: got %.3f-%.3f MHz, expected %.3f-%.3f\n", name, lower, upper,
+              lower_mhz, upper_mhz);
 }
 
 #define MIN_SPAN 100000.0
@@ -63,11 +45,10 @@ static void test_window_before_any_sweep(void) {
     check_int("an unset window has no extent",
               w.view_upper_hz > w.view_lower_hz, 0);
     survey_window_zoom(&w, 1.0 / ZOOM_STEP, 0.0, 0, MIN_SPAN);
-    if (!(w.view_upper_hz > w.view_lower_hz)) {
-        fprintf(stderr, "zooming an unset window left it unset\n");
-        failures++;
+    check_msg(w.view_upper_hz > w.view_lower_hz,
+              "zooming an unset window left it unset\n");
+    if (w.view_upper_hz <= w.view_lower_hz)
         return;
-    }
     /* One step in from the full 1742 MHz, about the middle. */
     check_close("zoomed span", (w.view_upper_hz - w.view_lower_hz) / 1e6,
                 1742.0 / ZOOM_STEP, 0.01);
@@ -106,11 +87,10 @@ static void test_zoom_anchored_on_a_candidate(void) {
 
     for (int i = 0; i < 12; i++) {
         survey_window_zoom(&w, 1.0 / ZOOM_STEP, candidate, 1, MIN_SPAN);
-        if (candidate < w.view_lower_hz || candidate > w.view_upper_hz) {
-            fprintf(stderr, "anchor left the window after %d steps\n", i + 1);
-            failures++;
+        check_msg(candidate >= w.view_lower_hz && candidate <= w.view_upper_hz,
+                  "anchor left the window after %d steps\n", i + 1);
+        if (candidate < w.view_lower_hz || candidate > w.view_upper_hz)
             return;
-        }
     }
     check_close("zoomed onto the anchor",
                 (w.view_upper_hz + w.view_lower_hz) / 2e6, 1090.0, 1.0);
@@ -204,8 +184,9 @@ static void test_bins_and_visibility(void) {
 static void test_window_stays_legal(void) {
     struct survey_window w = full_range();
     unsigned seed = 12345;
+    int broke_at = -1;
 
-    for (int step = 0; step < 4000; step++) {
+    for (int step = 0; step < 4000 && broke_at < 0; step++) {
         seed = seed * 1103515245u + 12345u;
         switch ((seed >> 16) % 4) {
         case 0:
@@ -223,13 +204,15 @@ static void test_window_stays_legal(void) {
         }
         if (w.view_lower_hz < w.data_lower_hz - 0.5 ||
             w.view_upper_hz > w.data_upper_hz + 0.5 ||
-            w.view_upper_hz - w.view_lower_hz < MIN_SPAN - 0.5) {
-            fprintf(stderr, "step %d left the window at %.3f-%.3f MHz\n", step,
-                    w.view_lower_hz / 1e6, w.view_upper_hz / 1e6);
-            failures++;
-            return;
-        }
+            w.view_upper_hz - w.view_lower_hz < MIN_SPAN - 0.5)
+            broke_at = step;
     }
+    /* One property, not four thousand assertions: the walk is the evidence,
+       and the step it broke at is what a reader needs. */
+    check_msg(broke_at < 0,
+              "4000 random zoom/pan steps: step %d left the window at "
+              "%.3f-%.3f MHz\n",
+              broke_at, w.view_lower_hz / 1e6, w.view_upper_hz / 1e6);
 }
 
 int main(void) {
@@ -241,10 +224,5 @@ int main(void) {
     test_bins_and_visibility();
     test_window_stays_legal();
 
-    if (failures) {
-        fprintf(stderr, "%d survey window check(s) failed\n", failures);
-        return 1;
-    }
-    puts("survey window checks passed");
-    return 0;
+    return check_report("survey window");
 }

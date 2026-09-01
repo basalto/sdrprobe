@@ -1,36 +1,10 @@
 #include "adsb_dsp.h"
+#include "check.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-static int failures;
-
-static void check_int(const char *name, long actual, long expected) {
-    if (actual != expected) {
-        fprintf(stderr, "%s: got %ld, expected %ld\n", name, actual, expected);
-        failures++;
-    }
-}
-
-static void check_close(const char *name, double actual, double expected,
-                        double tolerance) {
-    if (!isfinite(actual) || fabs(actual - expected) > tolerance) {
-        fprintf(stderr, "%s: got %.6f, expected %.6f (+/- %.6f)\n", name, actual,
-                expected, tolerance);
-        failures++;
-    }
-}
-
-static void check_str(const char *name, const char *actual,
-                      const char *expected) {
-    if (strcmp(actual, expected) != 0) {
-        fprintf(stderr, "%s: got \"%s\", expected \"%s\"\n", name, actual,
-                expected);
-        failures++;
-    }
-}
 
 /* Parse a hex string like "8D4840D6..." into bytes; returns byte count. */
 static int parse_hex(const char *hex, uint8_t *out, int capacity) {
@@ -103,10 +77,8 @@ static void test_crc_rejects_corruption(void) {
     uint8_t bytes[ADSB_LONG_BYTES];
     int n = parse_hex("8D4840D6202CC371C32CE0576098", bytes, ADSB_LONG_BYTES);
     bytes[5] ^= 0x01; /* flip one bit */
-    if (adsb_crc(bytes, n) == 0) {
-        fprintf(stderr, "corrupted frame: CRC unexpectedly zero\n");
-        failures++;
-    }
+    check_msg(adsb_crc(bytes, n) != 0,
+              "corrupted frame: CRC unexpectedly zero\n");
     struct adsb_message msg;
     check_int("corrupted frame dropped", adsb_decode_frame(bytes, n, &msg), 0);
 }
@@ -139,11 +111,9 @@ static float *build_wave(const uint8_t *frame) {
         mag[k] = wave_low;
     size_t written = adsb_modulate_frame(frame, ADSB_LONG_BYTES, wave_high,
                                          wave_low, mag, WAVE_LEAD, WAVE_TOTAL);
-    if (written != ADSB_PREAMBLE_SAMPLES +
-                   ADSB_LONG_BITS * ADSB_SAMPLES_PER_BIT) {
-        fprintf(stderr, "modulator wrote %zu samples\n", written);
-        failures++;
-    }
+    check_msg(written ==
+                  ADSB_PREAMBLE_SAMPLES + ADSB_LONG_BITS * ADSB_SAMPLES_PER_BIT,
+              "modulator wrote %zu samples\n", written);
     return mag;
 }
 
@@ -167,8 +137,7 @@ static void test_demod_from_magnitude(void) {
     size_t count = adsb_demod(&dec, mag, WAVE_TOTAL, 0.0, out, 4, NULL,
                               &stats);
     if (count < 1) {
-        fprintf(stderr, "demod recovered no frames\n");
-        failures++;
+        check_msg(0, "demod recovered no frames\n");
     } else {
         check_int("demod ICAO", (long)out[0].icao, 0x4840D6);
         check_str("demod callsign", out[0].callsign, "KLM1023");
@@ -176,10 +145,7 @@ static void test_demod_from_magnitude(void) {
     check_int("stats attempts", (long)stats.attempts, 1);
     check_int("stats crc failures", (long)stats.crc_failed, 0);
     check_int("stats decoded", (long)stats.decoded, 1);
-    if (stats.preambles < 1) {
-        fprintf(stderr, "stats counted no preambles\n");
-        failures++;
-    }
+    check_msg(stats.preambles >= 1, "stats counted no preambles\n");
     free(mag);
 }
 
@@ -209,23 +175,19 @@ static void test_trace_landscape(void) {
 
     float peak = trace.landscape[trace.landscape_center];
     for (int i = 0; i < ADSB_TRACE_LANDSCAPE; i++) {
-        if (trace.landscape[i] > peak) {
-            fprintf(stderr,
-                    "landscape peak is at %d (%.2f), not the centre (%.2f)\n",
-                    i, trace.landscape[i], peak);
-            failures++;
+        check_msg(trace.landscape[i] <= peak,
+                  "landscape peak is at %d (%.2f), not the centre (%.2f)\n", i,
+                  trace.landscape[i], peak);
+        if (trace.landscape[i] > peak)
             break;
-        }
     }
     float sorted[ADSB_TRACE_LANDSCAPE];
     memcpy(sorted, trace.landscape, sizeof(sorted));
     qsort(sorted, ADSB_TRACE_LANDSCAPE, sizeof(*sorted), compare_float);
     float median = sorted[ADSB_TRACE_LANDSCAPE / 2];
-    if (peak < 2.0f * median) {
-        fprintf(stderr, "landscape peak %.2f does not clear 2x median %.2f\n",
-                peak, median);
-        failures++;
-    }
+    check_msg(peak >= 2.0f * median,
+              "landscape peak %.2f does not clear 2x median %.2f\n", peak,
+              median);
     free(mag);
 }
 
@@ -288,10 +250,7 @@ static void test_trace_confidence(void) {
     for (int bit = 0; bit < trace.bit_count; bit++)
         if (trace.confidence[bit] < lowest)
             lowest = trace.confidence[bit];
-    if (lowest < 0.8f) {
-        fprintf(stderr, "clean frame confidence dips to %.3f\n", lowest);
-        failures++;
-    }
+    check_msg(lowest >= 0.8f, "clean frame confidence dips to %.3f\n", lowest);
     free(clean);
 
     /* Raise the low half of every data bit to 0.85 of the high one. The hard
@@ -314,18 +273,15 @@ static void test_trace_confidence(void) {
     for (int bit = 0; bit < trace.bit_count; bit++)
         if (trace.confidence[bit] > highest)
             highest = trace.confidence[bit];
-    if (highest > 0.2f) {
-        fprintf(stderr, "marginal frame confidence reaches %.3f\n", highest);
-        failures++;
-    }
+    check_msg(highest <= 0.2f, "marginal frame confidence reaches %.3f\n",
+              highest);
     /* The sign still says which way each decision went. */
     for (int bit = 0; bit < trace.bit_count; bit++) {
         int expected = (frame[bit >> 3] >> (7 - (bit & 7))) & 1;
-        if ((trace.margin[bit] > 0.0f) != (expected != 0)) {
-            fprintf(stderr, "margin sign disagrees with bit %d\n", bit);
-            failures++;
+        check_msg((trace.margin[bit] > 0.0f) == (expected != 0),
+                  "margin sign disagrees with bit %d\n", bit);
+        if ((trace.margin[bit] > 0.0f) != (expected != 0))
             break;
-        }
     }
     free(marginal);
 }
@@ -354,10 +310,7 @@ static void test_trace_latches_failure(void) {
     check_int("failed frame DF", trace.downlink_format, 17);
     check_int("failed frame has no address", (long)trace.icao, 0);
     check_int("stats decoded none", (long)stats.decoded, 0);
-    if (stats.crc_failed < 1) {
-        fprintf(stderr, "stats did not count the CRC failure\n");
-        failures++;
-    }
+    check_msg(stats.crc_failed >= 1, "stats did not count the CRC failure\n");
     free(mag);
 }
 
@@ -371,11 +324,9 @@ static void test_preamble_score(void) {
     float at_frame = adsb_preamble_score(mag, WAVE_LEAD, WAVE_TOTAL);
     float at_noise = adsb_preamble_score(mag, 0, WAVE_TOTAL);
     check_close("score on a flat floor", at_noise, 1.0, 0.01);
-    if (at_frame < 10.0f * at_noise) {
-        fprintf(stderr, "preamble score %.2f barely clears noise %.2f\n",
-                at_frame, at_noise);
-        failures++;
-    }
+    check_msg(at_frame >= 10.0f * at_noise,
+              "preamble score %.2f barely clears noise %.2f\n", at_frame,
+              at_noise);
     check_close("score past the buffer",
                 adsb_preamble_score(mag, WAVE_TOTAL - 4, WAVE_TOTAL), 0.0,
                 1e-9);
@@ -395,10 +346,5 @@ int main(void) {
     test_trace_confidence();
     test_trace_latches_failure();
 
-    if (failures) {
-        fprintf(stderr, "%d adsb_dsp check(s) failed\n", failures);
-        return 1;
-    }
-    puts("adsb_dsp checks passed");
-    return 0;
+    return check_report("Mode S / ADS-B plugin");
 }
