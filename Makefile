@@ -108,6 +108,18 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 		$(TESTS)/calibration_gate_test.c -lm
 	$(Q)./$(BUILD)/calibration_gate_test
 
+# The handoff between the acquisition thread and the renderer: the
+# overwriteable slot (ADR-0002), the lossless mode scripted playback needs, and
+# the file worker driven against a real capture. Links librtlsdr for the device
+# type only -- it never opens one.
+check-acquisition: $(TESTS)/acquisition_test.c $(TESTS)/check.h \
+		$(SRC)/acquisition.c $(SRC)/acquisition.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -pthread -o $(BUILD)/acquisition_test \
+		$(TESTS)/acquisition_test.c $(SRC)/acquisition.c \
+		$(shell pkg-config --libs librtlsdr) -lm -pthread
+	$(Q)./$(BUILD)/acquisition_test
+
 # The sweep itself: the step plan, the fold, and what measuring a candidate
 # adds up to. None of it is visible when it is wrong -- a gap between steps
 # hides whatever transmits in it and the chart looks right -- so the arithmetic
@@ -139,7 +151,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
 CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
 	check-options check-survey check-survey-sweep check-calibration \
-	check-layout
+	check-layout check-acquisition
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -187,4 +199,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean

@@ -196,10 +196,12 @@ int acquisition_start_recording(struct acquisition *acq, const char *path,
 int acquisition_recording_status(struct acquisition *acq, uint64_t *bytes,
                                  char *path, size_t path_size);
 
-/* Lifecycle for the recording mutex; the block slot's own mutex is set up
-   by the caller alongside the worker. */
+/* Lifecycle: the recording mutex, the block slot's mutex, and the condition a
+   lossless publisher waits on. Call init before anything else here, and
+   destroy after the worker has been joined -- it returns the first error it
+   met, or 0. */
 int acquisition_init(struct acquisition *acq);
-void acquisition_destroy(struct acquisition *acq);
+int acquisition_destroy(struct acquisition *acq);
 void acquisition_stop_recording(struct acquisition *acq);
 
 #endif

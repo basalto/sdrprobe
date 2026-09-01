@@ -1272,13 +1272,12 @@ int main(int argc, char **argv) {
     }
 
     /* Before any path that can reach cleanup, which touches this. */
-    int record_mutex_result = acquisition_init(&app->acq);
-    if (record_mutex_result != 0) {
-        fprintf(stderr, "Cannot create recording mutex: %s\n",
-                strerror(record_mutex_result));
+    int acq_result = acquisition_init(&app->acq);
+    if (acq_result != 0) {
+        fprintf(stderr, "Cannot set up acquisition: %s\n",
+                strerror(acq_result));
         goto cleanup;
     }
-    app->record_mutex_ready = 1;
 
     if (app->receiver_mode) {
         if (configure_receiver(app) < 0)
@@ -1288,20 +1287,6 @@ int main(int argc, char **argv) {
             goto cleanup;
     }
 
-    int mutex_result = pthread_mutex_init(&app->acq.latest.mutex, NULL);
-    if (mutex_result != 0) {
-        fprintf(stderr, "Cannot initialize acquisition mutex: %s\n",
-                strerror(mutex_result));
-        goto cleanup;
-    }
-    int cond_result = pthread_cond_init(&app->acq.latest.drained, NULL);
-    if (cond_result != 0) {
-        fprintf(stderr, "Cannot initialize acquisition condition: %s\n",
-                strerror(cond_result));
-        pthread_mutex_destroy(&app->acq.latest.mutex);
-        goto cleanup;
-    }
-    app->acq.mutex_ready = 1;
     if (install_signal_handlers(app) < 0)
         goto cleanup;
 
@@ -1352,21 +1337,6 @@ cleanup:
         app->acq.worker_started = 0;
     }
 
-    if (app->acq.mutex_ready) {
-        int destroy_result = pthread_mutex_destroy(&app->acq.latest.mutex);
-        if (destroy_result != 0) {
-            fprintf(stderr, "Cannot destroy acquisition mutex: %s\n",
-                    strerror(destroy_result));
-            result = 1;
-        }
-        destroy_result = pthread_cond_destroy(&app->acq.latest.drained);
-        if (destroy_result != 0) {
-            fprintf(stderr, "Cannot destroy acquisition condition: %s\n",
-                    strerror(destroy_result));
-            result = 1;
-        }
-        app->acq.mutex_ready = 0;
-    }
     if (app->capture) {
         if (fclose(app->capture) != 0) {
             fprintf(stderr, "Cannot close capture: %s\n", strerror(errno));
@@ -1374,9 +1344,11 @@ cleanup:
         }
         app->capture = NULL;
     }
-    if (app->record_mutex_ready) {
-        acquisition_destroy(&app->acq);
-        app->record_mutex_ready = 0;
+    int destroy_result = acquisition_destroy(&app->acq);
+    if (destroy_result != 0) {
+        fprintf(stderr, "Cannot tear down acquisition: %s\n",
+                strerror(destroy_result));
+        result = 1;
     }
     if (app->dev) {
         int close_result = rtlsdr_close(app->dev);
