@@ -320,7 +320,10 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   the physical-layer constants in `gsm_dsp.h`. Fed by `gsm_normal_bursts()`,
   which does the coherent detection and equalisation a GMSK burst needs; on
   `testfiles/gsm_arfcn_69.bin` the pair report MCC 268 MNC 03, LAC 4010 and
-  Cell Identity 5131.
+  Cell Identity 5131. The GSM view shows the same thing on the line under the
+  SCH readout, in a different colour: the SCH line is what was measured, the
+  BCCH line is what the cell says, and the two should not be read as the same
+  kind of claim.
 - `tests/options_test.c`, `tests/calibration_gate_test.c`,
   `tests/survey_window_test.c`, `tests/layout_test.c`,
   `tests/band_plan_test.c` — the rest of the unit layer, one file per module.

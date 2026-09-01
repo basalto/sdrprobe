@@ -70,6 +70,7 @@ void gsm_tune_selected(struct app *app, int arfcn) {
     app->gsm.selected_hz = (double)expected;
     app->gsm.sch_valid = 0;
     gsm_continuity_reset(&app->gsm.continuity);
+    memset(&app->gsm.cell, 0, sizeof(app->gsm.cell)); /* a different cell */
     if (app->receiver_mode) {
         if (!app->gsm.return_valid) {
             app->gsm.return_frequency = app->applied_frequency;
@@ -81,6 +82,57 @@ void gsm_tune_selected(struct app *app, int arfcn) {
 
 /* Note an SCH decode that cannot be right: T1 advances once per 1326 frames,
    so consecutive decodes seconds apart must agree to within 1. Flags only. */
+/*
+ * What the cell is saying, when this SCH is the one a broadcast block follows.
+ *
+ * The BCCH occupies frames 2 to 5 of the 51-multiframe, so only the SCH at
+ * frame 1 has one behind it -- one in five. The other four are followed by
+ * paging and access grants, which this does not read.
+ */
+int gsm_read_broadcast(struct app *app, const struct gsm_sch_result *sch,
+                       struct gsm_si *si) {
+    float soft[GSM_BCCH_BURSTS * GSM_BURST_DATA_BITS];
+    float bursts[GSM_BCCH_BURSTS][GSM_BURST_DATA_BITS];
+    float coded[GSM_BCCH_CODED_BITS];
+    struct gsm_bcch_block block;
+
+    if (sch->frame_number % 51 != 1)
+        return 0;
+    memset(soft, 0, sizeof(soft));
+    if (gsm_normal_bursts(app->i_samples, app->q_samples, app->pair_count,
+                          (double)app->applied_sample_rate, sch,
+                          GSM_BCCH_BURSTS, soft) < GSM_BCCH_BURSTS)
+        return 0; /* the block ran past the end of this sample block */
+    for (int b = 0; b < GSM_BCCH_BURSTS; b++)
+        memcpy(bursts[b], &soft[b * GSM_BURST_DATA_BITS], sizeof(bursts[b]));
+    gsm_bcch_deinterleave((const float (*)[GSM_BURST_DATA_BITS])bursts, coded);
+    if (!gsm_bcch_decode_block(coded, &block))
+        return 0; /* the Fire code refused it, so it is not a message */
+    return gsm_si_parse(block.octets, si);
+}
+
+/* Fold one message into what the cell has said so far. */
+static void gsm_cell_remember(struct gsm_cell *cell, const struct gsm_si *si) {
+    cell->blocks++;
+    cell->last_type = si->type;
+    if (si->have_lai) {
+        cell->have_lai = 1;
+        cell->mcc = si->mcc;
+        cell->mnc = si->mnc;
+        cell->mnc_digits = si->mnc_digits;
+        cell->lac = si->lac;
+    }
+    if (si->have_cell_id) {
+        cell->have_cell_id = 1;
+        cell->cell_id = si->cell_id;
+    }
+    if (si->neighbour_count > 0) {
+        cell->neighbour_count = si->neighbour_count;
+        memcpy(cell->neighbours, si->neighbours,
+               (size_t)si->neighbour_count * sizeof(*si->neighbours));
+    }
+}
+
 /* Attempt an SCH decode on the inspected channel's latest block. The channel
    carrier sits at +400 kHz (we tuned to expected - 400 kHz). */
 void update_gsm_sch(struct app *app, double now) {
@@ -104,6 +156,13 @@ void update_gsm_sch(struct app *app, double now) {
         app->gsm.sch_time = now;
         gsm_continuity_observe(&app->gsm.continuity, result.t1, result.bsic,
                                now);
+
+        {
+            struct gsm_si si;
+
+            if (gsm_read_broadcast(app, &result, &si))
+                gsm_cell_remember(&app->gsm.cell, &si);
+        }
     }
 }
 
@@ -215,16 +274,61 @@ void draw_gsm(struct app *app) {
                      sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
                      sch->t2, sch->t3, (double)sch->confidence,
                      app->gsm.continuity.implausible ? "  [T1 JUMPED]" : "");
-            DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42, 18,
-                     (Color){ 120, 230, 255, 255 });
+            DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64,
+                     18, (Color){ 120, 230, 255, 255 });
+
+            /*
+             * And what the cell says about itself, one line under it. The SCH
+             * line above is measurement -- an identity code and a clock. This
+             * one is the cell talking, so it is worded as such and coloured
+             * apart.
+             */
+            const struct gsm_cell *cell = &app->gsm.cell;
+
+            if (cell->blocks > 0) {
+                int used = snprintf(text, sizeof(text), "BCCH  ");
+
+                if (cell->have_lai)
+                    used += snprintf(text + used, sizeof(text) - (size_t)used,
+                                     "MCC %d  MNC %0*d  LAC %d   ", cell->mcc,
+                                     cell->mnc_digits, cell->mnc, cell->lac);
+                if (cell->have_cell_id)
+                    used += snprintf(text + used, sizeof(text) - (size_t)used,
+                                     "cell %d   ", cell->cell_id);
+                if (cell->neighbour_count > 0) {
+                    used += snprintf(text + used, sizeof(text) - (size_t)used,
+                                     "neighbours");
+                    for (int i = 0; i < cell->neighbour_count &&
+                                    used < (int)sizeof(text) - 8; i++)
+                        used += snprintf(text + used,
+                                         sizeof(text) - (size_t)used, " %d",
+                                         cell->neighbours[i]);
+                }
+                sdrgui_text_fit(text, (int)gsm_scan_rect().x,
+                                (int)gsm_scan_rect().y - 42, 17,
+                                gsm_constellation_rect().x +
+                                    gsm_constellation_rect().width -
+                                    gsm_scan_rect().x,
+                                (Color){ 153, 235, 178, 255 });
+            } else if (app->gsm.sch.frame_number % 51 == 1) {
+                DrawText("BCCH  a broadcast block is due here, and did not "
+                         "survive",
+                         (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42,
+                         17, (Color){ 126, 151, 166, 255 });
+            } else {
+                DrawText("BCCH  waiting for the multiframe to come round",
+                         (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42,
+                         17, (Color){ 126, 151, 166, 255 });
+            }
         } else if (rec_active) {
             snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
                      rec_path, rec_bytes / 1e6);
-            DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42, 18,
-                     (Color){ 255, 202, 105, 255 });
+            DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64,
+                     18, (Color){ 255, 202, 105, 255 });
         } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
-            DrawText("SCH   searching for a synchronisation burst...", (int)gsm_scan_rect().x,
-                     (int)gsm_scan_rect().y - 42, 18, (Color){ 151, 174, 188, 255 });
+            DrawText("SCH   searching for a synchronisation burst...",
+                     (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64, 18,
+                     (Color){ 151, 174, 188, 255 });
         }
 
         if (app->gsm_analysis_mode) {
