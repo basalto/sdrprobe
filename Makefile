@@ -24,7 +24,7 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
-	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/app.h $(SRC)/view.h
+	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
@@ -109,6 +109,14 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 		$(TESTS)/calibration_gate_test.c -lm
 	$(Q)./$(BUILD)/calibration_gate_test
 
+# Which control a key press reaches: the frame loop's precedence chain, as a
+# function of flags rather than a chain of IsKeyPressed calls.
+check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/input_route_test \
+		$(TESTS)/input_route_test.c -lm
+	$(Q)./$(BUILD)/input_route_test
+
 # Chart geometry: where the plot sits inside a chart, and which bar the
 # pointer is over. Needs raylib's headers for Rectangle but not the library.
 check-geometry: $(TESTS)/sdrgui_geometry_test.c $(TESTS)/check.h \
@@ -122,7 +130,7 @@ check-geometry: $(TESTS)/sdrgui_geometry_test.c $(TESTS)/check.h \
 # Whether consecutive SCH decodes hang together: the hyperframe wrap, the
 # elapsed time a frame number is judged against, and a BSIC that changes.
 check-gsm-continuity: $(TESTS)/gsm_continuity_test.c $(TESTS)/check.h \
-		$(SRC)/gsm_continuity.h
+		$(SRC)/gsm_continuity.h $(SRC)/input_route.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_continuity_test \
 		$(TESTS)/gsm_continuity_test.c -lm
@@ -131,7 +139,7 @@ check-gsm-continuity: $(TESTS)/gsm_continuity_test.c $(TESTS)/check.h \
 # What the ADS-B view decides: whether Mode S could be there, which frame the
 # analysis charts describe, the message log, and the funnel counters.
 check-adsb-analysis: $(TESTS)/adsb_analysis_test.c $(TESTS)/check.h \
-		$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/adsb_dsp.h
+		$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/adsb_dsp.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_analysis_test \
 		$(TESTS)/adsb_analysis_test.c -lm
@@ -189,7 +197,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
 	check-options check-survey check-survey-sweep check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
-	check-gsm-continuity check-geometry
+	check-gsm-continuity check-geometry check-input
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -237,4 +245,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
