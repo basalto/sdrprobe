@@ -60,15 +60,10 @@ struct scatter_block {
     size_t count;
     double time;
 };
-/* The SCH decode is reported as it comes off the burst. The only running
-   memory kept is the previous T1, to notice a decode that cannot be right:
-   T1 advances once per 1326 frames (~6.1 s), so consecutive decodes seconds
-   apart must agree to within 1. This flags, it never substitutes. */
-struct gsm_sch_continuity {
-    int have_last;
-    int last_t1;
-    int implausible;
-};
+/* The SCH decode is reported as it comes off the burst; the running memory
+   kept to notice a decode that cannot be right is in gsm_continuity.h, where
+   it can be checked. It flags, it never substitutes. */
+#include "gsm_continuity.h"
 
 /* Calibration-health indicator states. UNKNOWN must be 0 (zero-initialised). */
 enum cal_health {
