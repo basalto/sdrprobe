@@ -232,10 +232,16 @@ Its shape:
   (`"provenance": "recorded by sdrprobe"`, 29.7 dB, R820T); it must keep
   decoding 6 frames with 1 global CPR position resolved, which is what makes it
   worth keeping — it is the only capture that exercises the even/odd pairing
-  cache end to end. `adsb_modes1.bin` is denser but its provenance is unknown. The two GSM captures must
+  cache end to end. `adsb_modes1.bin` is denser but its provenance is unknown. The three GSM captures must
   keep decoding their own BSIC in `check-gsm-dsp` — 59 (NCC 7 / BCC 3) for
-  `gsm_arfcn_69.bin`, 56 (NCC 7 / BCC 0) for `gsm_arfcn_73.bin` — with frame
-  numbers that increase and track the burst timeline. Those real-signal
+  `gsm_arfcn_69.bin`, 56 (NCC 7 / BCC 0) for `gsm_arfcn_73.bin`, 38 (NCC 4 /
+  BCC 6) for `gsm_arfcn_113.bin` — with frame
+  numbers that increase and track the burst timeline. The three BCCs are the
+  point of having three: the BCC picks the training sequence every normal
+  burst is found by, so hardcoding one passes ARFCN 69 and fails 113.
+  `gsm_arfcn_113.bin` is the only one whose cell is still on air — 69 and 73
+  went off the air with the operator's refarming, so they are historical and
+  cannot be re-recorded. Those real-signal
   invariants are the only checks a wrong SCH field layout cannot satisfy: the
   synthetic round trip passes against any layout the encoder shares.
 

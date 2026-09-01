@@ -161,6 +161,20 @@ else
     report "run twice" "identical messages"
 fi
 
+# A second cell, recorded a year after the first two and from a different
+# operator. Its BCC is 6 where ARFCN 69's is 3, so the bursts are found by a
+# different training sequence -- which is what says the demodulator generalises
+# rather than fitting the one cell it was written against.
+checked
+other=$(run --file testfiles/gsm_arfcn_113.bin --headless --arfcn 113 --decode \
+            --once | grep "^BCCH ")
+if ! printf '%s\n' "$other" | grep -q "MCC 268 MNC 06 .*LAC 8420  CI 16134"; then
+    fail "ARFCN 113 did not report MCC 268 MNC 06, LAC 8420, Cell 16134"
+else
+    report "gsm_arfcn_113.bin" \
+        "$(printf '%s\n' "$other" | grep -c "^BCCH ") blocks, MNC 06, CI 16134"
+fi
+
 # --- The survey, read by a program rather than clicked at -----------------
 #
 # The survey was the one view with no way in from a script: an agent could

@@ -1,0 +1,17 @@
+{
+  "provenance": "recorded by sdrprobe",
+  "format": "unsigned 8-bit interleaved I/Q, 127.5 = zero",
+  "technology": "gsm",
+  "center_frequency_hz": 957200000,
+  "sample_rate_hz": 2000000,
+  "gain_db": 29.7,
+  "ppm": 0,
+  "gsm_arfcn": 113,
+  "carrier_offset_hz": 400000,
+  "source": "RTL-SDR: Generic RTL2832U",
+  "tuner": "R820T",
+  "started_at": "2026-09-01T23:16:36",
+  "duration_seconds": 2.032,
+  "bytes": 8126464,
+  "short_blocks": 0
+}

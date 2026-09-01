@@ -352,6 +352,14 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   ARFCN 73 (949.6 MHz, same − 400 kHz tuning), BSIC 56 (NCC 7 / BCC 0). Two
   independent cells matter here: the SCH field layout was derived from ARFCN 69,
   so ARFCN 73 is what checks it generalises rather than fitting one signal.
+- `testfiles/gsm_arfcn_113.bin` — 2 s of ARFCN 113 (957.6 MHz), BSIC 38
+  (NCC 4 / BCC 6), a different operator: MCC 268 MNC 06, LAC 8420, Cell 16134.
+  It is here for the BCC. The other two are BCC 3 and BCC 0, and the BCC picks
+  which of the eight training sequences a normal burst is found by, so this is
+  the capture that says the burst demodulator works for more than the sequence
+  it was written against — hardcoding sequence 3 passes ARFCN 69 and fails
+  this. It is also the only GSM capture whose cell is still transmitting: 69
+  and 73 are off the air, so those two cannot be re-recorded.
 - `docs/ARCHITECTURE.md` — how this program is put together: the layers, what
   each may know, where state lives, and how changes are verified.
 - `docs/dump1090-reference.md` — deep dive on dump1090 (threads, buffer
