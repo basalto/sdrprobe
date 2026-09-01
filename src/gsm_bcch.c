@@ -7,20 +7,6 @@
  * this file is each of them in turn, in that order.
  */
 
-/* GSM 05.02 5.2.3, table 5.2.3.1: the eight normal-burst training sequences.
-   The BCC -- the low three bits of the BSIC the SCH decodes -- says which one
-   a cell uses, so finding these bursts depends on the SCH having succeeded. */
-const uint8_t gsm_training_sequences[GSM_TSC_COUNT][GSM_TSC_BITS] = {
-    { 0,0,1,0,0,1,0,1,1,1,0,0,0,0,1,0,0,0,1,0,0,1,0,1,1,1 },
-    { 0,0,1,0,1,1,0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,0,1,1,1 },
-    { 0,1,0,0,0,0,1,1,1,0,1,1,1,0,1,0,0,1,0,0,0,0,1,1,1,0 },
-    { 0,1,0,0,0,1,1,1,1,0,1,1,0,1,0,0,0,1,0,0,0,1,1,1,1,0 },
-    { 0,0,0,1,1,0,1,0,1,1,1,0,0,1,0,0,0,0,0,1,1,0,1,0,1,1 },
-    { 0,1,0,0,1,1,1,0,1,0,1,1,0,0,0,0,0,1,0,0,1,1,1,0,1,0 },
-    { 1,0,1,0,0,1,1,1,1,1,0,1,1,0,0,0,1,0,1,0,0,1,1,1,1,1 },
-    { 1,1,1,0,1,1,1,1,0,0,0,1,0,0,1,0,1,1,1,0,1,1,1,1,0,0 }
-};
-
 /* ---- interleaving (GSM 05.03 4.1.4) ------------------------------------ */
 
 /*
@@ -69,8 +55,19 @@ void gsm_bcch_interleave(const uint8_t coded[GSM_BCCH_CODED_BITS],
  * without a second opinion: the chance of noise producing a block that passes
  * is 2^-40.
  */
-#define FIRE_TAPS_HIGH 0x0000u /* bits 63..40 of the polynomial: none */
-#define FIRE_TAPS_LOW 0x0000000004840009ull /* D^26 + D^23 + D^17 + D^3 + 1 */
+#define FIRE_TAPS 0x0000000004820009ull /* D^26 + D^23 + D^17 + D^3 + 1 */
+
+/*
+ * And the parity is inverted before it is sent, so a good codeword leaves the
+ * register full of ones rather than empty -- the same trick GSM plays on the
+ * SCH's parity, and the reason gsm_dsp.c's sch_parity() ends with an XOR too.
+ *
+ * This was not read out of the specification. A capture decoded the same 23
+ * octets three times over, four hundred frames apart, and every block in it
+ * left this remainder: forty ones, every time. Bits that repeat exactly are
+ * not noise, so the bits were right and the check was wrong.
+ */
+#define FIRE_SYNDROME 0xFFFFFFFFFFull
 
 static uint64_t fire_remainder(const uint8_t *bits, int count) {
     uint64_t reg = 0;
@@ -80,7 +77,7 @@ static uint64_t fire_remainder(const uint8_t *bits, int count) {
         reg = (reg << 1) & 0xFFFFFFFFFFull; /* 40 bits */
         reg ^= (uint64_t)(bits[i] & 1u);
         if (out)
-            reg ^= FIRE_TAPS_LOW;
+            reg ^= FIRE_TAPS;
     }
     return reg;
 }
@@ -94,13 +91,15 @@ void gsm_bcch_fire_parity(const uint8_t info[GSM_BCCH_INFO_BITS],
     memset(padded + GSM_BCCH_INFO_BITS, 0, GSM_BCCH_PARITY_BITS);
     reg = fire_remainder(padded, GSM_BCCH_INFO_BITS + GSM_BCCH_PARITY_BITS);
     for (int j = 0; j < GSM_BCCH_PARITY_BITS; j++)
-        parity[j] = (uint8_t)((reg >> (GSM_BCCH_PARITY_BITS - 1 - j)) & 1ull);
+        parity[j] = (uint8_t)(((reg >> (GSM_BCCH_PARITY_BITS - 1 - j)) & 1ull) ^
+                              1ull);
 }
 
 int gsm_bcch_fire_check(const uint8_t codeword[GSM_BCCH_INFO_BITS +
                                                GSM_BCCH_PARITY_BITS]) {
     return fire_remainder(codeword,
-                          GSM_BCCH_INFO_BITS + GSM_BCCH_PARITY_BITS) == 0ull;
+                          GSM_BCCH_INFO_BITS + GSM_BCCH_PARITY_BITS) ==
+           FIRE_SYNDROME;
 }
 
 /* ---- the convolutional code (the same one the SCH uses) ---------------- */
@@ -203,9 +202,15 @@ int gsm_bcch_decode_block(const float coded[GSM_BCCH_CODED_BITS],
     memset(out, 0, sizeof(*out));
     soft_viterbi(coded, u);
     out->parity_ok = gsm_bcch_fire_check(u);
+    /*
+     * Least significant bit first. GSM 04.06 numbers an octet's bits 1 to 8
+     * with bit 1 sent first, so the first bit off the air is the octet's low
+     * bit -- and the fill octet is the proof: packed this way the padding of a
+     * real block reads 0x2B, and the other way round it reads 0xD4.
+     */
     for (int i = 0; i < GSM_BCCH_INFO_BITS; i++)
         if (u[i])
-            out->octets[i / 8] |= (uint8_t)(0x80u >> (i % 8));
+            out->octets[i / 8] |= (uint8_t)(1u << (i % 8));
     return out->parity_ok;
 }
 
@@ -304,38 +309,40 @@ int gsm_si_parse(const uint8_t octets[GSM_BCCH_INFO_OCTETS],
     memset(out, 0, sizeof(*out));
 
     /*
-     * A BCCH block is a LAPDm frame: address, control, length indicator, then
-     * the RR message. The three header octets are skipped rather than checked
-     * in detail -- what matters here is the message underneath, and a block
-     * whose Fire code passed has already proved it is not noise.
+     * A BCCH block is a LAPDm frame in format Bbis, which is the short one:
+     * a length indicator and then the message, with no address or control
+     * octet. Broadcast has nobody to address and nothing to acknowledge, so
+     * those fields would say nothing.
      *
-     * Octet 3 is the protocol discriminator (6 = Radio Resources) with a
-     * transaction identifier above it; octet 4 is the message type.
+     * Octet 1 is the protocol discriminator (6 = Radio Resources) and octet 2
+     * the message type. The length indicator is not enforced -- a block whose
+     * Fire code passed has already proved it is not noise, and refusing a
+     * message over a length field would lose one for no gain.
      */
-    if ((octets[3] & 0x0F) != 0x06)
+    if ((octets[1] & 0x0F) != 0x06)
         return 0;
-    out->type = si_type_of(octets[4]);
+    out->type = si_type_of(octets[2]);
     if (out->type == GSM_SI_UNKNOWN)
         return 0;
 
     switch (out->type) {
     case GSM_SI_TYPE_1:
-        /* Cell Channel Description, 16 octets from octet 5. */
-        parse_frequency_bitmap(&octets[5], out);
+        /* Cell Channel Description, 16 octets from octet 3. */
+        parse_frequency_bitmap(&octets[3], out);
         break;
     case GSM_SI_TYPE_2:
-        /* Neighbour Cell Description, 16 octets from octet 5. */
-        parse_frequency_bitmap(&octets[5], out);
+        /* Neighbour Cell Description, 16 octets from octet 3. */
+        parse_frequency_bitmap(&octets[3], out);
         break;
     case GSM_SI_TYPE_3:
         /* Cell Identity, then the Location Area Identification. */
-        out->cell_id = (octets[5] << 8) | octets[6];
+        out->cell_id = (octets[3] << 8) | octets[4];
         out->have_cell_id = 1;
-        parse_lai(&octets[7], out);
+        parse_lai(&octets[5], out);
         break;
     case GSM_SI_TYPE_4:
         /* Location Area Identification, with no Cell Identity before it. */
-        parse_lai(&octets[5], out);
+        parse_lai(&octets[3], out);
         break;
     default:
         break;

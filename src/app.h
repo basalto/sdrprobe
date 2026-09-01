@@ -12,6 +12,7 @@
 #include "acquisition.h"
 #include "band_plan.h"
 #include "adsb_dsp.h"
+#include "gsm_bcch.h"
 #include "gsm_dsp.h"
 #include "options.h"
 #include "sdr_dsp.h"

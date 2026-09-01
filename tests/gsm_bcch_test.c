@@ -182,7 +182,7 @@ static void test_a_clean_block_decodes(void) {
     memset(expected, 0, sizeof(expected));
     for (int i = 0; i < GSM_BCCH_INFO_BITS; i++)
         if (info[i])
-            expected[i / 8] |= (uint8_t)(0x80u >> (i % 8));
+            expected[i / 8] |= (uint8_t)(1u << (i % 8));
     for (int i = 0; i < GSM_BCCH_INFO_OCTETS; i++)
         if (block.octets[i] != expected[i])
             wrong++;
@@ -264,14 +264,15 @@ static void test_parsing_system_information_3(void) {
     struct gsm_si si;
     /* LAPDm header, then RR (pd 6), then message type 0x1B = SI 3. */
     uint8_t message[GSM_BCCH_INFO_OCTETS] = {
-        0x49, 0x06, 0x1B,       /* LAPDm address, control, length */
+        0x49,                   /* LAPDm Bbis length indicator: 18 octets */
         0x06,                   /* protocol discriminator: Radio Resources */
         0x1B,                   /* message type: System Information 3 */
         0x12, 0x34,             /* Cell Identity 0x1234 */
         0x62, 0xF8, 0x10,       /* MCC 268, MNC 01 (0xF fills the third
                                    MNC digit, marking a two-digit MNC) */
         0x2B, 0x67,             /* Location Area Code 0x2B67 */
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00
     };
 
     check_int("it is a System Information message", gsm_si_parse(message, &si),
@@ -290,7 +291,7 @@ static void test_parsing_system_information_3(void) {
 
     /* The three-digit case, which the 0xF filler is what distinguishes: MNC
        001 is a different network from MNC 01. */
-    message[8] = 0x08; /* MCC digit 3 still 8; MNC digit 3 now 0, not 0xF */
+    message[6] = 0x08; /* MCC digit 3 still 8; MNC digit 3 now 0, not 0xF */
     check_int("still parses", gsm_si_parse(message, &si), 1);
     check_int("a three-digit MNC", si.mnc_digits, 3);
     check_int("which is 010", si.mnc, 10);
@@ -303,12 +304,12 @@ static void test_declining_what_it_does_not_know(void) {
     uint8_t message[GSM_BCCH_INFO_OCTETS];
 
     memset(message, 0, sizeof(message));
-    message[3] = 0x06;
-    message[4] = 0x21; /* Paging Request Type 1, not System Information */
+    message[1] = 0x06;
+    message[2] = 0x21; /* Paging Request Type 1, not System Information */
     check_int("a paging request is declined", gsm_si_parse(message, &si), 0);
 
-    message[3] = 0x05; /* Mobility Management, not Radio Resources */
-    message[4] = 0x1B;
+    message[1] = 0x05; /* Mobility Management, not Radio Resources */
+    message[2] = 0x1B;
     check_int("another protocol is declined", gsm_si_parse(message, &si), 0);
 
     check_int("and so is nothing at all", gsm_si_parse(NULL, &si), 0);
@@ -322,8 +323,8 @@ static void test_parsing_a_frequency_list(void) {
     int found = 0;
 
     memset(message, 0, sizeof(message));
-    message[3] = 0x06;
-    message[4] = 0x19; /* System Information 1 */
+    message[1] = 0x06;
+    message[2] = 0x19; /* System Information 1 */
     /* Cell Channel Description: format bits 00 = bitmap of ARFCNs 1..124,
        most significant bit of the map is ARFCN 124. */
     for (size_t w = 0; w < sizeof(wanted) / sizeof(*wanted); w++) {
@@ -331,7 +332,7 @@ static void test_parsing_a_frequency_list(void) {
 
         int offset = 4 + bit;
 
-        message[5 + offset / 8] |= (uint8_t)(0x80u >> (offset % 8));
+        message[3 + offset / 8] |= (uint8_t)(0x80u >> (offset % 8));
     }
     check_int("it parses", gsm_si_parse(message, &si), 1);
     check_int("as System Information 1", si.type, GSM_SI_TYPE_1);
@@ -345,9 +346,9 @@ static void test_parsing_a_frequency_list(void) {
     /* A range format is not read rather than read wrongly: reporting a
        neighbour on the wrong ARFCN sends an operator to an empty channel. */
     memset(message, 0, sizeof(message));
-    message[3] = 0x06;
-    message[4] = 0x19;
-    message[5] = 0x8E; /* a range-1024 format */
+    message[1] = 0x06;
+    message[2] = 0x19;
+    message[3] = 0x8E; /* a range-1024 format */
     check_int("a format it cannot read yields no channels",
               gsm_si_parse(message, &si) && si.neighbour_count == 0, 1);
 }

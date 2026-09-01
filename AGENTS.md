@@ -317,8 +317,10 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   rate-1/2 convolutional code with a soft Viterbi, and what the message says --
   MCC, MNC, LAC, Cell Identity, neighbour ARFCNs. This is the Decoder context's
   side of GSM, where bits become a message, and it depends on nothing but
-  `<stdint.h>` and `<string.h>`. Not yet fed: see
-  `.scratch/gsm-bcch/issues/01-burst-equaliser.md`.
+  the physical-layer constants in `gsm_dsp.h`. Fed by `gsm_normal_bursts()`,
+  which does the coherent detection and equalisation a GMSK burst needs; on
+  `testfiles/gsm_arfcn_69.bin` the pair report MCC 268 MNC 03, LAC 4010 and
+  Cell Identity 5131.
 - `tests/options_test.c`, `tests/calibration_gate_test.c`,
   `tests/survey_window_test.c`, `tests/layout_test.c`,
   `tests/band_plan_test.c` — the rest of the unit layer, one file per module.

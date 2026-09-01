@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "gsm_dsp.h"
+
 /*
  * The Broadcast Control Channel: four normal bursts in, one System
  * Information message out.
@@ -18,14 +20,9 @@
  * samples: it takes soft bits and returns a message, which is what lets the
  * whole chain be checked against a fixed vector (ADR-0012).
  *
- * Nothing feeds it yet. Getting 456 soft bits off the air needs a burst
- * equaliser this repo does not have: the four bursts are findable and their
- * training sequences come back without error, but the data bits between them
- * arrive 9 to 17 per cent wrong, which is inter-symbol interference and more
- * than a rate-1/2 code can repair. The measurements are in
- * .scratch/gsm-bcch/issues/01-burst-equaliser.md. Until that lands this layer
- * is complete and unused, which is the honest state to leave it in -- it is
- * the half that can be proved right without a receiver.
+ * gsm_normal_bursts() in gsm_dsp.c is what feeds it: coherent detection with
+ * a channel estimate and an equaliser, which is what recovering data bits from
+ * GMSK takes.
  *
  * The layers, from the air inwards (GSM 05.03 section 4.1):
  *
@@ -37,21 +34,12 @@
  */
 
 #define GSM_BCCH_BURSTS 4
-#define GSM_BURST_DATA_BITS 114 /* per normal burst, 2 x 57 either side of
-                                   the training sequence */
 #define GSM_BCCH_CODED_BITS 456
 #define GSM_BCCH_UNCODED_BITS 228
 #define GSM_BCCH_TAIL_BITS 4
 #define GSM_BCCH_PARITY_BITS 40
 #define GSM_BCCH_INFO_BITS 184
 #define GSM_BCCH_INFO_OCTETS 23
-
-/* The eight training sequences a normal burst may carry (GSM 05.02 5.2.3).
-   Which one is in use is the BCC, the low three bits of the BSIC the SCH
-   already decodes -- so the SCH is what tells this layer where to correlate. */
-#define GSM_TSC_COUNT 8
-#define GSM_TSC_BITS 26
-extern const uint8_t gsm_training_sequences[GSM_TSC_COUNT][GSM_TSC_BITS];
 
 /* One decoded 184-bit block, and whether its Fire code checked out. A block
    whose parity fails is reported rather than dropped: the caller can see that

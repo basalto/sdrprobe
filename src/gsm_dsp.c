@@ -708,6 +708,11 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
         if (sch_parse(u, result)) {
             result->decoded = 1;
             result->confidence = best_ratio;
+            /* Where it was, for whatever wants the bursts after it. */
+            result->burst_symbol = best_pos - 42;
+            result->symbol_phase = opt_phase0;
+            result->refined_offset_hz = refined;
+            result->inverted = best_invert;
             decoded = 1;
 
             /* Capture the burst's symbols for a decode constellation: both the
@@ -775,4 +780,456 @@ int gsm_sch_decode(const float *i_samples, const float *q_samples,
     free(bq);
     free(m);
     return decoded;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Normal bursts: coherent detection with an equaliser.                      */
+/* ------------------------------------------------------------------------- */
+
+/* GSM 05.02 table 5.2.3.1. */
+const uint8_t gsm_training_sequences[GSM_TSC_COUNT][GSM_TSC_BITS] = {
+    { 0,0,1,0,0,1,0,1,1,1,0,0,0,0,1,0,0,0,1,0,0,1,0,1,1,1 },
+    { 0,0,1,0,1,1,0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,0,1,1,1 },
+    { 0,1,0,0,0,0,1,1,1,0,1,1,1,0,1,0,0,1,0,0,0,0,1,1,1,0 },
+    { 0,1,0,0,0,1,1,1,1,0,1,1,0,1,0,0,0,1,0,0,0,1,1,1,1,0 },
+    { 0,0,0,1,1,0,1,0,1,1,1,0,0,1,0,0,0,0,0,1,1,0,1,0,1,1 },
+    { 0,1,0,0,1,1,1,0,1,0,1,1,0,0,0,0,0,1,0,0,1,1,1,0,1,0 },
+    { 1,0,1,0,0,1,1,1,1,1,0,1,1,0,0,0,1,0,1,0,0,1,1,1,1,1 },
+    { 1,1,1,0,1,1,1,1,0,0,0,1,0,0,1,0,1,1,1,0,1,1,1,1,0,0 }
+};
+
+/*
+ * How many symbols of channel the equaliser models, and how many states that
+ * needs. GMSK with BT = 0.3 spreads a symbol over about three, and five taps
+ * covers that with room for the receiver's own filtering.
+ */
+#define NB_TAPS 5
+#define NB_STATES (1 << (NB_TAPS - 1))
+
+/*
+ * Fit the channel over a known symbol run, by least squares.
+ *
+ * `delay` is which of the taps the current symbol sits on. It matters: the
+ * pulse is centred, so a strictly causal fit (delay 0) has to explain energy
+ * that arrived before the symbol it belongs to, and cannot. On a real burst
+ * the residual falls from 27.6 to 5.9 between delay 0 and delay 2.
+ *
+ * Returns the residual per symbol, so the caller can pick the delay by
+ * measuring rather than assuming.
+ */
+static double nb_fit(const double *ri, const double *rq, const uint8_t *train,
+                     int at, int length, int delay, double *hr, double *hi) {
+    double normal[NB_TAPS][NB_TAPS];
+    double sum_r[NB_TAPS];
+    double sum_i[NB_TAPS];
+    double residual = 0.0;
+    int equations = 0;
+    int counted = 0;
+
+    memset(normal, 0, sizeof(normal));
+    memset(sum_r, 0, sizeof(sum_r));
+    memset(sum_i, 0, sizeof(sum_i));
+    for (int j = 0; j < length; j++) {
+        double a[NB_TAPS];
+        int usable = 1;
+
+        for (int t = 0; t < NB_TAPS; t++) {
+            int index = j + delay - t;
+
+            if (index < 0 || index >= length) {
+                usable = 0;
+                break;
+            }
+            a[t] = train[index] ? -1.0 : 1.0;
+        }
+        if (!usable)
+            continue;
+        equations++;
+        for (int t = 0; t < NB_TAPS; t++) {
+            for (int u = 0; u < NB_TAPS; u++)
+                normal[t][u] += a[t] * a[u];
+            sum_r[t] += a[t] * ri[at + j];
+            sum_i[t] += a[t] * rq[at + j];
+        }
+    }
+    if (equations < NB_TAPS + 4)
+        return 1e30;
+
+    for (int c = 0; c < NB_TAPS; c++) { /* Gauss-Jordan, five unknowns */
+        int pivot = c;
+        double diagonal;
+
+        for (int r = c + 1; r < NB_TAPS; r++)
+            if (fabs(normal[r][c]) > fabs(normal[pivot][c]))
+                pivot = r;
+        if (pivot != c) {
+            for (int u = 0; u < NB_TAPS; u++) {
+                double swap = normal[c][u];
+
+                normal[c][u] = normal[pivot][u];
+                normal[pivot][u] = swap;
+            }
+            double swap = sum_r[c];
+            sum_r[c] = sum_r[pivot];
+            sum_r[pivot] = swap;
+            swap = sum_i[c];
+            sum_i[c] = sum_i[pivot];
+            sum_i[pivot] = swap;
+        }
+        diagonal = normal[c][c];
+        if (fabs(diagonal) < 1e-9)
+            diagonal = 1e-9;
+        for (int r = 0; r < NB_TAPS; r++) {
+            double factor;
+
+            if (r == c)
+                continue;
+            factor = normal[r][c] / diagonal;
+            for (int u = 0; u < NB_TAPS; u++)
+                normal[r][u] -= factor * normal[c][u];
+            sum_r[r] -= factor * sum_r[c];
+            sum_i[r] -= factor * sum_i[c];
+        }
+    }
+    for (int t = 0; t < NB_TAPS; t++) {
+        double diagonal = normal[t][t];
+
+        if (fabs(diagonal) < 1e-9)
+            diagonal = 1e-9;
+        hr[t] = sum_r[t] / diagonal;
+        hi[t] = sum_i[t] / diagonal;
+    }
+
+    for (int j = 0; j < length; j++) {
+        double predicted_r = 0.0;
+        double predicted_i = 0.0;
+        int usable = 1;
+
+        for (int t = 0; t < NB_TAPS; t++) {
+            int index = j + delay - t;
+            double a;
+
+            if (index < 0 || index >= length) {
+                usable = 0;
+                break;
+            }
+            a = train[index] ? -1.0 : 1.0;
+            predicted_r += hr[t] * a;
+            predicted_i += hi[t] * a;
+        }
+        if (!usable)
+            continue;
+        double error_r = ri[at + j] - predicted_r;
+        double error_i = rq[at + j] - predicted_i;
+
+        residual += error_r * error_r + error_i * error_i;
+        counted++;
+    }
+    return counted ? residual / counted : 1e30;
+}
+
+/* What the channel predicts for a candidate history of symbols. */
+static void nb_predict(const double *hr, const double *hi, int history,
+                       double *pr, double *pi) {
+    *pr = 0.0;
+    *pi = 0.0;
+    for (int t = 0; t < NB_TAPS; t++) {
+        double a = ((history >> t) & 1) ? -1.0 : 1.0;
+
+        *pr += hr[t] * a;
+        *pi += hi[t] * a;
+    }
+}
+
+/*
+ * Maximum-likelihood sequence estimation over the channel trellis, forwards
+ * and backwards, so every data bit comes out as the margin between the best
+ * sequence asserting 0 and the best asserting 1.
+ *
+ * The tail bits and the training sequence are known, which prunes the trellis
+ * and anchors it: without an anchor a burst and its complement explain the
+ * observations equally well.
+ */
+static void nb_equalise(const double *ri, const double *rq,
+                        const uint8_t *train, const double *hr,
+                        const double *hi, int delay, float *soft) {
+    const double impossible = 1e30;
+    static double forward[GSM_NB_SYMBOLS + 1][NB_STATES];
+    static double backward[GSM_NB_SYMBOLS + 1][NB_STATES];
+    int known[GSM_NB_SYMBOLS];
+    int written = 0;
+
+    for (int m = 0; m < GSM_NB_SYMBOLS; m++)
+        known[m] = -1;
+    for (int t = 0; t < GSM_NB_TAIL; t++) {
+        known[t] = 0;
+        known[GSM_NB_SYMBOLS - 1 - t] = 0;
+    }
+    for (int j = 0; j < GSM_TSC_BITS; j++)
+        known[GSM_NB_TRAIN_AT + j] = train[j];
+
+    for (int s = 0; s < NB_STATES; s++)
+        forward[0][s] = s ? impossible : 0.0;
+    for (int m = 0; m < GSM_NB_SYMBOLS; m++) {
+        int observation = m - delay;
+
+        for (int s = 0; s < NB_STATES; s++)
+            forward[m + 1][s] = impossible;
+        for (int s = 0; s < NB_STATES; s++) {
+            if (forward[m][s] >= impossible)
+                continue;
+            for (int b = 0; b < 2; b++) {
+                int history = (s << 1) | b;
+                double cost = 0.0;
+                double candidate;
+                int next;
+
+                if (known[m] >= 0 && known[m] != b)
+                    continue;
+                if (observation >= 0 && observation < GSM_NB_SYMBOLS) {
+                    double pr;
+                    double pi;
+                    double er;
+                    double ei;
+
+                    nb_predict(hr, hi, history, &pr, &pi);
+                    er = ri[observation] - pr;
+                    ei = rq[observation] - pi;
+                    cost = er * er + ei * ei;
+                }
+                candidate = forward[m][s] + cost;
+                next = history & (NB_STATES - 1);
+                if (candidate < forward[m + 1][next])
+                    forward[m + 1][next] = candidate;
+            }
+        }
+    }
+
+    for (int s = 0; s < NB_STATES; s++)
+        backward[GSM_NB_SYMBOLS][s] = 0.0;
+    for (int m = GSM_NB_SYMBOLS - 1; m >= 0; m--) {
+        int observation = m - delay;
+
+        for (int s = 0; s < NB_STATES; s++) {
+            backward[m][s] = impossible;
+            for (int b = 0; b < 2; b++) {
+                int history = (s << 1) | b;
+                double cost = 0.0;
+                double candidate;
+
+                if (known[m] >= 0 && known[m] != b)
+                    continue;
+                if (observation >= 0 && observation < GSM_NB_SYMBOLS) {
+                    double pr;
+                    double pi;
+                    double er;
+                    double ei;
+
+                    nb_predict(hr, hi, history, &pr, &pi);
+                    er = ri[observation] - pr;
+                    ei = rq[observation] - pi;
+                    cost = er * er + ei * ei;
+                }
+                candidate = backward[m + 1][history & (NB_STATES - 1)] + cost;
+                if (candidate < backward[m][s])
+                    backward[m][s] = candidate;
+            }
+        }
+    }
+
+    for (int half = 0; half < 2; half++) {
+        int from = half == 0 ? GSM_NB_TAIL
+                             : GSM_NB_TRAIN_AT + GSM_TSC_BITS + 1;
+
+        for (int j = 0; j < GSM_NB_DATA_HALF; j++) {
+            int m = from + j;
+            int observation = m - delay;
+            double best[2] = { impossible, impossible };
+
+            for (int s = 0; s < NB_STATES; s++) {
+                if (forward[m][s] >= impossible)
+                    continue;
+                for (int b = 0; b < 2; b++) {
+                    int history = (s << 1) | b;
+                    double cost = 0.0;
+                    double candidate;
+
+                    if (observation >= 0 && observation < GSM_NB_SYMBOLS) {
+                        double pr;
+                        double pi;
+                        double er;
+                        double ei;
+
+                        nb_predict(hr, hi, history, &pr, &pi);
+                        er = ri[observation] - pr;
+                        ei = rq[observation] - pi;
+                        cost = er * er + ei * ei;
+                    }
+                    candidate = forward[m][s] + cost +
+                                backward[m + 1][history & (NB_STATES - 1)];
+                    if (candidate < best[b])
+                        best[b] = candidate;
+                }
+            }
+            /* Positive for a 0 bit: the cost of asserting 1 less the cost of
+               asserting 0, so a confident 0 is a large positive number. */
+            soft[written++] = (float)(best[1] - best[0]);
+        }
+    }
+}
+
+int gsm_normal_bursts(const float *i_samples, const float *q_samples,
+                      size_t pair_count, double sample_rate,
+                      const struct gsm_sch_result *sch, int count,
+                      float *soft) {
+    double sps = sample_rate / GSM_SYMBOL_RATE_HZ;
+    const uint8_t *train;
+    float *bi;
+    float *bq;
+    int done = 0;
+
+    if (!i_samples || !q_samples || !sch || !soft || !sch->decoded)
+        return 0;
+    if (sch->bcc < 0 || sch->bcc >= GSM_TSC_COUNT)
+        return 0;
+    train = gsm_training_sequences[sch->bcc];
+
+    bi = malloc(pair_count * sizeof(*bi));
+    bq = malloc(pair_count * sizeof(*bq));
+    if (!bi || !bq) {
+        free(bi);
+        free(bq);
+        return 0;
+    }
+    for (size_t n = 0; n < pair_count; n++) {
+        double ph = -GSM_TWO_PI * sch->refined_offset_hz * (double)n /
+                    sample_rate;
+        double c = cos(ph);
+        double s = sin(ph);
+
+        bi[n] = (float)(i_samples[n] * c - q_samples[n] * s);
+        bq[n] = (float)(i_samples[n] * s + q_samples[n] * c);
+    }
+
+    for (int b = 0; b < count; b++) {
+        /* The next burst on this timeslot is one TDMA frame later, every
+           time: the clock the SCH gave is good enough to step by. */
+        int start = sch->burst_symbol + (b + 1) * GSM_FRAME_SYMBOLS;
+        double ri[GSM_NB_SYMBOLS];
+        double rq[GSM_NB_SYMBOLS];
+        double hr[NB_TAPS];
+        double hi[NB_TAPS];
+        double best_hr[NB_TAPS];
+        double best_hi[NB_TAPS];
+        double best_residual = 1e30;
+        int best_delay = 2;
+
+        if (start < 1 ||
+            (double)(start + GSM_NB_SYMBOLS) * sps >= (double)pair_count)
+            break;
+
+        /*
+         * Derotate by a quarter turn per symbol. GMSK's phase advances by
+         * plus or minus that, so taking it out leaves the burst bits on a
+         * line through the origin -- real, and coherently detectable, which
+         * is worth about 3 dB over reading the phase steps differentially.
+         */
+        for (int k = 0; k < GSM_NB_SYMBOLS; k++) {
+            double si;
+            double sq;
+            double angle = -GSM_TWO_PI * (double)(start + k) / 4.0;
+            double c = cos(angle);
+            double s = sin(angle);
+
+            sch_interp(bi, bq, pair_count,
+                       sch->symbol_phase + (double)(start + k) * sps, &si,
+                       &sq);
+            ri[k] = si * c - sq * s;
+            rq[k] = si * s + sq * c;
+        }
+
+        for (int delay = 0; delay < NB_TAPS; delay++) {
+            double residual = nb_fit(ri, rq, train, GSM_NB_TRAIN_AT,
+                                     GSM_TSC_BITS, delay, hr, hi);
+
+            if (residual < best_residual) {
+                best_residual = residual;
+                best_delay = delay;
+                memcpy(best_hr, hr, sizeof(hr));
+                memcpy(best_hi, hi, sizeof(hi));
+            }
+        }
+
+        /*
+         * Residual frequency offset. The channel is fitted on the training
+         * sequence in the middle of the burst and then used at both ends, so
+         * whatever offset is left turns into phase drift away from the middle
+         * -- which is precisely where the errors were before this: the first
+         * few data bits and the last few, with the middle clean. Fitting the
+         * two halves of the training separately gives the drift per symbol,
+         * and taking it out took a burst from eight wrong bits to none.
+         */
+        {
+            double first_r[NB_TAPS];
+            double first_i[NB_TAPS];
+            double second_r[NB_TAPS];
+            double second_i[NB_TAPS];
+            int half = GSM_TSC_BITS / 2;
+            int strongest = 0;
+            double most = 0.0;
+            double dot_r;
+            double dot_i;
+            double drift;
+
+            nb_fit(ri, rq, train, GSM_NB_TRAIN_AT, half, best_delay, first_r,
+                   first_i);
+            nb_fit(ri, rq, train + half, GSM_NB_TRAIN_AT + half, half,
+                   best_delay, second_r, second_i);
+            for (int t = 0; t < NB_TAPS; t++) {
+                double magnitude = best_hr[t] * best_hr[t] +
+                                   best_hi[t] * best_hi[t];
+
+                if (magnitude > most) {
+                    most = magnitude;
+                    strongest = t;
+                }
+            }
+            dot_r = second_r[strongest] * first_r[strongest] +
+                    second_i[strongest] * first_i[strongest];
+            dot_i = second_i[strongest] * first_r[strongest] -
+                    second_r[strongest] * first_i[strongest];
+            drift = atan2(dot_i, dot_r) / (double)half;
+            for (int k = 0; k < GSM_NB_SYMBOLS; k++) {
+                double angle = -drift *
+                               (double)(k - (GSM_NB_TRAIN_AT + half));
+                double c = cos(angle);
+                double s = sin(angle);
+                double nr = ri[k] * c - rq[k] * s;
+                double ni = ri[k] * s + rq[k] * c;
+
+                ri[k] = nr;
+                rq[k] = ni;
+            }
+            best_residual = 1e30;
+            for (int delay = 0; delay < NB_TAPS; delay++) {
+                double residual = nb_fit(ri, rq, train, GSM_NB_TRAIN_AT,
+                                         GSM_TSC_BITS, delay, hr, hi);
+
+                if (residual < best_residual) {
+                    best_residual = residual;
+                    best_delay = delay;
+                    memcpy(best_hr, hr, sizeof(hr));
+                    memcpy(best_hi, hi, sizeof(hi));
+                }
+            }
+        }
+
+        nb_equalise(ri, rq, train, best_hr, best_hi, best_delay,
+                    &soft[b * GSM_BURST_DATA_BITS]);
+        done++;
+    }
+
+    free(bi);
+    free(bq);
+    return done;
 }

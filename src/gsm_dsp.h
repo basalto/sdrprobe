@@ -93,7 +93,51 @@ struct gsm_sch_result {
     int t3;           /* T3 (1,11,21,31,41) */
     int frame_number; /* full TDMA frame number */
     float confidence; /* training-sequence match quality [0,1] */
+
+    /* Where this burst was found, so the channels that follow it can be found
+       too. The BCCH sits in the four TDMA frames after the SCH of frame 1 of
+       a 51-multiframe, one timeslot-0 burst every GSM_FRAME_SYMBOLS. */
+    int burst_symbol;         /* symbol index of the burst's first symbol */
+    double symbol_phase;      /* sub-symbol offset the burst was read at */
+    double refined_offset_hz; /* carrier offset the FCCH refined it to */
+    int inverted;             /* the demodulator's polarity for this burst */
 };
+
+/* One timeslot recurs every eight of them, and a TDMA frame is 156.25 symbols
+   per slot: the next burst on this timeslot is this many symbols later. */
+#define GSM_FRAME_SYMBOLS 1250
+
+/* A normal burst (GSM 05.02 5.2.3): 3 tail, 57 data, a stealing flag, 26
+   training, another flag, 57 data, 3 tail. The training sits in the middle so
+   both halves of the data are near a known reference. */
+#define GSM_NB_SYMBOLS 148
+#define GSM_NB_TAIL 3
+#define GSM_NB_DATA_HALF 57
+#define GSM_NB_TRAIN_AT 61
+#define GSM_BURST_DATA_BITS 114 /* the two data halves together */
+
+/* The eight training sequences a normal burst may carry (GSM 05.02 table
+   5.2.3.1). Which one a cell uses is its BCC, the low three bits of the BSIC
+   the SCH decodes -- so the SCH is what says where to correlate. */
+#define GSM_TSC_COUNT 8
+#define GSM_TSC_BITS 26
+extern const uint8_t gsm_training_sequences[GSM_TSC_COUNT][GSM_TSC_BITS];
+
+/*
+ * Demodulate the normal bursts following a decoded SCH burst, as soft bits.
+ *
+ * `sch` says where the burst was, at what sub-symbol phase, on which carrier,
+ * and through its BCC which training sequence to expect. `soft` receives
+ * `count` bursts of GSM_BURST_DATA_BITS values, positive for a 0 bit and
+ * negative for a 1, with the magnitude as confidence.
+ *
+ * Returns how many bursts were demodulated. A burst beyond the end of the
+ * block is not one of them, and its slot is left untouched.
+ */
+int gsm_normal_bursts(const float *i_samples, const float *q_samples,
+                      size_t pair_count, double sample_rate,
+                      const struct gsm_sch_result *sch, int count,
+                      float *soft);
 
 /* The demodulated symbols of the located SCH burst, for a decode visualisation.
    Both the differential-detection product (conj(prev)*cur) and the derotated

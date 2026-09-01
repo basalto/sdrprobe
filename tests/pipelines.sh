@@ -117,6 +117,50 @@ else
     report "run twice" "$again frames again"
 fi
 
+# --- Past the SCH: what the cell is saying --------------------------------
+#
+# The SCH gives a cell's identity code and its clock. One layer further, the
+# BCCH says which network it belongs to. Nothing here needs ground truth: the
+# Fire code is 40 parity bits over 184, so a block that passes is right or is a
+# one-in-a-million-million accident -- and MCC 268 is Portugal, where the
+# capture was recorded.
+printf '  Broadcast\n'
+broadcast() {
+    run --file testfiles/gsm_arfcn_69.bin --headless --arfcn 69 --decode --once
+}
+checked
+bcch=$(broadcast | grep "^BCCH ")
+blocks=$(printf '%s\n' "$bcch" | grep -c "^BCCH ")
+if [ "$blocks" -lt 3 ]; then
+    fail "ARFCN 69 gave $blocks broadcast blocks, expected several"
+elif ! printf '%s\n' "$bcch" | grep -q "MCC 268 MNC 03"; then
+    fail "the network came back as something other than MCC 268 MNC 03; the
+          capture was recorded in Portugal and 40 parity bits stand behind it"
+elif ! printf '%s\n' "$bcch" | grep -q "System Information 3 .*LAC 4010  CI 5131"; then
+    fail "System Information 3 did not report LAC 4010 and Cell Identity 5131"
+else
+    report "gsm_arfcn_69.bin" "$blocks blocks, MCC 268 MNC 03, CI 5131"
+fi
+
+# The cell's own neighbour list names ARFCN 73 -- which is the other capture in
+# testfiles/, recorded from that neighbour. Two independent recordings agreeing
+# about the shape of the network is worth more than either alone.
+checked
+if ! printf '%s\n' "$bcch" | grep "System Information 2 " | grep -qw 73; then
+    fail "System Information 2 did not list ARFCN 73 among the neighbours"
+else
+    report "neighbour list" "names ARFCN 73, the other capture"
+fi
+
+# The same capture, the same messages. A decode that varies is a decode that
+# cannot be diffed against yesterday.
+checked
+if [ "$(broadcast | grep '^BCCH ')" != "$bcch" ]; then
+    fail "the same capture broadcast differently the second time"
+else
+    report "run twice" "identical messages"
+fi
+
 # --- The survey, read by a program rather than clicked at -----------------
 #
 # The survey was the one view with no way in from a script: an agent could

@@ -138,8 +138,9 @@ Tabs are presentation only, not the boundary (ADR-0010).
 - `src/gsm_bcch.{c,h}` — one layer further, and on the Decoder side of the
   context map: four normal bursts → deinterleave → rate-1/2 soft Viterbi →
   (224,184) Fire code → a System Information message (MCC, MNC, LAC, Cell
-  Identity). Complete and checked; nothing feeds it until a burst equaliser
-  exists (`.scratch/gsm-bcch/`).
+  Identity). Fed by `gsm_normal_bursts()` in `gsm_dsp.c`: coherent detection,
+  a five-tap channel estimate, residual-offset removal and an equaliser. On
+  `testfiles/gsm_arfcn_69.bin` it reports MCC 268 MNC 03, LAC 4010, CI 5131.
 - `src/adsb_dsp.{c,h}` (`adsb_`) — Mode S: preamble detect, PPM bit demod, CRC-24,
   DF17/18 field parse, CPR position with an even/odd pairing cache.
 
