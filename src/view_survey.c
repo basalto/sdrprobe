@@ -7,6 +7,7 @@
 
 #include "view.h"
 #include "survey_layout.h"
+#include "survey_window.h"
 #include "sdrgui.h"
 
 /*
@@ -48,12 +49,38 @@ static struct survey_layout survey_layout_now(void) {
     return survey_layout_for((float)GetScreenWidth(), (float)GetScreenHeight());
 }
 
+/*
+ * The window arithmetic lives in survey_window.h, as plain doubles that
+ * tests/survey_window_test.c can exercise without a window or a receiver.
+ * These are the adapters between it and the view's own state: the range that
+ * exists is what was swept once there is a sweep, and what the fields say
+ * before that.
+ */
+static struct survey_window survey_window_of(const struct survey_view *s) {
+    struct survey_window w;
+
+    w.data_lower_hz = s->bins > 0 ? s->lower_hz : s->field_lower_hz;
+    w.data_upper_hz = s->bins > 0 ? s->upper_hz : s->field_upper_hz;
+    w.view_lower_hz = s->view_lower_hz;
+    w.view_upper_hz = s->view_upper_hz;
+    return w;
+}
+
+static void survey_window_put(struct survey_view *s,
+                              const struct survey_window *w) {
+    s->view_lower_hz = w->view_lower_hz;
+    s->view_upper_hz = w->view_upper_hz;
+}
+
 /* The frequency at the middle of a survey bin. */
 static double survey_bin_hz(const struct survey_view *s, int bin) {
+    struct survey_window w = survey_window_of(s);
+
+    /* Bins span what was swept, so before a sweep there is nothing to index
+       into and the range's low edge is the honest answer. */
     if (s->bins <= 0)
         return s->lower_hz;
-    return s->lower_hz + (s->upper_hz - s->lower_hz) *
-                             ((double)bin + 0.5) / (double)s->bins;
+    return survey_window_bin_hz(&w, s->bins, bin);
 }
 
 static double survey_bin_width_hz(const struct survey_view *s) {
@@ -70,40 +97,25 @@ static double survey_bin_width_hz(const struct survey_view *s) {
  * they were dividing by a span of zero.
  */
 static double survey_data_lower(const struct survey_view *s) {
-    return s->bins > 0 ? s->lower_hz : s->field_lower_hz;
+    return survey_window_of(s).data_lower_hz;
 }
 
 static double survey_data_upper(const struct survey_view *s) {
-    return s->bins > 0 ? s->upper_hz : s->field_upper_hz;
+    return survey_window_of(s).data_upper_hz;
 }
 
-/* Clamp the visible window inside that range, and no narrower than
-   SURVEY_MIN_SPAN_HZ. */
 static void survey_clamp_view(struct survey_view *s) {
-    double lower = survey_data_lower(s);
-    double upper = survey_data_upper(s);
-    double span;
+    struct survey_window w = survey_window_of(s);
 
-    if (upper <= lower) {
-        s->view_lower_hz = lower;
-        s->view_upper_hz = upper;
-        return;
-    }
-    span = s->view_upper_hz - s->view_lower_hz;
-    if (span < SURVEY_MIN_SPAN_HZ)
-        span = SURVEY_MIN_SPAN_HZ;
-    if (span > upper - lower)
-        span = upper - lower;
-    if (s->view_lower_hz < lower)
-        s->view_lower_hz = lower;
-    if (s->view_lower_hz + span > upper)
-        s->view_lower_hz = upper - span;
-    s->view_upper_hz = s->view_lower_hz + span;
+    survey_window_clamp(&w, SURVEY_MIN_SPAN_HZ);
+    survey_window_put(s, &w);
 }
 
 static void survey_reset_view(struct survey_view *s) {
-    s->view_lower_hz = survey_data_lower(s);
-    s->view_upper_hz = survey_data_upper(s);
+    struct survey_window w = survey_window_of(s);
+
+    survey_window_reset(&w);
+    survey_window_put(s, &w);
 }
 
 /* Keep the field range current, and before the first sweep keep the window on
@@ -134,66 +146,45 @@ static void survey_refresh_fields(struct survey_view *s) {
 
 /* Zoom about an anchor: the selected candidate when there is one, so zooming
    in keeps what you picked in sight, otherwise the middle of the window. */
+/* Zoom about the selected candidate when there is one, so zooming in keeps
+   what you picked in sight; otherwise about the middle. */
 static void survey_zoom(struct survey_view *s, double factor) {
-    double span;
-    double anchor;
+    struct survey_window w = survey_window_of(s);
+    int has_anchor = s->selected >= 0 && s->selected < s->peak_count;
+    double anchor = has_anchor
+                        ? survey_bin_hz(s, s->peaks[s->selected].index)
+                        : 0.0;
 
-    if (s->view_upper_hz <= s->view_lower_hz)
-        survey_reset_view(s);
-    span = s->view_upper_hz - s->view_lower_hz;
-    anchor = s->view_lower_hz + span / 2.0;
-    if (span <= 0.0)
-        return;
-    if (s->selected >= 0 && s->selected < s->peak_count) {
-        double hz = survey_bin_hz(s, s->peaks[s->selected].index);
-        if (hz >= s->view_lower_hz && hz <= s->view_upper_hz)
-            anchor = hz;
-    }
-    double fraction = (anchor - s->view_lower_hz) / span;
-    double next = span * factor;
-    if (next < SURVEY_MIN_SPAN_HZ)
-        next = SURVEY_MIN_SPAN_HZ;
-    s->view_lower_hz = anchor - next * fraction;
-    s->view_upper_hz = s->view_lower_hz + next;
-    survey_clamp_view(s);
+    survey_window_zoom(&w, factor, anchor, has_anchor, SURVEY_MIN_SPAN_HZ);
+    survey_window_put(s, &w);
 }
 
 /* Panning a window that already spans the whole sweep cannot move it, and a
    key that silently does nothing reads as a broken key. Say which it is. */
 static void survey_pan(struct app *app, double fraction) {
     struct survey_view *s = &app->survey;
-    double span;
-    double before;
+    struct survey_window w = survey_window_of(s);
+    double span = w.view_upper_hz - w.view_lower_hz;
 
-    if (s->view_upper_hz <= s->view_lower_hz)
-        survey_reset_view(s);
-    span = s->view_upper_hz - s->view_lower_hz;
-    before = s->view_lower_hz;
-
-    s->view_lower_hz += span * fraction;
-    s->view_upper_hz += span * fraction;
-    survey_clamp_view(s);
-    if (s->view_lower_hz == before)
+    if (!survey_window_pan(&w, fraction, SURVEY_MIN_SPAN_HZ))
         snprintf(s->status, sizeof(s->status),
                  "Already showing %s of the range; zoom in first (+ or the "
                  "wheel over the chart).",
-                 span >= (survey_data_upper(s) - survey_data_lower(s)) - 1.0
+                 span >= (w.data_upper_hz - w.data_lower_hz) - 1.0
                      ? "all"
                      : "the end");
+    survey_window_put(s, &w);
 }
 
 /* Candidates inside the window on screen. Zooming into a band and still
    being shown a list of what is loudest elsewhere is no use, so the list, the
    count and the Up/Down walk all follow the window. */
 static int survey_peak_visible(const struct survey_view *s, int index) {
-    double hz;
+    struct survey_window w = survey_window_of(s);
 
     if (index < 0 || index >= s->peak_count)
         return 0;
-    if (s->view_upper_hz <= s->view_lower_hz)
-        return 1;
-    hz = survey_bin_hz(s, s->peaks[index].index);
-    return hz >= s->view_lower_hz && hz <= s->view_upper_hz;
+    return survey_window_bin_visible(&w, s->bins, s->peaks[index].index);
 }
 
 static int survey_visible_count(const struct survey_view *s) {
@@ -611,17 +602,9 @@ static void survey_keep_current(struct survey_view *s) {
  */
 static int survey_sweep_target(const struct survey_view *s, double *from,
                                double *to) {
-    double lower = survey_data_lower(s);
-    double upper = survey_data_upper(s);
+    struct survey_window w = survey_window_of(s);
 
-    *from = s->view_lower_hz;
-    *to = s->view_upper_hz;
-    if (*to <= *from) {
-        *from = lower;
-        *to = upper;
-        return 0;
-    }
-    return *from > lower + 1.0 || *to < upper - 1.0;
+    return survey_window_sweep_target(&w, from, to);
 }
 
 /* Point the range fields at a span and sweep it. */

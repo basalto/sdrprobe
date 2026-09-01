@@ -23,6 +23,15 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   `check-gsm-dsp` (GSM plugin), `check-adsb-dsp` (Mode S / ADS-B plugin) and
   `check-band-plan` (the frequency allocation table); each can be built and run
   on its own.
+- `make check-survey` — the band survey's window arithmetic: zoom, pan, clamp,
+  and what pressing Sweep would sweep. Pure doubles in `src/survey_window.h`,
+  so it links nothing and opens no window. It exists because those decisions
+  could previously only be checked by building an instrumented binary and
+  running it against a receiver -- synthetic clicks and keys do not reach the
+  raylib window on every desktop -- and two of them shipped wrong: a zoom that
+  did nothing before the first sweep, and a Sweep that ignored the region just
+  selected. Both are now cases in `tests/survey_window_test.c`. Anything in a
+  view that is arithmetic rather than drawing belongs here for the same reason.
 - `make bench-dsp` — times each DSP stage against the 65.5 ms of signal a
   256 KB block covers, which is the interval the receiver delivers them at.
   Hardware-free, `-lm` only. `BENCH_ARCH=-march=native` answers "would SIMD
