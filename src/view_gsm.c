@@ -69,7 +69,7 @@ void gsm_tune_selected(struct app *app, int arfcn) {
     app->scan_selected_arfcn = arfcn;
     app->gsm.selected_hz = (double)expected;
     app->gsm.sch_valid = 0;
-    memset(&app->gsm.continuity, 0, sizeof(app->gsm.continuity));
+    gsm_continuity_reset(&app->gsm.continuity);
     if (app->receiver_mode) {
         if (!app->gsm.return_valid) {
             app->gsm.return_frequency = app->applied_frequency;
@@ -81,13 +81,6 @@ void gsm_tune_selected(struct app *app, int arfcn) {
 
 /* Note an SCH decode that cannot be right: T1 advances once per 1326 frames,
    so consecutive decodes seconds apart must agree to within 1. Flags only. */
-static void check_sch_continuity(struct gsm_sch_continuity *c,
-                                 const struct gsm_sch_result *res) {
-    c->implausible = c->have_last && abs(res->t1 - c->last_t1) > 1;
-    c->last_t1 = res->t1;
-    c->have_last = 1;
-}
-
 /* Attempt an SCH decode on the inspected channel's latest block. The channel
    carrier sits at +400 kHz (we tuned to expected - 400 kHz). */
 void update_gsm_sch(struct app *app, double now) {
@@ -109,7 +102,8 @@ void update_gsm_sch(struct app *app, double now) {
         app->gsm.sch_symbols = symbols;
         app->gsm.sch_valid = 1;
         app->gsm.sch_time = now;
-        check_sch_continuity(&app->gsm.continuity, &result);
+        gsm_continuity_observe(&app->gsm.continuity, result.t1, result.bsic,
+                               now);
     }
 }
 
