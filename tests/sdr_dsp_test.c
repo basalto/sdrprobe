@@ -380,6 +380,86 @@ static void test_sentinel_splits_humps(void) {
 
 /* Characterising one carrier: a bump of known centre and width in a spectrum
    whose bins map to real frequencies. */
+/*
+ * Measuring a carrier that stands close to its own noise.
+ *
+ * The survey measures whichever candidate is selected, and used to answer
+ * "nothing measurable at that frequency now" for anything under about 20 dB
+ * over a smooth floor -- on a carrier plainly visible in the chart above it.
+ * The cause was its own first pass: with no -bandwidth_db point to walk to,
+ * the width ran to the ends of the array and the floor window was left nothing
+ * outside the carrier to measure, so the floor came back as not-a-number and
+ * the measurement was refused.
+ */
+static void test_measuring_a_carrier_close_to_its_noise(void) {
+    enum { BINS = 2048 };
+    static float spectrum[BINS];
+    static float workspace[BINS];
+    struct sdr_carrier_report report;
+    const float above[] = { 40.0f, 25.0f, 18.0f, 12.0f, 8.0f };
+
+    for (size_t c = 0; c < sizeof(above) / sizeof(*above); c++) {
+        char name[96];
+
+        /* A dead flat floor, which is the hard case: nothing in the noise
+           will stop a walk that has no threshold to stop it. */
+        for (int i = 0; i < BINS; i++)
+            spectrum[i] = -80.0f;
+        for (int d = -3; d <= 3; d++)
+            spectrum[BINS / 2 + d] =
+                -80.0f + above[c] * (float)(0.5 * (1.0 + cos(PI_F * d / 4.0)));
+
+        snprintf(name, sizeof(name), "%.0f dB over the floor is measurable",
+                 (double)above[c]);
+        if (!sdr_dsp_characterise_carrier(spectrum, BINS, 0.0, (double)BINS,
+                                          0.5, 20.0, 20.0f, workspace,
+                                          &report)) {
+            check_msg(0, "%s\n", name);
+            continue;
+        }
+        snprintf(name, sizeof(name), "%.0f dB over the floor: floor",
+                 (double)above[c]);
+        check_close(name, report.floor_dbfs, -80.0, 0.5);
+        snprintf(name, sizeof(name), "%.0f dB over the floor: prominence",
+                 (double)above[c]);
+        check_close(name, report.prominence_db, above[c], 0.5);
+        /* And the width is the carrier's, not the distance to wherever the
+           noise first dipped: seven bins were painted. */
+        snprintf(name, sizeof(name), "%.0f dB over the floor: width",
+                 (double)above[c]);
+        check_msg(report.bandwidth_hz <= 9.0,
+                  "%s: %.0f bins\n", name, report.bandwidth_hz);
+    }
+}
+
+/*
+ * And nothing measured may claim the whole spectrum. The floor is taken
+ * outside the carrier, so a carrier that spreads far enough leaves nothing to
+ * take it from -- which is how the case above went wrong.
+ */
+static void test_a_measurement_cannot_swallow_the_spectrum(void) {
+    enum { BINS = 2048 };
+    static float spectrum[BINS];
+    static float workspace[BINS];
+    struct sdr_carrier_report report;
+
+    /* A shelf across almost everything, with one bump on it: the bump is the
+       carrier, the shelf is not its bandwidth. */
+    for (int i = 0; i < BINS; i++)
+        spectrum[i] = i > 40 && i < BINS - 40 ? -60.0f : -95.0f;
+    for (int d = -3; d <= 3; d++)
+        spectrum[BINS / 2 + d] =
+            -60.0f + 25.0f * (float)(0.5 * (1.0 + cos(PI_F * d / 4.0)));
+
+    check_msg(sdr_dsp_characterise_carrier(spectrum, BINS, 0.0, (double)BINS,
+                                           0.5, 20.0, 20.0f, workspace,
+                                           &report),
+              "the bump on the shelf could not be measured\n");
+    check_msg(report.bandwidth_hz <= (double)BINS / 8.0,
+              "the measurement claims %.0f of %d bins\n", report.bandwidth_hz,
+              BINS);
+}
+
 static void test_characterise_carrier(void) {
     const size_t bins = 2048;
     const double sample_rate = 2000000.0;
@@ -441,6 +521,8 @@ int main(void) {
     test_find_peaks();
     test_peak_beside_a_strong_neighbour();
     test_sentinel_splits_humps();
+    test_measuring_a_carrier_close_to_its_noise();
+    test_a_measurement_cannot_swallow_the_spectrum();
     test_characterise_carrier();
 
     return check_report("generic DSP core");

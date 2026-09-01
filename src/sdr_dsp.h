@@ -59,6 +59,11 @@ int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
  * A peak standing above its local noise floor: what a band survey finds before
  * anything is known about what it carries.
  */
+/* How far above a measured floor a width threshold is held, so the width of a
+   carrier close to its noise is a property of the carrier and not of where the
+   noise happened to dip. */
+#define SDR_DSP_FLOOR_MARGIN_DB 3.0f
+
 struct sdr_peak {
     int   index;           /* bin of the peak in the array searched */
     float power_dbfs;
