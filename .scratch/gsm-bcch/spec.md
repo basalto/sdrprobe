@@ -24,20 +24,27 @@ proved to be a permutation bit by bit, the Fire code must catch every single
 error and two thousand eight-bit ones, a whole burst may be lost and the block
 still decode, and soft decisions must beat hard ones on the same damage.
 
-## Not done
+Getting the bits off the air is `gsm_normal_bursts()` in `src/gsm_dsp.c`:
+derotate a quarter turn per symbol for coherent detection, fit a five-tap
+channel to the training sequence at the alignment with the smallest residual,
+take out the residual frequency offset from the two halves of that sequence,
+then equalise forwards and backwards for soft bits. See
+`issues/01-burst-equaliser.md` for what was wrong before and how each fault was
+found.
 
-`issues/01-burst-equaliser.md`: getting the 456 soft bits off the air. The
-bursts are found and their training sequences come back perfectly; the data
-bits are 9-17% wrong, which is inter-symbol interference and needs an MLSE
-equaliser.
+## What it says
 
-## When it lands
+`./sdrprobe --file testfiles/gsm_arfcn_69.bin --headless --arfcn 69 --decode
+--once` prints, beside its SCH lines:
 
-`check-pipelines` should assert, against `testfiles/gsm_arfcn_69.bin`:
+    BCCH System Information 3  MCC 268 MNC 03  LAC 4010  CI 5131
+    BCCH System Information 2  ARFCN 50 51 ... 69 71 73
+    BCCH System Information 1  ARFCN 58 62 64 68 70 74
 
-- at least one BCCH block passes the Fire code;
-- the block parses as a System Information message;
-- `MCC 268` -- the captures were recorded in Portugal, and 40 parity bits
-  behind a three-digit country code is about as close to ground truth as a
-  recorded capture gets;
-- the same capture gives the same answer twice.
+`check-pipelines` asserts the network, the location area, the cell identity,
+and that the neighbour list names ARFCN 73 -- which is the other capture in
+`testfiles/`, recorded from that neighbour. Two independent recordings agreeing
+about the shape of the network is worth more than either alone.
+
+`testfiles/gsm_arfcn_73.bin` yields nothing: it is the weaker cell, and its
+bursts do not survive. That is an honest limit rather than a fault.

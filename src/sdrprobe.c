@@ -1127,6 +1127,50 @@ double monotonic_seconds(void) {
 /* Print what one block's worth of decoding produced. The views keep the same
    results on screen; this is the same data as lines, so a capture can be
    checked from a script without a display or a person. */
+/*
+ * What the cell is saying, when this SCH is the one a broadcast block follows.
+ *
+ * The BCCH occupies frames 2 to 5 of the 51-multiframe, so only the SCH at
+ * frame 1 is followed by one -- one in five of them. The other four are
+ * followed by paging and access grants, which this does not read.
+ */
+static void print_broadcast(struct app *app, const struct gsm_sch_result *sch)
+{
+    float soft[GSM_BCCH_BURSTS * GSM_BURST_DATA_BITS];
+    float bursts[GSM_BCCH_BURSTS][GSM_BURST_DATA_BITS];
+    float coded[GSM_BCCH_CODED_BITS];
+    struct gsm_bcch_block block;
+    struct gsm_si si;
+
+    if (sch->frame_number % 51 != 1)
+        return;
+    memset(soft, 0, sizeof(soft));
+    if (gsm_normal_bursts(app->i_samples, app->q_samples, app->pair_count,
+                          (double)app->applied_sample_rate, sch,
+                          GSM_BCCH_BURSTS, soft) < GSM_BCCH_BURSTS)
+        return; /* the block ran past the end of this sample block */
+    for (int b = 0; b < GSM_BCCH_BURSTS; b++)
+        memcpy(bursts[b], &soft[b * GSM_BURST_DATA_BITS], sizeof(bursts[b]));
+    gsm_bcch_deinterleave((const float (*)[GSM_BURST_DATA_BITS])bursts, coded);
+    if (!gsm_bcch_decode_block(coded, &block))
+        return; /* the Fire code refused it, so it is not a message */
+    if (!gsm_si_parse(block.octets, &si))
+        return; /* a broadcast this does not read */
+
+    printf("BCCH %s", gsm_si_type_name(si.type));
+    if (si.have_lai)
+        printf("  MCC %d MNC %0*d  LAC %d", si.mcc, si.mnc_digits, si.mnc,
+               si.lac);
+    if (si.have_cell_id)
+        printf("  CI %d", si.cell_id);
+    if (si.neighbour_count) {
+        printf("  ARFCN");
+        for (int i = 0; i < si.neighbour_count; i++)
+            printf(" %d", si.neighbours[i]);
+    }
+    printf("\n");
+}
+
 static void print_new_decodes(struct app *app, double now, int gsm)
 {
     if (gsm) {
@@ -1141,6 +1185,7 @@ static void print_new_decodes(struct app *app, double now, int gsm)
                sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
                sch->t2, sch->t3, (double)sch->confidence,
                app->gsm.continuity.implausible ? "  [T1 JUMPED]" : "");
+        print_broadcast(app, sch);
     } else {
         int before = app->adsb.log_count;
         uint64_t frames = app->adsb.frames_total;
