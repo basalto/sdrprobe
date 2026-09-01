@@ -178,7 +178,11 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   surveys GSM 900: a channel-power scan (with BCCH/FCCH highlighting) and an
   ARFCN-axis waterfall; it opens on the calibrated channel (or the last selected
   one, otherwise it scans and picks the strongest BCCH), and clicking a channel
-  tunes the waterfall above to inspect it. On the inspected channel it decodes
+  tunes the waterfall above to inspect it. Which channel that pick lands on is
+  not stable between sweeps: two scans a minute apart chose BSIC 10 and then
+  BSIC 38, both real cells, because which BCCH is strongest moves with
+  conditions. A test against live air can assert that *a* cell decodes, never
+  which one. On the inspected channel it decodes
   the SCH and prints the BSIC (NCC/BCC) and frame number above the scan chart,
   with a decode constellation of the demodulated SCH symbols beside it (small
   Amp/Derot toggles switch amplitude and differential/derotated views), and a
@@ -360,6 +364,12 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   it was written against — hardcoding sequence 3 passes ARFCN 69 and fails
   this. It is also the only GSM capture whose cell is still transmitting: 69
   and 73 are off the air, so those two cannot be re-recorded.
+
+  Between them the three captures cover training sequences 0, 3 and 6, which
+  is three of the eight. A live scan has since decoded a cell on BCC 2 as
+  well, so the untested five are untested rather than unreachable: recording
+  one of them would widen the check, and `--record-seconds` with whichever
+  ARFCN the scan lands on is all it takes.
 - `docs/ARCHITECTURE.md` — how this program is put together: the layers, what
   each may know, where state lives, and how changes are verified.
 - `docs/dump1090-reference.md` — deep dive on dump1090 (threads, buffer

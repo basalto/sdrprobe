@@ -48,3 +48,17 @@ about the shape of the network is worth more than either alone.
 
 `testfiles/gsm_arfcn_73.bin` yields nothing: it is the weaker cell, and its
 bursts do not survive. That is an honest limit rather than a fault.
+
+## What live air has shown that the captures cannot
+
+- **The strongest BCCH is not a fixed channel.** Two auto-scans a minute apart
+  picked BSIC 10 (NCC 1, BCC 2) and BSIC 38 (NCC 4, BCC 6). Both decoded. A
+  check run against a receiver can assert that a cell is read, never which.
+- **BCC 2 exists here**, and no capture covers it. `testfiles/` holds training
+  sequences 0, 3 and 6, so the demodulator is proved against three of eight.
+  Recording the BCC 2 cell would make it four; nothing is known about the
+  other four beyond the code being the same for all of them.
+- **One SCH in five has a broadcast block behind it**, the one at frame 1 of
+  the 51-multiframe, so the view spends most of its time saying "waiting for
+  the multiframe to come round". That is correct, and worth recognising before
+  it is read as a fault.
