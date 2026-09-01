@@ -18,6 +18,13 @@
 int clicked(Rectangle rectangle);
 void draw_button(Rectangle rectangle, const char *label, int primary);
 int retune_receiver(struct app *app, uint32_t frequency, int ppm);
+int process_block(struct app *app, double now);
+double monotonic_seconds(void);
+int stop_requested(void);
+
+/* The band survey with no window: sweep, then print the candidates to stdout,
+   one per line. src/survey_report.c. */
+int survey_report_run(struct app *app);
 void set_tab(struct app *app, int new_tab);
 void set_decode(struct app *app, int kind);
 void adjust_waterfall_scale(struct app *app, int zoom_in);

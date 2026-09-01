@@ -335,6 +335,10 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->decode)
                 return -1;
             options->decode = 1;
+        } else if (strcmp(option, "--survey") == 0) {
+            if (options->survey_report)
+                return -1;
+            options->survey_report = 1;
         } else if (strcmp(option, "--once") == 0) {
             if (options->play_once)
                 return -1;
@@ -382,7 +386,11 @@ int parse_options(int argc, char **argv, struct options *options) {
        window that is not being opened has no screen to start on. */
     if (options->file_path && device_seen)
         return -1;
-    if (options->headless && (view_seen || options->survey_seen))
+    /* --survey-range names a range to sweep; on its own it also opens the
+       survey view, which needs a window. With --survey it is a range for the
+       headless sweep instead, and no view is implied. */
+    if (options->headless && (view_seen ||
+                              (options->survey_seen && !options->survey_report)))
         return -1;
     if (options->survey_seen && view_seen &&
         options->view != START_VIEW_SURVEY)
@@ -395,6 +403,19 @@ int parse_options(int argc, char **argv, struct options *options) {
     if (options->play_once && !options->file_path)
         return -1;
     if (options->decode && !options->headless)
+        return -1;
+    /* A headless survey prints candidates; a headless decode prints messages.
+       Asking for both leaves two things interleaved on one stdout. */
+    if (options->survey_report && !options->headless)
+        return -1;
+    if (options->survey_report && options->decode)
+        return -1;
+    /* Sweeping a receiver needs to be told what to sweep -- the whole tuner
+       takes four minutes and is nobody's intended default. A capture holds one
+       tuning, so its own span is the only range there is. */
+    if (options->survey_report && !options->file_path && !options->survey_seen)
+        return -1;
+    if (options->survey_report && options->file_path && options->survey_seen)
         return -1;
     if (options->decode && !options->technology && !options->arfcn)
         return -1;

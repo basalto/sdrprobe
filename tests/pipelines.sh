@@ -117,6 +117,56 @@ else
     report "run twice" "$again frames again"
 fi
 
+# --- The survey, read by a program rather than clicked at -----------------
+#
+# The survey was the one view with no way in from a script: an agent could
+# check its arithmetic but not the thing that matters -- given this signal,
+# does it report the right candidates? A capture holds one tuning, so the
+# survey of it is one step, and the answer is the same every run.
+printf '  Survey\n'
+survey_gsm() {
+    run --file testfiles/gsm_arfcn_69.bin --frequency 948.4M --headless \
+        --survey --once
+}
+checked
+survey=$(survey_gsm)
+candidates=$(printf '%s\n' "$survey" | grep -c "^candidate ")
+carriers=$(printf '%s\n' "$survey" | sed -n 's/^survey candidates .* carriers \([0-9]*\)$/\1/p')
+centre=$(printf '%s\n' "$survey" | grep "^candidate " | head -1 | cut -d' ' -f5)
+
+if [ "$candidates" -lt 1 ]; then
+    fail "the GSM capture surveyed to no candidates at all"
+elif [ "${carriers:-0}" -ne 1 ]; then
+    fail "ARFCN 69's carrier came back as ${carriers:-no} carriers, not one"
+elif [ "$centre" -lt 948700000 ] || [ "$centre" -gt 948900000 ]; then
+    fail "the measured centre $centre Hz is not ARFCN 69's 948.8 MHz"
+elif ! printf '%s\n' "$survey" | grep -q "GSM 900 / LTE B8 downlink"; then
+    fail "the survey did not look the carrier up in the band plan"
+else
+    report "gsm_arfcn_69.bin" \
+        "$candidates candidates, 1 carrier at $centre Hz"
+fi
+
+# Byte for byte the same, twice. A survey an agent cannot diff against
+# yesterday's is a survey it cannot use to notice anything.
+checked
+if [ "$(survey_gsm)" != "$survey" ]; then
+    fail "the same capture surveyed differently the second time"
+else
+    report "run twice" "identical output"
+fi
+
+# A capture with no carrier in it must survey to nothing, and say so, rather
+# than inventing a candidate out of the noise floor. Mode S is pulses: there
+# is no carrier standing above anything.
+checked
+if ! run --file testfiles/adsb_cpr_pair.bin --headless --survey --once |
+     grep -q "^survey candidates 0 "; then
+    fail "a capture of Mode S pulses produced carrier candidates"
+else
+    report "adsb_cpr_pair.bin" "no carriers, as there are none"
+fi
+
 # --- Recording: the file and the sidecar that explains it -----------------
 #
 # Recording tees off inside the acquisition thread, so a capture played back

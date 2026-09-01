@@ -69,6 +69,9 @@ struct options {
        the views decode it on screen. */
     int arfcn;                /* 0 = none; tunes 400 kHz below the channel */
     int decode;               /* headless: print decoded messages to stdout */
+    /* headless: sweep and print the candidates found, so an agent can read a
+       survey without a window or a person to click one. */
+    int survey_report;
     int play_once;            /* stop at the end of a capture, do not loop */
     int gsm_features;         /* GSM_OPT_* bitmask for the SCH decoder */
     int gsm_features_seen;

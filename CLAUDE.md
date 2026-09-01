@@ -93,6 +93,23 @@ way to see whether a change to the DSP helped or hurt:
 ./sdrprobe --headless --record-seconds 2 --technology adsb   # live capture + sidecar
 ```
 
+Reading a band survey without a window — the only way an agent can see what
+the survey found, since a sweep is otherwise reached by clicking:
+
+```sh
+# a capture holds one tuning, so its survey is one step and repeats exactly
+./sdrprobe --file testfiles/gsm_arfcn_69.bin --frequency 948.4M --headless \
+    --survey --once
+# a receiver sweeps whatever range it is given
+./sdrprobe --headless --survey --survey-range 470M:690M --survey-dwell 0.2
+```
+
+One record per line, keyword first, integer hertz, the band-plan allocation
+last because it is the only field that can contain a space. `candidate` rows
+carry the frequency the survey found, the frequency the measurement refined it
+to, the width, and any suspicion flags; `survey` rows carry the plan and the
+totals.
+
 Built binaries (`./sdrprobe`, `build/`) and `captures/` are gitignored.
 
 ## Architecture

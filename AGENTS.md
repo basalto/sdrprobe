@@ -107,6 +107,14 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   rows for ADS-B -- which is how to check a capture from a script:
   `./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode
   --once` prints BSIC 56, the invariant CLAUDE.md records for that file.
+  `--headless --survey` does the same for the band survey, which is otherwise
+  reachable only by clicking: with `--file` it surveys the capture's own
+  tuning in one step, and with a receiver it sweeps `--survey-range`. It
+  prints one `candidate` record per line -- the frequency the sweep found, the
+  frequency the measurement refined it to, the occupied bandwidth, any
+  suspicion flags, and the band-plan allocation last, being the only field
+  that can hold a space. A capture surveyed this way gives the same bytes
+  every run, which is what lets an agent diff one survey against another.
   opens magnitude, spectrum, I/Q scatter, waterfall and band-survey views. It needs a real
   RTL-SDR dongle by default; `--file capture.bin` (e.g.
   `testfiles/adsb_modes1.bin`) enables paced, looping hardware-free playback. A

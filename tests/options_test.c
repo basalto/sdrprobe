@@ -182,7 +182,24 @@ static void test_conflicting_flags(void) {
     rejects("--survey-dwell");
     rejects("--not-a-flag");
 
+    /* A headless survey prints candidates; the rules around it. */
+    rejects("--survey");                       /* needs a window-free run */
+    rejects("--headless --survey");            /* nothing said about what */
+    rejects("--headless --survey --decode --technology adsb");
+    rejects("--headless --survey --survey --survey-range 88M:108M");
+    /* A capture holds one tuning, so its own span is the only range there
+       is; naming another would be asking it for samples it does not hold. */
+    rejects("--file testfiles/gsm_arfcn_69.bin --headless --survey"
+            " --survey-range 88M:108M");
+    /* Without --survey, a range still means the survey view, which needs a
+       window. */
+    rejects("--headless --survey-range 88M:108M");
+
     /* And the combinations that must keep working. */
+    accepts("--headless --survey --survey-range 88M:108M");
+    accepts("--headless --survey --survey-range 470M:690M --survey-dwell 0.5");
+    accepts("--file testfiles/gsm_arfcn_69.bin --frequency 948.4M --headless"
+            " --survey --once");
     accepts("--headless --record-seconds 3 --technology adsb");
     accepts("--file testfiles/adsb_cpr_pair.bin --headless --technology adsb"
             " --decode --once");
