@@ -46,7 +46,9 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   `check-adsb-analysis` (whether Mode S could be there, which frame the
   analysis charts describe, the message log, the funnel),
   `check-gsm-continuity` (whether consecutive SCH decodes hang together --
-  the hyperframe wrap included), `check-acquisition` (the block slot, both its
+  the hyperframe wrap included), `check-gsm-bcch` (four bursts to a System
+  Information message: interleaving, the Fire code, and what the message
+  says), `check-acquisition` (the block slot, both its
   modes, and the shutdown of a lossless publisher), `check-geometry` (where a
   chart's plot sits inside it and which bar the pointer is over) and
   `check-input` (which control a key press reaches). Each exists because
@@ -310,6 +312,13 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` / `tests/adsb_dsp_test.c` —
   the deterministic, hardware-free DSP checks (`make check-sdr-dsp` /
   `check-gsm-dsp` / `check-adsb-dsp`).
+- `src/gsm_bcch.h` / `src/gsm_bcch.c` — the BCCH: four normal bursts to a
+  System Information message. Interleaving, the (224,184) Fire code, the
+  rate-1/2 convolutional code with a soft Viterbi, and what the message says --
+  MCC, MNC, LAC, Cell Identity, neighbour ARFCNs. This is the Decoder context's
+  side of GSM, where bits become a message, and it depends on nothing but
+  `<stdint.h>` and `<string.h>`. Not yet fed: see
+  `.scratch/gsm-bcch/issues/01-burst-equaliser.md`.
 - `tests/options_test.c`, `tests/calibration_gate_test.c`,
   `tests/survey_window_test.c`, `tests/layout_test.c`,
   `tests/band_plan_test.c` — the rest of the unit layer, one file per module.
