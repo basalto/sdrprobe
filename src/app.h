@@ -51,17 +51,9 @@ enum decode_kind {
     DECODE_GSM,
     DECODE_ADSB
 };
-#define ADSB_LOG_CAPACITY 256
-/* One row of the decoded-message log, formatted for display at decode time. */
-struct adsb_log_entry {
-    char stamp[16];
-    char icao[8];
-    char label[6];
-    char detail[96];
-    char raw[32];
-    double time;
-    int highlight;
-};
+/* What the ADS-B view decides -- the log row, which frame the charts are
+   drawn from, and the funnel -- is in a header the checks can reach. */
+#include "adsb_analysis.h"
 struct scatter_block {
     float i[SCATTER_SAMPLES];
     float q[SCATTER_SAMPLES];

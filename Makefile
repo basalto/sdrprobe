@@ -23,7 +23,8 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h $(SRC)/chrome_layout.h \
-	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h $(SRC)/app.h $(SRC)/view.h
+	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
+	$(SRC)/adsb_analysis.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
@@ -108,6 +109,15 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 		$(TESTS)/calibration_gate_test.c -lm
 	$(Q)./$(BUILD)/calibration_gate_test
 
+# What the ADS-B view decides: whether Mode S could be there, which frame the
+# analysis charts describe, the message log, and the funnel counters.
+check-adsb-analysis: $(TESTS)/adsb_analysis_test.c $(TESTS)/check.h \
+		$(SRC)/adsb_analysis.h $(SRC)/adsb_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_analysis_test \
+		$(TESTS)/adsb_analysis_test.c -lm
+	$(Q)./$(BUILD)/adsb_analysis_test
+
 # The GSM 900 band scan: how the downlink is covered, and which channel the
 # operator is handed at the end. That single ARFCN is the scan's whole output.
 check-scan: $(TESTS)/scan_plan_test.c $(TESTS)/check.h $(SRC)/scan_plan.h
@@ -159,7 +169,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
 CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
 	check-options check-survey check-survey-sweep check-calibration \
-	check-layout check-acquisition check-scan
+	check-layout check-acquisition check-scan check-adsb-analysis
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -207,4 +217,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean

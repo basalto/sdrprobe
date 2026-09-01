@@ -22,11 +22,11 @@
  * between "nothing is transmitting" and "frames are arriving and failing".
  */
 
+/* The decisions below are in adsb_analysis.h; these hand it what it needs out
+   of struct app. */
 int adsb_tuned(const struct app *app) {
-    long delta = (long)app->applied_frequency - (long)DEFAULT_FREQUENCY;
-    if (delta < 0)
-        delta = -delta;
-    return delta < 200000 && app->applied_sample_rate >= 2000000U;
+    return adsb_receiver_ready(app->applied_frequency,
+                               app->applied_sample_rate, DEFAULT_FREQUENCY);
 }
 
 static struct adsb_layout adsb_layout_now(void) {
@@ -36,18 +36,8 @@ static struct adsb_layout adsb_layout_now(void) {
 /* Analysis panels are worth drawing only when Mode S could actually be there;
    off 1090 MHz the retune affordance is the useful thing to show, not three
    empty charts. */
-static int adsb_analysis_visible(const struct app *app) {
-    return app->adsb.analysis_mode && adsb_tuned(app);
-}
-
-static void adsb_log_push(struct app *app, const struct adsb_log_entry *entry) {
-    int keep = app->adsb.log_count < ADSB_LOG_CAPACITY ? app->adsb.log_count
-                                                       : ADSB_LOG_CAPACITY - 1;
-    memmove(&app->adsb.log[1], &app->adsb.log[0],
-            (size_t)keep * sizeof(app->adsb.log[0]));
-    app->adsb.log[0] = *entry;
-    if (app->adsb.log_count < ADSB_LOG_CAPACITY)
-        app->adsb.log_count++;
+static int adsb_analysis_showing(const struct app *app) {
+    return adsb_analysis_visible(app->adsb.analysis_mode, adsb_tuned(app));
 }
 
 static void adsb_format(const struct adsb_message *msg,
@@ -111,26 +101,18 @@ void update_adsb(struct app *app, double now) {
                                   sizeof(app->adsb.scratch[0]),
                               &trace, &stats);
     app->adsb.block_stats = stats;
-    app->adsb.totals.preambles += stats.preambles;
-    app->adsb.totals.attempts += stats.attempts;
-    app->adsb.totals.crc_failed += stats.crc_failed;
-    app->adsb.totals.decoded += stats.decoded;
-    if (trace.valid) {
-        app->adsb.trace = trace;
-        if (trace.crc_ok)
-            app->adsb.good_trace = trace;
-    }
+    adsb_totals_add(&app->adsb.totals, &stats);
+    adsb_trace_keep(&app->adsb.trace, &app->adsb.good_trace, &trace);
     size_t emitted = count;
     size_t capacity = sizeof(app->adsb.scratch) / sizeof(app->adsb.scratch[0]);
     if (emitted > capacity)
         emitted = capacity;
     /* Fade the previous rows' highlight before adding new ones. */
-    for (int i = 0; i < app->adsb.log_count; i++)
-        app->adsb.log[i].highlight = 0;
+    adsb_log_fade(app->adsb.log, app->adsb.log_count);
     for (size_t i = 0; i < emitted; i++) {
         struct adsb_log_entry entry;
         adsb_format(&app->adsb.scratch[i], &entry, now);
-        adsb_log_push(app, &entry);
+        adsb_log_push(app->adsb.log, &app->adsb.log_count, &entry);
         app->adsb.frames_total++;
         if (app->adsb.scratch[i].has_position)
             app->adsb.positions_total++;
@@ -155,7 +137,7 @@ void handle_adsb_input(struct app *app) {
                              ACQUISITION_RECORD_BUTTON_SECONDS);
         return;
     }
-    if (adsb_analysis_visible(app) && clicked(l.hold_button)) {
+    if (adsb_analysis_showing(app) && clicked(l.hold_button)) {
         app->adsb.hold_last_good = !app->adsb.hold_last_good;
         return;
     }
@@ -168,9 +150,8 @@ void handle_adsb_input(struct app *app) {
 /* The trace the charts draw: the most recent attempt, or the last frame that
    passed its CRC when the reader has pinned that instead. */
 static const struct adsb_frame_trace *adsb_shown_trace(const struct app *app) {
-    if (app->adsb.hold_last_good && app->adsb.good_trace.valid)
-        return &app->adsb.good_trace;
-    return &app->adsb.trace;
+    return adsb_trace_shown(&app->adsb.trace, &app->adsb.good_trace,
+                            app->adsb.hold_last_good);
 }
 
 /* One line above the charts saying which frame they are showing. A frame that
@@ -288,7 +269,7 @@ void draw_adsb(struct app *app) {
     struct adsb_layout l = adsb_layout_now();
     const struct adsb_demod_stats *total = &app->adsb.totals;
     const struct adsb_demod_stats *block = &app->adsb.block_stats;
-    int analysis = adsb_analysis_visible(app);
+    int analysis = adsb_analysis_showing(app);
     uint64_t record_bytes = 0;
     char record_path[ACQUISITION_PATH_MAX];
     int recording = acquisition_recording_status(&app->acq, &record_bytes,
