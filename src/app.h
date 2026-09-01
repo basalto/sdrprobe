@@ -279,7 +279,12 @@ struct help_overlay {
    in the broadcast bands. A candidate costs 24 bytes; being stingy here buys
    nothing and hides whole allocations. */
 #define SURVEY_MAX_PEAKS 512
-#define SURVEY_MIN_BIN_HZ 50000.0
+/* How wide a survey bin is: the range spread over the array, but never finer
+   than the FFT that fills it -- asking for more resolution than the spectrum
+   has only interpolates noise. A narrow sweep therefore gets a detailed
+   picture rather than the fixed 50 kHz bins this used to have, which drew a
+   2 MHz scan as forty bars. */
+#define SURVEY_SCAN_HALF_SPAN_HZ 2000000.0  /* "scan this frequency" window */
 #define SURVEY_SETTLE_SECONDS 0.10
 /* How long to sit on each step. One block catches whatever is transmitting at
    that instant, which is the wrong tool for anything bursty: a channel that

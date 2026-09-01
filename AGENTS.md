@@ -23,6 +23,12 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   `check-gsm-dsp` (GSM plugin), `check-adsb-dsp` (Mode S / ADS-B plugin) and
   `check-band-plan` (the frequency allocation table); each can be built and run
   on its own.
+- `make bench-dsp` — times each DSP stage against the 65.5 ms of signal a
+  256 KB block covers, which is the interval the receiver delivers them at.
+  Hardware-free, `-lm` only. `BENCH_ARCH=-march=native` answers "would SIMD
+  help" by measuring it rather than arguing about it; as of this writing it
+  does not, and `docs/liquid-dsp-sdrprobe-assessment.md` records why and where
+  the time would come from instead.
 - `make check-layout` — pins the GSM decode view's rectangles and the window chrome at
   several window sizes. Needs raylib's headers for the `Rectangle` type but not the
   library, and opens no window. A failure means geometry moved; if that was
@@ -83,7 +89,15 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   then the tuner's full span in the fields. It never starts a sweep by itself.
   Before the first sweep the view takes its extent from the range fields, so
   zoom, pan and drag work on a freshly opened survey rather than dividing by a
-  span of zero.
+  span of zero. The candidate panel carries "Scan this frequency", which sweeps
+  +/-2 MHz around the selection at the current dwell -- the drill-down the
+  survey exists for -- and snapshots the survey first so Reset zoom returns.
+  "Open waterfall" tunes 300 kHz off the candidate, clears the waterfall
+  history and switches to view 4; that tuning is kept rather than restored on
+  leaving, which is the one case where the survey does not put back what it
+  changed.
+  Bin width is the span over 8192, floored at the FFT's own resolution, so a
+  narrow sweep is detailed rather than fixed at the old 50 kHz.
   `--survey-range low:high` opens the view and sweeps that
   range without waiting to be asked, and `--survey-dwell` sets the dwell; in the Decode tab, keys 1/2 switch between GSM band
   analysis and ADS-B. The Settings button (or `s`) changes center frequency and, for a live receiver, gain while running; it also toggles the

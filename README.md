@@ -24,7 +24,9 @@ after dump1090's `modesInitRTLSDR()`.
   resets, and the candidate list follows the window. A dwell field decides how
   long each step listens, which is what catches transmitters that are not
   always on, Sweep surveys whatever the chart is showing — the fields when zoomed
-  out, the window when zoomed in — and "Reset zoom" backs out again.
+  out, the window when zoomed in — "Scan this frequency" drills into a selected
+  candidate, "Open waterfall" watches it over time, and "Reset zoom" backs out
+  again.
 - **Live or file** — a real RTL‑SDR dongle, or paced, looping hardware‑free
   playback of a raw capture (`--file`).
 - **Runtime settings** — center frequency (Hz or `K`/`M`/`G`), gain (live),

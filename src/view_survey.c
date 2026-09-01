@@ -28,6 +28,10 @@ int survey_editing(const struct app *app) {
 }
 
 static int survey_start(struct app *app);
+static void survey_keep_current(struct survey_view *s);
+static void survey_sweep_span(struct app *app, double from, double to);
+static int survey_sweep_target(const struct survey_view *s, double *from,
+                               double *to);
 
 /* Back into the spelling the field takes, so a range given on the command
    line reads the way someone would have typed it. */
@@ -356,8 +360,15 @@ static int survey_start(struct app *app) {
 
     s->lower_hz = (double)from_hz;
     s->upper_hz = (double)to_hz;
-    /* Fine bins on a narrow range, as many as the array allows on a wide one. */
-    s->bins = (int)(span / SURVEY_MIN_BIN_HZ);
+    /* As many bins as the array holds, unless that would be finer than the
+       FFT feeding them: past that point the extra bins carry no more
+       information than the ones beside them. */
+    double finest_hz = (double)app->applied_sample_rate /
+                       (double)SDR_DSP_FFT_SIZE;
+    double bin_hz = span / (double)SURVEY_BINS;
+    if (bin_hz < finest_hz)
+        bin_hz = finest_hz;
+    s->bins = (int)(span / bin_hz);
     if (s->bins > SURVEY_BINS)
         s->bins = SURVEY_BINS;
     if (s->bins < 16)
@@ -570,6 +581,60 @@ void update_survey(struct app *app, double now) {
     }
 }
 
+/* Keep the survey a narrowing sweep is about to replace, so Reset zoom can
+   put it back without re-sweeping. */
+static void survey_keep_current(struct survey_view *s) {
+    struct survey_snapshot *keep = &s->previous;
+
+    if (s->bins <= 0)
+        return;
+    keep->valid = 1;
+    keep->lower_hz = s->lower_hz;
+    keep->upper_hz = s->upper_hz;
+    keep->bins = s->bins;
+    memcpy(keep->power, s->power, (size_t)s->bins * sizeof(*s->power));
+    memcpy(keep->peaks, s->peaks, (size_t)s->peak_count * sizeof(*s->peaks));
+    keep->peak_count = s->peak_count;
+    snprintf(keep->from, sizeof(keep->from), "%s", s->from);
+    snprintf(keep->to, sizeof(keep->to), "%s", s->to);
+}
+
+/*
+ * What Sweep will sweep: the window when it is narrower than the range that
+ * window sits on, and the whole range otherwise. Returns 1 when that narrows
+ * the sweep, which is when the survey being replaced is worth keeping.
+ *
+ * The range is the swept one once there is a sweep, and the range in the
+ * fields before that -- a distinction worth naming, because requiring a sweep
+ * to already exist made the first sweep of a freshly opened survey ignore the
+ * zoom it had just been given.
+ */
+static int survey_sweep_target(const struct survey_view *s, double *from,
+                               double *to) {
+    double lower = survey_data_lower(s);
+    double upper = survey_data_upper(s);
+
+    *from = s->view_lower_hz;
+    *to = s->view_upper_hz;
+    if (*to <= *from) {
+        *from = lower;
+        *to = upper;
+        return 0;
+    }
+    return *from > lower + 1.0 || *to < upper - 1.0;
+}
+
+/* Point the range fields at a span and sweep it. */
+static void survey_sweep_span(struct app *app, double from, double to) {
+    struct survey_view *s = &app->survey;
+
+    survey_format_hz(s->from, sizeof(s->from), (uint32_t)llround(from));
+    s->from_length = (int)strlen(s->from);
+    survey_format_hz(s->to, sizeof(s->to), (uint32_t)llround(to));
+    s->to_length = (int)strlen(s->to);
+    survey_start(app);
+}
+
 void handle_survey_input(struct app *app) {
     struct survey_view *s = &app->survey;
     struct survey_layout l = survey_layout_now();
@@ -625,34 +690,20 @@ void handle_survey_input(struct app *app) {
        Editing the range re-anchors the window on it, so the fields and the
        window can never disagree about what Sweep is about to do. */
     if (clicked(l.sweep_button) || IsKeyPressed(KEY_ENTER)) {
-        double from = s->view_lower_hz;
-        double to = s->view_upper_hz;
-        int narrowing = s->bins > 0 && to > from &&
-                        (from > s->lower_hz + 1.0 || to < s->upper_hz - 1.0);
+        double from;
+        double to;
+        int narrowing = survey_sweep_target(s, &from, &to);
 
         s->focus = -1;
         if (narrowing) {
-            /* Keep the survey this is about to replace: sweeping the window
-               throws away everything outside it, and getting that back would
-               cost minutes. Reset zoom restores it instantly instead. */
-            struct survey_snapshot *keep = &s->previous;
-            keep->valid = 1;
-            keep->lower_hz = s->lower_hz;
-            keep->upper_hz = s->upper_hz;
-            keep->bins = s->bins;
-            memcpy(keep->power, s->power, (size_t)s->bins * sizeof(*s->power));
-            memcpy(keep->peaks, s->peaks,
-                   (size_t)s->peak_count * sizeof(*s->peaks));
-            keep->peak_count = s->peak_count;
-            snprintf(keep->from, sizeof(keep->from), "%s", s->from);
-            snprintf(keep->to, sizeof(keep->to), "%s", s->to);
-
-            survey_format_hz(s->from, sizeof(s->from), (uint32_t)llround(from));
-            s->from_length = (int)strlen(s->from);
-            survey_format_hz(s->to, sizeof(s->to), (uint32_t)llround(to));
-            s->to_length = (int)strlen(s->to);
+            /* Sweeping the window throws away everything outside it, and
+               getting that back would cost minutes; Reset zoom restores it
+               from here instead. */
+            survey_keep_current(s);
+            survey_sweep_span(app, from, to);
+        } else {
+            survey_start(app);
         }
-        survey_start(app);
         return;
     }
     if (s->sweeping && clicked(l.stop_button)) {
@@ -855,6 +906,57 @@ void handle_survey_input(struct app *app) {
         return;
     }
 
+    /* Scan around the selected candidate: a short sweep centred on it, at the
+       dwell now in the field. This is the drill-down the survey is for -- the
+       wide sweep says something is at 943.2 MHz, and a few megahertz swept
+       around it says what its neighbourhood looks like, in bins as fine as the
+       FFT allows rather than the hundreds of kilohertz a full-tuner sweep can
+       afford. Reset zoom comes back, because the survey it replaces is kept. */
+    if (s->selected >= 0 && clicked(l.scan_button) && !s->sweeping) {
+        double centre = s->report_valid
+                            ? s->report.centre_hz
+                            : survey_bin_hz(s, s->peaks[s->selected].index);
+        double from = centre - SURVEY_SCAN_HALF_SPAN_HZ;
+        double to = centre + SURVEY_SCAN_HALF_SPAN_HZ;
+
+        if (from < 1000000.0)
+            from = 1000000.0;
+        s->focus = -1;
+        survey_keep_current(s);
+        survey_sweep_span(app, from, to);
+        return;
+    }
+
+    /* Watch it over time: tune to the candidate and open the waterfall on it.
+       The tuning puts the carrier 300 kHz off centre, as the measurement does,
+       so what appears as a stripe is the signal rather than the receiver's own
+       DC spike sitting in the middle of the span. The waterfall's history is
+       cleared, because rows drawn at other frequencies say nothing about this
+       one. */
+    if (s->selected >= 0 && clicked(l.waterfall_button)) {
+        double centre = s->report_valid
+                            ? s->report.centre_hz
+                            : survey_bin_hz(s, s->peaks[s->selected].index);
+
+        s->sweeping = 0;
+        s->measuring = 0;
+        if (app->receiver_mode &&
+            retune_receiver(app, (uint32_t)llround(centre - SURVEY_OFFSET_HZ),
+                            app->applied_ppm) < 0) {
+            snprintf(s->status, sizeof(s->status),
+                     "The receiver would not tune to %.4f MHz.", centre / 1e6);
+            return;
+        }
+        /* Keep this tuning: leaving the survey normally puts back whatever it
+           was before the sweep, which is the opposite of what was just asked
+           for. */
+        s->return_valid = 0;
+        if (recreate_waterfall(app, app->plot, 1) < 0)
+            return;
+        app->view = VIEW_WATERFALL;
+        return;
+    }
+
     /* The handoff: point a decoder at what was found, which is an invitation
        to go and find out, not a claim about what it is. */
     if (s->selected >= 0 && s->report_valid && clicked(l.inspect_button)) {
@@ -951,6 +1053,8 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
                  (int)rect.x + 12, y + 30, 17, (Color){ 150, 172, 188, 255 });
         return;
     }
+    draw_button(l->scan_button, "Scan this frequency", 1);
+    draw_button(l->waterfall_button, "Open waterfall", 1);
 
     double shown_hz = s->report_valid ? s->report.centre_hz
                                       : survey_bin_hz(s, s->peaks[s->selected].index);

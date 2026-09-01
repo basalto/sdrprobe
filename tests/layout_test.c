@@ -297,7 +297,7 @@ static void check_adsb(void) {
 
 /* The band survey. Its lower row is a pair like the ADS-B view's, and its
    inspect button lives inside a panel that a short window shrinks. */
-#define SURVEY_RECTS 10
+#define SURVEY_RECTS 12
 
 struct survey_case {
     float width, height;
@@ -317,7 +317,9 @@ static const struct survey_case survey_cases[] = {
         { "chart", 82.00f, 196.00f, 988.00f, 222.30f },
         { "peak_list", 82.00f, 444.30f, 414.96f, 245.70f },
         { "detail", 516.96f, 444.30f, 553.04f, 245.70f },
-        { "inspect_button", 528.96f, 650.00f, 236.00f, 28.00f },
+        { "scan_button", 528.96f, 614.00f, 258.52f, 28.00f },
+        { "waterfall_button", 799.48f, 614.00f, 258.52f, 28.00f },
+        { "inspect_button", 528.96f, 650.00f, 529.04f, 28.00f },
     }, 82.00f, 950.00f },
     { 1280.0f, 800.0f, {
         { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
@@ -329,7 +331,9 @@ static const struct survey_case survey_cases[] = {
         { "chart", 82.00f, 196.00f, 1168.00f, 258.30f },
         { "peak_list", 82.00f, 480.30f, 490.56f, 289.70f },
         { "detail", 592.56f, 480.30f, 657.44f, 289.70f },
-        { "inspect_button", 604.56f, 730.00f, 236.00f, 28.00f },
+        { "scan_button", 604.56f, 694.00f, 310.72f, 28.00f },
+        { "waterfall_button", 927.28f, 694.00f, 310.72f, 28.00f },
+        { "inspect_button", 604.56f, 730.00f, 633.44f, 28.00f },
     }, 82.00f, 1130.00f },
     { 1000.0f, 540.0f, {
         { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
@@ -341,7 +345,9 @@ static const struct survey_case survey_cases[] = {
         { "chart", 82.00f, 196.00f, 888.00f, 141.30f },
         { "peak_list", 82.00f, 363.30f, 372.96f, 146.70f },
         { "detail", 474.96f, 363.30f, 495.04f, 146.70f },
-        { "inspect_button", 486.96f, 470.00f, 236.00f, 28.00f },
+        { "scan_button", 486.96f, 434.00f, 229.52f, 28.00f },
+        { "waterfall_button", 728.48f, 434.00f, 229.52f, 28.00f },
+        { "inspect_button", 486.96f, 470.00f, 471.04f, 28.00f },
     }, 82.00f, 850.00f },
 };
 
@@ -353,7 +359,7 @@ static void check_survey(void) {
         Rectangle got[SURVEY_RECTS] = {
             l.from_field, l.to_field, l.dwell_field, l.sweep_button,
             l.reset_button, l.stop_button, l.chart, l.peak_list, l.detail,
-            l.inspect_button
+            l.scan_button, l.waterfall_button, l.inspect_button
         };
         for (int i = 0; i < SURVEY_RECTS; i++)
             check(w->width, w->height, w->rect[i].name, got[i], &w->rect[i]);
@@ -375,6 +381,33 @@ static void check_survey(void) {
             fprintf(stderr, "%.0fx%.0f the lower panels are not aligned\n",
                     w->width, w->height);
             failures++;
+        }
+        if (l.scan_button.x + l.scan_button.width >
+            l.waterfall_button.x + 0.01f) {
+            fprintf(stderr, "%.0fx%.0f the panel's upper buttons overlap\n",
+                    w->width, w->height);
+            failures++;
+        }
+        /* The handoff sits on its own row, below the pair. */
+        if (l.inspect_button.y < l.scan_button.y + l.scan_button.height &&
+            l.detail.height > 80.0f) {
+            fprintf(stderr, "%.0fx%.0f inspect_button overlaps the row above\n",
+                    w->width, w->height);
+            failures++;
+        }
+        Rectangle panel_buttons[3] = { l.scan_button, l.waterfall_button,
+                                       l.inspect_button };
+        for (int b = 0; b < 3; b++) {
+            if (panel_buttons[b].x < l.detail.x ||
+                panel_buttons[b].x + panel_buttons[b].width >
+                    l.detail.x + l.detail.width + 0.01f ||
+                panel_buttons[b].y < l.detail.y ||
+                panel_buttons[b].y + panel_buttons[b].height >
+                    l.detail.y + l.detail.height + 0.01f) {
+                fprintf(stderr, "%.0fx%.0f panel button %d escapes the panel\n",
+                        w->width, w->height, b);
+                failures++;
+            }
         }
         if (l.inspect_button.x < l.detail.x ||
             l.inspect_button.x + l.inspect_button.width >
