@@ -98,7 +98,17 @@ probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 		scripts/adsb_chain_probe.c $(SRC)/sdr_dsp.c -lm
 	./$(BUILD)/adsb_chain_probe $(FILE_ADSB)
 
+# What the DSP costs per sample block, against the 65.5 ms one block covers.
+# BENCH_ARCH=-march=native answers the SIMD question by measuring it: the
+# default build has no -march, so the compiler targets the baseline ISA.
+BENCH_ARCH ?=
+bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(BENCH_ARCH) -I$(SRC) -o $(BUILD)/dsp_bench \
+		scripts/dsp_bench.c $(DSP_SRC) -lm
+	./$(BUILD)/dsp_bench
+
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout probe-gsm-chain probe-adsb-chain clean
+.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout probe-gsm-chain probe-adsb-chain bench-dsp clean
