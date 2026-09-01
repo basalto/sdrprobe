@@ -20,6 +20,50 @@ This assessment targets upstream release
 2026-08-07; that release emphasizes reproducible builds and SIMD-selection
 fixes, but does not change the application-level normalization contract.
 
+## Does SIMD matter here?
+
+liquid-dsp selects SIMD kernels (SSE/AVX/NEON) at build time, which is a fair
+reason to prefer it *if* this program were short of CPU. It is not, and the
+question is settled by measurement rather than argument: `make bench-dsp` times
+every stage against the 65.5 ms of signal one 256 KB block covers, since that
+is the interval the receiver delivers them at.
+
+On an i5-8265U with AVX2, medians of three runs:
+
+| Stage | per block | of the 65.5 ms budget |
+| --- | ---: | ---: |
+| byte → I/Q + magnitude | 0.22 ms | 0.3% |
+| signal statistics | 9.3 ms | 14% |
+| magnitude peak bins | 0.10 ms | 0.2% |
+| DC removal | 0.24 ms | 0.4% |
+| spectrum, 64 × 2048-point FFT | 4.2 ms | 6% |
+| Mode S demodulation | 0.33 ms | 0.5% |
+| survey peak search, 8192 bins | 0.52 ms | 0.8% |
+| GSM SCH decode, all refinements | 20.7 ms | 32% |
+| FCCH tone detection | 1.6 ms | 2.5% |
+
+The Scope tab spends about 14 ms of every 65.5 ms; the GSM view, which adds the
+SCH decode, about 35 ms. Live runs report zero overwritten blocks, which is the
+same statement from the other side: the renderer keeps up with the receiver and
+then waits.
+
+Rebuilding with `-march=native`, which lets the compiler use this machine's
+AVX2 throughout, moves nothing that matters: the FFT improves by roughly 10%
+(4.2 → 3.8 ms, a saving of 0.4 ms per block), and the other stages land within
+run-to-run noise or slightly worse — plausibly the clock behaviour of a U-series
+part under wide vectors. `make bench-dsp BENCH_ARCH=-march=native` reproduces
+it.
+
+So SIMD is not a reason to adopt liquid-dsp here, and hand-vectorising the
+local FFT would buy half a millisecond in sixty-five.
+
+**Where the time actually goes is worth knowing anyway.** The largest Scope-path
+cost is `sdr_dsp_signal_stats`, and almost all of it is one `qsort` of 131072
+floats to recover two percentiles. That is an algorithmic cost, not a
+vectorisation one: quickselect for the two ranks, or a histogram over the
+magnitudes, would make it O(n) and cut most of those 9 ms. If this program ever
+does need the time back, that is where it is — not in the FFT, and not in SIMD.
+
 ## API fit
 
 | Requirement | Official API/evidence | Fit |

@@ -36,6 +36,18 @@ make probe-gsm-chain FILE=captures/x.bin
 make probe-adsb-chain FILE_ADSB=testfiles/adsb_modes1.bin
 ```
 
+What the DSP costs, against the 65.5 ms of signal one block covers:
+
+```sh
+make bench-dsp                              # as built, no -march
+make bench-dsp BENCH_ARCH=-march=native     # with this machine's SIMD
+```
+
+The answer as of this writing: the Scope path uses about 14 ms of the 65.5,
+the GSM view about 35, and `-march=native` changes none of it beyond noise.
+See `docs/liquid-dsp-sdrprobe-assessment.md` for the numbers and for where the
+time would come from if it were ever needed.
+
 Running the app without hardware — always prefer this over asking for a dongle:
 
 ```sh
