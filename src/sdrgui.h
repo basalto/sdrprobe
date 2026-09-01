@@ -190,6 +190,9 @@ struct sdrgui_survey_params {
     int hover;                /* likewise */
     int swept_bins;           /* progress: bins measured so far */
     int sweeping;
+    int drag_active;          /* a zoom rectangle is being dragged */
+    double drag_lower_hz;
+    double drag_upper_hz;
     const char *empty_notice;
 };
 
@@ -205,6 +208,13 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params);
 int sdrgui_survey_chart_peak_at(Rectangle outer,
                                 const struct sdrgui_survey_params *params,
                                 Vector2 point);
+
+/* The frequency under `point`, or NAN when the cursor is not over the plot.
+   Same reason as the hit test: only the component knows where the plot sits
+   inside the rectangle it was given. */
+double sdrgui_survey_chart_hz_at(Rectangle outer,
+                                 const struct sdrgui_survey_params *params,
+                                 Vector2 point);
 
 /* --- Decoded-message log --- */
 

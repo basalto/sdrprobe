@@ -297,7 +297,7 @@ static void check_adsb(void) {
 
 /* The band survey. Its lower row is a pair like the ADS-B view's, and its
    inspect button lives inside a panel that a short window shrinks. */
-#define SURVEY_RECTS 8
+#define SURVEY_RECTS 10
 
 struct survey_case {
     float width, height;
@@ -310,8 +310,10 @@ static const struct survey_case survey_cases[] = {
     { 1100.0f, 720.0f, {
         { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
         { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
-        { "sweep_button", 414.00f, 128.00f, 120.00f, 30.00f },
-        { "stop_button", 544.00f, 128.00f, 90.00f, 30.00f },
+        { "dwell_field", 414.00f, 128.00f, 100.00f, 30.00f },
+        { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
+        { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "chart", 82.00f, 196.00f, 988.00f, 222.30f },
         { "peak_list", 82.00f, 444.30f, 414.96f, 245.70f },
         { "detail", 516.96f, 444.30f, 553.04f, 245.70f },
@@ -320,8 +322,10 @@ static const struct survey_case survey_cases[] = {
     { 1280.0f, 800.0f, {
         { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
         { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
-        { "sweep_button", 414.00f, 128.00f, 120.00f, 30.00f },
-        { "stop_button", 544.00f, 128.00f, 90.00f, 30.00f },
+        { "dwell_field", 414.00f, 128.00f, 100.00f, 30.00f },
+        { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
+        { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "chart", 82.00f, 196.00f, 1168.00f, 258.30f },
         { "peak_list", 82.00f, 480.30f, 490.56f, 289.70f },
         { "detail", 592.56f, 480.30f, 657.44f, 289.70f },
@@ -330,8 +334,10 @@ static const struct survey_case survey_cases[] = {
     { 1000.0f, 540.0f, {
         { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
         { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
-        { "sweep_button", 414.00f, 128.00f, 120.00f, 30.00f },
-        { "stop_button", 544.00f, 128.00f, 90.00f, 30.00f },
+        { "dwell_field", 414.00f, 128.00f, 100.00f, 30.00f },
+        { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
+        { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "chart", 82.00f, 196.00f, 888.00f, 141.30f },
         { "peak_list", 82.00f, 363.30f, 372.96f, 146.70f },
         { "detail", 474.96f, 363.30f, 495.04f, 146.70f },
@@ -345,8 +351,9 @@ static void check_survey(void) {
         const struct survey_case *w = &survey_cases[c];
         struct survey_layout l = survey_layout_for(w->width, w->height);
         Rectangle got[SURVEY_RECTS] = {
-            l.from_field, l.to_field, l.sweep_button, l.stop_button, l.chart,
-            l.peak_list, l.detail, l.inspect_button
+            l.from_field, l.to_field, l.dwell_field, l.sweep_button,
+            l.reset_button, l.stop_button, l.chart, l.peak_list, l.detail,
+            l.inspect_button
         };
         for (int i = 0; i < SURVEY_RECTS; i++)
             check(w->width, w->height, w->rect[i].name, got[i], &w->rect[i]);
@@ -376,6 +383,20 @@ static void check_survey(void) {
             l.inspect_button.y + l.inspect_button.height >
                 l.detail.y + l.detail.height + 0.01f) {
             fprintf(stderr, "%.0fx%.0f inspect_button escapes the panel\n",
+                    w->width, w->height);
+            failures++;
+        }
+        Rectangle row[6] = { l.from_field, l.to_field, l.dwell_field,
+                             l.sweep_button, l.reset_button, l.stop_button };
+        for (int i = 1; i < 6; i++) {
+            if (row[i].x < row[i - 1].x + row[i - 1].width) {
+                fprintf(stderr, "%.0fx%.0f control %d overlaps the one before\n",
+                        w->width, w->height, i);
+                failures++;
+            }
+        }
+        if (row[5].x + row[5].width > w->width) {
+            fprintf(stderr, "%.0fx%.0f the control row runs off the window\n",
                     w->width, w->height);
             failures++;
         }

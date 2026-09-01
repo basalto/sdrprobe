@@ -558,6 +558,21 @@ int sdrgui_survey_chart_peak_at(Rectangle outer,
     return nearest;
 }
 
+double sdrgui_survey_chart_hz_at(Rectangle outer,
+                                 const struct sdrgui_survey_params *params,
+                                 Vector2 point) {
+    Rectangle plot = survey_chart_area(outer);
+    double span;
+
+    if (!params || !CheckCollisionPointRec(point, plot))
+        return NAN;
+    span = params->upper_hz - params->lower_hz;
+    if (span <= 0.0)
+        return NAN;
+    return params->lower_hz +
+           span * (double)((point.x - plot.x) / plot.width);
+}
+
 void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
     Rectangle outer = params->plot;
     Rectangle plot = survey_chart_area(outer);
@@ -683,6 +698,36 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
             DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
                      (Color){ 250, 190, 74, 200 });
         }
+    }
+
+    /* The rectangle being dragged to zoom, drawn over the trace so the reader
+       can see what the release will select. */
+    if (params->drag_active) {
+        double from = params->drag_lower_hz;
+        double to = params->drag_upper_hz;
+        if (to < from) {
+            double swap = from;
+            from = to;
+            to = swap;
+        }
+        float x0 = survey_x_for_hz(plot, params->lower_hz, params->upper_hz,
+                                   from);
+        float x1 = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, to);
+        if (x1 < x0) {
+            float swap = x0;
+            x0 = x1;
+            x1 = swap;
+        }
+        DrawRectangle((int)x0, (int)plot.y, (int)(x1 - x0), (int)plot.height,
+                      (Color){ 255, 174, 62, 40 });
+        DrawLine((int)x0, (int)plot.y, (int)x0, (int)(plot.y + plot.height),
+                 (Color){ 255, 174, 62, 220 });
+        DrawLine((int)x1, (int)plot.y, (int)x1, (int)(plot.y + plot.height),
+                 (Color){ 255, 174, 62, 220 });
+        char span[64];
+        snprintf(span, sizeof(span), "%.3f MHz", (to - from) / 1e6);
+        DrawText(span, (int)x0 + 6, (int)plot.y + 6, 16,
+                 (Color){ 255, 202, 105, 255 });
     }
 
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });

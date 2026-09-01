@@ -14,7 +14,9 @@
 struct survey_layout {
     Rectangle from_field;      /* range entry: low edge */
     Rectangle to_field;        /* range entry: high edge */
-    Rectangle sweep_button;
+    Rectangle dwell_field;     /* seconds spent on each step */
+    Rectangle sweep_button;    /* sweeps whatever the chart is showing */
+    Rectangle reset_button;    /* back out of a zoom, or of a region sweep */
     Rectangle stop_button;
     Rectangle chart;           /* power across the swept range */
     Rectangle peak_list;       /* lower left: the candidates found */
@@ -42,8 +44,13 @@ static inline struct survey_layout survey_layout_for(float width,
        on top of it. */
     l.from_field = (Rectangle){ 82.0f, 128.0f, 150.0f, 30.0f };
     l.to_field = (Rectangle){ 248.0f, 128.0f, 150.0f, 30.0f };
-    l.sweep_button = (Rectangle){ 414.0f, 128.0f, 120.0f, 30.0f };
-    l.stop_button = (Rectangle){ 544.0f, 128.0f, 90.0f, 30.0f };
+    l.dwell_field = (Rectangle){ 414.0f, 128.0f, 100.0f, 30.0f };
+    /* Five controls on one row, comfortably inside the 1000 px minimum window
+       now that one Sweep does what two used to. tests/layout_test.c asserts
+       they neither overlap nor run off the edge. */
+    l.sweep_button = (Rectangle){ 530.0f, 128.0f, 120.0f, 30.0f };
+    l.reset_button = (Rectangle){ 666.0f, 128.0f, 130.0f, 30.0f };
+    l.stop_button = (Rectangle){ 812.0f, 128.0f, 90.0f, 30.0f };
     l.header_left = 82.0f;
     l.header_right = width - 150.0f;
 
