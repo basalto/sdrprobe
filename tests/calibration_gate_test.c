@@ -194,6 +194,175 @@ static void test_tone_lock_holds_through_gaps(void) {
               calibration_hold_through_miss(CALIBRATION_FCCH_MISS_LIMIT), 0);
 }
 
+/* ---- the state machine around the gate ------------------------------ */
+
+/*
+ * A block arrives; the tracker says what it may contribute. These are the
+ * transitions the gate depends on -- it can only be as good as the buffer it
+ * reads, and keeping that buffer honest is what this machine does.
+ */
+static void test_the_source_machine(void) {
+    struct calibration_tracker t;
+
+    calibration_tracker_init(&t);
+    check_int("nothing found yet, and no carrier",
+              calibration_track(&t, 0, 0), CALIBRATION_NOTHING);
+    check_int("still on the centroid", t.source, CALIBRATION_SOURCE_CENTROID);
+
+    check_int("a carrier and no tone is a centroid measurement",
+              calibration_track(&t, 0, 1), CALIBRATION_USE_CENTROID);
+    check_int("and no tone lock", t.fcch_locked, 0);
+
+    check_int("a tone takes over", calibration_track(&t, 1, 1),
+              CALIBRATION_USE_FCCH);
+    check_int("the source is the tone", t.source, CALIBRATION_SOURCE_FCCH);
+    check_int("and the lock is on", t.fcch_locked, 1);
+    check_int("hits counted", t.fcch_hits, 1);
+}
+
+/*
+ * The mixing hazard, from the other side: switching to the tone must empty
+ * the buffer. A buffer holding both sources has a centre belonging to neither
+ * and a standard error tight enough to pass the gate -- the correction then
+ * goes green while being wrong by half the gap (ADR-0004).
+ */
+static void test_switching_source_empties_the_buffer(void) {
+    struct calibration_tracker t;
+
+    calibration_tracker_init(&t);
+    for (int i = 0; i < 40; i++) {
+        calibration_track(&t, 0, 1);
+        calibration_tracker_observe(&t, 4.0 + 0.01 * (i % 3));
+    }
+    check_int("forty centroid residuals", t.recent_count, 40);
+    check_close("centred on the centroid's answer", t.recent_center, 4.0, 0.05);
+
+    check_int("a tone arrives", calibration_track(&t, 1, 1),
+              CALIBRATION_USE_FCCH);
+    check_int("the buffer is empty", t.recent_count, 0);
+    check_int("the measurement count restarts", t.measurements, 0);
+    check_close("and nothing is left of the old centre", t.recent_center, 0.0,
+                1e-9);
+    check_int("and the lock is not carried over", t.stable, 0);
+
+    /* And back the other way, after the miss limit. */
+    calibration_tracker_observe(&t, 0.1);
+    for (int i = 0; i < CALIBRATION_FCCH_MISS_LIMIT - 1; i++)
+        check_msg(calibration_track(&t, 0, 1) == CALIBRATION_HOLD_TONE,
+                  "miss %d did not hold the tone lock\n", i + 1);
+    check_int("the tone residual survived the gap", t.recent_count, 1);
+    check_int("the limit gives up the lock", calibration_track(&t, 0, 1),
+              CALIBRATION_USE_CENTROID);
+    check_int("back on the centroid", t.source, CALIBRATION_SOURCE_CENTROID);
+    check_int("with an empty buffer", t.recent_count, 0);
+}
+
+/*
+ * While the lock holds through a gap, nothing is recorded at all -- not even
+ * the centroid that is sitting right there. Recording it is exactly the
+ * mixing above, and GSM sends an FCCH only ten times a multiframe, so these
+ * gaps are the normal case rather than an edge one.
+ */
+static void test_a_gap_records_nothing(void) {
+    struct calibration_tracker t;
+
+    calibration_tracker_init(&t);
+    calibration_track(&t, 1, 1);
+    calibration_tracker_observe(&t, 0.5);
+    check_int("one tone residual", t.recent_count, 1);
+
+    for (int i = 0; i < CALIBRATION_FCCH_MISS_LIMIT - 1; i++) {
+        enum calibration_action action = calibration_track(&t, 0, 1);
+        check_msg(action == CALIBRATION_HOLD_TONE,
+                  "a burst-free block returned %d, not a hold\n",
+                  (int)action);
+        check_msg(t.source == CALIBRATION_SOURCE_FCCH,
+                  "the source changed during a gap\n");
+    }
+    check_int("and the buffer still holds only the tone residual",
+              t.recent_count, 1);
+
+    /* The tone comes back before the limit: the lock never broke, the buffer
+       was never emptied, and the miss counter starts again. */
+    check_int("the tone returns", calibration_track(&t, 1, 1),
+              CALIBRATION_USE_FCCH);
+    check_int("the residual is still there", t.recent_count, 1);
+    check_int("and the miss counter is cleared", t.fcch_miss, 0);
+}
+
+/* A signal that goes away entirely empties the buffer rather than leaving it
+   to age: those residuals describe something no longer there. */
+static void test_losing_the_signal_empties_the_buffer(void) {
+    struct calibration_tracker t;
+
+    calibration_tracker_init(&t);
+    for (int i = 0; i < 10; i++) {
+        calibration_track(&t, 0, 1);
+        calibration_tracker_observe(&t, 3.0);
+    }
+    check_int("ten residuals", t.recent_count, 10);
+    check_int("the carrier goes", calibration_track(&t, 0, 0),
+              CALIBRATION_NOTHING);
+    check_int("and takes the buffer with it", t.recent_count, 0);
+}
+
+/* The ring: it holds the most recent CALIBRATION_RECENT residuals and no
+   more, and the statistics follow what is in it. */
+static void test_the_residual_ring(void) {
+    struct calibration_tracker t;
+
+    calibration_tracker_init(&t);
+    /* Fill it twice over with a value, then flood it with another: the old
+       value must be entirely gone. */
+    for (int i = 0; i < CALIBRATION_RECENT * 2; i++)
+        calibration_tracker_observe(&t, 9.0);
+    check_int("the ring stops at its size", t.recent_count,
+              CALIBRATION_RECENT);
+    check_int("but the measurement count does not",
+              t.measurements, CALIBRATION_RECENT * 2);
+    check_close("centred on what is in it", t.recent_center, 9.0, 1e-9);
+
+    for (int i = 0; i < CALIBRATION_RECENT; i++)
+        calibration_tracker_observe(&t, 1.0);
+    check_close("and it forgets what has scrolled out", t.recent_center, 1.0,
+                1e-9);
+    check_close("with no spread left over", t.recent_spread, 0.0, 1e-9);
+}
+
+/*
+ * The whole thing end to end: a tone that settles, seen through the gate the
+ * program actually consults. This is the sequence that turns the lock green.
+ */
+static void test_a_lock_settles(void) {
+    struct calibration_tracker t;
+    double elapsed = 0.0;
+    double locked_at = -1.0;
+
+    calibration_tracker_init(&t);
+    for (int block = 0; block < 200; block++) {
+        /* A tone, missing every fifth block the way FCCH does. */
+        int have_fcch = (block % 5) != 4;
+        elapsed += 0.0655;
+        if (calibration_track(&t, have_fcch, 1) == CALIBRATION_HOLD_TONE)
+            continue;
+        calibration_tracker_observe(&t, 1.5 + ((block % 7) - 3) * 0.02);
+        t.stable = calibration_is_stable(elapsed, t.measurements,
+                                         t.recent_count, t.recent_sem,
+                                         t.source, 0.0f);
+        if (t.stable && locked_at < 0.0)
+            locked_at = elapsed;
+    }
+    check_msg(t.stable, "a clean tone never locked in 200 blocks\n");
+    check_msg(locked_at >= CALIBRATION_MIN_SECONDS,
+              "the lock came at %.2f s, before the %.1f s the gate "
+              "requires\n",
+              locked_at, CALIBRATION_MIN_SECONDS);
+    check_close("and settles on the residual it was fed", t.recent_center, 1.5,
+                0.05);
+    check_int("having stayed on the tone throughout", t.source,
+              CALIBRATION_SOURCE_FCCH);
+}
+
 int main(void) {
     test_a_good_lock_passes();
     test_each_clause_refuses();
@@ -202,6 +371,12 @@ int main(void) {
     test_standard_error();
     test_sources_never_mix();
     test_tone_lock_holds_through_gaps();
+    test_the_source_machine();
+    test_switching_source_empties_the_buffer();
+    test_a_gap_records_nothing();
+    test_losing_the_signal_empties_the_buffer();
+    test_the_residual_ring();
+    test_a_lock_settles();
 
     return check_report("calibration gate");
 }

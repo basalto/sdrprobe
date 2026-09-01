@@ -1,6 +1,6 @@
 # 05 — The calibration state machine around the gate
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: (none)
 
 `check-calibration` now covers the gate arithmetic — the clauses, the robust
@@ -24,3 +24,33 @@ survives `CALIBRATION_FCCH_MISS_LIMIT - 1` misses and not the limit; a lock
 already achieved is not silently re-armed by a single bad block.
 
 ## Comments
+
+## Answer
+
+Done in `src/calibration_gate.h`, beside the gate it feeds, and checked by the
+existing `tests/calibration_gate_test.c` (`make check-calibration`, now 100
+checks).
+
+`struct calibration_tracker` holds the source, the tone-lock miss counter, the
+residual ring and the statistics over it. `calibration_track(t, have_fcch,
+have_centroid)` advances it and returns what the block may contribute --
+`USE_FCCH`, `HOLD_TONE`, `USE_CENTROID` or `NOTHING` -- performing the buffer
+resets on the way. `calibration_tracker_observe()` records a residual and
+recomputes the centre, spread and standard error.
+`update_calibration_measurement()` is a four-case switch over that, and
+`struct calibration` embeds the tracker; `overlay_calibration.c` lost 66 lines
+net.
+
+The two mutations that matter both fail loudly:
+
+- Keeping the buffer across a source change -- the exact bug ADR-0004 exists
+  for -- fails four checks, including one that shows 41 residuals in a buffer
+  that should hold 1.
+- Recording the centroid during a tone gap, which looks like a free
+  measurement, fails 22.
+
+Also checked: a gap records nothing at all and the tone returning before the
+limit leaves the buffer intact; losing the signal empties the buffer rather
+than leaving it to age; the ring forgets what scrolls out of it while the
+measurement count does not; and a clean tone with a realistic FCCH duty cycle
+locks, but not before the gate's eight seconds.

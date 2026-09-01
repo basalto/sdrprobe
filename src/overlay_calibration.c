@@ -36,20 +36,10 @@ void open_calibration(struct app *app) {
              "113");
     app->cal.channel_length = 3;
     app->calibration_expected_hz = 0;
-    app->cal.measurements = 0;
-    app->cal.recent_count = 0;
-    app->cal.recent_head = 0;
-    app->cal.recent_center = 0.0;
-    app->cal.recent_spread = 0.0;
-    app->cal.recent_sem = 0.0;
-    app->cal.fcch_locked = 0;
+    calibration_tracker_init(&app->cal.track);
     app->cal.fcch_confidence = 0.0f;
-    app->cal.source = CALIBRATION_SOURCE_CENTROID;
-    app->cal.fcch_miss = 0;
-    app->cal.fcch_hits = 0;
     app->scan_open = 0;
     app->scan_running = 0;
-    app->cal.stable = 0;
     app->cal.measured_hz = 0.0;
     app->cal.offset_hz = 0.0;
     app->cal.return_frequency = app->applied_frequency;
@@ -81,19 +71,9 @@ int start_calibration(struct app *app) {
 
     app->calibration_expected_hz = expected;
     app->cal.tune_hz = expected - 400000U;
-    app->cal.measurements = 0;
     app->cal.measured_hz = 0.0;
     app->cal.offset_hz = 0.0;
-    app->cal.recent_count = 0;
-    app->cal.recent_head = 0;
-    app->cal.recent_center = 0.0;
-    app->cal.recent_spread = 0.0;
-    app->cal.recent_sem = 0.0;
-    app->cal.source = CALIBRATION_SOURCE_CENTROID;
-    app->cal.fcch_miss = 0;
-    app->cal.fcch_hits = 0;
-    app->cal.fcch_locked = 0;
-    app->cal.stable = 0;
+    calibration_tracker_init(&app->cal.track);
     if (retune_receiver(app, app->cal.tune_hz, app->applied_ppm) < 0)
         return -1;
     app->cal.started_at = GetTime();
@@ -105,28 +85,18 @@ int start_calibration(struct app *app) {
 }
 
 
-static void reset_calibration_stats(struct app *app) {
-    app->cal.measurements = 0;
-    app->cal.recent_count = 0;
-    app->cal.recent_head = 0;
-    app->cal.recent_center = 0.0;
-    app->cal.recent_spread = 0.0;
-    app->cal.recent_sem = 0.0;
-    app->cal.stable = 0;
-}
-
 static void calibration_set_status(struct app *app) {
     snprintf(app->calibration_status, sizeof(app->calibration_status),
              "%s (%s): %d meas, +/- %.2f PPM (spread %.2f), FCCH hits %d miss %d conf %.2f, suggested %+d PPM",
-             app->cal.stable ? "Stable lock" : "Acquiring",
-             app->cal.source == CALIBRATION_SOURCE_FCCH
+             app->cal.track.stable ? "Stable lock" : "Acquiring",
+             app->cal.track.source == CALIBRATION_SOURCE_FCCH
                  ? "FCCH tone"
                  : "centroid",
-             app->cal.measurements,
-             app->cal.recent_sem,
-             app->cal.recent_spread,
-             app->cal.fcch_hits,
-             app->cal.fcch_miss,
+             app->cal.track.measurements,
+             app->cal.track.recent_sem,
+             app->cal.track.recent_spread,
+             app->cal.track.fcch_hits,
+             app->cal.track.fcch_miss,
              app->cal.fcch_confidence,
              app->cal.suggested_ppm);
 }
@@ -173,88 +143,52 @@ void update_calibration_measurement(struct app *app) {
         app->cal.prominence_db = estimate.prominence_db;
     }
 
-    /* FCCH and centroid residuals differ by many PPM, so the recent-residual
-       buffer must never mix them: switching source resets it, and while locked
-       to the tone a burst-free block is skipped rather than recorded. */
+    /* Which source this block may contribute to, and the buffer resets that
+       keep the two from mixing, are in calibration_gate.h with the gate they
+       feed -- the rule is ADR-0004's and it is checked there. */
     double measured_hz;
-    if (have_fcch) {
-        if (!calibration_source_matches(app->cal.source,
-                                        CALIBRATION_SOURCE_FCCH)) {
-            app->cal.source = CALIBRATION_SOURCE_FCCH;
-            reset_calibration_stats(app);
-            app->cal.fcch_hits = 0;
-        }
-        app->cal.fcch_miss = 0;
-        app->cal.fcch_locked = 1;
+    switch (calibration_track(&app->cal.track, have_fcch, have_centroid)) {
+    case CALIBRATION_USE_FCCH:
         app->cal.fcch_confidence = fcch.confidence;
-        app->cal.fcch_hits++;
         measured_hz = (double)app->applied_frequency +
                       fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
-    } else if (app->cal.source == CALIBRATION_SOURCE_FCCH) {
-        app->cal.fcch_miss++;
-        if (calibration_hold_through_miss(app->cal.fcch_miss)) {
-            calibration_set_status(app); /* hold the tone lock */
-            return;
-        }
-        app->cal.source = CALIBRATION_SOURCE_CENTROID;
-        app->cal.fcch_locked = 0;
-        reset_calibration_stats(app);
-        app->cal.fcch_hits = 0;
-        if (!have_centroid) {
-            snprintf(app->calibration_status,
-                     sizeof(app->calibration_status),
-                     "No isolated GSM carrier at least 8 dB above guard-band floor");
-            return;
-        }
+        break;
+    case CALIBRATION_HOLD_TONE:
+        calibration_set_status(app); /* hold the tone lock */
+        return;
+    case CALIBRATION_USE_CENTROID:
         measured_hz = estimate.measured_frequency_hz;
-    } else {
-        app->cal.fcch_locked = 0;
-        if (!have_centroid) {
-            snprintf(app->calibration_status,
-                     sizeof(app->calibration_status),
-                     "No isolated GSM carrier at least 8 dB above guard-band floor");
-            reset_calibration_stats(app);
-            return;
-        }
-        measured_hz = estimate.measured_frequency_hz;
+        break;
+    default:
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "No isolated GSM carrier at least 8 dB above guard-band "
+                 "floor");
+        return;
     }
 
     app->cal.measured_hz = measured_hz;
     app->cal.offset_hz = measured_hz - app->calibration_expected_hz;
     double observed_ppm = app->cal.offset_hz /
                           app->calibration_expected_hz * 1000000.0;
-    app->cal.measurements++;
-    app->cal.recent_ppm[app->cal.recent_head] = observed_ppm;
-    app->cal.recent_head =
-        (app->cal.recent_head + 1) % CALIBRATION_RECENT;
-    if (app->cal.recent_count < CALIBRATION_RECENT)
-        app->cal.recent_count++;
-
     /* Individual 65 ms blocks scatter a lot on a modulated GSM channel, but the
-       correction we apply is the center of the recent residuals, whose
-       uncertainty is the standard error of that center, not the per-block
-       spread. Gate on the standard error so the lock reflects how well the
-       correction is known. Median/MAD keep a hopping peak from biasing it. */
-    robust_center_spread(app->cal.recent_ppm,
-                         app->cal.recent_count,
-                         &app->cal.recent_center,
-                         &app->cal.recent_spread);
-    app->cal.recent_sem = calibration_standard_error(app->cal.recent_spread,
-                                                     app->cal.recent_count);
+       correction applied is the centre of the recent residuals, whose
+       uncertainty is the standard error of that centre, not the per-block
+       spread. The tracker keeps both. */
+    calibration_tracker_observe(&app->cal.track, observed_ppm);
 
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
         app->applied_ppm, app->calibration_expected_hz *
-                              (1.0 + app->cal.recent_center / 1000000.0),
+                              (1.0 + app->cal.track.recent_center / 1000000.0),
         app->calibration_expected_hz);
     if (app->cal.suggested_ppm < -1000)
         app->cal.suggested_ppm = -1000;
     if (app->cal.suggested_ppm > 1000)
         app->cal.suggested_ppm = 1000;
 
-    app->cal.stable = calibration_is_stable(elapsed, app->cal.measurements,
-                                            app->cal.recent_count,
-                                            app->cal.recent_sem,
-                                            app->cal.source,
+    app->cal.track.stable = calibration_is_stable(elapsed, app->cal.track.measurements,
+                                            app->cal.track.recent_count,
+                                            app->cal.track.recent_sem,
+                                            app->cal.track.source,
                                             app->cal.prominence_db);
     calibration_set_status(app);
 }
@@ -413,13 +347,13 @@ void handle_calibration_input(struct app *app) {
         inputs_changed = 1;
     }
     if (inputs_changed) {
-        app->cal.stable = 0;
-        app->cal.measurements = 0;
-        app->cal.recent_count = 0;
-        app->cal.recent_head = 0;
-        app->cal.recent_center = 0.0;
-        app->cal.recent_spread = 0.0;
-        app->cal.recent_sem = 0.0;
+        app->cal.track.stable = 0;
+        app->cal.track.measurements = 0;
+        app->cal.track.recent_count = 0;
+        app->cal.track.recent_head = 0;
+        app->cal.track.recent_center = 0.0;
+        app->cal.track.recent_spread = 0.0;
+        app->cal.track.recent_sem = 0.0;
         if (app->cal.running)
             snprintf(app->calibration_status,
                      sizeof(app->calibration_status),
@@ -434,14 +368,14 @@ void handle_calibration_input(struct app *app) {
         start_calibration(app);
     if (clicked(scan) && app->calibration_technology == 0)
         start_scan(app);
-    if (clicked(apply_ppm) && app->cal.stable) {
+    if (clicked(apply_ppm) && app->cal.track.stable) {
         if (retune_receiver(app, app->cal.tune_hz,
                             app->cal.suggested_ppm) == 0) {
             app->options.ppm = app->cal.suggested_ppm;
-            app->cal.measurements = 0;
-            app->cal.recent_count = 0;
-            app->cal.recent_head = 0;
-            app->cal.stable = 0;
+            app->cal.track.measurements = 0;
+            app->cal.track.recent_count = 0;
+            app->cal.track.recent_head = 0;
+            app->cal.track.stable = 0;
             app->cal.started_at = GetTime();
             snprintf(app->calibration_status,
                      sizeof(app->calibration_status),
@@ -449,7 +383,7 @@ void handle_calibration_input(struct app *app) {
                      app->applied_ppm);
             /* The health indicator turns green only for an FCCH-backed lock;
                record the calibrated channel so drift can be re-checked. */
-            if (app->cal.source == CALIBRATION_SOURCE_FCCH) {
+            if (app->cal.track.source == CALIBRATION_SOURCE_FCCH) {
                 int arfcn = 0;
                 parse_int(app->cal.channel, &arfcn);
                 app->gsm_cal_valid = 1;
@@ -505,7 +439,7 @@ void draw_calibration(struct app *app) {
                       app->calibration_technology == 0);
     draw_button(start, app->cal.running ? "Retune" : "Start",
                 app->calibration_technology == 0);
-    draw_button(apply_ppm, "Apply PPM", app->cal.stable);
+    draw_button(apply_ppm, "Apply PPM", app->cal.track.stable);
     draw_button(scan, "Scan", app->calibration_technology == 0);
     draw_button(back, "Back", 0);
 
@@ -514,16 +448,16 @@ void draw_calibration(struct app *app) {
              app->calibration_expected_hz / 1000000.0,
              app->applied_frequency / 1000000.0, app->applied_ppm);
     DrawText(text, 24, 118, 17, (Color){ 190, 208, 218, 255 });
-    if (app->cal.measurements > 0) {
+    if (app->cal.track.measurements > 0) {
         snprintf(text, sizeof(text),
                  "measured: %.6f MHz   offset: %+.1f kHz   observed: %+.2f PPM   center: %+.2f +/- %.2f PPM (SEM %.2f)",
                  app->cal.measured_hz / 1000000.0,
                  app->cal.offset_hz / 1000.0,
                  app->cal.offset_hz /
                      app->calibration_expected_hz * 1000000.0,
-                 app->cal.recent_center,
-                 app->cal.recent_spread,
-                 app->cal.recent_sem);
+                 app->cal.track.recent_center,
+                 app->cal.track.recent_spread,
+                 app->cal.track.recent_sem);
         DrawText(text, 24, 142, 17, (Color){ 255, 205, 91, 255 });
         snprintf(text, sizeof(text),
                  "peak: %.1f dBFS   guard floor: %.1f dBFS   prominence: %.1f dB   suggested correction: %+d PPM",
@@ -531,7 +465,7 @@ void draw_calibration(struct app *app) {
                  app->cal.prominence_db,
                  app->cal.suggested_ppm);
         DrawText(text, 24, 164, 17,
-                 app->cal.stable ? (Color){ 99, 228, 170, 255 }
+                 app->cal.track.stable ? (Color){ 99, 228, 170, 255 }
                                          : (Color){ 250, 190, 74, 255 });
     }
     DrawText(app->calibration_status, 24, 186, 17,
@@ -563,7 +497,7 @@ void draw_calibration(struct app *app) {
                  (Color){ 87, 229, 173, 230 });
         DrawText("expected", (int)expected_x + 5, (int)app->plot.y + 5, 16,
                  (Color){ 111, 244, 191, 255 });
-        if (app->cal.measurements > 0) {
+        if (app->cal.track.measurements > 0) {
             float measured_x = app->plot.x +
                                (float)((app->cal.measured_hz - lower) /
                                        (upper - lower)) * app->plot.width;
