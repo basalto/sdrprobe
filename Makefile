@@ -16,7 +16,7 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/chrome_layout.h \
-	$(SRC)/band_plan.h $(SRC)/app.h $(SRC)/view.h
+	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
@@ -77,6 +77,28 @@ check-layout: $(TESTS)/layout_test.c $(SRC)/gsm_layout.h \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
 	./$(BUILD)/layout_test
 
+# Command-line parsing: every flag, every rejection. Pure text in, options
+# out, so it links nothing at all.
+check-options: $(TESTS)/options_test.c $(SRC)/options.c $(SRC)/options.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/options_test \
+		$(TESTS)/options_test.c $(SRC)/options.c -lm
+	./$(BUILD)/options_test
+
+# Whole paths through the built program, over the captures in testfiles/:
+# decode, record, and the flags that reach them. Needs the binary and about ten
+# seconds; needs no receiver and nobody watching.
+check-pipelines: sdrprobe $(TESTS)/pipelines.sh
+	@$(TESTS)/pipelines.sh
+
+# When a frequency correction may be trusted (ADR-0004). Pure arithmetic, so
+# the rule can be checked clause by clause without a receiver.
+check-calibration: $(TESTS)/calibration_gate_test.c $(SRC)/calibration_gate.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/calibration_gate_test \
+		$(TESTS)/calibration_gate_test.c -lm
+	./$(BUILD)/calibration_gate_test
+
 # The band survey's window arithmetic: zoom, pan, and what Sweep would sweep.
 # No raylib, no receiver, no window -- which is the point. Every one of these
 # decisions previously had to be checked by building an instrumented binary and
@@ -86,6 +108,13 @@ check-survey: $(TESTS)/survey_window_test.c $(SRC)/survey_window.h
 	$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_window_test \
 		$(TESTS)/survey_window_test.c -lm
 	./$(BUILD)/survey_window_test
+
+# One command that says whether the tree is sound, for agents and for people.
+# ADR-0012: every decision must be reachable by a check that needs no window,
+# no receiver and nobody watching -- and reaching them has to be one step, or
+# it will not be done.
+check: check-dsp check-options check-survey check-calibration check-layout \
+	check-pipelines
 
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan
 
@@ -121,4 +150,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean

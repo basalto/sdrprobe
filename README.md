@@ -130,15 +130,26 @@ for the full procedure and the DSP details.
 
 ## Testing
 
-The DSP is hardware‑free and deterministic:
+Everything is checkable without a window, a receiver, or a person:
 
 ```sh
-make check-dsp       # runs the generic-core and GSM-plugin checks
-make check-sdr-dsp   # generic SDR primitives only
-make check-gsm-dsp   # GSM plugin (+ the generic core it reuses)
+make check           # all of the below, about 18 seconds
 ```
 
-The checks link only `-lm` (no raylib, no librtlsdr) and never touch the GUI.
+```sh
+make check-dsp         # generic core, GSM, Mode S, band plan
+make check-options     # the command line: every flag, value, and rejection
+make check-survey      # the band survey's zoom, pan and sweep arithmetic
+make check-calibration # when a frequency correction may be trusted
+make check-layout      # view geometry at several window sizes
+make check-pipelines   # the built program over testfiles/, asserting on stdout
+```
+
+The unit checks link only `-lm` (no raylib, no librtlsdr) and never touch the
+GUI. `check-pipelines` runs the real binary against the recorded captures in
+`testfiles/`: both GSM captures must decode their own BSIC, the ADS-B capture
+must resolve a position from an even/odd pair, and it must do so identically
+twice.
 
 ## Project layout
 

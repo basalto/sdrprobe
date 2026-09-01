@@ -11,22 +11,39 @@ need the detail.
 
 ```sh
 make                  # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
-make check-dsp        # the four DSP checks below (not check-survey)
+make check            # everything below, ~18 s, no window and no receiver
+make check-dsp        # the four DSP checks below
 make check-sdr-dsp    # one check in isolation — generic core
 make check-gsm-dsp    # GSM plugin (+ the core it reuses)
 make check-adsb-dsp   # Mode S / ADS-B plugin
 make check-band-plan  # the frequency allocation table
+make check-options    # the command line: every flag, value, and rejection
 make check-survey     # the band survey's window arithmetic (no window needed)
+make check-calibration # the frequency-correction lock gate and its statistics
 make check-layout     # GSM view geometry (raylib headers only, no window)
+make check-pipelines  # the built program over testfiles/, asserting on stdout
 make clean
 ```
+
+`make check` is the one to run before claiming a change is sound. **ADR-0012
+governs what belongs in it: every decision the program makes must be reachable
+by a check that needs no window, no receiver, and no person — drawing is
+exempt, deciding is not.** The rule that keeps that true is that a function
+which draws or reads input may not also decide; if it computes a threshold,
+chooses a range, maps a pointer to an index, or advances a state machine, that
+part comes out into a unit with a name. Logic not yet reachable is listed in
+`.scratch/testability/`, one ticket per area — add to it rather than leaving a
+gap implicit.
 
 There is no CI, no linter, and no test framework: each check is a `main()` that
 calls `test_*()` functions and increments a file-static `failures` counter via
 `check_*` helpers (`check_close`, `check_size`, `check_int`, `check_str`),
 printing `... checks passed` and returning non-zero on failure. To run a
 *single* test, temporarily comment out the other `test_*()` calls in that file's
-`main()` — there is no filter flag.
+`main()` — there is no filter flag. `check-pipelines` is the exception: a POSIX
+`sh` script (`tests/pipelines.sh`) that runs the built binary over the captures
+in `testfiles/` and greps its stdout, which is what proves the units are wired
+together.
 
 White-box diagnostics (not tests — they print a walk through a decode chain and
 compile the plugin's `.c` in to reach its statics):
@@ -140,7 +157,12 @@ Its shape:
   async callback, `file_worker` for the paced file pacer) hands 256 KB blocks
   to the render thread through a **single mutex-guarded, overwriteable slot** —
   `struct latest_block`, consumed by `consume_latest`. Not a queue: a slow
-  renderer drops blocks rather than lagging (ADR-0002). SIGINT/SIGTERM are
+  renderer drops blocks rather than lagging (ADR-0002). Headless *file*
+  playback is the one exception: `acquisition_set_lossless()` makes the file
+  worker wait for the consumer instead of overwriting, and stop pacing to real
+  time, so a scripted decode sees every block and gives the same answer twice.
+  Never set it for a receiver — blocking the librtlsdr callback loses samples
+  for real. SIGINT/SIGTERM are
   blocked around `pthread_create` so only the main thread handles them.
   The device handle, playback file and sample rate are *borrowed*: call
   `acquisition_attach_source()` before starting a worker, or it reads a NULL
