@@ -22,7 +22,8 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gs
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
-	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h $(SRC)/chrome_layout.h \
+	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h \
+	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/adsb_dsp.h
@@ -165,6 +166,16 @@ check-acquisition: $(TESTS)/acquisition_test.c $(TESTS)/check.h \
 		$(shell pkg-config --libs librtlsdr) -lm -pthread
 	$(Q)./$(BUILD)/acquisition_test
 
+# Which candidates the survey should warn about: the receiver's own reference
+# comb, and the DC offset at each step centre. The check is built from a real
+# sweep taken with the antenna disconnected.
+check-suspect: $(TESTS)/survey_suspect_test.c $(TESTS)/check.h \
+		$(SRC)/survey_suspect.h $(SRC)/survey_sweep.h $(SRC)/sdr_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_suspect_test \
+		$(TESTS)/survey_suspect_test.c -lm
+	$(Q)./$(BUILD)/survey_suspect_test
+
 # The sweep itself: the step plan, the fold, and what measuring a candidate
 # adds up to. None of it is visible when it is wrong -- a gap between steps
 # hides whatever transmits in it and the chart looks right -- so the arithmetic
@@ -195,7 +206,8 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # appends its counts to CHECK_TALLY so the total below is real rather than a
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
 CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
-	check-options check-survey check-survey-sweep check-calibration \
+	check-options check-survey check-survey-sweep check-suspect \
+	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
 	check-gsm-continuity check-geometry check-input
 TALLY=$(BUILD)/check-tally
@@ -245,4 +257,4 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean

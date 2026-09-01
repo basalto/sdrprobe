@@ -20,6 +20,7 @@ make check-band-plan  # the frequency allocation table
 make check-options    # the command line: every flag, value, and rejection
 make check-survey     # the survey window's zoom, pan and clamp arithmetic
 make check-survey-sweep # the sweep's step plan, fold, and measurement
+make check-suspect    # candidates that look like the receiver, not the band
 make check-calibration # the lock gate, and the machine that fills its buffer
 make check-scan       # the band scan's coverage and the channel it chooses
 make check-adsb-analysis # trace latching, the message log, the funnel

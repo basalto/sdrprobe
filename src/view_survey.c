@@ -8,6 +8,7 @@
 #include "view.h"
 #include "survey_layout.h"
 #include "survey_window.h"
+#include "survey_suspect.h"
 #include "sdrgui.h"
 
 /*
@@ -73,6 +74,18 @@ static void survey_window_put(struct survey_view *s,
 }
 
 /* The frequency at the middle of a survey bin. */
+/*
+ * What is suspicious about a frequency this survey found. The bandwidth is
+ * only known once the candidate has been measured, so it is passed as 0 until
+ * then and the two frequency tests carry the warning on their own.
+ */
+static unsigned survey_suspect_at(const struct app *app, double hz,
+                                  double bandwidth_hz) {
+    return survey_suspect(&app->survey.plan, hz, bandwidth_hz,
+                          (double)app->applied_sample_rate, SDR_DSP_FFT_SIZE,
+                          app->remove_dc);
+}
+
 static double survey_bin_hz(const struct survey_view *s, int bin) {
     struct survey_window w = survey_window_of(s);
 
@@ -948,6 +961,19 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
                  s->peak_count);
     DrawText(text, (int)rect.x + 12, (int)rect.y + 10, 16,
              (Color){ 151, 174, 188, 255 });
+    /* A sweep that is mostly the receiver talking to itself should say so
+       before anyone clicks into it. */
+    int suspicious = survey_suspect_count(&s->plan, s->peaks, s->peak_count,
+                                          (double)app->applied_sample_rate,
+                                          SDR_DSP_FFT_SIZE, app->remove_dc);
+    if (suspicious > 0) {
+        snprintf(text, sizeof(text), "%d marked * look like the receiver",
+                 suspicious);
+        sdrgui_text_fit(text, (int)rect.x + 12 + MeasureText("Candidates (000)",
+                                                             16) + 14,
+                        (int)rect.y + 10, 16, rect.width - 190.0f,
+                        (Color){ 250, 190, 74, 255 });
+    }
     DrawText("FREQUENCY        LEVEL     ABOVE FLOOR", (int)rect.x + 12,
              (int)rect.y + 30, 15, (Color){ 126, 151, 166, 255 });
 
@@ -975,10 +1001,14 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
         } else if (i == s->hover) {
             color = (Color){ 255, 255, 255, 255 };
         }
-        snprintf(text, sizeof(text), "%12.4f MHz  %6.1f dBFS  %5.1f dB",
-                 survey_bin_hz(s, s->peaks[i].index) / 1e6,
-                 (double)s->peaks[i].power_dbfs,
-                 (double)s->peaks[i].prominence_db);
+        double hz = survey_bin_hz(s, s->peaks[i].index);
+        int suspect = survey_suspect_warns(survey_suspect_at(app, hz, 0.0));
+
+        snprintf(text, sizeof(text), "%12.4f MHz  %6.1f dBFS  %5.1f dB %s",
+                 hz / 1e6, (double)s->peaks[i].power_dbfs,
+                 (double)s->peaks[i].prominence_db, suspect ? "*" : "");
+        if (suspect && i != s->selected && i != s->hover)
+            color = (Color){ 178, 168, 140, 255 };
         sdrgui_text_fit(text, (int)rect.x + 12, (int)y, 17,
                         rect.width - 24.0f, color);
     }
@@ -1058,6 +1088,50 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
         DrawText("nothing measurable at that frequency now",
                  (int)rect.x + 12, y, 17, (Color){ 250, 190, 74, 255 });
         y += line;
+    }
+
+    /*
+     * What the measurement suggests about the candidate itself, before the
+     * band plan says what the frequency is allocated to. The order matters:
+     * the allocation is what a reader believes by default, and a warning
+     * printed after it reads as a footnote to it rather than a reason to
+     * doubt it.
+     */
+    unsigned suspect = survey_suspect_at(app, shown_hz,
+                                         s->report_valid
+                                             ? s->report.bandwidth_hz
+                                             : 0.0);
+    if (survey_suspect_warns(suspect)) {
+        y += 6;
+        sdrgui_text_fit("this looks like the receiver, not the band",
+                        (int)rect.x + 12, y, 17, rect.width - 24.0f,
+                        (Color){ 250, 190, 74, 255 });
+        y += line;
+        sdrgui_text_fit(survey_suspect_reason(suspect), (int)rect.x + 24, y, 16,
+                        rect.width - 36.0f, (Color){ 200, 165, 110, 255 });
+        y += line - 2;
+        if (suspect & SURVEY_SUSPECT_UNRESOLVED) {
+            sdrgui_text_fit("and too narrow for this FFT to resolve: a bare "
+                            "carrier",
+                            (int)rect.x + 24, y, 16, rect.width - 36.0f,
+                            (Color){ 200, 165, 110, 255 });
+            y += line - 2;
+        }
+        sdrgui_text_fit("disconnect the antenna and sweep again: an artifact "
+                        "stays",
+                        (int)rect.x + 24, y, 15, rect.width - 36.0f,
+                        (Color){ 126, 151, 166, 255 });
+        y += line - 2;
+    } else if (suspect & SURVEY_SUSPECT_UNRESOLVED) {
+        /* Not a warning on its own -- plenty of real services are this narrow
+           -- but worth saying that the width reported is the instrument's
+           floor and not the signal's. */
+        y += 6;
+        sdrgui_text_fit("too narrow for this FFT to resolve: the width above "
+                        "is its floor",
+                        (int)rect.x + 12, y, 16, rect.width - 24.0f,
+                        (Color){ 126, 151, 166, 255 });
+        y += line - 2;
     }
 
     /* The band plan, and what it is not. */

@@ -149,6 +149,15 @@ static inline int survey_plan_bin_at(const struct survey_plan *plan,
     return bin;
 }
 
+/* The middle of survey bin `bin` -- the inverse of the mapping above, and the
+   frequency a candidate found in that bin is reported at. It is a bin centre,
+   so it is only ever within half a bin of the truth; measuring the candidate
+   is what sharpens it. */
+static inline double survey_plan_bin_centre(const struct survey_plan *plan,
+                                            int bin) {
+    return plan->lower_hz + ((double)bin + 0.5) * plan->bin_hz;
+}
+
 /* Whether an FFT bin at `hz` is inside the part of this tuning that is kept.
    Outside it the tuner rolls off, and the next step covers it properly. */
 static inline int survey_fold_keeps(double hz, double centre_hz,

@@ -158,6 +158,10 @@ _Avoid_: Signal, transmitter, detection, station
 The width of a candidate between the points where it falls a stated number of decibels below its peak, the drop being held clear of the noise floor and reported alongside the width.
 _Avoid_: Channel width, baud, bitrate
 
+**Receiver artifact**:
+A candidate produced inside the receiver rather than received by it -- a harmonic of its reference clock, or its center-frequency offset landing in a step. Reported as a resemblance beside the measurement and never removed from the survey, because a real transmitter may sit on the same frequency.
+_Avoid_: Spur, birdie, false positive, ghost, interference
+
 **Band plan**:
 A static table mapping frequency ranges to the service allocated there; it says what a frequency is *for*, never what a signal *is*, and a carrier found inside an allocation has not thereby been identified.
 _Avoid_: Identification, classification, detection
