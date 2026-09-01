@@ -17,6 +17,12 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 
 - `make` — builds `sdrprobe` via pkg-config; requires librtlsdr and raylib
   development headers installed.
+- `make hooks` — point git's `core.hooksPath` at `scripts/hooks/`, so
+  `git push` runs `make check` first and refuses a tree that does not pass.
+  Once per clone; the hook is version-controlled rather than hidden in
+  `.git/hooks`, and `git push --no-verify` skips it. A push that only deletes
+  remote branches skips it too: no commit is arriving, so there is no tree to
+  have broken.
 - `make check` — every check below, in about 18 seconds. Nothing it runs needs
   a window, a receiver, or a person. It prints one line per suite saying what
   the suite covers and how many checks it ran, and a total at the end; the

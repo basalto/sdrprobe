@@ -1,0 +1,41 @@
+#!/bin/sh
+# Run `make check` before anything leaves this machine.
+#
+# There are 1600-odd checks that take twenty seconds and need no window, no
+# receiver and nobody watching, and until now nothing ran them unless somebody
+# remembered to type the command. A check nobody runs is a comment.
+#
+# Install with `make hooks`, which points core.hooksPath here so the hook is
+# version-controlled rather than living unshared in .git/hooks.
+#
+# To push anyway -- a documentation typo, a half-finished branch nobody will
+# build -- use `git push --no-verify`. That is the intended escape hatch and
+# needs no apology; what it must not become is the habit.
+set -u
+
+root=$(git rev-parse --show-toplevel) || exit 1
+cd "$root" || exit 1
+
+# Nothing to check when every ref being pushed is a deletion: no commit is
+# arriving anywhere, so there is no tree to have broken.
+pushing=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+    case "$local_sha" in
+        "" | 0000000000000000000000000000000000000000) ;;
+        *) pushing=1 ;;
+    esac
+done
+[ "$pushing" -eq 1 ] || exit 0
+
+printf 'pre-push: make check\n' >&2
+if make check; then
+    exit 0
+fi
+
+cat >&2 <<'MESSAGE'
+
+pre-push: the checks did not pass, so nothing was pushed.
+
+  Fix them, or push with --no-verify if you mean to send this anyway.
+MESSAGE
+exit 1
