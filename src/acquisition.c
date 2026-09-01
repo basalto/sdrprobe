@@ -127,6 +127,15 @@ void publish_block(struct acquisition *acq, const unsigned char *data,
         pthread_mutex_unlock(&latest->mutex);
         return;
     }
+    /* Wait for the slot to be emptied rather than overwriting it. Only a file
+       worker ever does this; request_worker_stop() broadcasts, so a shutdown
+       does not leave the worker waiting on a consumer that has stopped. */
+    while (latest->lossless && latest->ready && !latest->stop)
+        pthread_cond_wait(&latest->drained, &latest->mutex);
+    if (latest->stop) {
+        pthread_mutex_unlock(&latest->mutex);
+        return;
+    }
     if (latest->ready)
         latest->overwritten_blocks++;
     memcpy(latest->data, data, valid_len);
@@ -232,6 +241,9 @@ void request_worker_stop(struct acquisition *acq) {
         return;
     pthread_mutex_lock(&acq->latest.mutex);
     acq->latest.stop = 1;
+    /* A lossless publisher may be waiting for a consumer that will never come
+       back; without this the join below it never returns. */
+    pthread_cond_broadcast(&acq->latest.drained);
     pthread_mutex_unlock(&acq->latest.mutex);
 }
 
@@ -270,9 +282,13 @@ void *file_worker(void *arg) {
     uint64_t published_pairs = 0;
     struct timespec start;
     char error[160];
+    int lossless;
 
     if (!begin_worker_read(acq))
         return NULL;
+    pthread_mutex_lock(&acq->latest.mutex);
+    lossless = acq->latest.lossless;
+    pthread_mutex_unlock(&acq->latest.mutex);
     if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) {
         snprintf(error, sizeof(error), "Cannot read monotonic clock: %s",
                  strerror(errno));
@@ -325,6 +341,11 @@ void *file_worker(void *arg) {
 
         publish_block(acq, block, SAMPLE_BLOCK_BYTES);
         published_pairs += SAMPLE_BLOCK_PAIRS;
+        /* Pacing exists so playback looks like a receiver. A lossless run has
+           no display to feed and publish_block already waits for the consumer,
+           so pacing would only make the check slower. */
+        if (lossless)
+            continue;
         struct timespec deadline = playback_deadline(
             start, published_pairs, acq->sample_rate);
         int sleep_result = sleep_until(acq, deadline);
@@ -352,6 +373,7 @@ int consume_latest(struct acquisition *acq, struct slot_snapshot *snapshot) {
         latest->ready = 0;
         latest->processed_blocks++;
         have_new = 1;
+        pthread_cond_signal(&latest->drained);
     }
     snapshot->published_blocks = latest->published_blocks;
     snapshot->processed_blocks = latest->processed_blocks;
@@ -454,6 +476,12 @@ void acquisition_destroy(struct acquisition *acq) {
     pthread_mutex_destroy(&acq->record_mutex);
 }
 
+
+void acquisition_set_lossless(struct acquisition *acq, int lossless) {
+    pthread_mutex_lock(&acq->latest.mutex);
+    acq->latest.lossless = lossless;
+    pthread_mutex_unlock(&acq->latest.mutex);
+}
 
 void acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
                                FILE *capture, uint32_t sample_rate,

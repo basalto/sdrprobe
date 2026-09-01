@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "view.h"
+#include "calibration_gate.h"
 #include "sdrgui.h"
 
 /*
@@ -103,36 +104,6 @@ int start_calibration(struct app *app) {
     return 0;
 }
 
-/* Robust center and spread of the recent PPM residuals. The center is the
-   median and the spread is a normal-consistent scale estimate (1.4826 x MAD),
-   both resistant to a peak that momentarily hops to an adjacent feature. */
-void robust_center_spread(const double *values, int count,
-                                 double *center, double *spread) {
-    double sorted[CALIBRATION_RECENT];
-    double deviations[CALIBRATION_RECENT];
-    int i;
-
-    if (count <= 0) {
-        *center = 0.0;
-        *spread = 0.0;
-        return;
-    }
-    for (i = 0; i < count; i++)
-        sorted[i] = values[i];
-    qsort(sorted, (size_t)count, sizeof(*sorted), compare_double);
-    double median = (count % 2)
-                        ? sorted[count / 2]
-                        : 0.5 * (sorted[count / 2 - 1] + sorted[count / 2]);
-    for (i = 0; i < count; i++)
-        deviations[i] = fabs(values[i] - median);
-    qsort(deviations, (size_t)count, sizeof(*deviations), compare_double);
-    double mad = (count % 2)
-                     ? deviations[count / 2]
-                     : 0.5 * (deviations[count / 2 - 1] +
-                              deviations[count / 2]);
-    *center = median;
-    *spread = 1.4826 * mad;
-}
 
 static void reset_calibration_stats(struct app *app) {
     app->cal.measurements = 0;
@@ -207,7 +178,8 @@ void update_calibration_measurement(struct app *app) {
        to the tone a burst-free block is skipped rather than recorded. */
     double measured_hz;
     if (have_fcch) {
-        if (app->cal.source != CALIBRATION_SOURCE_FCCH) {
+        if (!calibration_source_matches(app->cal.source,
+                                        CALIBRATION_SOURCE_FCCH)) {
             app->cal.source = CALIBRATION_SOURCE_FCCH;
             reset_calibration_stats(app);
             app->cal.fcch_hits = 0;
@@ -220,7 +192,7 @@ void update_calibration_measurement(struct app *app) {
                       fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
     } else if (app->cal.source == CALIBRATION_SOURCE_FCCH) {
         app->cal.fcch_miss++;
-        if (app->cal.fcch_miss < CALIBRATION_FCCH_MISS_LIMIT) {
+        if (calibration_hold_through_miss(app->cal.fcch_miss)) {
             calibration_set_status(app); /* hold the tone lock */
             return;
         }
@@ -267,9 +239,8 @@ void update_calibration_measurement(struct app *app) {
                          app->cal.recent_count,
                          &app->cal.recent_center,
                          &app->cal.recent_spread);
-    app->cal.recent_sem =
-        app->cal.recent_spread /
-        sqrt((double)app->cal.recent_count);
+    app->cal.recent_sem = calibration_standard_error(app->cal.recent_spread,
+                                                     app->cal.recent_count);
 
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
         app->applied_ppm, app->calibration_expected_hz *
@@ -280,17 +251,11 @@ void update_calibration_measurement(struct app *app) {
     if (app->cal.suggested_ppm > 1000)
         app->cal.suggested_ppm = 1000;
 
-    /* Prominence only gates centroid mode; an FCCH tone is its own quality
-       proof and its prominence metric may momentarily dip. */
-    int quality_ok = (app->cal.source == CALIBRATION_SOURCE_FCCH)
-                         ? 1
-                         : (app->cal.prominence_db >= 8.0f);
-    app->cal.stable = elapsed >= CALIBRATION_MIN_SECONDS &&
-                              app->cal.measurements >= 32 &&
-                              app->cal.recent_count >= 32 &&
-                              app->cal.recent_sem <=
-                                  CALIBRATION_MAX_SEM_PPM &&
-                              quality_ok;
+    app->cal.stable = calibration_is_stable(elapsed, app->cal.measurements,
+                                            app->cal.recent_count,
+                                            app->cal.recent_sem,
+                                            app->cal.source,
+                                            app->cal.prominence_db);
     calibration_set_status(app);
 }
 

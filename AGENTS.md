@@ -17,12 +17,39 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 
 - `make` — builds `sdrprobe` via pkg-config; requires librtlsdr and raylib
   development headers installed.
+- `make check` — every check below, in about 18 seconds. Nothing it runs needs
+  a window, a receiver, or a person. This is the command to run before claiming
+  a change is sound, and the one to extend when adding a decision: ADR-0012
+  says every decision the program makes must be reachable from here, and
+  `.scratch/testability/` is the register of what is not yet.
 - `make check-dsp` — builds and runs deterministic, hardware-free DSP
   checks; it does not require raylib. It runs the per-technology checks
   `check-sdr-dsp` (generic core),
   `check-gsm-dsp` (GSM plugin), `check-adsb-dsp` (Mode S / ADS-B plugin) and
   `check-band-plan` (the frequency allocation table); each can be built and run
   on its own.
+- `make check-options` — the whole command line: every flag, every value
+  spelling, every rejection, and the flags that imply others. It is the
+  program's other user interface and the only one a script has, so a rejection
+  that should happen and does not is a wrong tuning or a capture labelled as
+  something it is not. Pure text in, a struct out, so it is also the cheapest
+  thing here to check exhaustively.
+- `make check-calibration` — the rule that decides whether a frequency
+  correction may be applied, and the robust statistics behind it, from
+  `src/calibration_gate.h`. Each clause of the gate is refused on its own, and
+  the mixed-source hazard ADR-0004 exists to prevent is demonstrated rather
+  than described. Worth the attention: a correction accepted too early turns
+  the lock green on a wrong answer, and every frequency reported afterwards is
+  off by that amount with nothing on screen to say so.
+- `make check-pipelines` — `tests/pipelines.sh`, the assembled program driven
+  through its command line over the captures in `testfiles/`, asserting on
+  stdout. Both GSM captures must decode their own BSIC with frame numbers that
+  advance; `adsb_cpr_pair.bin` must decode its frames and resolve a CPR
+  position, and must decode *the same number twice* -- headless playback was
+  dropping blocks, and until it stopped, every count here was a coin toss.
+  Recording must produce a capture and a complete sidecar, and the flags that
+  reach those paths must act. Unit checks prove the pieces; this proves they
+  are wired together, which by construction they cannot.
 - `make check-survey` — the band survey's window arithmetic: zoom, pan, clamp,
   and what pressing Sweep would sweep. Pure doubles in `src/survey_window.h`,
   so it links nothing and opens no window. It exists because those decisions
@@ -166,6 +193,11 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 C sources and headers live in `src/`; hardware-free DSP test sources live in
 `tests/`. Built binaries are written to the repo root.
 
+- `src/calibration_gate.h` — when a frequency correction may be trusted:
+  median/MAD statistics, the standard error the gate reads, and every clause of
+  the lock condition. Header-only plain doubles, deliberately outside
+  `overlay_calibration.c` so it can be checked without raylib. Read ADR-0004
+  before making any clause easier to pass.
 - `src/sdr_dsp.h` / `src/sdr_dsp.c` — generic, technology-independent SDR DSP
   core: byte→float I/Q conversion, DC removal, magnitude peak binning, signal
   stats, Hann-windowed complex FFT / dBFS spectra, power-centroid carrier
@@ -245,6 +277,15 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` / `tests/adsb_dsp_test.c` —
   the deterministic, hardware-free DSP checks (`make check-sdr-dsp` /
   `check-gsm-dsp` / `check-adsb-dsp`).
+- `tests/options_test.c`, `tests/calibration_gate_test.c`,
+  `tests/survey_window_test.c`, `tests/layout_test.c`,
+  `tests/band_plan_test.c` — the rest of the unit layer, one file per module.
+  Each is a `main()` calling `test_*()` functions and counting failures; there
+  is no framework and no filter flag, so running one test alone means
+  commenting out the others.
+- `tests/pipelines.sh` — the end-to-end layer: the built program driven through
+  its command line over `testfiles/`, asserting on stdout. POSIX sh, no
+  hardware, no window.
 - Each capture has a `.json` sidecar recording the tuning it was taken at.
   Read it before using a capture: the GSM ones are tuned 400 kHz below their
   channel, and nothing in the samples says so. Sidecars written after the fact

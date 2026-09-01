@@ -41,8 +41,14 @@ struct latest_block {
     int worker_failed;
     int worker_reading;
     int stop;
+    /* Off by default: a slow renderer drops blocks rather than lagging behind
+       the receiver (ADR-0002). Set only for file playback that is being read
+       by a script, where dropping a block silently changes the answer. */
+    int lossless;
     char worker_error[160];
     pthread_mutex_t mutex;
+    /* Signalled when the slot is emptied; only a lossless publisher waits. */
+    pthread_cond_t drained;
 };
 
 struct slot_snapshot {
@@ -63,14 +69,9 @@ struct slot_snapshot {
 #define SPECTRUM_TOP_DBFS 6.0f
 #define SCALE_FACTOR 0.8f
 #define DB_SCALE_STEP 10.0f
-#define CALIBRATION_RECENT 64
-#define CALIBRATION_SETTLE_SECONDS 2.0
-#define CALIBRATION_MIN_SECONDS 8.0
-#define CALIBRATION_MAX_SEM_PPM 1.0
-#define CALIBRATION_VIEW_HALF_WIDTH_HZ 250000.0
-#define CALIBRATION_SOURCE_CENTROID 0
-#define CALIBRATION_SOURCE_FCCH 1
-#define CALIBRATION_FCCH_MISS_LIMIT 12
+/* The calibration constants and the stability gate live in a header that
+   depends on nothing, so they can be checked without a window (ADR-0012). */
+#include "calibration_gate.h"
 #define SCAN_BAND_LOWER_HZ 935100000.0
 #define SCAN_BAND_UPPER_HZ 959900000.0
 #define SCAN_EDGE_MARGIN_HZ 200000.0
@@ -165,6 +166,19 @@ struct acquisition_record_request {
 void acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
                                FILE *capture, uint32_t sample_rate,
                                const char *capture_path, int capture_loop);
+
+/* Deliver every block instead of overwriting the slot: the worker waits for
+   the consumer to take one before publishing the next. For *file playback
+   only* -- a live receiver must never be made to wait, because the callback
+   blocking stalls the USB stream and loses samples for real. With it set, the
+   file worker also stops pacing to real time: nothing is watching, and the
+   consumer sets the rate.
+
+   This is what makes a headless decode deterministic. Without it, the same
+   capture decodes a different number of frames on a loaded machine than on an
+   idle one, and a check that asserts on the count is a coin toss (ADR-0012,
+   layer 2). Call before starting the worker. */
+void acquisition_set_lossless(struct acquisition *acq, int lossless);
 
 void publish_block(struct acquisition *acq, const unsigned char *data,
                    uint32_t len);

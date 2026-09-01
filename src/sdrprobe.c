@@ -1140,6 +1140,15 @@ static int run_headless(struct app *app) {
     int result = 0;
     double started;
 
+    /* Nothing is watching a headless run, so playing a capture at the speed of
+       a receiver buys nothing and costs blocks: the idle poll below is longer
+       than the 65.5 ms a block covers, so the slot overwrites and the same
+       capture decodes a different number of messages each run. Read it whole
+       instead, as fast as this loop can take it. A live receiver keeps the
+       overwriteable slot -- it cannot be asked to wait. */
+    if (app->options.file_path)
+        acquisition_set_lossless(&app->acq, 1);
+
     if (start_acquisition(app) < 0) {
         fprintf(stderr, "Cannot start acquisition: %s\n",
                 app->settings_error[0] ? app->settings_error : "unknown");
@@ -1285,6 +1294,13 @@ int main(int argc, char **argv) {
                 strerror(mutex_result));
         goto cleanup;
     }
+    int cond_result = pthread_cond_init(&app->acq.latest.drained, NULL);
+    if (cond_result != 0) {
+        fprintf(stderr, "Cannot initialize acquisition condition: %s\n",
+                strerror(cond_result));
+        pthread_mutex_destroy(&app->acq.latest.mutex);
+        goto cleanup;
+    }
     app->acq.mutex_ready = 1;
     if (install_signal_handlers(app) < 0)
         goto cleanup;
@@ -1340,6 +1356,12 @@ cleanup:
         int destroy_result = pthread_mutex_destroy(&app->acq.latest.mutex);
         if (destroy_result != 0) {
             fprintf(stderr, "Cannot destroy acquisition mutex: %s\n",
+                    strerror(destroy_result));
+            result = 1;
+        }
+        destroy_result = pthread_cond_destroy(&app->acq.latest.drained);
+        if (destroy_result != 0) {
+            fprintf(stderr, "Cannot destroy acquisition condition: %s\n",
                     strerror(destroy_result));
             result = 1;
         }
