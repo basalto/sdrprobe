@@ -110,6 +110,45 @@ void lte_pss_sequence(int n_id_2, float *real, float *imag);
 void lte_sss_sequence(int n_id_1, int n_id_2, int subframe5, float *values);
 
 /*
+ * What the search saw on its way to an answer, for a view that wants to draw
+ * it. Every field is a by-product: nothing here is needed to find a cell, and
+ * passing NULL for the trace skips the work of collecting it.
+ *
+ * It is the same arrangement as gsm_sch_symbols, and for the same reason. A
+ * detection is a number, and a number cannot say whether it was a clean lock
+ * or a coin toss -- the correlation profile shows how sharp the peak was, and
+ * the candidate scores show by how much the winner beat the field, which is
+ * the gate the whole cell search turns on.
+ */
+#define LTE_TRACE_PROFILE 193   /* an odd count, so the peak sits in the middle */
+
+struct lte_trace {
+    int valid;
+
+    /* The primary sequence's correlation either side of where it peaked. */
+    float profile[LTE_TRACE_PROFILE];
+    int profile_count;
+    int profile_peak;            /* index into profile[] */
+
+    /* Every N_ID_1's score, for the half-frame that won. */
+    float candidate[LTE_N_ID_1_COUNT];
+    int candidate_count;
+    int candidate_best;
+
+    /* The channel the reference signals measured across the broadcast
+       channel's 72 subcarriers, in dB relative to its own mean. */
+    float channel_db[LTE_PBCH_SUBCARRIERS];
+    int channel_count;
+
+    /* And the elements themselves, after the channel and the space-frequency
+       block code were undone. */
+    float element_i[LTE_PBCH_RESOURCE_ELEMENTS];
+    float element_q[LTE_PBCH_RESOURCE_ELEMENTS];
+    unsigned char element_bit[LTE_PBCH_RESOURCE_ELEMENTS];
+    int element_count;
+};
+
+/*
  * Where PSS was found, and what its two halves say about the tuning.
  *
  * `useful_start` indexes the first sample of the symbol's useful part -- past
@@ -148,7 +187,7 @@ struct lte_pss_result {
  */
 int lte_pss_detect(const float *i_samples, const float *q_samples,
                    size_t pair_count, double sample_rate,
-                   struct lte_pss_result *result);
+                   struct lte_pss_result *result, struct lte_trace *trace);
 
 /*
  * A cell, as far as the synchronisation signals describe it.
@@ -189,7 +228,7 @@ struct lte_cell {
  */
 int lte_cell_search(const float *i_samples, const float *q_samples,
                     size_t pair_count, double sample_rate,
-                    struct lte_cell *cell);
+                    struct lte_cell *cell, struct lte_trace *trace);
 
 /*
  * The broadcast channel's soft bits, ready for lte_mib.h.
@@ -206,7 +245,8 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        const struct lte_cell *cell, size_t subframe0_start,
-                       int antenna_ports, float *soft_bits);
+                       int antenna_ports, float *soft_bits,
+                       struct lte_trace *trace);
 
 /*
  * Cell-specific reference signals for one symbol of the central 72

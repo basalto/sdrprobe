@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
         start = now_ms();
         for (int r = 0; r < lte_runs; r++)
             lte_pss_detect(i_samples, q_samples, pairs, LTE_SAMPLE_RATE_HZ,
-                           &pss);
+                           &pss, NULL);
         per = (now_ms() - start) / lte_runs;
         printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
                "PSS search (9600 offsets x 3 roots)", per,
@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
         start = now_ms();
         for (int r = 0; r < lte_runs; r++)
             lte_cell_search(i_samples, q_samples, pairs, LTE_SAMPLE_RATE_HZ,
-                            &cell);
+                            &cell, NULL);
         per = (now_ms() - start) / lte_runs;
         printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
                "cell search (PSS, SSS, refinement)", per,
@@ -212,7 +212,7 @@ int main(int argc, char **argv) {
             for (int r = 0; r < runs; r++)
                 lte_pbch_soft_bits(i_samples, q_samples, pairs,
                                    LTE_SAMPLE_RATE_HZ, &cell,
-                                   cell.subframe0_start, 2, soft);
+                                   cell.subframe0_start, 2, soft, NULL);
             per = (now_ms() - start) / runs;
             printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
                    "broadcast channel, soft bits", per,

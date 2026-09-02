@@ -353,9 +353,35 @@ static void pss_reference_build(int n_id_2, struct pss_reference *reference) {
     }
 }
 
+/* The correlation of one root at one alignment, normalised the way the search
+   normalises it. Used by the search's inner loop and, afterwards, to walk a
+   window either side of the peak for the trace. */
+static float pss_score_at(const float *i_samples, const float *q_samples,
+                          size_t start, const struct pss_reference *ref) {
+    double magnitude[2];
+    int half, n;
+    for (half = 0; half < 2; half++) {
+        double cr = 0.0, ci = 0.0, energy = 0.0;
+        int from = half * (LTE_FFT_SIZE / 2);
+        int to = from + LTE_FFT_SIZE / 2;
+        for (n = from; n < to; n++) {
+            float xr = i_samples[start + (size_t)n];
+            float xi = q_samples[start + (size_t)n];
+            cr += (double)xr * ref->re[n] + (double)xi * ref->im[n];
+            ci += (double)xi * ref->re[n] - (double)xr * ref->im[n];
+            energy += (double)xr * xr + (double)xi * xi;
+        }
+        if (energy <= 0.0)
+            return 0.0f;
+        magnitude[half] = sqrt(cr * cr + ci * ci) /
+                          sqrt(energy * ref->half_energy[half]);
+    }
+    return (float)(0.5 * (magnitude[0] + magnitude[1]));
+}
+
 int lte_pss_detect(const float *i_samples, const float *q_samples,
                    size_t pair_count, double sample_rate,
-                   struct lte_pss_result *result) {
+                   struct lte_pss_result *result, struct lte_trace *trace) {
     struct pss_reference reference[LTE_N_ID_2_COUNT];
     size_t span, start;
     double window_energy[2];
@@ -470,6 +496,30 @@ int lte_pss_detect(const float *i_samples, const float *q_samples,
     result->runner_up = runner_up;
     result->frequency_offset_hz = best_offset;
     result->detected = best >= LTE_PSS_MIN_CORRELATION;
+
+    /*
+     * A second, tiny pass either side of the peak, for anyone drawing it.
+     * Separate from the search on purpose: the search runs 28800 alignments
+     * and has no business carrying a buffer through them, and this is 193.
+     */
+    if (trace) {
+        long first = (long)best_start - LTE_TRACE_PROFILE / 2;
+        int n;
+        trace->profile_count = 0;
+        trace->profile_peak = 0;
+        for (n = 0; n < LTE_TRACE_PROFILE; n++) {
+            long at = first + n;
+            if (at < 0 || (size_t)at + LTE_FFT_SIZE > pair_count) {
+                trace->profile[n] = 0.0f;
+                continue;
+            }
+            trace->profile[n] = pss_score_at(i_samples, q_samples, (size_t)at,
+                                             &reference[best_root]);
+            if ((size_t)at == best_start)
+                trace->profile_peak = n;
+        }
+        trace->profile_count = LTE_TRACE_PROFILE;
+    }
     return result->detected;
 }
 
@@ -557,7 +607,7 @@ static void sss_candidate(int n_id_1, int n_id_2, int subframe5,
  */
 static int sss_best_candidate(const struct sss_observation *frames, int count,
                               int n_id_2, int *subframe5, float *best_score,
-                              float *runner_up_score) {
+                              float *runner_up_score, float *scores) {
     int s[31], c[31], z[31];
     double magnitude = 0.0;
     float best = -1.0f, second = -1.0f;
@@ -589,6 +639,10 @@ static int sss_best_candidate(const struct sss_observation *frames, int count,
                 total += sqrt(sum_re * sum_re + sum_im * sum_im);
             }
             score = (float)(total / magnitude);
+            /* The chart wants one line, not two interleaved, so it gets the
+               better of the two half-frames at each identity. */
+            if (scores && (half == 0 || score > scores[n_id_1]))
+                scores[n_id_1] = score;
             if (score > best) {
                 second = best;
                 best = score;
@@ -620,7 +674,7 @@ static int sss_best_candidate(const struct sss_observation *frames, int count,
 static int sss_try(const float *i_samples, const float *q_samples,
                    size_t pair_count, const struct lte_pss_result *pss,
                    double sample_rate, int lead, int *n_id_1, int *subframe5,
-                   float *score, float *runner_up) {
+                   float *score, float *runner_up, float *scores) {
     struct sss_observation frames[LTE_SSS_MAX_FRAMES];
     int count = 0, found;
 
@@ -639,7 +693,7 @@ static int sss_try(const float *i_samples, const float *q_samples,
         return -1;
 
     found = sss_best_candidate(frames, count, pss->n_id_2, subframe5, score,
-                               runner_up);
+                               runner_up, scores);
     if (found < 0)
         return -1;
     *n_id_1 = found;
@@ -654,8 +708,9 @@ static double refine_offset(const float *i_samples, const float *q_samples,
 
 int lte_cell_search(const float *i_samples, const float *q_samples,
                     size_t pair_count, double sample_rate,
-                    struct lte_cell *cell) {
+                    struct lte_cell *cell, struct lte_trace *trace) {
     struct lte_pss_result pss;
+    float scores[2][LTE_N_ID_1_COUNT];
     int leads[2] = { LTE_SSS_LEAD_NORMAL, LTE_SSS_LEAD_EXTENDED };
     int best_index = -1, best_id = 0, best_half = 0;
     float best_score = -2.0f, best_runner_up = 0.0f;
@@ -665,15 +720,20 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
     if (!cell)
         return -1;
     memset(cell, 0, sizeof(*cell));
+    if (trace) {
+        memset(trace, 0, sizeof(*trace));
+        memset(scores, 0, sizeof(scores));
+    }
     if (lte_pss_detect(i_samples, q_samples, pair_count, sample_rate,
-                       &pss) <= 0)
+                       &pss, trace) <= 0)
         return 0;
 
     for (k = 0; k < 2; k++) {
         int n_id_1 = 0, subframe5 = 0;
         float score = 0.0f, runner_up = 0.0f;
         if (sss_try(i_samples, q_samples, pair_count, &pss, sample_rate,
-                    leads[k], &n_id_1, &subframe5, &score, &runner_up) < 0)
+                    leads[k], &n_id_1, &subframe5, &score, &runner_up,
+                    trace ? scores[k] : NULL) < 0)
             continue;
         if (score > best_score) {
             best_score = score;
@@ -726,6 +786,12 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
     cell->pss_runner_up = pss.runner_up;
     cell->sss_correlation = best_score;
     cell->sss_runner_up = best_runner_up;
+    if (trace) {
+        memcpy(trace->candidate, scores[best_index], sizeof(trace->candidate));
+        trace->candidate_count = LTE_N_ID_1_COUNT;
+        trace->candidate_best = best_id;
+        trace->valid = 1;
+    }
     return 1;
 }
 
@@ -977,7 +1043,8 @@ static void alamouti(float r0re, float r0im, float r1re, float r1im,
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        const struct lte_cell *cell, size_t subframe0_start,
-                       int antenna_ports, float *soft_bits) {
+                       int antenna_ports, float *soft_bits,
+                       struct lte_trace *trace) {
     float grid_re[LTE_PBCH_SYMBOLS][LTE_PBCH_SUBCARRIERS];
     float grid_im[LTE_PBCH_SYMBOLS][LTE_PBCH_SUBCARRIERS];
     float channel_re[4][LTE_PBCH_SUBCARRIERS];
@@ -1019,6 +1086,26 @@ int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
                            cell->pci, port < 2 ? 0 : 1, port,
                            channel_re[port], channel_im[port]))
             return 0;
+
+    if (trace) {
+        /* The channel one port measured, relative to its own mean, which is
+           what makes two captures comparable. A deep notch here is why a
+           block does not decode, and nothing else on the screen shows it. */
+        double mean = 0.0;
+        int k;
+        for (k = 0; k < LTE_PBCH_SUBCARRIERS; k++)
+            mean += sqrt((double)channel_re[0][k] * channel_re[0][k] +
+                         (double)channel_im[0][k] * channel_im[0][k]);
+        mean /= LTE_PBCH_SUBCARRIERS;
+        for (k = 0; k < LTE_PBCH_SUBCARRIERS; k++) {
+            double m = sqrt((double)channel_re[0][k] * channel_re[0][k] +
+                            (double)channel_im[0][k] * channel_im[0][k]);
+            trace->channel_db[k] = (mean > 0.0 && m > 0.0)
+                                       ? (float)(20.0 * log10(m / mean))
+                                       : -40.0f;
+        }
+        trace->channel_count = LTE_PBCH_SUBCARRIERS;
+    }
 
     /*
      * Collect the elements the broadcast channel is mapped to: increasing
@@ -1096,5 +1183,28 @@ int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
         }
     }
 
-    return out == LTE_PBCH_SOFT_BITS ? out : 0;
+    if (out != LTE_PBCH_SOFT_BITS)
+        return 0;
+
+    if (trace) {
+        /* Scaled so the typical point sits at the unit circle, which is what
+           the constellation component expects and what makes a cloud
+           distinguishable from four corners by eye. */
+        double mean = 0.0;
+        int k;
+        for (k = 0; k < LTE_PBCH_RESOURCE_ELEMENTS; k++)
+            mean += sqrt((double)soft_bits[2 * k] * soft_bits[2 * k] +
+                         (double)soft_bits[2 * k + 1] * soft_bits[2 * k + 1]);
+        mean /= LTE_PBCH_RESOURCE_ELEMENTS;
+        if (mean <= 0.0)
+            mean = 1.0;
+        for (k = 0; k < LTE_PBCH_RESOURCE_ELEMENTS; k++) {
+            trace->element_i[k] = (float)(soft_bits[2 * k] / mean * 0.7071);
+            trace->element_q[k] = (float)(soft_bits[2 * k + 1] / mean * 0.7071);
+            trace->element_bit[k] = (unsigned char)(soft_bits[2 * k] > 0.0f
+                                                        ? 0 : 1);
+        }
+        trace->element_count = LTE_PBCH_RESOURCE_ELEMENTS;
+    }
+    return out;
 }

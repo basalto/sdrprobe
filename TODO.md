@@ -32,9 +32,15 @@
   See `.scratch/lte-cell-search/issues/05-the-broadcast-channel-on-air.md` —
   the next step is a stronger capture, which separates "too weak" from "a
   convention is wrong" in one measurement.
-- [ ] Add a sample rate to the Settings panel, so the LTE view can be reached
-  without restarting. LTE needs 1.92 MS/s (ADR-0014) and nothing at runtime
-  can change the rate today.
+- [ ] The LTE band scan misses a cell that only decodes in about half its
+  blocks: it looks at two blocks per channel, so a quarter of the time it sees
+  neither. A third look would halve that and cost thirty seconds a band. The
+  live band 20 carrier at 816 MHz is the one that comes and goes.
+- [ ] Weak entries in the LTE scan list are not always real. Confirming an
+  identity twice removed the three obvious false positives, and the list is
+  ordered by correlation so the doubtful ones sink, but a repeatable artefact
+  would still survive. Revisiting each found cell at the end with five looks
+  would settle it for about four seconds.
 - [ ] Extended-cyclic-prefix LTE. The cell search reports it; the broadcast
   channel declines it, because that prefix puts a third reference symbol
   inside the channel and shortens it to 432 bits. No commercial FDD cell uses
@@ -52,6 +58,12 @@
 - [x] Cursor crosshairs with axis values and center-frequency offsets.
 - [x] Noise p10, signal p99.5, estimated SNR, clipping, and headroom metrics.
 - [x] Deterministic, hardware-free DSP checks.
+- [x] LTE band scan with a band selector, tuning to every channel in a
+  coarse-to-fine order, and a headless `--lte-scan` so the results can be read
+  without clicking. The LTE view borrows the receiver at 1.92 MS/s and gives
+  the rate and the tuning back when it is left.
+- [x] LTE analysis charts: the correlation profile, the candidate scores, the
+  channel across the broadcast's subcarriers, and the elements themselves.
 - [x] LTE cell search: EARFCN map, PSS, SSS, physical cell identity, frame
   boundary, cyclic-prefix length, and a frequency offset good to tens of hertz.
   Verified against three live band 20 carriers.

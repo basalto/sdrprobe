@@ -138,11 +138,11 @@ int main(int argc, char **argv) {
         printf("\n");
 
         if (lte_cell_search(i_samples, q_samples, pairs, LTE_SAMPLE_RATE_HZ,
-                            &cell) != 1) {
+                            &cell, NULL) != 1) {
             /* Say which gate refused it, since that is the whole question. */
             struct lte_pss_result pss;
             lte_pss_detect(i_samples, q_samples, pairs, LTE_SAMPLE_RATE_HZ,
-                           &pss);
+                           &pss, NULL);
             if (!pss.detected)
                 printf("          no cell: best PSS %.3f is below the %.2f "
                        "candidate floor\n", (double)pss.peak,
@@ -176,7 +176,7 @@ int main(int argc, char **argv) {
                 int written = lte_pbch_soft_bits(i_samples, q_samples, pairs,
                                                  LTE_SAMPLE_RATE_HZ, &cell,
                                                  cell.subframe0_start,
-                                                 ports[h], soft);
+                                                 ports[h], soft, NULL);
                 double magnitude = 0.0;
                 int k;
                 if (written != LTE_PBCH_SOFT_BITS) {

@@ -103,6 +103,17 @@ way to see whether a change to the DSP helped or hurt:
 ./sdrprobe --headless --record-seconds 2 --technology adsb   # live capture + sidecar
 ```
 
+Walking an LTE band without a window -- the scan is otherwise a button, and a
+button is not something a script can press:
+
+```sh
+./sdrprobe --headless --lte-scan 20        # bands 8, 20, 28; ~130 s for a band
+```
+
+One `cell` line per identity found, then a summary. Only the strong ones are
+certain: the line carries the PSS correlation and the SSS margin so a weak
+entry can be told from a solid one.
+
 Reading a band survey without a window — the only way an agent can see what
 the survey found, since a sweep is otherwise reached by clicking:
 

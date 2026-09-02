@@ -78,6 +78,10 @@ struct options {
     /* headless: sweep and print the candidates found, so an agent can read a
        survey without a window or a person to click one. */
     int survey_report;
+    /* headless: walk an LTE band's channels and print the cells found, for
+       the same reason -- the scan is otherwise a button. 0 = not asked for,
+       otherwise the band number. */
+    int lte_scan_band;
     int play_once;            /* stop at the end of a capture, do not loop */
     int gsm_features;         /* GSM_OPT_* bitmask for the SCH decoder */
     int gsm_features_seen;

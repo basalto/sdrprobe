@@ -66,6 +66,13 @@ round trip cannot check a convention that both directions share, and the fault
 it hid — a conjugated Zadoff-Chu sequence, which swaps two of the three roots
 and hides the third — produced a detector that looked entirely healthy.
 
+## Since
+
+`issues/06-finding-a-cell-without-flags.md`: the view could only be used by
+restarting with `--earfcn`, so it grew a band selector, a scan, and the ability
+to take the receiver to 1.92 MS/s and give it back. `issues/07-analysis-charts.md`:
+the three measurements behind the numbers.
+
 ## Tickets
 
 - `issues/01-cell-search.md` -- PSS, SSS, PCI, timing, CP length
@@ -74,3 +81,5 @@ and hides the third — produced a detector that looked entirely healthy.
 - `issues/04-the-conjugated-primary-sequence.md` -- the fault, and why no
   synthetic check could have found it
 - `issues/05-the-broadcast-channel-on-air.md` -- what is still open
+- `issues/06-finding-a-cell-without-flags.md` -- the band selector and scan
+- `issues/07-analysis-charts.md` -- the charts behind the numbers

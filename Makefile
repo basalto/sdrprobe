@@ -31,7 +31,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
-	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h
+	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h $(SRC)/lte_scan.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
 GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
@@ -102,6 +102,15 @@ check-lte-mib: $(TESTS)/lte_mib_test.c $(TESTS)/check.h $(SRC)/lte_mib.c \
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_mib_test \
 		$(TESTS)/lte_mib_test.c $(SRC)/lte_mib.c -lm
 	$(Q)./$(BUILD)/lte_mib_test
+
+# The LTE band scan's order: every channel of a band named exactly once, and
+# the likely carrier centres named first. Links lte_dsp.c for the band table.
+check-lte-scan: $(TESTS)/lte_scan_test.c $(TESTS)/check.h $(SRC)/lte_scan.h \
+		$(SRC)/lte_dsp.c $(SRC)/lte_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_scan_test \
+		$(TESTS)/lte_scan_test.c $(SRC)/lte_dsp.c -lm
+	$(Q)./$(BUILD)/lte_scan_test
 
 # Layout check: the GSM and ADS-B views' rectangles and the window chrome,
 # pinned at several window sizes. Needs raylib's headers for the Rectangle type but not
@@ -242,7 +251,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # appends its counts to CHECK_TALLY so the total below is real rather than a
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
 CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
-	check-lte-mib check-band-plan \
+	check-lte-mib check-lte-scan check-band-plan \
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
@@ -312,4 +321,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-lte-dsp check-lte-mib check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain bench-dsp clean
+.PHONY: all check hooks check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain bench-dsp clean

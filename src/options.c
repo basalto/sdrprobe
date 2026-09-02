@@ -21,7 +21,8 @@ void usage(const char *program) {
             "          [--file capture.bin] [--device index]\n"
             "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte]\n"
             "          [--record-seconds n] [--technology gsm|adsb|lte|raw]\n"
-            "          [--arfcn 1-124] [--earfcn n] [--gsm-features list]\n"
+            "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
+            "          [--gsm-features list]\n"
             "          [--dc-filter on|off]\n"
             "          [--survey-range low:high] [--survey-dwell seconds]\n"
             "          [--duration n] [--once] [--headless] [--decode]\n"
@@ -39,6 +40,8 @@ void usage(const char *program) {
             "                    carrier sits 400 kHz above the tuned centre)\n"
             "  --earfcn          tune to an LTE downlink carrier, centred on\n"
             "                    it, and set the 1.92 MS/s LTE sample grid\n"
+            "  --lte-scan        headless: walk an LTE band's channels and\n"
+            "                    print the cells found (band 8, 20 or 28)\n"
             "  --gsm-features    SCH decoder refinements to enable: any of\n"
             "                    filter,finecfo,trellis, or none (default all)\n"
             "  --dc-filter       spectrum/waterfall DC-spike removal\n"
@@ -325,6 +328,16 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->survey_dwell_seconds > 0.0 || i + 1 >= argc ||
                 parse_seconds(argv[++i], &options->survey_dwell_seconds) < 0)
                 return -1;
+        } else if (strcmp(option, "--lte-scan") == 0) {
+            if (options->lte_scan_band || i + 1 >= argc ||
+                parse_int(argv[++i], &options->lte_scan_band) < 0)
+                return -1;
+            /* Only the bands a dongle can reach. The channel map knows more,
+               but a scan of a band the tuner cannot hear finds nothing and
+               takes a minute to say so. */
+            if (options->lte_scan_band != 8 && options->lte_scan_band != 20 &&
+                options->lte_scan_band != 28)
+                return -1;
         } else if (strcmp(option, "--earfcn") == 0) {
             /* The range is every band the plugin knows, checked properly
                against the table in main(); this only refuses what could not
@@ -434,6 +447,18 @@ int parse_options(int argc, char **argv, struct options *options) {
         return -1;
     if (options->survey_report && options->decode)
         return -1;
+    /* A scan walks the band and prints what it found; a decode prints
+       messages from one tuning. Asking for both interleaves two things on one
+       stdout, and the scan is retuning under the decode's feet besides. */
+    if (options->lte_scan_band && !options->headless)
+        return -1;
+    if (options->lte_scan_band && (options->decode || options->survey_report))
+        return -1;
+    /* And it needs a receiver: a capture holds one tuning. */
+    if (options->lte_scan_band && options->file_path)
+        return -1;
+    if (options->lte_scan_band && (options->earfcn || frequency_seen))
+        return -1;
     /* Sweeping a receiver needs to be told what to sweep -- the whole tuner
        takes four minutes and is nobody's intended default. A capture holds one
        tuning, so its own span is the only range there is. */
@@ -458,6 +483,11 @@ int parse_options(int argc, char **argv, struct options *options) {
        explicit --sample-rate that disagrees is a contradiction rather than
        something to silently override. */
     if (options->earfcn) {
+        if (options->technology && strcmp(options->technology, "lte") != 0)
+            return -1;
+        options->technology = "lte";
+    }
+    if (options->lte_scan_band) {
         if (options->technology && strcmp(options->technology, "lte") != 0)
             return -1;
         options->technology = "lte";

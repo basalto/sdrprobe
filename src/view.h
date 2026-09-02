@@ -18,6 +18,9 @@
 int clicked(Rectangle rectangle);
 void draw_button(Rectangle rectangle, const char *label, int primary);
 int retune_receiver(struct app *app, uint32_t frequency, int ppm);
+/* The same, changing the sample rate with the tuning. Only LTE needs it. */
+int retune_receiver_at_rate(struct app *app, uint32_t frequency,
+                            uint32_t sample_rate, int ppm);
 int process_block(struct app *app, double now);
 double monotonic_seconds(void);
 int stop_requested(void);
@@ -63,6 +66,19 @@ Rectangle gsm_burst_rect(void);
 void draw_lte(struct app *app);
 void handle_lte_input(struct app *app);
 void update_lte(struct app *app, double now);
+void view_lte_defaults(struct app *app);
+/* The LTE view borrows the receiver: it needs 1.92 MS/s and a carrier centre,
+   and gives both back on the way out. */
+void enter_lte(struct app *app);
+void leave_lte(struct app *app);
+/* The band scan. Driven every frame, not only when a block arrives, because
+   most of its time is spent waiting for the tuner. */
+void update_lte_scan(struct app *app, double now, int have_block);
+/* Start one, by band number rather than by button. Returns 0 when it began.
+   Shared with the headless scan, which is the only way to see what a scan
+   found without a window and somebody to click it (ADR-0012). */
+int lte_scan_begin(struct app *app, int band_number, double now);
+int lte_scan_running(const struct app *app);
 /* Whether the receiver is on LTE's 1.92 MS/s grid, which is the one thing
    that has to be true before any of it works (ADR-0014). */
 int lte_on_grid(const struct app *app);

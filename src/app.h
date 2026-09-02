@@ -16,6 +16,7 @@
 #include "gsm_dsp.h"
 #include "lte_dsp.h"
 #include "lte_mib.h"
+#include "lte_scan.h"
 #include "options.h"
 #include "sdr_dsp.h"
 #include "survey_sweep.h"
@@ -49,10 +50,17 @@
  * per-channel power and BCCH confidence -- stay in struct app, because two
  * screens read them.
  */
-/* Sub-views of the Decode tab, selected by number keys like the Scope views. */
+/*
+ * Sub-views of the Decode tab, selected by number keys like the Scope views.
+ *
+ * The order is the key order and the order the labels are drawn in, so the
+ * three cannot drift apart. ADS-B is first, and so is the zero-initialised
+ * default, which is the one that agrees with the receiver: nothing has been
+ * tuned yet at startup, and the default tuning is 1090 MHz.
+ */
 enum decode_kind {
-    DECODE_GSM,
     DECODE_ADSB,
+    DECODE_GSM,
     DECODE_LTE
 };
 /* What the ADS-B view decides -- the log row, which frame the charts are
@@ -185,6 +193,43 @@ struct adsb_view {
  * actually succeeded, which is the difference between a marginal cell and a
  * strong one.
  */
+/* One cell a scan found, and enough about it to be worth listing. */
+struct lte_found_cell {
+    unsigned int earfcn;
+    uint32_t frequency_hz;
+    int pci;
+    float pss;
+    float sss_margin;
+};
+
+/*
+ * A walk along a band's channels, looking for a cell at each.
+ *
+ * It has to tune to every one of them -- see lte_scan.h for why -- so it is
+ * slow enough that the reader watches it happen, which is why the results
+ * accumulate in a list rather than being replaced, and why the list is what
+ * gets picked from rather than a single winner being chosen for them. The GSM
+ * scan hands back one ARFCN; this hands back everything it saw.
+ */
+struct lte_band_scan {
+    int running;
+    int band;                   /* index into lte_band_at() */
+    int candidate;              /* how far along the order */
+    int total;
+    double step_started;
+    int settled;                /* past the tuner's settling time */
+    /* This channel so far: how many blocks have been looked at, and the
+       identity they keep agreeing on. An identity is only believed once it
+       has repeated -- see lte_scan.h. */
+    int looks;
+    int pending_pci;
+    int pending_hits;
+    struct lte_cell pending_cell;
+    struct lte_found_cell found[LTE_SCAN_MAX_FOUND];
+    int found_count;
+    int selected;               /* the row the reader picked, -1 for none */
+};
+
 struct lte_view {
     int earfcn;                 /* 0 when the tuning is not on the raster */
     struct lte_cell cell;
@@ -206,6 +251,27 @@ struct lte_view {
        common answer is that the receiver is not on LTE's sample grid, and
        saying so beats an empty screen. */
     char status[160];
+
+    /*
+     * The receiver's tuning and rate before this view took them.
+     *
+     * LTE is the only view that changes the sample rate, and it has to: its
+     * arithmetic is the 1.92 MS/s grid and nothing else will do (ADR-0014).
+     * It borrows the receiver the way the GSM view borrows the tuning, and
+     * gives both back on the way out.
+     */
+    uint32_t return_frequency;
+    uint32_t return_sample_rate;
+    int return_valid;
+
+    struct lte_band_scan scan;
+
+    /* Analysis mode: the charts behind the numbers, as the GSM view has for
+       its bursts and the ADS-B view for its frames, and what the search saw
+       on its way to them. The trace is only collected while the charts are
+       up, which is what keeps the cost off the ordinary path. */
+    int analysis_mode;
+    struct lte_trace trace;
 };
 
 /*
