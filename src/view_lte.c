@@ -211,9 +211,31 @@ static void scan_record(struct app *app, unsigned int earfcn,
     for (i = 0; i < scan->found_count; i++)
         if (scan->found[i].pci == cell->pci)
             return;
+    if (!lte_earfcn_downlink_hz(earfcn, &hz))
+        return;
+
+    /*
+     * And one already found too close to this to be a different carrier.
+     * Two real ones are never nearer than the narrowest bandwidth the
+     * standard allows; anything closer is this carrier seen from beside
+     * itself, under an identity the wrong subcarriers invented. Keep
+     * whichever correlated better -- that is the one on the centre.
+     */
+    for (i = 0; i < scan->found_count; i++) {
+        if (!lte_scan_same_carrier((double)hz,
+                                   (double)scan->found[i].frequency_hz))
+            continue;
+        if (scan->found[i].pss >= cell->pss_correlation)
+            return;
+        memmove(&scan->found[i], &scan->found[i + 1],
+                (size_t)(scan->found_count - i - 1) * sizeof(scan->found[0]));
+        scan->found_count--;
+        if (scan->selected >= scan->found_count)
+            scan->selected = -1;
+        break;
+    }
     if (scan->found_count >= LTE_SCAN_MAX_FOUND)
         return;
-    lte_earfcn_downlink_hz(earfcn, &hz);
     scan->found[scan->found_count].earfcn = earfcn;
     scan->found[scan->found_count].frequency_hz = hz;
     scan->found[scan->found_count].pci = cell->pci;
