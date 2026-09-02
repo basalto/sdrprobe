@@ -1,5 +1,12 @@
 # 5G NR cell search on n28
 
+**Closed 2026-09-02: the occupant is NR, it runs at 30 kHz, and an RTL-SDR
+cannot capture its synchronisation block. See issue 01 for the measurements.**
+The question this effort was opened to answer -- what is transmitting in
+758-788 MHz -- is answered; the detector it proposed cannot be built on this
+hardware. What came out of it instead is `make probe-periodicity`, which tells
+LTE from NR and names the subcarrier grid without demodulating anything.
+
 ## Why
 
 Scanning band 28 finds no LTE cell, and the band is not empty. A survey of

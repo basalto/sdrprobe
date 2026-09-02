@@ -1,6 +1,6 @@
 # 02 — Primary and secondary signals to a physical cell identity
 
-Status: needs-triage
+Status: wontfix
 Blocked by: 01
 
 `src/nr_dsp.{c,h}`, a plugin beside `lte_dsp.c` (ADR-0001), reusing the FFT and
@@ -41,3 +41,12 @@ shifts believed to be `m0 = 15 * floor(N_ID_1 / 112) + 5 * N_ID_2` and
 
 Explicitly out of scope: the broadcast channel. 240 subcarriers do not fit this
 receiver, and pretending otherwise would produce a decoder nobody can run.
+
+## Comments
+
+**2026-09-02 - wontfix.** 01 measured the spacing at 30 kHz, so the primary
+and secondary signals span 3.81 MHz and an RTL-SDR reaches about 2.4 MS/s.
+There is no version of this detector the hardware can run. Reopen only if the
+receiver changes, or if a longer capture overturns 01's measurement -- which
+would need a prefix-length correlation window and many more synchronisation
+blocks than three seconds holds.

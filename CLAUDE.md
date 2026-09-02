@@ -77,7 +77,15 @@ make probe-gsm-chain                        # defaults to testfiles/gsm_arfcn_69
 make probe-gsm-chain FILE=captures/x.bin
 make probe-adsb-chain FILE_ADSB=testfiles/adsb_modes1.bin
 make probe-lte-chain FILE_LTE=testfiles/lte_b20_pci28.bin
+make probe-periodicity FILE_PERIODICITY=captures/x.bin   # LTE or NR? which grid?
 ```
+
+`probe-periodicity` is the odd one out: it demodulates nothing, and works on a
+signal no plugin here understands. Two lag correlations -- a burst folded over
+its own period, and the cyclic prefix against itself -- say whether a carrier
+is LTE (a burst every 5 ms) or 5G NR (every 20, and none at 5), and whether it
+runs at 15 or 30 kHz. It is how band 28 was found to be carrying NR rather than
+a weak LTE cell.
 
 What the DSP costs, against the 65.5 ms of signal one block covers:
 

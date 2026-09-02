@@ -1,6 +1,6 @@
 # 01 — Does an n28 synchronisation block fit this receiver?
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: (none)
 
 The whole effort turns on one number: the subcarrier spacing n28 uses for its
@@ -42,5 +42,79 @@ What to get out of it:
 
 ## Answer
 
-(record what the tables say, what the capture shows, and whether 02 is worth
-opening)
+**It is NR, it runs at 30 kHz, and it does not fit. 02 and 03 are closed.**
+
+Measured rather than looked up, which turned out to matter: the recollection
+in this ticket was 15 kHz, and 15 kHz is wrong.
+
+`captures/lte_20260902-174641.bin` -- 3 s at 774.2 MHz, 1.92 MS/s. The cell is
+live and the command at the top of this ticket retakes it, which is why an
+11 MB capture is not in `testfiles/`. Both measurements below are in
+`make probe-periodicity`, and both were calibrated on
+`testfiles/lte_b20_pci28.bin` first, where the answer is known.
+
+### It is not LTE
+
+Correlate the signal with a delayed copy of itself and fold the result over
+the delay, so a burst at a fixed phase averages up and everything else averages
+down. No sequence model, and immune to the 36 ppm tuning error, since a
+frequency offset is one constant phase across a lag correlation.
+
+| period | control (LTE cell 28) | 774.2 MHz |
+| --- | --- | --- |
+| 5 ms | **4.2x floor** | 1.1x floor |
+| 10 ms | 3.4x | 1.6x |
+| 20 ms | 3.3x | **8.1x**, phase 17.233 ms |
+| 40 ms | 2.5x | 4.6x, *same phase* |
+
+LTE's primary signal is every 5 ms and this has nothing there at all -- 1.1
+times its own floor is the correlation finding nothing. What it has instead is
+a burst every 20 ms, which is the default period of an NR synchronisation
+block. The 40 ms row lands on the identical phase, as a harmonic of one 20 ms
+event must and an independent finding would not.
+
+### And it runs at 30 kHz, which is the answer that closes this
+
+Every OFDM symbol opens with a copy of its own tail, so the signal correlates
+with itself at a lag of exactly one useful symbol: 128 samples for 15 kHz at
+1.92 MS/s, 64 for 30 kHz.
+
+| | control (known 15 kHz) | 774.2 MHz |
+| --- | --- | --- |
+| lag 64 (30 kHz) | 0.568 | **0.607** |
+| lag 128 (15 kHz) | **0.708** | 0.551 |
+| floor, other lags | ~0.55 | ~0.495 |
+
+The control picks its own known spacing, so the method reads true. The capture
+picks 64.
+
+A second measurement agrees, which is the part that makes it safe to act on.
+The 20 ms burst is 129 us wide at half maximum against the control's 117 us
+for one 15 kHz symbol, so the correlating span is roughly 84-120 us. Three
+symbols -- primary signal, one PBCH symbol, secondary signal, the part that
+repeats identically -- is 107 us at 30 kHz and 214 us at 15 kHz. Nothing
+supports 15.
+
+### What failed, and is not being read as evidence
+
+Restricting the prefix measurement to the burst itself, to rule out the SSB
+using a different spacing from the traffic, returned lag 96: 20 kHz, which NR
+does not define. The window was too small for the statistics and the 24-sample
+correlation was wider than the prefix it was hunting, so the estimator broke
+down and returned a winner anyway, exactly as a search with no floor always
+will. It is discarded rather than interpreted. Overturning the conclusion would
+mean a much longer capture and a prefix-length window; nothing here argues for
+spending that.
+
+### So
+
+At 30 kHz the primary and secondary signals span 127 x 30 kHz = 3.81 MHz. An
+RTL-SDR manages about 2.4 MS/s before it drops samples and 3.2 at its
+absolute limit, so **not even the cell identity is reachable**, never mind the
+240-subcarrier block carrying the broadcast channel at 7.2 MHz. This is the
+outcome the ticket was written to catch, and it cost a capture and an
+afternoon rather than a detector.
+
+What survives is worth more than the detector would have been: there is now a
+measurement in this repository that tells LTE from NR and names the grid,
+`make probe-periodicity`, and it works on signals nothing here can demodulate.
