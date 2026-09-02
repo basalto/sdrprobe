@@ -279,7 +279,7 @@ static void check_adsb(void) {
 
 /* The band survey. Its lower row is a pair like the ADS-B view's, and its
    inspect button lives inside a panel that a short window shrinks. */
-#define SURVEY_RECTS 17
+#define SURVEY_RECTS 18
 
 struct survey_case {
     float width, height;
@@ -298,7 +298,8 @@ static const struct survey_case survey_cases[] = {
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
-        { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 204.00f, 30.00f },
+        { "antenna_menu_button", 494.00f, 180.00f, 26.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
         { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 988.00f, 198.90f },
@@ -317,7 +318,8 @@ static const struct survey_case survey_cases[] = {
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
-        { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 204.00f, 30.00f },
+        { "antenna_menu_button", 494.00f, 180.00f, 26.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
         { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 1168.00f, 234.90f },
@@ -336,7 +338,8 @@ static const struct survey_case survey_cases[] = {
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
-        { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 204.00f, 30.00f },
+        { "antenna_menu_button", 494.00f, 180.00f, 26.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
         { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 888.00f, 117.90f },
@@ -356,7 +359,8 @@ static void check_survey(void) {
         Rectangle got[SURVEY_RECTS] = {
             l.from_field, l.to_field, l.dwell_field, l.sweep_button,
             l.reset_button, l.stop_button,
-            l.site_field, l.site_menu_button, l.antenna_field, l.save_button,
+            l.site_field, l.site_menu_button, l.antenna_field,
+            l.antenna_menu_button, l.save_button,
             l.confirm_button,
             l.chart, l.peak_list, l.detail,
             l.scan_button, l.waterfall_button, l.inspect_button
@@ -417,9 +421,10 @@ static void check_survey(void) {
         }
         /* The second row: where the sweep will be recorded, and the button
            that records it. */
-        Rectangle second[4] = { l.site_field, l.antenna_field, l.save_button,
-                                l.confirm_button };
-        for (int i = 0; i < 4; i++) {
+        Rectangle second[6] = { l.site_field, l.site_menu_button,
+                                l.antenna_field, l.antenna_menu_button,
+                                l.save_button, l.confirm_button };
+        for (int i = 0; i < 6; i++) {
             check_msg(i == 0 ||
                       second[i].x >= second[i - 1].x + second[i - 1].width,
                       "%.0fx%.0f second-row control %d overlaps\n",
@@ -440,12 +445,15 @@ static void check_survey(void) {
          * wrong site is worse than no site, because it files a sweep under
          * somewhere it was not taken.
          */
+        Rectangle pickers[2] = { l.site_field, l.antenna_field };
+        for (int pick = 0; pick < 2; pick++)
         for (int n = 1; n <= 6; n++) {
-            Rectangle menu = survey_site_menu_rect(l.site_field, n);
-            check_msg(menu.y >= l.site_field.y + l.site_field.height,
-                      "%.0fx%.0f site menu with %d rows covers its own field\n",
+            Rectangle field = pickers[pick];
+            Rectangle menu = survey_menu_rect(field, n);
+            check_msg(menu.y >= field.y + field.height,
+                      "%.0fx%.0f picker with %d rows covers its own field\n",
                       w->width, w->height, n);
-            check_msg(menu.width >= l.site_field.width,
+            check_msg(menu.width >= field.width,
                       "%.0fx%.0f site menu with %d rows is narrower than the "
                       "field\n", w->width, w->height, n);
             /* Every row maps back to itself: the point in the middle of where
@@ -454,22 +462,22 @@ static void check_survey(void) {
                 Vector2 mid;
                 mid.x = menu.x + menu.width / 2.0f;
                 mid.y = menu.y + 4.0f + SURVEY_SITE_ROW_H * ((float)r + 0.5f);
-                check_msg(survey_site_menu_row_at(l.site_field, n, mid) == r,
+                check_msg(survey_menu_row_at(field, n, mid) == r,
                           "%.0fx%.0f site menu row %d of %d does not map back "
                           "to itself\n", w->width, w->height, r, n);
             }
             /* And nothing outside it selects anything. */
-            check_msg(survey_site_menu_row_at(l.site_field, n,
+            check_msg(survey_menu_row_at(field, n,
                           (Vector2){ menu.x - 4.0f, menu.y + 10.0f }) == -1,
                       "%.0fx%.0f a point left of the site menu selects a row\n",
                       w->width, w->height);
-            check_msg(survey_site_menu_row_at(l.site_field, n,
+            check_msg(survey_menu_row_at(field, n,
                           (Vector2){ menu.x + 10.0f,
                                      menu.y + menu.height + 4.0f }) == -1,
                       "%.0fx%.0f a point below the site menu selects a row\n",
                       w->width, w->height);
         }
-        check_msg(survey_site_menu_row_at(l.site_field, 0,
+        check_msg(survey_menu_row_at(l.site_field, 0,
                       (Vector2){ l.site_field.x + 10.0f,
                                  l.site_field.y + 40.0f }) == -1,
                   "%.0fx%.0f an empty site menu selects a row\n",

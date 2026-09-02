@@ -20,9 +20,11 @@ than writing a sweep labelled nothing. It writes the same JSON the script
 ingests, so a sweep saved from the window and one piped from a headless run are
 interchangeable, and one reporting tool reads both.
 
-The site is a **combo**: type a new one, or pick one this receiver has been to
-before. Picking beats retyping, because spelling one place two ways makes it
-two places and nothing downstream can tell.
+The site and the antenna are both **combos**: type a new one, or pick one this
+receiver has used before. Picking beats retyping, because spelling one place --
+or one antenna -- two ways makes it two of them, and nothing downstream can
+tell. The antenna defaults to `telescopic`, which is what a dongle ships with,
+and that name is in the list from the start so the picker is never empty.
 
 **The tuning correction is kept per site**, and shown beside each name in the
 list. It belongs to the receiver rather than the room, but it is measured

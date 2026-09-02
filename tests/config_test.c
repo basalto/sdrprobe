@@ -18,6 +18,11 @@ static void test_defaults(void) {
     config_defaults(&config);
     check_str("an antenna nobody has named", config.antenna,
               CONFIG_ANTENNA_DEFAULT);
+    check_str("which is the whip a dongle ships with", config.antenna,
+              "telescopic");
+    /* And it is already in the list, so the picker is never empty. */
+    check_int("the default is a known antenna", config.antenna_count, 1);
+    check_str("namely itself", config.antennas[0], CONFIG_ANTENNA_DEFAULT);
     /* And no site, deliberately. A default would be a guess, and two sweeps
        sharing a guessed label would compare as the same place -- which is the
        one mistake the site exists to prevent. */
@@ -235,6 +240,51 @@ static void test_a_file_from_before_corrections(void) {
     check_int("with its correction", config.sites[1].ppm, 12);
 }
 
+/*
+ * The antennas this receiver has used. Same discipline as the sites: levels
+ * only compare between sweeps taken with the same antenna, and one antenna
+ * spelled two ways is two antennas.
+ */
+static void test_remembered_antennas(void) {
+    struct config config;
+    config_defaults(&config);
+
+    check_int("the default is already there", config.antenna_count, 1);
+    check_int("a new one is new",
+              config_remember_antenna(&config, "discone, roof"), 1);
+    check_int("both are held", config.antenna_count, 2);
+    check_str("most recent first", config.antennas[0], "discone, roof");
+    check_str("with the default behind it", config.antennas[1], "telescopic");
+
+    check_int("one already known is not new",
+              config_remember_antenna(&config, "telescopic"), 0);
+    check_str("but comes to the front", config.antennas[0], "telescopic");
+    check_int("and the list does not grow", config.antenna_count, 2);
+
+    check_int("nothing is not an antenna",
+              config_remember_antenna(&config, ""), 0);
+}
+
+static void test_antennas_survive_the_file(void) {
+    struct config written, read;
+    char text[2048];
+    int i;
+
+    config_defaults(&written);
+    config_remember_antenna(&written, "discone, roof");
+    config_remember_antenna(&written, "loop");
+    check_true("formats", config_format(&written, text, sizeof(text)) > 0);
+
+    config_parse(text, &read);
+    check_int("all three come back", read.antenna_count, 3);
+    /* The order is the point -- most recent first is what the picker offers
+       first -- so it has to survive the round trip and not be reversed. */
+    for (i = 0; i < written.antenna_count; i++)
+        check_str("in the same order", read.antennas[i], written.antennas[i]);
+    check_str("and the one in use is unchanged", read.antenna,
+              written.antenna);
+}
+
 int main(void) {
     test_defaults();
     test_reads_a_file();
@@ -252,6 +302,9 @@ int main(void) {
     test_a_correction_per_site();
     test_the_correction_survives_the_file();
     test_a_file_from_before_corrections();
+
+    test_remembered_antennas();
+    test_antennas_survive_the_file();
 
     return check_report("the persisted installation");
 }

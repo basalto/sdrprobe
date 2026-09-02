@@ -519,6 +519,7 @@ static void survey_commit_installation(struct app *app) {
     }
     if (changed) {
         config_remember_site(&app->config, app->config.site);
+        config_remember_antenna(&app->config, app->config.antenna);
         config_save(&app->config);
         survey_history_refresh(app);
         /*
@@ -1100,10 +1101,32 @@ void handle_survey_input(struct app *app) {
             survey_confirm_finish(app);
         return;
     }
-    if (clicked(l.site_menu_button))
+    if (clicked(l.antenna_menu_button)) {
+        s->antenna_menu_open = !s->antenna_menu_open &&
+                               app->config.antenna_count > 0;
+        s->site_menu_open = 0;
+    }
+    if (s->antenna_menu_open) {
+        int row = survey_menu_row_at(l.antenna_field,
+                                     app->config.antenna_count,
+                                     GetMousePosition());
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (row >= 0) {
+                snprintf(s->antenna, sizeof(s->antenna), "%s",
+                         app->config.antennas[row]);
+                s->antenna_length = (int)strlen(s->antenna);
+                survey_commit_installation(app);
+            }
+            s->antenna_menu_open = 0;
+            return;
+        }
+    }
+    if (clicked(l.site_menu_button)) {
         s->site_menu_open = !s->site_menu_open && app->config.site_count > 0;
+        s->antenna_menu_open = 0;
+    }
     if (s->site_menu_open) {
-        int row = survey_site_menu_row_at(l.site_field, app->config.site_count,
+        int row = survey_menu_row_at(l.site_field, app->config.site_count,
                                           GetMousePosition());
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             if (row >= 0) {
@@ -1709,39 +1732,73 @@ static void survey_draw_history_marks(const struct app *app,
     }
 }
 
-/* The list of sites this receiver has been to. Drawn over everything, because
-   it is a menu and a menu that renders under the chart is not clickable. */
-static void survey_draw_site_menu(const struct app *app,
-                                  const struct survey_layout *l) {
-    const struct survey_view *s = &app->survey;
+/*
+ * A picker, open over the chart. Drawn last, because a menu that renders under
+ * the chart is not clickable.
+ *
+ * One routine for both: the site and the antenna are the same control, and
+ * writing it twice is how the two would drift apart -- one of them growing a
+ * hover highlight or a current-entry mark that the other lacked.
+ */
+static void survey_draw_menu(Rectangle field, int count, int chosen,
+                             const char *(*label)(const struct app *, int,
+                                                  char *, size_t),
+                             const struct app *app) {
     Rectangle menu;
     int i, hovered;
 
-    if (!s->site_menu_open || app->config.site_count <= 0)
+    if (count <= 0)
         return;
-    menu = survey_site_menu_rect(l->site_field, app->config.site_count);
-    hovered = survey_site_menu_row_at(l->site_field, app->config.site_count,
-                                      GetMousePosition());
+    menu = survey_menu_rect(field, count);
+    hovered = survey_menu_row_at(field, count, GetMousePosition());
     DrawRectangleRec(menu, (Color){ 22, 28, 36, 250 });
     DrawRectangleLinesEx(menu, 1.0f, (Color){ 90, 116, 132, 255 });
-    for (i = 0; i < app->config.site_count; i++) {
+    for (i = 0; i < count; i++) {
         float y = menu.y + 4.0f + SURVEY_SITE_ROW_H * (float)i;
+        char text[CONFIG_VALUE_MAX + 24];
         if (i == hovered)
             DrawRectangle((int)menu.x + 1, (int)y, (int)menu.width - 2,
                           (int)SURVEY_SITE_ROW_H, (Color){ 255, 174, 62, 40 });
-        {
-            /* The correction beside the name: it is what makes two sites'
-               numbers comparable, and switching site changes it. */
-            char row[CONFIG_VALUE_MAX + 24];
-            snprintf(row, sizeof(row), "%s   %+d ppm",
-                     app->config.sites[i].label, app->config.sites[i].ppm);
-            sdrgui_text_fit(row, (int)menu.x + 10, (int)y + 5, 16,
-                            menu.width - 20.0f,
-                            !strcmp(app->config.sites[i].label,
-                                    app->config.site)
-                                ? (Color){ 255, 174, 62, 255 }
-                                : (Color){ 176, 198, 212, 255 });
-        }
+        sdrgui_text_fit(label(app, i, text, sizeof(text)), (int)menu.x + 10,
+                        (int)y + 5, 16, menu.width - 20.0f,
+                        i == chosen ? (Color){ 255, 174, 62, 255 }
+                                    : (Color){ 176, 198, 212, 255 });
+    }
+}
+
+/* A site carries its correction: it is what makes two sites' numbers
+   comparable, and switching site changes it. */
+static const char *survey_site_label(const struct app *app, int i, char *out,
+                                     size_t size) {
+    snprintf(out, size, "%s   %+d ppm", app->config.sites[i].label,
+             app->config.sites[i].ppm);
+    return out;
+}
+
+static const char *survey_antenna_label(const struct app *app, int i,
+                                        char *out, size_t size) {
+    snprintf(out, size, "%s", app->config.antennas[i]);
+    return out;
+}
+
+static void survey_draw_pickers(const struct app *app,
+                                const struct survey_layout *l) {
+    const struct survey_view *s = &app->survey;
+    int chosen = -1, i;
+
+    if (s->site_menu_open) {
+        for (i = 0; i < app->config.site_count; i++)
+            if (!strcmp(app->config.sites[i].label, app->config.site))
+                chosen = i;
+        survey_draw_menu(l->site_field, app->config.site_count, chosen,
+                         survey_site_label, app);
+    }
+    if (s->antenna_menu_open) {
+        for (i = 0; i < app->config.antenna_count; i++)
+            if (!strcmp(app->config.antennas[i], app->config.antenna))
+                chosen = i;
+        survey_draw_menu(l->antenna_field, app->config.antenna_count, chosen,
+                         survey_antenna_label, app);
     }
 }
 
@@ -1763,7 +1820,8 @@ static void survey_draw_popup(const struct app *app,
     float width, height, x, y;
     double tolerance;
 
-    if (s->site_menu_open || !CheckCollisionPointRec(mouse, l->chart))
+    if (s->site_menu_open || s->antenna_menu_open ||
+        !CheckCollisionPointRec(mouse, l->chart))
         return;
     tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
     if (s->hover >= 0 && s->hover < s->peak_count) {
@@ -1874,6 +1932,8 @@ void draw_survey(struct app *app) {
     draw_button(l.site_menu_button, s->site_menu_open ? "^" : "v",
                 app->config.site_count > 0);
     sdrgui_text_field(l.antenna_field, s->antenna, s->focus == 4);
+    draw_button(l.antenna_menu_button, s->antenna_menu_open ? "^" : "v",
+                app->config.antenna_count > 0);
     draw_button(l.save_button, "Save survey", s->peak_count > 0 && s->site[0]);
     {
         int changes = 0, i;
@@ -1940,6 +2000,6 @@ void draw_survey(struct app *app) {
     draw_peak_list(app, l.peak_list);
     draw_detail(app, &l);
     /* Last, so they sit over the chart and the panels rather than under. */
-    survey_draw_site_menu(app, &l);
+    survey_draw_pickers(app, &l);
     survey_draw_popup(app, &l, &params);
 }
