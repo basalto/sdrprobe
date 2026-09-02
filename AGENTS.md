@@ -491,7 +491,9 @@ checks, and which diagnostic tool answers which question.
 
 ### The RF environment
 
-A sweep's maxima are grouped into signals first (`src/survey_carrier.h`), and
+The survey is the default view and is reached by the Survey button at the left
+of the Scope tab, not by a number. A sweep's maxima are grouped into signals
+first (`src/survey_carrier.h`), and
 everything above the measurement works on those: a station has several maxima
 and counting each is how one carrier becomes five things to remember. The
 survey view remembers what each site has heard (`src/site_history.c`) and

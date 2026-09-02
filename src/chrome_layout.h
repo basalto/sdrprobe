@@ -18,6 +18,17 @@
  * rectangle without opening a window.
  */
 struct chrome_layout {
+    /*
+     * Survey, on the left where the numbered options used to run from.
+     *
+     * A button rather than a sixth number because it is not a fifth way of
+     * looking at the current tuning: the other four all draw whatever the
+     * receiver is pointed at, and this one walks the receiver across a band.
+     * Numbering it beside them said it was the same kind of thing.
+     */
+    Rectangle survey_button;
+    float option_row_left;   /* x where the numbered options begin */
+    float option_row_y;
     Rectangle settings_button;
     Rectangle calibration_button;
     Rectangle tab[2];      /* Scope, Decode */
@@ -31,6 +42,9 @@ static inline struct chrome_layout chrome_layout_for(float width,
     const float right_inset = 130.0f;  /* button_w plus the window margin */
 
     (void)height;
+    l.survey_button = (Rectangle){ 22.0f, 44.0f, 104.0f, 28.0f };
+    l.option_row_left = l.survey_button.x + l.survey_button.width + 22.0f;
+    l.option_row_y = 50.0f;
     l.settings_button = (Rectangle){ width - right_inset, 16.0f, button_w, 34.0f };
     l.calibration_button =
         (Rectangle){ width - right_inset, 58.0f, button_w, 34.0f };

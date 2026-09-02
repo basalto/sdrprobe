@@ -200,7 +200,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
 },
 {
     "Band survey",
-    "Band survey (Scope, key 5)",
+    "Band survey (Scope, the Survey button)",
     "Every other view shows the 2 MHz the receiver is tuned to. This one sweeps "
     "a range you choose and shows what is on it, which is the question you "
     "start with when you do not already know where to look.\n"

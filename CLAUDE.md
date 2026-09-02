@@ -174,6 +174,13 @@ comparable to anything. The survey view has both as fields and a **Save
 survey** button beside them, writing the same JSON the script ingests; it
 refuses while the site is empty rather than saving a sweep labelled nothing.
 
+**The survey is the view the application opens on**, reached from a Survey
+button at the left of the Scope tab rather than a fifth number: the other four
+draw whatever the receiver is pointed at and this one walks it across a band.
+Its candidate list carries each maximum's width and shape (`src/survey_carrier.h`)
+and what the site has heard of it -- new, steady, on/off, gone
+(`site_history_seen()`).
+
 The site and the antenna are combos over lists the configuration keeps
 (`config_remember_site()`, `config_remember_antenna()`), because one place or
 one antenna named two ways is two of them and levels only compare within one of

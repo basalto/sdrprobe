@@ -261,6 +261,33 @@ static void test_a_lopsided_carrier(void) {
                     (carriers[0].lower_hz + carriers[0].upper_hz) / 2.0) < 1.0);
 }
 
+/*
+ * The shape a width implies. A description of the measurement, never an
+ * identification -- the band plan does that job and is a lookup besides. What
+ * this buys the reader is the pairing: medium inside the FM allocation is a
+ * station, medium inside a gap in the table is worth a closer look.
+ */
+static void test_shape_from_width(void) {
+    check_int("a bare carrier", (int)survey_carrier_shape(2000.0),
+              (int)SURVEY_SHAPE_TONE);
+    check_int("voice or telemetry", (int)survey_carrier_shape(16000.0),
+              (int)SURVEY_SHAPE_NARROW);
+    check_int("a broadcast FM station",
+              (int)survey_carrier_shape(200000.0), (int)SURVEY_SHAPE_MEDIUM);
+    check_int("a GSM carrier is the same shape",
+              (int)survey_carrier_shape(200000.0), (int)SURVEY_SHAPE_MEDIUM);
+    check_int("something wider", (int)survey_carrier_shape(1500000.0),
+              (int)SURVEY_SHAPE_WIDE);
+    /* The two the survey actually measured on air: a 9 MHz LTE downlink came
+       out at 8.3 MHz, and a television multiplex is 8. */
+    check_int("an LTE downlink", (int)survey_carrier_shape(8300000.0),
+              (int)SURVEY_SHAPE_VERY_WIDE);
+    check_str("and each has a word short enough for a column",
+              survey_shape_name(SURVEY_SHAPE_VERY_WIDE), "very wide");
+    check_str("as does the narrowest",
+              survey_shape_name(SURVEY_SHAPE_TONE), "tone");
+}
+
 int main(void) {
     test_one_carrier_many_maxima();
     test_two_carriers_stay_two();
@@ -269,6 +296,8 @@ int main(void) {
     test_a_lopsided_carrier();
     test_prominence_uses_the_quietest_floor();
     test_refuses_nonsense();
+
+    test_shape_from_width();
 
     return check_report("peaks to carriers");
 }
