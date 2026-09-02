@@ -1,6 +1,6 @@
 # 02 — PBCH to Master Information Block
 
-Status: ready-for-human
+Status: resolved
 Blocked by: 01
 
 `src/lte_mib.{c,h}`, the Decoder-side layer, and `make check-lte-mib`. The LTE
@@ -33,3 +33,11 @@ under all three antenna-port masks, the trellis to close on itself, and the
 whole chain to decode at a noise level equal to the signal.
 
 It does not decode a live cell. That is `05-the-broadcast-channel-on-air.md`.
+
+## Comments
+
+**2026-09-02 — resolved.** It decodes a live cell now; 05 closed, and this with
+it. `testfiles/lte_b20_pci28.bin` and a live receiver both read cell 28's
+Master Information Block -- 50 blocks, PHICH normal 1/6, two antenna ports --
+with the system frame number advancing six or seven per 68.3 ms block, which is
+what `check-lte-dsp` asserts. 28 of 30 blocks decode.

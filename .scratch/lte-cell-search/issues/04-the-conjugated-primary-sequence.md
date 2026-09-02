@@ -1,6 +1,6 @@
 # 04 — A conjugated primary sequence, and why nothing caught it
 
-Status: reopened, and the first fix was wrong
+Status: resolved
 Blocked by: (none)
 
 The first live captures found their cell immediately -- a correlation of 0.62
@@ -91,3 +91,23 @@ a cell whose N_ID_2 is what the **negative** sign reports. See `issues/05`.
   the live captures score 0.75 that way against 0.44 for the channel-referenced
   method, which is indistinguishable from noise.
 - `check-lte-dsp` reads the live capture and asserts its identity.
+
+## Comments
+
+**2026-09-02 — resolved.** The primary sequence was never conjugated. 36.211
+and srsRAN's `pss.c` both give the negative exponent this file started with,
+`lte_pss_sequence` carries it today, and the flip was reverted in 1d260c3.
+
+What the secondary sequence was missing was the *integer* part of the frequency
+offset. A phase measures an offset only modulo one subcarrier, and this dongle
+runs about -36 ppm -- two whole subcarriers at 796 MHz -- so the secondary
+sequence and the reference signals were reading subcarriers two places from
+where they should, while the primary sequence still locked at 0.8 with all of
+it present. `lte_cell_search` now sweeps integer offsets and re-finds the
+primary peak with the offset removed, because a frequency error moves a
+Zadoff-Chu correlation as well as weakening it. Cell 28 reads off the capture
+and off the air (54a409d).
+
+The title stays wrong on purpose: the misdiagnosis is what the file is for, and
+`.claude/skills/dsp-validation/SKILL.md` now carries the lesson to where
+somebody will meet it before repeating it.
