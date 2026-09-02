@@ -170,7 +170,15 @@ a ticket for it.
 The antenna and the site persist between runs (`--antenna`, `--site`, kept in
 `~/.config/sdrprobe/config`), because they describe the installation rather
 than a run and a survey that cannot say what it was taken with is not
-comparable to anything.
+comparable to anything. The survey view has both as fields and a **Save
+survey** button beside them, writing the same JSON the script ingests; it
+refuses while the site is empty rather than saving a sweep labelled nothing.
+
+Both the window and the headless report go through `survey_candidates_from()`
+in `src/survey_store.c`, so what a candidate *is* -- where it was found, what
+it measured to, whether it resembles the receiver, which allocation it falls in
+-- is decided once. It used to be decided inside a `printf` loop, where the two
+could have disagreed about the same peak with nothing to say so.
 
 One record per line, keyword first, integer hertz, the band-plan allocation
 last because it is the only field that can contain a space. `candidate` rows

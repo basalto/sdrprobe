@@ -23,8 +23,8 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/config.c $(SRC)/view_scope.
 	$(SRC)/band_plan.c \
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
-	$(SRC)/survey_report.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
+	$(SRC)/survey_report.c $(SRC)/survey_store.c
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/survey_store.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/lte_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
@@ -134,6 +134,17 @@ check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/config_test \
 		$(TESTS)/config_test.c $(SRC)/config.c -lm
 	$(Q)./$(BUILD)/config_test
+
+# Naming a saved sweep, and escaping what goes in it. The write itself needs a
+# receiver and a directory; these two do not, and they are where it goes wrong.
+check-survey-store: $(TESTS)/survey_store_test.c $(TESTS)/check.h \
+		$(SRC)/survey_store.c $(SRC)/survey_store.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
+		$(shell pkg-config --cflags librtlsdr) \
+		-o $(BUILD)/survey_store_test $(TESTS)/survey_store_test.c \
+		$(SRC)/survey_store.c $(SRC)/sdr_dsp.c $(SRC)/band_plan.c -lm
+	$(Q)./$(BUILD)/survey_store_test
 
 check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/options.c $(SRC)/options.h
 	@mkdir -p $(BUILD)
@@ -260,7 +271,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # Each suite prints one line saying what it covers and how much it proved, and
 # appends its counts to CHECK_TALLY so the total below is real rather than a
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
-CHECK_UNITS=check-config check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
+CHECK_UNITS=check-config check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-lte-scan check-band-plan \
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
@@ -341,4 +352,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-config check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp clean
+.PHONY: all check hooks check-config check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp clean

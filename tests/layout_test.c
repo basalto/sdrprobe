@@ -279,7 +279,7 @@ static void check_adsb(void) {
 
 /* The band survey. Its lower row is a pair like the ADS-B view's, and its
    inspect button lives inside a panel that a short window shrinks. */
-#define SURVEY_RECTS 12
+#define SURVEY_RECTS 15
 
 struct survey_case {
     float width, height;
@@ -296,9 +296,12 @@ static const struct survey_case survey_cases[] = {
         { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
         { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
-        { "chart", 82.00f, 196.00f, 988.00f, 222.30f },
-        { "peak_list", 82.00f, 444.30f, 414.96f, 245.70f },
-        { "detail", 516.96f, 444.30f, 553.04f, 245.70f },
+        { "site_field", 82.00f, 180.00f, 190.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
+        { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
+        { "chart", 82.00f, 248.00f, 988.00f, 198.90f },
+        { "peak_list", 82.00f, 472.90f, 414.96f, 217.10f },
+        { "detail", 516.96f, 472.90f, 553.04f, 217.10f },
         { "scan_button", 528.96f, 614.00f, 258.52f, 28.00f },
         { "waterfall_button", 799.48f, 614.00f, 258.52f, 28.00f },
         { "inspect_button", 528.96f, 650.00f, 529.04f, 28.00f },
@@ -310,9 +313,12 @@ static const struct survey_case survey_cases[] = {
         { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
         { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
-        { "chart", 82.00f, 196.00f, 1168.00f, 258.30f },
-        { "peak_list", 82.00f, 480.30f, 490.56f, 289.70f },
-        { "detail", 592.56f, 480.30f, 657.44f, 289.70f },
+        { "site_field", 82.00f, 180.00f, 190.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
+        { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
+        { "chart", 82.00f, 248.00f, 1168.00f, 234.90f },
+        { "peak_list", 82.00f, 508.90f, 490.56f, 261.10f },
+        { "detail", 592.56f, 508.90f, 657.44f, 261.10f },
         { "scan_button", 604.56f, 694.00f, 310.72f, 28.00f },
         { "waterfall_button", 927.28f, 694.00f, 310.72f, 28.00f },
         { "inspect_button", 604.56f, 730.00f, 633.44f, 28.00f },
@@ -324,9 +330,12 @@ static const struct survey_case survey_cases[] = {
         { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
         { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
-        { "chart", 82.00f, 196.00f, 888.00f, 141.30f },
-        { "peak_list", 82.00f, 363.30f, 372.96f, 146.70f },
-        { "detail", 474.96f, 363.30f, 495.04f, 146.70f },
+        { "site_field", 82.00f, 180.00f, 190.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
+        { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
+        { "chart", 82.00f, 248.00f, 888.00f, 117.90f },
+        { "peak_list", 82.00f, 391.90f, 372.96f, 118.10f },
+        { "detail", 474.96f, 391.90f, 495.04f, 118.10f },
         { "scan_button", 486.96f, 434.00f, 229.52f, 28.00f },
         { "waterfall_button", 728.48f, 434.00f, 229.52f, 28.00f },
         { "inspect_button", 486.96f, 470.00f, 471.04f, 28.00f },
@@ -340,7 +349,9 @@ static void check_survey(void) {
         struct survey_layout l = survey_layout_for(w->width, w->height);
         Rectangle got[SURVEY_RECTS] = {
             l.from_field, l.to_field, l.dwell_field, l.sweep_button,
-            l.reset_button, l.stop_button, l.chart, l.peak_list, l.detail,
+            l.reset_button, l.stop_button,
+            l.site_field, l.antenna_field, l.save_button,
+            l.chart, l.peak_list, l.detail,
             l.scan_button, l.waterfall_button, l.inspect_button
         };
         for (int i = 0; i < SURVEY_RECTS; i++)
@@ -397,6 +408,28 @@ static void check_survey(void) {
                       "%.0fx%.0f control %d overlaps the one before\n",
                       w->width, w->height, i);
         }
+        /* The second row: where the sweep will be recorded, and the button
+           that records it. */
+        Rectangle second[3] = { l.site_field, l.antenna_field, l.save_button };
+        for (int i = 0; i < 3; i++) {
+            check_msg(i == 0 ||
+                      second[i].x >= second[i - 1].x + second[i - 1].width,
+                      "%.0fx%.0f second-row control %d overlaps\n",
+                      w->width, w->height, i);
+            check_msg(second[i].y >= l.from_field.y + l.from_field.height,
+                      "%.0fx%.0f second-row control %d sits on the first row\n",
+                      w->width, w->height, i);
+            check_msg(second[i].y + second[i].height <= l.status_y,
+                      "%.0fx%.0f second-row control %d runs into the status\n",
+                      w->width, w->height, i);
+            check_msg(second[i].x + second[i].width <= w->width,
+                      "%.0fx%.0f second-row control %d runs off the edge\n",
+                      w->width, w->height, i);
+        }
+        /* And the status still clears the chart it sits above. */
+        check_msg(l.status_y + 17.0f <= l.chart.y,
+                  "%.0fx%.0f the status line overlaps the chart\n",
+                  w->width, w->height);
         check_msg(row[5].x + row[5].width <= w->width,
                   "%.0fx%.0f the control row runs off the window\n", w->width,
                   w->height);

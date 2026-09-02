@@ -9,6 +9,7 @@
 #include "view.h"
 #include "survey_sweep.h"
 #include "survey_suspect.h"
+#include "survey_store.h"
 
 /*
  * The band survey with no window and nobody watching: sweep, then print what
@@ -101,20 +102,6 @@ static int fold_next_block(struct app *app, const struct survey_plan *plan,
     return 1;
 }
 
-static const char *flag_text(unsigned flags, char *buffer, size_t size) {
-    size_t used = 0;
-
-    buffer[0] = '\0';
-    if (flags & SURVEY_SUSPECT_REFERENCE)
-        used += (size_t)snprintf(buffer + used, size - used, "reference");
-    if (flags & SURVEY_SUSPECT_STEP_CENTRE)
-        used += (size_t)snprintf(buffer + used, size - used, "%sstep-centre",
-                                 used ? "," : "");
-    if (flags & SURVEY_SUSPECT_UNRESOLVED)
-        used += (size_t)snprintf(buffer + used, size - used, "%sunresolved",
-                                 used ? "," : "");
-    return used ? buffer : "-";
-}
 
 /*
  * Print the candidates. `spectrum` is non-NULL only when the whole survey came
@@ -125,71 +112,46 @@ static const char *flag_text(unsigned flags, char *buffer, size_t size) {
 static void report_candidates(struct app *app, const struct survey_plan *plan,
                               const struct sdr_peak *peaks, int count,
                               const float *spectrum) {
+    struct survey_candidate candidates[SURVEY_MAX_PEAKS];
     double centres[SURVEY_MAX_PEAKS];
     int centre_count = 0;
     int suspicious = 0;
+    int i, found;
 
+    found = survey_candidates_from(app, plan, peaks, count, spectrum,
+                                   candidates, SURVEY_MAX_PEAKS);
     printf("# candidate <frequency_hz> <level_dbfs> <prominence_db> "
            "<measured_hz|-> <bandwidth_hz|-> <flags|-> <allocation|->\n");
-    for (int i = 0; i < count; i++) {
-        double found_hz = survey_plan_bin_centre(plan, peaks[i].index);
-        double judged_hz = found_hz;
-        struct sdr_carrier_report report;
-        int measured = 0;
-        double bandwidth = 0.0;
-        char flags[64];
-        char centre[32];
-        char width[32];
-        const struct band_plan_entry *entry;
-        unsigned suspect;
+    for (i = 0; i < found; i++) {
+        const struct survey_candidate *c = &candidates[i];
+        char flags[64], centre[32], width[32];
 
-        if (spectrum) {
-            measured = sdr_dsp_characterise_carrier(
-                spectrum, SDR_DSP_FFT_SIZE, (double)app->applied_frequency,
-                (double)app->applied_sample_rate, found_hz, 200000.0,
-                SURVEY_BANDWIDTH_DB, app->magnitude_sorted, &report);
-            if (measured) {
-                bandwidth = report.bandwidth_hz;
-                /* The measurement is the better frequency, so the comb test
-                   is applied to it -- but the candidate is still reported
-                   where the survey found it. Several peaks inside one wide
-                   carrier all measure to the same centre, and printing that
-                   centre in place of each would hide the fact that the peak
-                   finder returned several. */
-                judged_hz = report.centre_hz;
-            }
-        }
-        suspect = survey_suspect(plan, judged_hz, bandwidth,
-                                 (double)app->applied_sample_rate,
-                                 SDR_DSP_FFT_SIZE, app->remove_dc);
-        if (survey_suspect_warns(suspect))
+        if (survey_suspect_warns(c->suspect))
             suspicious++;
-        if (measured) {
-            int seen = 0;
-
-            snprintf(centre, sizeof(centre), "%.0f", judged_hz);
-            snprintf(width, sizeof(width), "%.0f", bandwidth);
-            for (int k = 0; k < centre_count; k++)
-                if (fabs(centres[k] - judged_hz) <=
+        if (c->measured) {
+            int seen = 0, k;
+            snprintf(centre, sizeof(centre), "%.0f", c->centre_hz);
+            snprintf(width, sizeof(width), "%.0f", c->width_hz);
+            for (k = 0; k < centre_count; k++)
+                if (fabs(centres[k] - c->centre_hz) <=
                     (double)app->applied_sample_rate / SDR_DSP_FFT_SIZE)
                     seen = 1;
             if (!seen && centre_count < SURVEY_MAX_PEAKS)
-                centres[centre_count++] = judged_hz;
+                centres[centre_count++] = c->centre_hz;
         } else {
             snprintf(centre, sizeof(centre), "-");
             snprintf(width, sizeof(width), "-");
         }
-        entry = band_plan_lookup(judged_hz);
-        printf("candidate %.0f %.1f %.1f %s %s %s %s\n", found_hz,
-               (double)peaks[i].power_dbfs, (double)peaks[i].prominence_db,
-               centre, width, flag_text(suspect, flags, sizeof(flags)),
-               entry ? entry->name : "-");
+        printf("candidate %.0f %.1f %.1f %s %s %s %s\n", c->found_hz,
+               (double)c->power_dbfs, (double)c->prominence_db, centre, width,
+               survey_flag_text(c->suspect, flags, sizeof(flags)),
+               c->allocation ? c->allocation : "-");
     }
-    printf("survey candidates %d suspicious %d", count, suspicious);
+    printf("survey candidates %d suspicious %d", found, suspicious);
     if (spectrum)
         printf(" carriers %d", centre_count);
     printf("\n");
-    if (spectrum && centre_count < count)
+    if (spectrum && centre_count < found)
         printf("# several candidates measured to the same centre: a wide "
                "carrier has more than one local maximum\n");
     if (suspicious)

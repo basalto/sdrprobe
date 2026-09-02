@@ -491,7 +491,10 @@ checks, and which diagnostic tool answers which question.
 
 ### The RF environment
 
-`surveys/` keeps one JSON per band survey so sweeps can be compared over time
+The survey view saves a finished sweep with a button, and the headless
+`--survey` path prints one to be piped through `scripts/survey_tool.py ingest`;
+both write the same file. `surveys/` keeps one JSON per band survey so sweeps
+can be compared over time
 -- gitignored, like `captures/`, because a sweep is one location with one
 antenna. `docs/band-surveys.md` is the format,
 and `.claude/skills/rf-environment/SKILL.md` reads them: what is on air, what

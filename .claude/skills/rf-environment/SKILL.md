@@ -126,6 +126,10 @@ About four minutes. The note is the part a later reader cannot recover, and
 levels only compare between sweeps taken the same way. `docs/band-surveys.md`
 has the file format.
 
+The survey view saves too -- site and antenna fields and a **Save survey**
+button, writing the same JSON -- so a sweep somebody ran by eye is not lost
+when the window closes.
+
 The antenna and site come from the saved configuration rather than the command
 line, so they are right by default; `--antenna` and `--site` change them and
 the change sticks. `diff` refuses two sweeps from different sites outright.

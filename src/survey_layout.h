@@ -18,12 +18,20 @@ struct survey_layout {
     Rectangle sweep_button;    /* sweeps whatever the chart is showing */
     Rectangle reset_button;    /* back out of a zoom, or of a region sweep */
     Rectangle stop_button;
+    /* A second row: what the sweep will be recorded as, and the button that
+       records it. They sit with the sweep rather than in Settings because
+       they are what makes this sweep comparable to the last one, and that is
+       a thing to notice before pressing Sweep, not after. */
+    Rectangle site_field;
+    Rectangle antenna_field;
+    Rectangle save_button;
     Rectangle chart;           /* power across the swept range */
     Rectangle peak_list;       /* lower left: the candidates found */
     Rectangle detail;          /* lower right: the selected one */
     Rectangle scan_button;      /* inside detail: sweep around the candidate */
     Rectangle waterfall_button; /* inside detail: watch it over time */
     Rectangle inspect_button;   /* inside detail, when a decoder fits the band */
+    float status_y;            /* baseline of the status line, below both rows */
     float header_left;         /* x where the status text starts */
     float header_right;        /* x where it must stop */
 };
@@ -34,7 +42,7 @@ static inline struct survey_layout survey_layout_for(float width,
     const float left = 82.0f;
     const float right_margin = 30.0f;
     const float bottom_margin = 30.0f;
-    const float top = 196.0f;   /* below the controls and the status line */
+    const float top = 248.0f;   /* below both control rows and the status */
     float usable = width - left - right_margin;
 
     if (usable < 240.0f)
@@ -53,6 +61,13 @@ static inline struct survey_layout survey_layout_for(float width,
     l.sweep_button = (Rectangle){ 530.0f, 128.0f, 120.0f, 30.0f };
     l.reset_button = (Rectangle){ 666.0f, 128.0f, 130.0f, 30.0f };
     l.stop_button = (Rectangle){ 812.0f, 128.0f, 90.0f, 30.0f };
+    /* The second row. A survey saved without a site cannot be compared with
+       anything, so the field is here in front of the reader rather than in a
+       configuration file they have never opened. */
+    l.site_field = (Rectangle){ 82.0f, 180.0f, 190.0f, 30.0f };
+    l.antenna_field = (Rectangle){ 288.0f, 180.0f, 230.0f, 30.0f };
+    l.save_button = (Rectangle){ 534.0f, 180.0f, 150.0f, 30.0f };
+    l.status_y = 220.0f;
     l.header_left = 82.0f;
     l.header_right = width - 150.0f;
 
