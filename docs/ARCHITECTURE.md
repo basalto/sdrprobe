@@ -126,7 +126,7 @@ it; now a change that moves a rectangle says which one and by how much.
 
 ## Decisions
 
-`docs/adr/` records eleven. The ones that constrain new work most:
+`docs/adr/` records fifteen. The ones that constrain new work most:
 
 - **0001** DSP is a generic core plus per-technology plugins
 - **0002** the acquisition handoff is one overwriteable slot, not a queue
@@ -137,3 +137,8 @@ it; now a change that moves a rectangle says which one and by how much.
 - **0011** *superseded* — a soft-decision receiver was specified to fix the SCH
   frame number; the real fault was the field layout, and the measurement that
   rejected the proposed fix is recorded with it
+- **0012** every decision the program makes is reachable by a check that needs
+  no window, no receiver and no person
+- **0014** LTE runs on LTE's own 1.92 MS/s grid and refuses anything else
+- **0015** the band plan is a lookup; a carrier inside an allocation has not
+  thereby been identified

@@ -18,6 +18,6 @@ Blocked by: 05
 - An ADR is warranted: the band plan is the first table in this program that
   attaches meaning to a frequency, and the line between "this is what the band
   is for" and "this is what the signal is" is exactly the kind of thing a later
-  reader will blur. Write it as `docs/adr/0011-band-plan-is-a-lookup.md`.
+  reader will blur. Write it as `docs/adr/0015-band-plan-is-a-lookup.md`.
 
 ## Comments

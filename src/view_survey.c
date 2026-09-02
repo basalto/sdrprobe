@@ -21,7 +21,7 @@
  * in a band plan. It never says what a signal is: nothing has been
  * demodulated, and a carrier inside the GSM downlink allocation is a carrier
  * inside an allocation. The words on screen carry that distinction, because
- * the code alone cannot (ADR-0011).
+ * the code alone cannot (ADR-0015).
  */
 
 int survey_editing(const struct app *app) {
