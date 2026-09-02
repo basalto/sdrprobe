@@ -25,6 +25,14 @@
 - [ ] Add optional Mode S/ADS-B preamble and valid-message counters, while
   keeping full aircraft tracking and networking out of this probe.
 
+- [ ] **The LTE secondary synchronisation signal does not work on live air**,
+  and until it does there is no cell identity and nothing above it. It only
+  ever appeared to work because the primary sequence was conjugated at the
+  time; correcting the sign -- which 36.211 and srsRAN both confirm -- leaves
+  it finding nothing. Everything else in the chain has now been checked
+  against srsRAN and matches. The answer for `testfiles/lte_b20_pci32.bin` is
+  known independently from its reference signals, which is the position to
+  attack it from. See `.scratch/lte-cell-search/issues/05`.
 - [ ] Read an LTE Master Information Block off the air. The chain is written
   and checked (`make check-lte-mib`) and recovers a synthesised broadcast
   channel exactly, but no live capture decodes: the cell-specific reference
@@ -64,8 +72,9 @@
   the rate and the tuning back when it is left.
 - [x] LTE analysis charts: the correlation profile, the candidate scores, the
   channel across the broadcast's subcarriers, and the elements themselves.
-- [x] LTE cell search: EARFCN map, PSS, SSS, physical cell identity, frame
-  boundary, cyclic-prefix length, and a frequency offset good to tens of hertz.
-  Verified against three live band 20 carriers.
+- [x] LTE primary synchronisation: the Zadoff-Chu correlation, the root, the
+  symbol timing and a coarse frequency offset. Locks at 0.6 to 0.8 on three
+  live band 20 carriers, and its root is corroborated by the cell's own
+  reference signals.
 - [x] Add GSM 900 ARFCN calibration with expected/measured waterfall markers,
   confidence reporting, stability gating, and PPM application.

@@ -347,8 +347,21 @@ void update_lte(struct app *app, double now) {
 
     if (lte_cell_search(app->i_samples, app->q_samples, app->pair_count, rate,
                         &cell, trace) != 1) {
-        snprintf(app->lte.status, sizeof(app->lte.status),
-                 "No synchronisation signal here. Scan the band to find one.");
+        /* The search fills in what it measured even when it refuses, and the
+           two cases are worth telling apart: an empty channel, or a carrier
+           whose primary sequence locked and whose secondary one did not. The
+           second is where this decoder currently stands on live air. */
+        if (cell.pss_correlation > 0.5f)
+            snprintf(app->lte.status, sizeof(app->lte.status),
+                     "A primary sequence at %.2f, but the secondary one only "
+                     "reached %.2f against %.2f -- no identity.",
+                     (double)cell.pss_correlation,
+                     (double)cell.sss_correlation,
+                     (double)cell.sss_runner_up);
+        else
+            snprintf(app->lte.status, sizeof(app->lte.status),
+                     "No synchronisation signal here. Scan the band to find "
+                     "one.");
         return;
     }
 
