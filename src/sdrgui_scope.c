@@ -573,6 +573,23 @@ double sdrgui_survey_chart_hz_at(Rectangle outer,
            span * (double)((point.x - plot.x) / plot.width);
 }
 
+float sdrgui_survey_chart_x_at(Rectangle outer,
+                               const struct sdrgui_survey_params *params,
+                               double hz) {
+    Rectangle plot = survey_chart_area(outer);
+    double span;
+
+    if (!params)
+        return NAN;
+    span = params->upper_hz - params->lower_hz;
+    if (span <= 0.0)
+        return NAN;
+    if (hz < params->lower_hz || hz > params->upper_hz)
+        return NAN;               /* off screen; the caller draws nothing */
+    return plot.x +
+           (float)((hz - params->lower_hz) / span) * plot.width;
+}
+
 void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
     Rectangle outer = params->plot;
     Rectangle plot = survey_chart_area(outer);

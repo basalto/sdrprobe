@@ -12,6 +12,7 @@
 #include "acquisition.h"
 #include "band_plan.h"
 #include "config.h"
+#include "site_history.h"
 #include "adsb_dsp.h"
 #include "gsm_bcch.h"
 #include "gsm_dsp.h"
@@ -445,6 +446,22 @@ struct survey_view {
     int site_length;
     char antenna[CONFIG_VALUE_MAX];
     int antenna_length;
+    /* The site is a combo: type a new one, or pick one this receiver has been
+       to before. Spelling an existing site differently is how one place
+       quietly becomes two, and the list is the cheapest guard against it. */
+    int site_menu_open;
+    /*
+     * What this site heard before, and how this sweep compares.
+     *
+     * `peak_status` runs alongside `peaks`, so the chart and the list can show
+     * which candidates are new here without asking again per frame.
+     * `missing` points into `history`, which outlives a frame.
+     */
+    struct site_history history;
+    int history_loaded;
+    signed char peak_status[SURVEY_MAX_PEAKS];
+    const struct site_entry *missing[32];
+    int missing_count;
     int focus;                  /* 0 from, 1 to, 2 dwell, 3 site, 4 antenna */
     double dwell_seconds;       /* parsed at the start of a sweep */
 

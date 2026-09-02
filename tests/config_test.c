@@ -102,6 +102,64 @@ static void test_a_long_value_is_cut_not_overrun(void) {
                strlen(config.antenna) < CONFIG_VALUE_MAX);
 }
 
+/*
+ * The list of places this receiver has been, which the survey window offers
+ * instead of asking for the spelling again. Spelling one place two ways makes
+ * it two places and nothing downstream can tell, so the list is the guard.
+ */
+static void test_remembered_sites(void) {
+    struct config config;
+    config_defaults(&config);
+
+    check_int("a new one is new", config_remember_site(&config, "home"), 1);
+    check_int("and another", config_remember_site(&config, "office"), 1);
+    check_int("both are held", config.site_count, 2);
+    check_str("most recent first", config.sites[0], "office");
+
+    check_int("one already known is not new",
+              config_remember_site(&config, "home"), 0);
+    check_int("and does not grow the list", config.site_count, 2);
+    check_str("but moves to the front, where it will be looked for",
+              config.sites[0], "home");
+    check_str("pushing the other back", config.sites[1], "office");
+
+    check_int("nothing is not a site", config_remember_site(&config, ""), 0);
+    check_int("nor is no site at all",
+              config_remember_site(&config, NULL), 0);
+    check_int("and the list is unchanged", config.site_count, 2);
+}
+
+static void test_the_list_survives_the_file(void) {
+    struct config written, read;
+    char text[2048];
+
+    config_defaults(&written);
+    config_remember_site(&written, "home");
+    config_remember_site(&written, "office");
+    snprintf(written.site, sizeof(written.site), "%s", "office");
+    check_true("formats", config_format(&written, text, sizeof(text)) > 0);
+
+    config_parse(text, &read);
+    check_int("both sites come back", read.site_count, 2);
+    check_str("in the order they were in", read.sites[0], "office");
+    check_str("and the second", read.sites[1], "home");
+    check_str("with the current one still current", read.site, "office");
+}
+
+static void test_the_list_has_an_end(void) {
+    struct config config;
+    int i;
+    config_defaults(&config);
+    for (i = 0; i < CONFIG_SITES_MAX + 5; i++) {
+        char name[32];
+        snprintf(name, sizeof(name), "site-%d", i);
+        config_remember_site(&config, name);
+    }
+    check_int("it stops at its limit", config.site_count, CONFIG_SITES_MAX);
+    /* The least recently used falls off the end, not the most recent. */
+    check_str("keeping the newest", config.sites[0], "site-16");
+}
+
 int main(void) {
     test_defaults();
     test_reads_a_file();
@@ -111,6 +169,10 @@ int main(void) {
     test_an_unset_site_is_not_written();
     test_refuses_what_will_not_fit();
     test_a_long_value_is_cut_not_overrun();
+
+    test_remembered_sites();
+    test_the_list_survives_the_file();
+    test_the_list_has_an_end();
 
     return check_report("the persisted installation");
 }

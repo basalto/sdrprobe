@@ -144,6 +144,8 @@ static void survey_reset_view(struct survey_view *s) {
 
 /* Keep the field range current, and before the first sweep keep the window on
    it: editing the range should move the chart it is about to sweep. */
+static void survey_history_refresh(struct app *app);
+
 /*
  * Which field a focus index names, and what it will accept.
  *
@@ -212,6 +214,28 @@ static void survey_save_sweep(struct app *app) {
                                    s->plan.step_count <= 1
                                        ? app->spectrum_average : NULL,
                                    candidates, SURVEY_MAX_PEAKS);
+    /*
+     * The archive and the memory are written together. If they drift apart --
+     * a sweep in surveys/ that the history never saw -- the window starts
+     * calling known signals new, which is worse than having no memory at all.
+     */
+    {
+        double hz[SURVEY_MAX_PEAKS];
+        float level[SURVEY_MAX_PEAKS], prom[SURVEY_MAX_PEAKS];
+        int i;
+        for (i = 0; i < count; i++) {
+            hz[i] = candidates[i].found_hz;
+            level[i] = candidates[i].power_dbfs;
+            prom[i] = candidates[i].prominence_db;
+        }
+        if (!s->history_loaded)
+            site_history_load(app->config.site, &s->history);
+        site_history_init(&s->history, app->config.site);
+        site_history_load(app->config.site, &s->history);
+        site_history_merge(&s->history, hz, level, prom, count,
+                           s->plan.bin_hz);
+        site_history_save(&s->history);
+    }
     if (survey_store_write(app, &s->plan, candidates, count, path,
                            sizeof(path)) < 0) {
         snprintf(s->status, sizeof(s->status),
@@ -227,6 +251,64 @@ static void survey_save_sweep(struct app *app) {
                  "with scripts/survey_tool.py diff", count,
                  slash ? slash + 1 : path);
     }
+    survey_history_refresh(app);
+}
+
+/*
+ * Reload what this site has heard, and work out how this sweep compares.
+ *
+ * Done when the site changes or a sweep ends rather than per frame: it reads
+ * a file and walks every candidate against every remembered entry, and
+ * neither answer changes between frames.
+ */
+static void survey_history_refresh(struct app *app) {
+    struct survey_view *s = &app->survey;
+    double hz[SURVEY_MAX_PEAKS];
+    double tolerance;
+    int i;
+
+    s->missing_count = 0;
+    memset(s->peak_status, 0, sizeof(s->peak_status));
+    s->history_loaded = 0;
+    if (!app->config.site[0]) {
+        site_history_init(&s->history, "");
+        return;
+    }
+    if (site_history_load(app->config.site, &s->history) < 0)
+        return;
+    s->history_loaded = 1;
+
+    tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
+    for (i = 0; i < s->peak_count && i < SURVEY_MAX_PEAKS; i++) {
+        hz[i] = survey_plan_bin_centre(&s->plan, s->peaks[i].index);
+        s->peak_status[i] = (signed char)site_history_status(&s->history,
+                                                             hz[i], tolerance);
+    }
+    if (s->peak_count > 0)
+        s->missing_count = site_history_missing(
+            &s->history, hz, s->peak_count, s->plan.lower_hz, s->plan.upper_hz,
+            tolerance, s->missing, (int)(sizeof(s->missing) /
+                                         sizeof(s->missing[0])));
+}
+
+/* What the popup says about one remembered signal. */
+static void survey_history_line(const struct site_history *history,
+                                const struct site_entry *entry, char *out,
+                                size_t size) {
+    if (!entry) {
+        snprintf(out, size, "new here -- this site has not heard it before");
+        return;
+    }
+    if (entry->last_sweep >= history->sweeps)
+        snprintf(out, size, "heard in %d of %d sweeps here", entry->sweeps,
+                 history->sweeps);
+    else
+        snprintf(out, size,
+                 "heard in %d of %d sweeps, last %d sweep%s ago at %.1f dBFS",
+                 entry->sweeps, history->sweeps,
+                 history->sweeps - entry->last_sweep,
+                 history->sweeps - entry->last_sweep == 1 ? "" : "s",
+                 (double)entry->dbfs);
 }
 
 /* The fields start from whatever the last session left. */
@@ -258,8 +340,11 @@ static void survey_commit_installation(struct app *app) {
                  s->antenna);
         changed = 1;
     }
-    if (changed)
+    if (changed) {
+        config_remember_site(&app->config, app->config.site);
         config_save(&app->config);
+        survey_history_refresh(app);
+    }
 }
 
 static void survey_refresh_fields(struct survey_view *s) {
@@ -411,6 +496,9 @@ void view_survey_defaults(struct app *app) {
 void view_survey_enter(struct app *app) {
     struct survey_view *s = &app->survey;
 
+    survey_load_installation(app);
+    survey_history_refresh(app);
+
     if (app->receiver_mode && !s->return_valid) {
         s->return_frequency = app->applied_frequency;
         s->return_valid = 1;
@@ -559,6 +647,9 @@ static void survey_find_peaks(struct app *app) {
                                        SURVEY_BANDWIDTH_DB,
                                        app->magnitude_sorted, s->peaks,
                                        SURVEY_MAX_PEAKS);
+    /* The peaks just changed, so what is new and what is absent has
+       changed with them. */
+    survey_history_refresh(app);
 }
 
 /* Point the receiver at a candidate and start measuring it. The candidate is
@@ -781,6 +872,25 @@ void handle_survey_input(struct app *app) {
             s->focus = 4;
         if (was != s->focus && (was == 3 || was == 4))
             survey_commit_installation(app);
+    }
+    if (clicked(l.site_menu_button))
+        s->site_menu_open = !s->site_menu_open && app->config.site_count > 0;
+    if (s->site_menu_open) {
+        int row = survey_site_menu_row_at(l.site_field, app->config.site_count,
+                                          GetMousePosition());
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (row >= 0) {
+                /* Picking an existing site rather than retyping it is the
+                   whole point: one place spelled two ways is two places, and
+                   nothing downstream can tell. */
+                snprintf(s->site, sizeof(s->site), "%s",
+                         app->config.sites[row]);
+                s->site_length = (int)strlen(s->site);
+                survey_commit_installation(app);
+            }
+            s->site_menu_open = 0;
+            return;
+        }
     }
     if (clicked(l.save_button)) {
         survey_commit_installation(app);
@@ -1309,6 +1419,158 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
     }
 }
 
+/*
+ * What the site's memory adds to the chart: a tick under every candidate this
+ * site has not heard before, and a hollow one where something it has heard is
+ * absent this time.
+ *
+ * Under the trace rather than over it. A survey is a measurement and the
+ * memory is an interpretation of it, so the interpretation must not be
+ * mistaken for a peak that was measured.
+ */
+static void survey_draw_history_marks(const struct app *app,
+                                      const struct survey_layout *l,
+                                      const struct sdrgui_survey_params *p) {
+    const struct survey_view *s = &app->survey;
+    const Color fresh = { 120, 214, 140, 255 };
+    const Color absent = { 190, 140, 120, 255 };
+    float base = l->chart.y + l->chart.height - 34.0f;
+    int i;
+
+    if (!s->history_loaded || s->history.sweeps == 0)
+        return;
+    for (i = 0; i < s->peak_count; i++) {
+        float x;
+        if (s->peak_status[i] != SITE_STATUS_NEW)
+            continue;
+        x = sdrgui_survey_chart_x_at(l->chart, p,
+                                     survey_plan_bin_centre(&s->plan,
+                                                            s->peaks[i].index));
+        if (x != x)                       /* NaN: off screen */
+            continue;
+        DrawTriangle((Vector2){ x, base }, (Vector2){ x - 5.0f, base + 9.0f },
+                     (Vector2){ x + 5.0f, base + 9.0f }, fresh);
+    }
+    for (i = 0; i < s->missing_count; i++) {
+        float x = sdrgui_survey_chart_x_at(l->chart, p, s->missing[i]->hz);
+        if (x != x)
+            continue;
+        DrawLineEx((Vector2){ x - 5.0f, base + 9.0f },
+                   (Vector2){ x + 5.0f, base + 9.0f }, 2.0f, absent);
+        DrawLineEx((Vector2){ x, base }, (Vector2){ x, base + 9.0f }, 1.0f,
+                   absent);
+    }
+}
+
+/* The list of sites this receiver has been to. Drawn over everything, because
+   it is a menu and a menu that renders under the chart is not clickable. */
+static void survey_draw_site_menu(const struct app *app,
+                                  const struct survey_layout *l) {
+    const struct survey_view *s = &app->survey;
+    Rectangle menu;
+    int i, hovered;
+
+    if (!s->site_menu_open || app->config.site_count <= 0)
+        return;
+    menu = survey_site_menu_rect(l->site_field, app->config.site_count);
+    hovered = survey_site_menu_row_at(l->site_field, app->config.site_count,
+                                      GetMousePosition());
+    DrawRectangleRec(menu, (Color){ 22, 28, 36, 250 });
+    DrawRectangleLinesEx(menu, 1.0f, (Color){ 90, 116, 132, 255 });
+    for (i = 0; i < app->config.site_count; i++) {
+        float y = menu.y + 4.0f + SURVEY_SITE_ROW_H * (float)i;
+        if (i == hovered)
+            DrawRectangle((int)menu.x + 1, (int)y, (int)menu.width - 2,
+                          (int)SURVEY_SITE_ROW_H, (Color){ 255, 174, 62, 40 });
+        sdrgui_text_fit(app->config.sites[i], (int)menu.x + 10, (int)y + 5, 16,
+                        menu.width - 20.0f,
+                        !strcmp(app->config.sites[i], app->config.site)
+                            ? (Color){ 255, 174, 62, 255 }
+                            : (Color){ 176, 198, 212, 255 });
+    }
+}
+
+/*
+ * What the cursor is over, and what this site remembers of it.
+ *
+ * The chart can say a candidate is new; only this can say how new -- whether
+ * the site has heard it once before or in every sweep for a month. That is the
+ * difference between a signal worth investigating and one the operator
+ * already knows about, and it is the reason the history is kept.
+ */
+static void survey_draw_popup(const struct app *app,
+                              const struct survey_layout *l,
+                              const struct sdrgui_survey_params *p) {
+    const struct survey_view *s = &app->survey;
+    Vector2 mouse = GetMousePosition();
+    char title[96], detail[160];
+    const struct site_entry *entry = NULL;
+    float width, height, x, y;
+    double tolerance;
+
+    if (s->site_menu_open || !CheckCollisionPointRec(mouse, l->chart))
+        return;
+    tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
+    if (s->hover >= 0 && s->hover < s->peak_count) {
+        double hz = survey_plan_bin_centre(&s->plan, s->peaks[s->hover].index);
+        const struct band_plan_entry *band = band_plan_lookup(hz);
+        snprintf(title, sizeof(title), "%.3f MHz   %.1f dBFS   %s",
+                 hz / 1e6, (double)s->peaks[s->hover].power_dbfs,
+                 band ? band->name : "no band plan entry");
+        entry = s->history_loaded
+                    ? site_history_find(&s->history, hz, tolerance) : NULL;
+        if (!s->history_loaded || s->history.sweeps == 0)
+            snprintf(detail, sizeof(detail),
+                     "no history for this site yet -- save this sweep to start"
+                     " one");
+        else
+            survey_history_line(&s->history, entry, detail, sizeof(detail));
+    } else {
+        /* Not over a candidate. It may still be over the mark left where
+           something this site knows about has gone quiet. */
+        int i, nearest = -1;
+        float best = 7.0f;
+        for (i = 0; i < s->missing_count; i++) {
+            float mx = sdrgui_survey_chart_x_at(l->chart, p, s->missing[i]->hz);
+            float gap = mx - mouse.x;
+            if (mx != mx)
+                continue;
+            if (gap < 0.0f)
+                gap = -gap;
+            if (gap < best) {
+                best = gap;
+                nearest = i;
+            }
+        }
+        if (nearest < 0)
+            return;
+        entry = s->missing[nearest];
+        snprintf(title, sizeof(title), "%.3f MHz   not heard this sweep",
+                 entry->hz / 1e6);
+        survey_history_line(&s->history, entry, detail, sizeof(detail));
+    }
+
+    width = (float)MeasureText(strlen(title) > strlen(detail) ? title : detail,
+                               16) + 24.0f;
+    height = 52.0f;
+    x = mouse.x + 16.0f;
+    y = mouse.y + 16.0f;
+    /* Kept inside the chart, so a candidate at the right edge does not put its
+       own description off the window. */
+    if (x + width > l->chart.x + l->chart.width)
+        x = mouse.x - width - 16.0f;
+    if (y + height > l->chart.y + l->chart.height)
+        y = mouse.y - height - 16.0f;
+    DrawRectangle((int)x, (int)y, (int)width, (int)height,
+                  (Color){ 18, 24, 32, 245 });
+    DrawRectangleLines((int)x, (int)y, (int)width, (int)height,
+                       (Color){ 90, 116, 132, 255 });
+    sdrgui_text_fit(title, (int)x + 12, (int)y + 8, 16, width - 24.0f,
+                    (Color){ 214, 230, 240, 255 });
+    sdrgui_text_fit(detail, (int)x + 12, (int)y + 28, 16, width - 24.0f,
+                    (Color){ 150, 172, 188, 255 });
+}
+
 void draw_survey(struct app *app) {
     struct survey_view *s = &app->survey;
     struct survey_layout l = survey_layout_now();
@@ -1331,6 +1593,8 @@ void draw_survey(struct app *app) {
     DrawText("antenna", (int)l.antenna_field.x, (int)l.antenna_field.y - 20, 16,
              (Color){ 157, 180, 194, 255 });
     sdrgui_text_field(l.site_field, s->site, s->focus == 3);
+    draw_button(l.site_menu_button, s->site_menu_open ? "^" : "v",
+                app->config.site_count > 0);
     sdrgui_text_field(l.antenna_field, s->antenna, s->focus == 4);
     draw_button(l.save_button, "Save survey", s->peak_count > 0 && s->site[0]);
     draw_button(l.sweep_button, s->sweeping ? "Sweeping" : "Sweep",
@@ -1378,6 +1642,10 @@ void draw_survey(struct app *app) {
                            : "a sweep needs a live receiver"
     };
     sdrgui_survey_chart(&params);
+    survey_draw_history_marks(app, &l, &params);
     draw_peak_list(app, l.peak_list);
     draw_detail(app, &l);
+    /* Last, so they sit over the chart and the panels rather than under. */
+    survey_draw_site_menu(app, &l);
+    survey_draw_popup(app, &l, &params);
 }

@@ -23,6 +23,35 @@ void config_defaults(struct config *config) {
     config->site[0] = '\0';
 }
 
+int config_remember_site(struct config *config, const char *site) {
+    int i, found = -1;
+    char moved[CONFIG_VALUE_MAX];
+
+    if (!config || !site || !*site)
+        return 0;
+    for (i = 0; i < config->site_count; i++)
+        if (!strcmp(config->sites[i], site))
+            found = i;
+    if (found == 0)
+        return 0;                       /* already where it belongs */
+    if (found > 0) {
+        copy_value(moved, sizeof(moved), config->sites[found]);
+        for (i = found; i > 0; i--)
+            copy_value(config->sites[i], sizeof(config->sites[i]),
+                       config->sites[i - 1]);
+        copy_value(config->sites[0], sizeof(config->sites[0]), moved);
+        return 0;
+    }
+    /* New: push it on the front, dropping the least recently used if full. */
+    if (config->site_count < CONFIG_SITES_MAX)
+        config->site_count++;
+    for (i = config->site_count - 1; i > 0; i--)
+        copy_value(config->sites[i], sizeof(config->sites[i]),
+                   config->sites[i - 1]);
+    copy_value(config->sites[0], sizeof(config->sites[0]), site);
+    return 1;
+}
+
 int config_parse(const char *text, struct config *config) {
     const char *line = text;
     int recognised = 0;
@@ -65,6 +94,12 @@ int config_parse(const char *text, struct config *config) {
         } else if (!strcmp(key, "site")) {
             copy_value(config->site, sizeof(config->site), value);
             recognised++;
+        } else if (!strcmp(key, "known_site")) {
+            /* Appended in file order, which is most recent first. */
+            if (config->site_count < CONFIG_SITES_MAX && *value)
+                copy_value(config->sites[config->site_count++],
+                           sizeof(config->sites[0]), value);
+            recognised++;
         } else if (config->unknown_count < CONFIG_UNKNOWN_MAX) {
             /* Not ours. Keep it so saving does not throw away a setting a
                newer build understands. */
@@ -90,6 +125,13 @@ int config_format(const struct config *config, char *out, size_t size) {
     if (config->site[0]) {
         int more = snprintf(out + written, size - (size_t)written,
                             "site %s\n", config->site);
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+    }
+    for (i = 0; i < config->site_count; i++) {
+        int more = snprintf(out + written, size - (size_t)written,
+                            "known_site %s\n", config->sites[i]);
         if (more < 0 || (size_t)(written + more) >= size)
             return -1;
         written += more;
