@@ -1295,12 +1295,12 @@ static void print_lte(struct app *app, double now)
 
     if (app->lte.cells_found > cells_before &&
         cell->pci != app->lte.announced_pci) {
-        printf("LTE  cell %d (N_ID_1 %d, N_ID_2 %d)  %s CP  offset %+.0f Hz"
-               "  PSS %.2f  SSS %.2f\n",
+        printf("LTE  cell %d (N_ID_1 %d, N_ID_2 %d)  %s CP"
+               "  offset %+.1f kHz (%+d subcarriers)  PSS %.2f  SSS %.2f\n",
                cell->pci, cell->n_id_1, cell->n_id_2,
                cell->extended_cp ? "extended" : "normal",
-               cell->frequency_offset_hz, (double)cell->pss_correlation,
-               (double)cell->sss_correlation);
+               cell->frequency_offset_hz / 1e3, cell->integer_offset,
+               (double)cell->pss_correlation, (double)cell->sss_correlation);
         app->lte.announced_pci = cell->pci;
     }
     /* Only a message that repeated counts, so this prints at most once per

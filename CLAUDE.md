@@ -68,7 +68,7 @@ compile the plugin's `.c` in to reach its statics):
 make probe-gsm-chain                        # defaults to testfiles/gsm_arfcn_69.bin
 make probe-gsm-chain FILE=captures/x.bin
 make probe-adsb-chain FILE_ADSB=testfiles/adsb_modes1.bin
-make probe-lte-chain FILE_LTE=testfiles/lte_b20_pci32.bin
+make probe-lte-chain FILE_LTE=testfiles/lte_b20_pci28.bin
 ```
 
 What the DSP costs, against the 65.5 ms of signal one block covers:
@@ -81,9 +81,10 @@ make bench-dsp BENCH_ARCH=-march=native     # with this machine's SIMD
 The answer as of this writing: the Scope path uses about 7 ms of the 65.5,
 the GSM view about 28, and `-march=native` changes none of it beyond noise.
 LTE is reported against its own budget, because 131072 pairs at 1.92 MS/s is
-68.3 ms rather than 65.5: the cell search costs about 8 ms of it (nearly all of
-that the PSS correlation, 9600 offsets against three roots) and each Master
-Information Block attempt about 7 more, of which the view makes up to three.
+68.3 ms rather than 65.5: the cell search costs about 14 ms of it -- 11 for the
+PSS correlation over 9600 offsets against three roots, the rest for the integer
+frequency sweep -- and each Master Information Block attempt about 9 more, of
+which the view makes up to three.
 See `docs/liquid-dsp-sdrprobe-assessment.md` for the numbers and for where the
 time would come from if it were ever needed.
 
@@ -168,9 +169,17 @@ Tabs are presentation only, not the boundary (ADR-0010).
   Zadoff-Chu sequence of this length swaps roots 29 and 34, a synthetic round
   trip cannot see it, and it has already been flipped once in error to make a
   broken SSS detector agree; and the SSS is detected *differentially*, each
-  subcarrier against its neighbour. **The SSS does not currently work on live
-  air** and so there is no cell identity off the air -- see
-  `.scratch/lte-cell-search/issues/05`. The PSS half does work.
+  subcarrier against its neighbour.
+
+  The third and worst trap is the frequency offset. **The PSS measures it as a
+  phase, and a phase wraps every subcarrier** -- so what comes back is the
+  offset modulo 15 kHz. An uncalibrated dongle is two subcarriers out at
+  800 MHz; the PSS still locks at 0.8 with all of that present, while the SSS
+  and the reference signals read subcarriers two places from where they should
+  and return a confident wrong identity. `lte_cell_search` sweeps integer
+  offsets to find the rest, and then re-finds the PSS peak with the offset
+  removed, because a frequency error *moves* a Zadoff-Chu correlation as well
+  as weakening it.
 - `src/lte_mib.{c,h}` — one layer further, Decoder side: 480 soft bits →
   descramble (four offsets, since one transmission does not say which quarter
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →
@@ -262,7 +271,7 @@ Its shape:
   interleaved I/Q with 127.5 = zero, 2 MS/s (1 sample = 0.5 µs), block size
   `16*16384`.
 - Test captures are `testfiles/<tech>_<detail>.bin`, each with a `.json`
-  sidecar. `lte_b20_pci32.bin` is at **1.92 MS/s**, not the house rate, and
+  sidecar. `lte_b20_pci28.bin` is at **1.92 MS/s**, not the house rate, and
   must keep reading cell 32 under the normal cyclic prefix in every block —
   that identity is the check a conjugated PSS cannot pass. `adsb_cpr_pair.bin` is the only one recorded by the app itself
   (`"provenance": "recorded by sdrprobe"`, 29.7 dB, R820T); it must keep

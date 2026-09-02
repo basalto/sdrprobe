@@ -191,14 +191,9 @@ int main(int argc, char **argv) {
                            "(mean |soft| %.3f)\n", ports[h], magnitude);
                     continue;
                 }
-                if (mib.antenna_ports != ports[h]) {
-                    printf("          %d port(s): parity says %d, so the "
-                           "combining was wrong\n", ports[h],
-                           mib.antenna_ports);
-                    continue;
-                }
-                printf("          MIB: %d blocks (%.2f MHz)  PHICH %s %s  "
-                       "SFN %d  %d port(s)\n", mib.bandwidth_prb,
+                printf("          MIB via %d-port combining: "
+                       "%d blocks (%.2f MHz)  PHICH %s %s  "
+                       "SFN %d  %d port(s)\n", ports[h], mib.bandwidth_prb,
                        lte_mib_occupied_hz(mib.bandwidth_prb) / 1e6,
                        mib.phich_extended ? "extended" : "normal",
                        lte_phich_resource_name(mib.phich_resource_sixths),

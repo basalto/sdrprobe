@@ -177,8 +177,16 @@ struct lte_pss_result {
  * error rotates the second half relative to the first, and a single 128-sample
  * correlation would cancel itself long before the offset became implausible.
  * The rotation is then the measurement -- the phase between the two halves
- * gives the offset, unambiguously up to half a subcarrier either way, which is
- * +-7.5 kHz.
+ * gives the offset, and a phase can only say so much: the answer wraps every
+ * full turn, which is one subcarrier, so what comes back is the offset
+ * MODULO 15 kHz and nothing more.
+ *
+ * That is not a rounding error, it is half the measurement missing. An
+ * uncalibrated dongle is tens of parts per million out, which at 800 MHz is
+ * tens of kilohertz -- two subcarriers on the captures here -- and this
+ * function reports the leftover 1.8 kHz of it with every appearance of
+ * confidence. The whole-subcarrier part has to be found somewhere else, and
+ * lte_cell_search finds it by trying them: see LTE_INTEGER_OFFSETS.
  *
  * Only the first half-frame is searched, because PSS repeats every half-frame
  * and one occurrence is all a search needs; `pair_count` must cover that plus
@@ -209,6 +217,9 @@ struct lte_cell {
     double frequency_offset_hz;
     float pss_correlation;
     float pss_runner_up;        /* the best either other root reached */
+    /* How many whole subcarriers of the tuning error the primary sequence
+       could not see. frequency_offset_hz already includes it. */
+    int integer_offset;
     float sss_correlation;      /* best candidate, normalised to [0, 1] */
     float sss_runner_up;        /* second best, so the margin can be judged */
 };
@@ -216,6 +227,27 @@ struct lte_cell {
 /*
  * PSS, then SSS, then the frame boundary. Returns 1 when a cell is found.
  *
+ * How many whole subcarriers either way the search will look for the part of
+ * the tuning error the primary sequence cannot report. Five is +-75 kHz,
+ * which at 800 MHz is +-94 parts per million -- past anything a working
+ * dongle does, and cheap, since each one costs only a re-read of one symbol
+ * and a walk through the candidates.
+ */
+#define LTE_INTEGER_OFFSETS 5
+
+/* A score this good, with this much daylight under it, ends the integer
+   search early. The offsets are tried outward from zero, so a receiver whose
+   error is the usual two subcarriers pays for four hypotheses rather than
+   eleven -- and a weak signal still gets the whole sweep, because nothing
+   clears this. */
+#define LTE_SSS_CONFIDENT 0.72f
+
+/* And how far either side of the first peak the timing is looked for again
+   once the offset is known. A cyclic prefix is nine samples, so anything
+   beyond a few tens is a different symbol. */
+#define LTE_TIMING_SEARCH 48
+
+/*
  * SSS is read differentially -- each subcarrier times the conjugate of its
  * neighbour -- and never against a channel estimate. Two neighbouring
  * subcarriers went through almost the same channel, so it cancels; and a

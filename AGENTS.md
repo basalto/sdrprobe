@@ -269,7 +269,17 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 
   Two things in it are load-bearing and easy to break silently:
 
-  1. **The sign of the PSS exponent.** Conjugating a punctured length-63
+  1. **The frequency offset is measured modulo one subcarrier.** The primary
+     sequence reads it from a phase, and a phase wraps: 15 kHz is one full
+     turn. An uncalibrated dongle is two subcarriers out at 800 MHz, the
+     correlation still locks at 0.8 with all of it present, and everything
+     after reads the wrong subcarriers and returns a *confident wrong
+     identity*. `lte_cell_search` sweeps integer offsets against the secondary
+     sequence to find the rest, then re-finds the peak with the offset removed
+     -- a frequency error moves a Zadoff-Chu correlation, not just weakens it.
+     This cost a day; see
+     `.scratch/lte-cell-search/issues/05-the-broadcast-channel-on-air.md`.
+  2. **The sign of the PSS exponent.** Conjugating a punctured length-63
      Zadoff-Chu sequence maps root u to 63 − u, and LTE's roots are 25, 29 and
      34 — so a conjugated generator still finds every cell, sharply and with a
      coherent channel, while swapping N_ID_2 1 with 2 and hiding N_ID_2 0
@@ -277,7 +287,7 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
      the detector conjugate together. This actually shipped and was found only
      against live air; see
      `.scratch/lte-cell-search/issues/04-the-conjugated-primary-sequence.md`.
-  2. **The secondary sequence is detected differentially**, each subcarrier
+  3. **The secondary sequence is detected differentially**, each subcarrier
      times the conjugate of its neighbour. Dividing out a channel measured from
      the primary sequence is the obvious alternative, works perfectly on a
      synthesised frame, and scores 0.44 — indistinguishable from noise — on

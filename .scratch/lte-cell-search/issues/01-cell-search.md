@@ -20,7 +20,7 @@ OFDM frame with noise and a deliberate frequency offset.
 ## Answer
 
 Done. `src/lte_dsp.{c,h}` and `src/lte_gold.h`, `make check-lte-dsp`, 521
-checks. On the live band 20 capture in `testfiles/lte_b20_pci32.bin` it reads
+checks. On the live band 20 capture in `testfiles/lte_b20_pci28.bin` it reads
 cell 32 (N_ID_1 10, N_ID_2 2), the normal cyclic prefix, and a frequency offset
 of about +2.5 kHz, in every block; two more live carriers read cells 160 and
 406.

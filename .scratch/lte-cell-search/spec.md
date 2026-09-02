@@ -45,11 +45,29 @@ what makes this scope reachable at all.
 - `./sdrprobe --file testfiles/lte_<band>_<detail>.bin --headless
   --technology lte --decode --once` prints the cell and its MIB.
 
+## Done
+
+Both layers, working on live air. `./sdrprobe --headless --earfcn 6200
+--decode` reads
+
+    LTE  cell 28 (N_ID_1 9, N_ID_2 1)  normal CP  offset -28.0 kHz
+         (-2 subcarriers)  PSS 0.87  SSS 0.76
+    MIB  50 blocks (9.00 MHz)  PHICH normal 1/6  SFN 441  2 antenna ports
+
+and keeps reading it, with the frame number advancing at the rate the block
+length implies. 3227 checks, no failures.
+
+The thing that cost the most and is worth carrying away: **a phase measurement
+of a frequency offset can only report it modulo one subcarrier.** An
+uncalibrated dongle is two subcarriers out at 800 MHz, the primary sequence
+still locks at 0.8 with all of that error present, and everything downstream
+silently reads the wrong subcarriers. See `issues/05`.
+
 ## Where it got to
 
 **Cell search: done, and working on air.** `src/lte_dsp.{c,h}`,
 `make check-lte-dsp`, 521 checks, including the identity of a live band 20 cell
-in `testfiles/lte_b20_pci32.bin`. Three live carriers read cells 32, 160 and
+in `testfiles/lte_b20_pci28.bin`. Three live carriers read cells 32, 160 and
 406, each the same in every block and each cross-checked by a second,
 independent detector.
 

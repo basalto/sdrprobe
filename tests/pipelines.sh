@@ -84,21 +84,38 @@ printf '  GSM decode\n'
 check_gsm testfiles/gsm_arfcn_73.bin 73 56
 check_gsm testfiles/gsm_arfcn_69.bin 69 59
 
-# --- LTE ------------------------------------------------------------------
-# The decode path used to assert a cell identity here. It no longer does, and
-# that is deliberate rather than a gap: the identity it was asserting came
-# from a conjugated primary sequence and was wrong, and the secondary detector
-# does not currently find the right one. Asserting the wrong answer is worse
-# than asserting none. What the primary sequence does find is checked in
-# check-lte-dsp against the capture, where the numbers can be seen.
-# See .scratch/lte-cell-search/issues/05-the-broadcast-channel-on-air.md.
-printf '  LTE\n'
+# --- LTE: the whole path, cell and message --------------------------------
+# --earfcn picks the carrier and with it LTE's 1.92 MS/s grid; the search
+# reads the identity off the two synchronisation signals and the broadcast
+# channel off the frame they locate. The identity and the frame number are
+# both asserted, and both are numbers this code has had wrong while every
+# synthetic check passed.
+printf '  LTE decode\n'
 checked
-if run --file testfiles/lte_b20_pci32.bin --headless --earfcn 6200 \
-       --decode --once | grep -q "End of capture"; then
-    report "lte_b20_pci32.bin" "plays through; no cell claimed (issues/05)"
+lte=$(run --file testfiles/lte_b20_pci28.bin --headless --earfcn 6200 \
+          --decode --once)
+mibs=$(printf '%s\n' "$lte" | grep -c "^MIB ")
+if ! printf '%s\n' "$lte" | grep -q "^LTE  cell 28 (N_ID_1 9, N_ID_2 1)"; then
+    fail "lte_b20_pci28 did not read cell 28; got: $(printf '%s\n' "$lte" |
+         grep '^LTE  cell ' | head -1)"
+elif [ "$mibs" -lt 20 ]; then
+    fail "lte_b20_pci28 decoded $mibs broadcast messages, expected at least 20"
+elif ! printf '%s\n' "$lte" |
+        grep -q "^MIB  50 blocks (9.00 MHz)  PHICH normal 1/6.*2 antenna"; then
+    fail "lte_b20_pci28 did not read a 50-block, 2-port cell"
 else
-    fail "the LTE decode path did not run to the end of the capture"
+    # The frame number has to advance: one block is 6.83 frames, so
+    # consecutive messages step by six or seven and nothing else. A decoder
+    # returning a constant would satisfy everything above.
+    sfns=$(printf '%s\n' "$lte" | sed -n 's/^MIB .*SFN \([0-9]*\) .*/\1/p')
+    bad=$(printf '%s\n' "$sfns" | awk 'NR>1 {d=($1-p+1024)%1024;
+          if (d!=6 && d!=7) n++} {p=$1} END {print n+0}')
+    if [ "$bad" -gt 1 ]; then
+        fail "the frame number stepped wrongly $bad times"
+    else
+        report "lte_b20_pci28.bin" \
+               "cell 28, $mibs messages, 50 blocks, 2 ports"
+    fi
 fi
 
 # An LTE run is refused on any sample rate but LTE's own: the plugin's
@@ -106,7 +123,7 @@ fi
 # no (ADR-0014).
 checked
 if run --headless --technology lte --sample-rate 2M --decode --once \
-       --file testfiles/lte_b20_pci32.bin | grep -q "^Usage:"; then
+       --file testfiles/lte_b20_pci28.bin | grep -q "^Usage:"; then
     report "--technology lte" "refuses a sample rate that is not 1.92 MS/s"
 else
     fail "--technology lte accepted a sample rate other than 1.92 MS/s"
@@ -115,7 +132,7 @@ fi
 # A band scan needs a receiver and cannot share stdout with a decode; both
 # refusals are the command line's, so they can be checked without one.
 checked
-if run --lte-scan 20 --headless --file testfiles/lte_b20_pci32.bin |
+if run --lte-scan 20 --headless --file testfiles/lte_b20_pci28.bin |
        grep -q "^Usage:"; then
     report "--lte-scan" "refuses a capture; a scan needs a receiver"
 else

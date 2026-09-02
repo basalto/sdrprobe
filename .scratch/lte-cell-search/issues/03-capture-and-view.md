@@ -17,7 +17,7 @@ Blocked by: 01, 02
 
 All of it, except the one item that needs a runtime sample-rate change:
 
-- `testfiles/lte_b20_pci32.bin` and its sidecar, 796.0 MHz at 1.92 MS/s, cell
+- `testfiles/lte_b20_pci28.bin` and its sidecar, 796.0 MHz at 1.92 MS/s, cell
   32. `check-lte-dsp` asserts the identity and `check-pipelines` asserts the
   whole command-line path to it.
 - `--earfcn`, `--technology lte`, `--view lte`, and `--decode` printing the

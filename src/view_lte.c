@@ -385,16 +385,19 @@ void update_lte(struct app *app, double now) {
             continue;
         if (!lte_mib_decode(soft, cell.pci, &mib))
             continue;
-        /*
-         * The parity mask names the antenna-port count, and these soft bits
-         * were combined assuming one. If the two disagree the parity passed by
-         * chance rather than because the block decoded, so it is thrown away.
-         * Sixteen bits of parity make that rare; taking the message anyway
-         * would make it invisible.
-         */
-        if (mib.antenna_ports != port_hypotheses[h])
-            continue;
 
+        /*
+         * The mask is not required to agree with the combining, and requiring
+         * it was a mistake that threw away every real message this decoder
+         * produced. The combining is only a way of getting soft bits good
+         * enough to decode; which one manages that is a property of the
+         * signal, not of the cell. On the band 20 captures the message comes
+         * out under the single-port combining and its mask says two ports --
+         * consistently, in every block, with a frame number advancing at
+         * exactly the right rate. What guards against a lucky parity is the
+         * repeat below, which is a far better test than agreement with a
+         * hypothesis the receiver chose itself.
+         */
         app->lte.mib_parity_passes++;
 
         /*
@@ -588,12 +591,13 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
     /* The offset in parts per million is the figure that transfers: it is a
        property of the receiver's crystal rather than of this carrier, so it
        can be compared with what the GSM calibration measured. */
-    snprintf(text, sizeof(text), "%+.0f Hz  (%+.2f ppm)",
-             cell->frequency_offset_hz,
+    snprintf(text, sizeof(text), "%+.1f kHz = %+.1f ppm  (%+d subcarriers)",
+             cell->frequency_offset_hz / 1e3,
              app->applied_frequency > 0
                  ? cell->frequency_offset_hz * 1e6 /
                        (double)app->applied_frequency
-                 : 0.0);
+                 : 0.0,
+             cell->integer_offset);
     draw_row(rect, y, "Frequency offset", text, row_value);
     y += 21;
     snprintf(text, sizeof(text), "%.2f  (others %.2f)",

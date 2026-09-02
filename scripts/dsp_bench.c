@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
      * rate is lower -- a different budget: the same 131072 pairs cover 68.3 ms
      * at 1.92 MS/s rather than 65.5 at 2. It is reported against its own.
      */
-    load_block("testfiles/lte_b20_pci32.bin", raw);
+    load_block("testfiles/lte_b20_pci28.bin", raw);
     pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, i_samples, q_samples,
                                magnitudes, BLOCK_PAIRS);
     {
@@ -186,7 +186,7 @@ int main(int argc, char **argv) {
         int lte_runs = runs < 4 ? runs : 4;   /* the search is the slow one */
         double per;
 
-        printf("\nLTE path (testfiles/lte_b20_pci32.bin, "
+        printf("\nLTE path (testfiles/lte_b20_pci28.bin, "
                "%.1f ms to a block at 1.92 MS/s)\n", lte_budget_ms);
 
         start = now_ms();
