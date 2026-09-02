@@ -106,6 +106,34 @@ will. It is discarded rather than interpreted. Overturning the conclusion would
 mean a much longer capture and a prefix-length window; nothing here argues for
 spending that.
 
+### The whole band, not one carrier
+
+774.2 MHz was the strongest thing the survey found, so it was measured first.
+The other five candidates were then recorded and put through the same probe,
+and they say the same thing -- six tunings spanning 27 MHz of the downlink:
+
+| tuning | 5 ms | 20 ms | prefix |
+| --- | --- | --- | --- |
+| 758.6 MHz | 1.9x | 3.9x | 64 samples, 0.72 |
+| 768.3 MHz | 1.1x | 5.6x | 64, 0.71 |
+| 771.2 MHz | 1.1x | 10.3x | 64, 0.67 |
+| 774.2 MHz | 1.1x | 8.1x | 64, 0.61 |
+| 777.2 MHz | 1.2x | 4.3x | 64, 0.60 |
+| 785.2 MHz | 1.3x | 10.0x | 64, 0.99 |
+
+Not six carriers -- six tunings. A synchronisation block sits on the GSCN
+raster rather than where a survey happens to find a peak, so a tuning near one
+reads 10x and a tuning that catches one at the edge of its passband reads 4x,
+and neighbouring tunings may be seeing the same block. What the table settles
+is narrower and enough: **every part of this downlink that carries anything
+carries NR at 30 kHz, and no part of it carries LTE.** Six independent chances
+to find a 5 ms burst, and the highest any of them reached was 1.9 times its
+floor.
+
+That also retires the alternative the spec was careful to leave open. A weak
+LTE carrier would have produced a 5 ms peak somewhere across six tunings and a
+prefix at lag 128 at least once. Neither happened.
+
 ### So
 
 At 30 kHz the primary and secondary signals span 127 x 30 kHz = 3.81 MHz. An
@@ -118,3 +146,13 @@ afternoon rather than a detector.
 What survives is worth more than the detector would have been: there is now a
 measurement in this repository that tells LTE from NR and names the grid,
 `make probe-periodicity`, and it works on signals nothing here can demodulate.
+
+## Comments
+
+**2026-09-02 -- a defect the wider sweep exposed.** At 777.2 MHz the 20 ms and
+40 ms rows came out 4.3 and 4.3, and the probe announced "a burst every 40 ms".
+It was taking the strongest period, but a burst every 20 ms necessarily appears
+at 40 as well, so which of the two wins is noise and the harmonic gets reported
+about half the time. It now names the shortest period within a sixth of the
+best, which is the same reasoning applied by hand when 40 ms landed on the
+identical phase as 20 in the first capture. The control still reads 5 ms.

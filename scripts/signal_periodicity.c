@@ -93,6 +93,7 @@ int main(int argc, char **argv) {
     size_t bytes, pairs, i, k, lag, best_lag = 0;
     double dc_r = 0.0, dc_i = 0.0;
     double best_period = 0.0, best_ratio = 0.0, five_ratio = 0.0;
+    double ratios[8] = { 0.0 };
     double best_cp = 0.0, cp_floor = 0.0;
 
     if (!path) {
@@ -141,8 +142,23 @@ int main(int argc, char **argv) {
                peak, floor_v, ratio, (double)phase / rate * 1000.0);
         if (periods_ms[k] == 5.0)
             five_ratio = ratio;
-        if (ratio > best_ratio) { best_ratio = ratio; best_period = periods_ms[k]; }
+        ratios[k] = ratio;
+        if (ratio > best_ratio)
+            best_ratio = ratio;
     }
+    /*
+     * Name the shortest period that explains the burst, not the strongest.
+     * A burst every 20 ms necessarily also appears at 40, and which of the two
+     * scores higher is down to noise -- so taking the maximum reports the
+     * harmonic about half the time. Anything within a sixth of the best is the
+     * same burst seen again.
+     */
+    for (k = 0; k < n_periods; k++)
+        if (ratios[k] >= best_ratio * 0.84) {
+            best_period = periods_ms[k];
+            best_ratio = ratios[k];
+            break;
+        }
 
     printf("\n  SUBCARRIER SPACING -- the cyclic prefix's own lag\n");
     printf("  %-8s %-10s %8s %8s\n", "lag", "implies", "p99", "floor");
