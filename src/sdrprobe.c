@@ -1479,9 +1479,13 @@ static int run_headless(struct app *app) {
                    found->pci % 3, (double)found->pss,
                    (double)found->sss_margin);
         }
-        printf("lte-scan band %d channels %d searched %d found %d\n",
+        /* `found` is what survived; `dropped` is what the confirmation pass
+           took away. Reporting only the survivors would hide the difference
+           between a quiet band and a noisy one that argued and lost. */
+        printf("lte-scan band %d channels %d searched %d found %d "
+               "dropped %d\n",
                band->band, lte_scan_count(band), app->lte.scan.candidate,
-               app->lte.scan.found_count);
+               app->lte.scan.found_count, app->lte.scan.confirm_dropped);
         fflush(stdout);
         if (stop_acquisition(app) < 0)
             return -1;

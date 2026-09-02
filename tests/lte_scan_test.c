@@ -101,18 +101,106 @@ static void test_the_likely_ones_come_first(void) {
 
 static void test_how_long_it_takes(void) {
     const struct lte_band *band = lte_band_for_earfcn(6200);
-    /* The figures the view quotes. A whole band is a minute and a bit; the
-       first pass, which is when the list stops filling in practice, is under
-       ten seconds. */
-    check_close("a whole band 20 scan", lte_scan_seconds(band), 132.0, 1.0);
-    check_close("its first pass", lte_scan_first_pass_seconds(band), 13.2, 0.5);
-    /* Confirming costs nothing on an empty channel and everything on a
-       promising one, which is the only place it decides anything. */
-    check_true("a channel gets at least two looks",
+    /* The figures the view quotes. A whole band is a few minutes; the first
+       pass, which is when the list stops filling in practice, is under twenty
+       seconds. */
+    check_close("a whole band 20 scan", lte_scan_seconds(band), 168.0, 1.0);
+    check_close("its first pass", lte_scan_first_pass_seconds(band), 16.8, 0.5);
+    check_true("a channel gets enough looks to confirm on",
                LTE_SCAN_MIN_LOOKS >= LTE_SCAN_CONFIRMATIONS);
     check_true("and no more than five", LTE_SCAN_MAX_LOOKS >= LTE_SCAN_MIN_LOOKS);
     check_true("the first pass is a tenth of the whole",
                lte_scan_first_pass_seconds(band) < lte_scan_seconds(band) / 9.0);
+}
+
+/*
+ * The third look, and what it buys.
+ *
+ * A channel with nothing on it costs the minimum, so the minimum is what
+ * decides whether a cell that only answers sometimes is seen at all. The one
+ * this was raised for -- the live band 20 carrier at 816 MHz -- yields an
+ * identity in about half its blocks.
+ */
+static void test_the_third_look(void) {
+    double miss_at_two = 0.5 * 0.5;
+    double miss_at_three = 0.5 * 0.5 * 0.5;
+    const struct lte_band *band = lte_band_for_earfcn(6200);
+    double two_look_sweep = (double)lte_scan_count(band) *
+                            (LTE_SCAN_SETTLE_SECONDS +
+                             2 * LTE_SCAN_PROBE_SECONDS);
+
+    check_int("a silent channel is looked at three times",
+              LTE_SCAN_MIN_LOOKS, 3);
+    check_close("which misses a half-answering cell an eighth of the time",
+                miss_at_three, 0.125, 1e-9);
+    check_true("where two looks missed it a quarter of the time",
+               miss_at_two > miss_at_three * 1.9);
+    /* And what the third costs: one probe on every channel of the band. */
+    check_close("the third look costs a probe a channel",
+                lte_scan_seconds(band) - two_look_sweep,
+                (double)lte_scan_count(band) * LTE_SCAN_PROBE_SECONDS, 0.5);
+}
+
+/*
+ * The confirmation pass. The sweep is generous because it cannot revisit;
+ * this can, and it is cheap because by then there is almost nothing left to
+ * ask.
+ */
+static void test_the_confirmation_pass(void) {
+    check_true("two agreements keep an entry", lte_scan_confirmed(2));
+    check_true("and more than two", lte_scan_confirmed(5));
+    check_true("one does not", !lte_scan_confirmed(1));
+    check_true("nor none at all", !lte_scan_confirmed(0));
+    check_true("an entry gets more looks than the sweep gave it",
+               LTE_SCAN_CONFIRM_LOOKS > LTE_SCAN_MIN_LOOKS);
+    check_true("and cannot be kept without repeating",
+               LTE_SCAN_CONFIRM_AGREE >= 2);
+
+    /* The cost, against the sweep it follows: for the handful of cells a band
+       actually holds, seconds against minutes. That ratio is the argument for
+       the pass existing, so it is worth pinning. */
+    check_close("five cells cost four seconds",
+                lte_scan_confirm_seconds(5), 4.0, 0.01);
+    check_close("nothing found costs nothing",
+                lte_scan_confirm_seconds(0), 0.0, 1e-9);
+    check_true("a found band's confirmation is a fortieth of its sweep",
+               lte_scan_confirm_seconds(5) <
+                   lte_scan_seconds(lte_band_for_earfcn(6200)) / 40.0);
+}
+
+/*
+ * Dropping an entry keeps the rest in order. The confirmation pass walks the
+ * list while removing from it, so an entry sliding past the index is how a
+ * real cell would be skipped without anything saying so.
+ */
+static void test_dropping_an_entry(void) {
+    struct lte_found_cell list[4];
+    int count = 4, i;
+
+    for (i = 0; i < 4; i++) {
+        list[i].earfcn = (unsigned int)(6200 + i);
+        list[i].frequency_hz = (uint32_t)(796000000 + i * 1000000);
+        list[i].pci = 10 + i;
+        list[i].pss = 0.9f - 0.1f * (float)i;
+        list[i].sss_margin = 0.3f;
+    }
+
+    count = lte_scan_remove(list, count, 1);
+    check_int("removing one shortens the list", count, 3);
+    check_int("the entry before it is untouched", list[0].pci, 10);
+    check_int("the one after moves up", list[1].pci, 12);
+    check_int("and the rest follow it", list[2].pci, 13);
+
+    count = lte_scan_remove(list, count, 2);   /* the last */
+    check_int("the last can go too", count, 2);
+    check_int("leaving the others in order", list[1].pci, 12);
+
+    /* An index nobody holds changes nothing, which is what stops a confirm
+       pass walking off its own list. */
+    check_int("an index past the end is refused",
+              lte_scan_remove(list, count, 2), 2);
+    check_int("so is a negative one", lte_scan_remove(list, count, -1), 2);
+    check_int("so is no list at all", lte_scan_remove(NULL, 3, 0), 3);
 }
 
 /*
@@ -145,6 +233,9 @@ int main(void) {
     test_every_channel_once();
     test_the_likely_ones_come_first();
     test_how_long_it_takes();
+    test_the_third_look();
+    test_the_confirmation_pass();
+    test_dropping_an_entry();
     test_ghosts_are_one_carrier();
     test_refuses_nonsense();
 
