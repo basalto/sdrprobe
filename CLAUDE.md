@@ -68,6 +68,7 @@ compile the plugin's `.c` in to reach its statics):
 make probe-gsm-chain                        # defaults to testfiles/gsm_arfcn_69.bin
 make probe-gsm-chain FILE=captures/x.bin
 make probe-adsb-chain FILE_ADSB=testfiles/adsb_modes1.bin
+make probe-lte-chain FILE_LTE=testfiles/lte_b20_pci32.bin
 ```
 
 What the DSP costs, against the 65.5 ms of signal one block covers:
@@ -79,6 +80,10 @@ make bench-dsp BENCH_ARCH=-march=native     # with this machine's SIMD
 
 The answer as of this writing: the Scope path uses about 7 ms of the 65.5,
 the GSM view about 28, and `-march=native` changes none of it beyond noise.
+LTE is reported against its own budget, because 131072 pairs at 1.92 MS/s is
+68.3 ms rather than 65.5: the cell search costs about 8 ms of it (nearly all of
+that the PSS correlation, 9600 offsets against three roots) and each Master
+Information Block attempt about 7 more, of which the view makes up to three.
 See `docs/liquid-dsp-sdrprobe-assessment.md` for the numbers and for where the
 time would come from if it were ever needed.
 
@@ -143,6 +148,21 @@ Tabs are presentation only, not the boundary (ADR-0010).
   `testfiles/gsm_arfcn_69.bin` it reports MCC 268 MNC 03, LAC 4010, CI 5131.
 - `src/adsb_dsp.{c,h}` (`adsb_`) — Mode S: preamble detect, PPM bit demod, CRC-24,
   DF17/18 field parse, CPR position with an even/odd pairing cache.
+- `src/lte_dsp.{c,h}` (`lte_`) — LTE cell search: EARFCN map, PSS correlation
+  (Zadoff-Chu, three roots), SSS detection, cyclic-prefix length, frame
+  boundary, and a frequency offset measured twice — coarsely from PSS, then
+  from the reference signals of slot 1. **It runs at 1.92 MS/s and refuses
+  anything else (ADR-0014).** Two traps are worth knowing before touching it:
+  the PSS exponent's sign is load-bearing, because conjugating a Zadoff-Chu
+  sequence of this length swaps roots 29 and 34 and a synthetic round trip
+  cannot see it; and the SSS is detected *differentially*, each subcarrier
+  against its neighbour, because the channel-referenced method works
+  synthetically and fails on air.
+- `src/lte_mib.{c,h}` — one layer further, Decoder side: 480 soft bits →
+  descramble (four offsets, since one transmission does not say which quarter
+  of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →
+  CRC-16 masked by the antenna-port count → a Master Information Block.
+  `src/lte_gold.h` holds the length-31 Gold sequence both sides need.
 
 A plugin supplies a channel map and a reference-tone detector and reuses the core
 for everything else (ADR-0001); a decode stage sits behind the same seam even when
@@ -180,7 +200,8 @@ acquisition` in `acquisition.h`, and `struct scope_view`, `struct gsm_view`,
 to `struct app`, and if the frame loop needs something from a view, give the
 view an entry point rather than reaching into its fields —
 `view_scope_resize_if_needed()` is the pattern. Each screen has a file — `view_scope.c` (the four Scope views),
-`view_gsm.c`, `view_adsb.c`, `overlay_calibration.c`, `overlay_settings.c` —
+`view_gsm.c`, `view_adsb.c`, `view_lte.c`, `overlay_calibration.c`,
+`overlay_settings.c` —
 with `src/view.h` declaring what they share. `src/sdrprobe.c` is down to
 acquisition, the tab/header chrome, the frame loop and `main`.
 
@@ -228,7 +249,9 @@ Its shape:
   interleaved I/Q with 127.5 = zero, 2 MS/s (1 sample = 0.5 µs), block size
   `16*16384`.
 - Test captures are `testfiles/<tech>_<detail>.bin`, each with a `.json`
-  sidecar. `adsb_cpr_pair.bin` is the only one recorded by the app itself
+  sidecar. `lte_b20_pci32.bin` is at **1.92 MS/s**, not the house rate, and
+  must keep reading cell 32 under the normal cyclic prefix in every block —
+  that identity is the check a conjugated PSS cannot pass. `adsb_cpr_pair.bin` is the only one recorded by the app itself
   (`"provenance": "recorded by sdrprobe"`, 29.7 dB, R820T); it must keep
   decoding 6 frames with 1 global CPR position resolved, which is what makes it
   worth keeping — it is the only capture that exercises the even/odd pairing

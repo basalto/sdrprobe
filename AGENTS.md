@@ -3,7 +3,8 @@
 `sdrprobe` is a raylib SDR visualizer and GSM 900 frequency-calibration probe
 for RTL-SDR receivers, modeled after dump1090's `modesInitRTLSDR()` acquisition.
 Its DSP is split into a generic core (`src/sdr_dsp.c`/`.h`) and per-technology
-plugins (`src/gsm_dsp.c`/`.h` for GSM calibration, `src/adsb_dsp.c`/`.h` for
+plugins (`src/gsm_dsp.c`/`.h` for GSM calibration, `src/lte_dsp.c`/`.h` for
+LTE cell search, `src/adsb_dsp.c`/`.h` for
 Mode S / ADS-B message decoding), and its UI into an SDR component layer
 (`src/sdrgui.c`/`.h`) over vendored raygui widgets (see "Files" below). The
 window is organised into two top-level tabs — Scope (the four signal views,
@@ -33,9 +34,10 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 - `make check-dsp` — builds and runs deterministic, hardware-free DSP
   checks; it does not require raylib. It runs the per-technology checks
   `check-sdr-dsp` (generic core),
-  `check-gsm-dsp` (GSM plugin), `check-adsb-dsp` (Mode S / ADS-B plugin) and
-  `check-band-plan` (the frequency allocation table); each can be built and run
-  on its own.
+  `check-gsm-dsp` (GSM plugin), `check-adsb-dsp` (Mode S / ADS-B plugin),
+  `check-lte-dsp` (LTE cell search), `check-lte-mib` (the LTE broadcast
+  channel) and `check-band-plan` (the frequency allocation table); each can be
+  built and run on its own.
 - The rest of the unit layer, one suite per module, each a `make check-*` of
   its own and all of them in `make check`:
   `check-survey-sweep` (the sweep's step plan, its fold into the survey array,
@@ -255,6 +257,39 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   velocity), and CPR global position decode with a minimal even/odd pairing
   cache. Prefix `adsb_`. It reuses only the core's per-pair magnitude, not the
   FFT/centroid primitives; recorded in `docs/adr/0009-mode-s-decode-plugin.md`.
+- `src/lte_dsp.h` / `src/lte_dsp.c` — LTE (E-UTRA) technology plugin:
+  EARFCN→frequency map, primary-synchronisation-signal correlation against the
+  three Zadoff-Chu roots, secondary-sequence detection over the 336 candidates,
+  physical cell identity, cyclic-prefix length, frame boundary, and a frequency
+  offset measured coarsely from PSS and then refined against the reference
+  signals of slot 1. It also extracts the broadcast channel's soft bits, with
+  the space-frequency block code undone for one, two or four antenna ports.
+  Prefix `lte_`. **It runs at 1.92 MS/s and refuses any other rate**
+  (`docs/adr/0014-lte-runs-on-lte-s-sample-grid.md`).
+
+  Two things in it are load-bearing and easy to break silently:
+
+  1. **The sign of the PSS exponent.** Conjugating a punctured length-63
+     Zadoff-Chu sequence maps root u to 63 − u, and LTE's roots are 25, 29 and
+     34 — so a conjugated generator still finds every cell, sharply and with a
+     coherent channel, while swapping N_ID_2 1 with 2 and hiding N_ID_2 0
+     entirely. A synthetic round trip cannot see it, because the generator and
+     the detector conjugate together. This actually shipped and was found only
+     against live air; see
+     `.scratch/lte-cell-search/issues/04-the-conjugated-primary-sequence.md`.
+  2. **The secondary sequence is detected differentially**, each subcarrier
+     times the conjugate of its neighbour. Dividing out a channel measured from
+     the primary sequence is the obvious alternative, works perfectly on a
+     synthesised frame, and scores 0.44 — indistinguishable from noise — on
+     live captures that the differential method reads at 0.75.
+- `src/lte_mib.h` / `src/lte_mib.c` — the LTE Master Information Block, the
+  Decoder context's side of LTE and the analogue of `gsm_bcch.c`: 480 soft bits
+  in, a message out. Descrambling against four candidate offsets (one
+  transmission does not say which quarter of the 40 ms period it is), rate
+  dematching, a tail-biting rate-1/3 K=7 Viterbi over all 64 closing states,
+  and a CRC-16 whose mask names the antenna-port count. `src/lte_gold.h` holds
+  the length-31 Gold sequence both sides of the split need, as a header so
+  neither has to depend on the other.
 - `src/acquisition.{c,h}` — the worker thread, the single overwriteable block
   slot it hands samples through (ADR-0002), and raw-I/Q recording. Owns its
   own state and knows nothing of `struct app`: the device handle, playback
@@ -273,7 +308,11 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   entry points.
 - `src/view_scope.c` — the Scope tab's four signal views, plus the waterfall
   texture and scatter history they keep between frames.
-- `src/view_gsm.c`, `src/view_adsb.c` — the Decode tab's two screens.
+- `src/view_gsm.c`, `src/view_adsb.c`, `src/view_lte.c` — the Decode tab's
+  three screens. The LTE one is two panels read together: what the
+  synchronisation signals found, and what the broadcast said. A cell identity
+  with an empty panel beside it is a carrier that is present and too weak to
+  read, which one panel alone could not tell from an empty band.
 - `src/overlay_calibration.c` — GSM 900 calibration and the periodic drift
   re-check, which is a calibration re-run.
 - `src/overlay_scan.c` — the band scan that picks a calibration reference. It

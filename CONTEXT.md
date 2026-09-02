@@ -118,6 +118,14 @@ _Avoid_: Auto-tune, alignment
 The GSM 900 downlink channel number (1-124) whose expected carrier frequency anchors channel calibration.
 _Avoid_: Channel index, band slot
 
+**EARFCN**:
+The LTE downlink channel number whose carrier frequency the receiver is tuned to, on the standard's 100 kHz raster.
+_Avoid_: LTE channel, ARFCN, band slot
+
+**LTE sample grid**:
+The 1.92 MS/s rate at which LTE's own arithmetic is integral -- 128 subcarriers of 15 kHz. Acquisition for LTE runs at it rather than at the 2 MS/s house rate, and the plugin refuses any other.
+_Avoid_: LTE sample rate, resampled rate, native rate
+
 **Measured carrier**:
 The frequency estimated from an isolated calibration signal, compared against its expected frequency to derive a correction.
 _Avoid_: Detected peak, tuned frequency

@@ -25,7 +25,8 @@
 enum band_plan_decoder {
     BAND_PLAN_NONE = 0,
     BAND_PLAN_GSM,
-    BAND_PLAN_ADSB
+    BAND_PLAN_ADSB,
+    BAND_PLAN_LTE
 };
 
 struct band_plan_entry {

@@ -59,6 +59,14 @@ Rectangle gsm_scan_rect(void);
 Rectangle gsm_waterfall_rect(void);
 Rectangle gsm_burst_rect(void);
 
+/* LTE cell-search and broadcast view. */
+void draw_lte(struct app *app);
+void handle_lte_input(struct app *app);
+void update_lte(struct app *app, double now);
+/* Whether the receiver is on LTE's 1.92 MS/s grid, which is the one thing
+   that has to be true before any of it works (ADR-0014). */
+int lte_on_grid(const struct app *app);
+
 /* Mode S / ADS-B view. */
 void draw_adsb(struct app *app);
 void handle_adsb_input(struct app *app);

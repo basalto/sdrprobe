@@ -739,7 +739,7 @@ static void draw_header(const struct app *app) {
         "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall",
         "5 survey"
     };
-    static const char *decode_opts[2] = { "1 GSM", "2 ADS-B" };
+    static const char *decode_opts[3] = { "1 GSM", "2 ADS-B", "3 LTE" };
 
     DrawText("sdrprobe signal visualizer", 22, 14, 24,
              (Color){ 225, 236, 245, 255 });
@@ -747,7 +747,7 @@ static void draw_header(const struct app *app) {
         draw_option_row((int)app->view, scope_opts, 5,
                         "Up/Down scale   h help   Esc quit");
     else
-        draw_option_row((int)app->decode, decode_opts, 2,
+        draw_option_row((int)app->decode, decode_opts, 3,
                         "h help   Esc scope");
 
     draw_tab_bar(app);
@@ -797,6 +797,11 @@ static void cli_record_labels(const struct options *options,
         snprintf(named, sizeof(named), "gsm_arfcn%d", options->arfcn);
         *basename = named;
         *technology = "gsm";
+    } else if (options->earfcn) {
+        static char named[32];
+        snprintf(named, sizeof(named), "lte_earfcn%d", options->earfcn);
+        *basename = named;
+        *technology = "lte";
     } else if (options->technology) {
         *basename = options->technology;
         *technology = options->technology;
@@ -806,6 +811,9 @@ static void cli_record_labels(const struct options *options,
     } else if (options->view == START_VIEW_ADSB) {
         *basename = "adsb";
         *technology = "adsb";
+    } else if (options->view == START_VIEW_LTE) {
+        *basename = "lte";
+        *technology = "lte";
     } else {
         *basename = "raw";
         *technology = "raw";
@@ -889,6 +897,8 @@ static int run_gui(struct app *app) {
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB);
                                set_tab(app, TAB_DECODE); break;
+    case START_VIEW_LTE:       set_decode(app, DECODE_LTE);
+                               set_tab(app, TAB_DECODE); break;
     default: break;
     }
 
@@ -961,10 +971,14 @@ static int run_gui(struct app *app) {
                     set_decode(app, DECODE_GSM);
                 else if (IsKeyPressed(KEY_TWO))
                     set_decode(app, DECODE_ADSB);
+                else if (IsKeyPressed(KEY_THREE))
+                    set_decode(app, DECODE_LTE);
                 if (app->decode == DECODE_GSM)
                     handle_gsm_input(app);
-                else
+                else if (app->decode == DECODE_ADSB)
                     handle_adsb_input(app);
+                else
+                    handle_lte_input(app);
             } else if (IsKeyPressed(KEY_ESCAPE) && !input.text_focus) {
                 break_requested = 1;
             }
@@ -1034,6 +1048,9 @@ static int run_gui(struct app *app) {
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_GSM && !app->calibration_open)
             update_gsm_sch(app, now);
+        if (have_new && app->tab == TAB_DECODE &&
+            app->decode == DECODE_LTE && !app->calibration_open)
+            update_lte(app, now);
         update_drift_check(app, spectrum_updated);
         update_scatter(app, now,
                        have_new && app->tab == TAB_SCOPE &&
@@ -1053,8 +1070,10 @@ static int run_gui(struct app *app) {
             if (app->tab == TAB_DECODE) {
                 if (app->decode == DECODE_GSM)
                     draw_gsm(app);
-                else
+                else if (app->decode == DECODE_ADSB)
                     draw_adsb(app);
+                else
+                    draw_lte(app);
             } else {
                 if (app->view == VIEW_SURVEY) {
                     draw_survey(app);
@@ -1171,9 +1190,54 @@ static void print_broadcast(struct app *app, const struct gsm_sch_result *sch)
     printf("\n");
 }
 
-static void print_new_decodes(struct app *app, double now, int gsm)
+/*
+ * What an LTE block yielded, printed only when it says something new.
+ *
+ * A cell is announced once and then only when it changes, because the search
+ * finds the same one in every block and a line per block would bury the
+ * message. The message itself is printed whenever it decodes: its frame number
+ * advances, so consecutive lines are the cell's clock ticking rather than
+ * repetition.
+ */
+static void print_lte(struct app *app, double now)
 {
-    if (gsm) {
+    uint64_t cells_before = app->lte.cells_found;
+    uint64_t messages_before = app->lte.mibs_decoded;
+    const struct lte_cell *cell = &app->lte.cell;
+    const struct lte_mib *mib = &app->lte.mib;
+
+    update_lte(app, now);
+
+    if (app->lte.cells_found > cells_before &&
+        cell->pci != app->lte.announced_pci) {
+        printf("LTE  cell %d (N_ID_1 %d, N_ID_2 %d)  %s CP  offset %+.0f Hz"
+               "  PSS %.2f  SSS %.2f\n",
+               cell->pci, cell->n_id_1, cell->n_id_2,
+               cell->extended_cp ? "extended" : "normal",
+               cell->frequency_offset_hz, (double)cell->pss_correlation,
+               (double)cell->sss_correlation);
+        app->lte.announced_pci = cell->pci;
+    }
+    if (app->lte.mibs_decoded > messages_before)
+        printf("MIB  %d blocks (%.2f MHz)  PHICH %s %s  SFN %d"
+               "  %d antenna port%s\n",
+               mib->bandwidth_prb,
+               lte_mib_occupied_hz(mib->bandwidth_prb) / 1e6,
+               mib->phich_extended ? "extended" : "normal",
+               lte_phich_resource_name(mib->phich_resource_sixths),
+               mib->system_frame_number, mib->antenna_ports,
+               mib->antenna_ports == 1 ? "" : "s");
+}
+
+static void print_new_decodes(struct app *app, double now,
+                              enum decode_kind decoder)
+{
+    if (decoder == DECODE_LTE) {
+        print_lte(app, now);
+        fflush(stdout);
+        return;
+    }
+    if (decoder == DECODE_GSM) {
         int had = app->gsm.sch_valid;
         double before = app->gsm.sch_time;
         update_gsm_sch(app, now);
@@ -1263,8 +1327,13 @@ static int run_headless(struct app *app) {
         return survey_result;
     }
 
-    int decode_gsm = app->options.technology &&
-                     strcmp(app->options.technology, "gsm") == 0;
+    enum decode_kind decoder = DECODE_ADSB;
+    if (app->options.technology &&
+        strcmp(app->options.technology, "gsm") == 0)
+        decoder = DECODE_GSM;
+    else if (app->options.technology &&
+             strcmp(app->options.technology, "lte") == 0)
+        decoder = DECODE_LTE;
     if (app->options.decode)
         sdr_dsp_init(&app->dsp);
 
@@ -1284,7 +1353,7 @@ static int run_headless(struct app *app) {
                I/Q it fills in are. */
             process_block(app, now);
             if (app->pair_count > 0)
-                print_new_decodes(app, now, decode_gsm);
+                print_new_decodes(app, now, decoder);
         }
         if (snapshot.worker_failed) {
             fprintf(stderr, "Acquisition failed: %s\n", snapshot.worker_error);
@@ -1341,6 +1410,23 @@ int main(int argc, char **argv) {
         }
         options.frequency = channel_hz - 400000U;
     }
+    /*
+     * An EARFCN names a carrier, and the receiver is tuned to its centre --
+     * not beside it, as an ARFCN is. LTE never transmits on the middle
+     * subcarrier, so the tuner's own DC spike lands where the standard already
+     * leaves a hole, and the synchronisation signals a cell search needs sit
+     * either side of it.
+     */
+    if (options.earfcn) {
+        uint32_t carrier_hz;
+        if (!lte_earfcn_downlink_hz((unsigned int)options.earfcn,
+                                    &carrier_hz)) {
+            fprintf(stderr, "EARFCN %d is not an LTE downlink channel this "
+                            "build knows.\n", options.earfcn);
+            return 1;
+        }
+        options.frequency = carrier_hz;
+    }
 
     app = calloc(1, sizeof(*app));
     if (!app) {
@@ -1351,6 +1437,8 @@ int main(int argc, char **argv) {
     app->receiver_mode = options.file_path == NULL;
     app->remove_dc = options.remove_dc;
     view_gsm_defaults(app);
+    /* Cell 0 is a real identity, so "none announced" cannot be zero. */
+    app->lte.announced_pci = -1;
     view_scope_defaults(app);
     view_survey_defaults(app);
     if (options.gsm_features_seen) {

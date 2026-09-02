@@ -14,6 +14,8 @@
 #include "adsb_dsp.h"
 #include "gsm_bcch.h"
 #include "gsm_dsp.h"
+#include "lte_dsp.h"
+#include "lte_mib.h"
 #include "options.h"
 #include "sdr_dsp.h"
 #include "survey_sweep.h"
@@ -50,7 +52,8 @@
 /* Sub-views of the Decode tab, selected by number keys like the Scope views. */
 enum decode_kind {
     DECODE_GSM,
-    DECODE_ADSB
+    DECODE_ADSB,
+    DECODE_LTE
 };
 /* What the ADS-B view decides -- the log row, which frame the charts are
    drawn from, and the funnel -- is in a header the checks can reach. */
@@ -169,6 +172,40 @@ struct adsb_view {
     struct adsb_frame_trace good_trace;
     struct adsb_demod_stats block_stats;   /* the latest block alone */
     struct adsb_demod_stats totals;        /* accumulated over the session */
+};
+
+/*
+ * The LTE decode screen's own state: the cell the synchronisation signals
+ * found, and the Master Information Block behind it.
+ *
+ * Both are kept rather than replaced each block, because a cell that is found
+ * and then missed for a second is worth still showing -- with `age` saying so
+ * -- and because the block is broadcast once per frame while a sample block
+ * covers seven. The counters are the honest record of how often each stage
+ * actually succeeded, which is the difference between a marginal cell and a
+ * strong one.
+ */
+struct lte_view {
+    int earfcn;                 /* 0 when the tuning is not on the raster */
+    struct lte_cell cell;
+    int cell_valid;
+    double cell_time;
+    struct lte_mib mib;
+    int mib_valid;
+    double mib_time;
+    int mib_ports_used;         /* the combining the message decoded under */
+
+    uint64_t blocks_seen;
+    uint64_t cells_found;
+    uint64_t mibs_decoded;
+    /* The identity a scripted run has already printed. The search finds the
+       same cell in every block, and a line each would bury the message. */
+    int announced_pci;
+
+    /* Why the last block produced nothing, when it produced nothing. The
+       common answer is that the receiver is not on LTE's sample grid, and
+       saying so beats an empty screen. */
+    char status[160];
 };
 
 /*
@@ -365,6 +402,7 @@ struct app {
     struct survey_view survey;
     struct gsm_view gsm;
     struct adsb_view adsb;
+    struct lte_view lte;
     struct settings_panel set;
     struct help_overlay help;
     struct calibration cal;

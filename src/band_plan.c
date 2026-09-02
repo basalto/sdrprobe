@@ -60,15 +60,20 @@ static const struct band_plan_entry entries[] = {
     { 703000000.0, 733000000.0, "LTE band 28 uplink", "700 MHz, cleared 2020",
       BAND_PLAN_NONE },
     { 758000000.0, 788000000.0, "LTE band 28 downlink", "700 MHz",
-      BAND_PLAN_NONE },
+      BAND_PLAN_LTE },
     { 791000000.0, 821000000.0, "LTE band 20 downlink", "800 MHz",
-      BAND_PLAN_NONE },
+      BAND_PLAN_LTE },
     { 832000000.0, 862000000.0, "LTE band 20 uplink", "800 MHz",
       BAND_PLAN_NONE },
     { 863000000.0, 870000000.0, "868 MHz ISM", "meters, sensors, LoRa",
       BAND_PLAN_NONE },
     { 880000000.0, 915000000.0, "GSM 900 / LTE B8 uplink",
       "handsets transmit here", BAND_PLAN_NONE },
+    /* Two technologies share this allocation, and the table names one
+       decoder. GSM wins it because the GSM view has a band scan that finds a
+       channel on its own, where LTE needs a carrier centre it cannot guess;
+       pointing someone at the more useful screen is the whole purpose of the
+       field. */
     { 925000000.0, 960000000.0, "GSM 900 / LTE B8 downlink",
       "200 kHz channels, ARFCN 1-124", BAND_PLAN_GSM },
     { 1090000000.0, 1090500000.0, "Mode S / ADS-B", "1090 MHz extended squitter",

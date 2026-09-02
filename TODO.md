@@ -25,6 +25,21 @@
 - [ ] Add optional Mode S/ADS-B preamble and valid-message counters, while
   keeping full aircraft tracking and networking out of this probe.
 
+- [ ] Read an LTE Master Information Block off the air. The chain is written
+  and checked (`make check-lte-mib`) and recovers a synthesised broadcast
+  channel exactly, but no live capture decodes: the cell-specific reference
+  signals do not lock, so there is no channel estimate behind the soft bits.
+  See `.scratch/lte-cell-search/issues/05-the-broadcast-channel-on-air.md` —
+  the next step is a stronger capture, which separates "too weak" from "a
+  convention is wrong" in one measurement.
+- [ ] Add a sample rate to the Settings panel, so the LTE view can be reached
+  without restarting. LTE needs 1.92 MS/s (ADR-0014) and nothing at runtime
+  can change the rate today.
+- [ ] Extended-cyclic-prefix LTE. The cell search reports it; the broadcast
+  channel declines it, because that prefix puts a third reference symbol
+  inside the channel and shortens it to 432 bits. No commercial FDD cell uses
+  it, and there is no capture to check it against.
+
 ## Implemented
 
 - [x] Magnitude, spectrum, I/Q scatter, and waterfall views.
@@ -37,5 +52,8 @@
 - [x] Cursor crosshairs with axis values and center-frequency offsets.
 - [x] Noise p10, signal p99.5, estimated SNR, clipping, and headroom metrics.
 - [x] Deterministic, hardware-free DSP checks.
+- [x] LTE cell search: EARFCN map, PSS, SSS, physical cell identity, frame
+  boundary, cyclic-prefix length, and a frequency offset good to tens of hertz.
+  Verified against three live band 20 carriers.
 - [x] Add GSM 900 ARFCN calibration with expected/measured waterfall markers,
   confidence reporting, stability gating, and PPM application.

@@ -1,4 +1,5 @@
 #include "adsb_layout.h"
+#include "lte_layout.h"
 #include "chrome_layout.h"
 #include "gsm_layout.h"
 #include "survey_layout.h"
@@ -405,9 +406,57 @@ static void check_survey(void) {
     }
 }
 
+
+/*
+ * The LTE view is pinned by property rather than by number.
+ *
+ * Its two panels are a pair -- what the synchronisation signals found, and
+ * what the broadcast said -- and the thing that must hold at every window size
+ * is that they read as one row: same top, same bottom, no overlap, and both
+ * inside the window under the waterfall. Pinning coordinates would say the
+ * same thing less directly and would have to be rewritten every time a margin
+ * moves.
+ */
+static void check_lte(void) {
+    static const struct { float width, height; } sizes[] = {
+        { 1100.0f, 720.0f }, { 1000.0f, 540.0f }, { 1600.0f, 900.0f },
+        { 640.0f, 400.0f }, { 480.0f, 320.0f }
+    };
+    for (unsigned c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++) {
+        float w = sizes[c].width, h = sizes[c].height;
+        struct lte_layout l = lte_layout_for(w, h);
+
+        check_msg(fabsf(l.cell_panel.y - l.mib_panel.y) <= 0.01f &&
+                      fabsf(l.cell_panel.height - l.mib_panel.height) <= 0.01f,
+                  "%.0fx%.0f: the two panels are not one row\n", w, h);
+        check_msg(l.cell_panel.x + l.cell_panel.width <= l.mib_panel.x + 0.01f,
+                  "%.0fx%.0f: the cell panel runs into the broadcast panel\n",
+                  w, h);
+        check_msg(l.waterfall.y + l.waterfall.height <= l.cell_panel.y + 0.01f,
+                  "%.0fx%.0f: the waterfall runs into the panels\n", w, h);
+        check_msg(fabsf(l.waterfall.x - l.cell_panel.x) <= 0.01f,
+                  "%.0fx%.0f: the waterfall is not aligned with the panels\n",
+                  w, h);
+        check_msg(fabsf((l.waterfall.x + l.waterfall.width) -
+                        (l.mib_panel.x + l.mib_panel.width)) <= 0.01f,
+                  "%.0fx%.0f: the waterfall and the panels end differently\n",
+                  w, h);
+        /* The header text must stop before the button on its row. */
+        check_msg(l.header_right <= l.record_button.x,
+                  "%.0fx%.0f: header text runs under the record button\n",
+                  w, h);
+        /* Nothing may be inverted or vanish, which is what a naive
+           subtraction does on a small window. */
+        check_msg(l.waterfall.width > 0.0f && l.waterfall.height > 0.0f &&
+                      l.cell_panel.width > 0.0f && l.cell_panel.height > 0.0f,
+                  "%.0fx%.0f: a rectangle collapsed\n", w, h);
+    }
+}
+
 int main(void) {
     check_chrome();
     check_adsb();
+    check_lte();
     check_survey();
     for (unsigned c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
         float w = cases[c].width, h = cases[c].height;

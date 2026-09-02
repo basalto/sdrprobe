@@ -158,3 +158,57 @@ _Avoid_: Power, amplitude, SNR
 **Differential phase trajectory**:
 The accumulated symbol-to-symbol phase change across a burst, illustrating the underlying GMSK modulation.
 _Avoid_: FM waveform, phase drift
+
+**Primary synchronisation signal**:
+The Zadoff-Chu sequence on the central 62 subcarriers of the last symbol of an
+LTE half-frame, which a receiver finds first; it carries N_ID_2 and fixes the
+symbol timing.
+_Avoid_: PSS burst, LTE preamble, pilot
+
+**Secondary synchronisation signal**:
+The plus-or-minus-one sequence in the symbol before it, an interleaved pair of
+length-31 m-sequences; it carries N_ID_1, says which half-frame this is, and so
+fixes the frame boundary.
+_Avoid_: SSS burst, sync word, training sequence
+
+**Physical cell identity**:
+The number 3 * N_ID_1 + N_ID_2, from 0 to 503, that the two synchronisation
+signals together name. It identifies a cell to the physical layer and seeds
+every scrambling sequence the cell uses.
+_Avoid_: Cell ID, PCI number, base station identity
+
+**Cell search**:
+Finding the two synchronisation signals in a sample block and reading a cell
+identity, a frame boundary, a cyclic-prefix length and a frequency offset out
+of them. It decodes no message.
+_Avoid_: Cell scan, acquisition, LTE lock
+
+**Cyclic prefix**:
+The copy of a symbol's tail placed in front of it, nine or ten samples under
+the normal arrangement and thirty-two under the extended one. Which of the two
+a cell uses is read from where the secondary sequence sits.
+_Avoid_: Guard interval, header, preamble
+
+**Cell-specific reference signal**:
+The known symbols a cell transmits on every sixth subcarrier of certain
+symbols, from which the channel is measured before anything is demodulated.
+_Avoid_: Pilot tone, training sequence, sync signal
+
+**Master Information Block**:
+The 24-bit message the broadcast channel carries: downlink bandwidth, PHICH
+configuration, and the eight high bits of the system frame number. The lowest
+two bits of that frame number are not in the message -- they are which quarter
+of the 40 ms period the transmission occupied.
+_Avoid_: MIB packet, System Information, broadcast block
+
+**Antenna-port count**:
+Whether a cell transmits on one, two or four ports, recovered from which of
+three masks the broadcast channel's parity fits. It changes how the resource
+elements are combined and is not known before the message decodes.
+_Avoid_: MIMO order, antenna number, transmit mode
+
+**Space-frequency block code**:
+The Alamouti pairing across two neighbouring resource elements by which two or
+four antenna ports carry the broadcast channel; undoing it recovers both
+symbols with the interference between them cancelled.
+_Avoid_: MIMO decode, diversity combining, beamforming
