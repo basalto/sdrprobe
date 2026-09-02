@@ -173,6 +173,16 @@ static void test_conflicting_flags(void) {
        contradiction rather than something to quietly override (ADR-0014). */
     rejects("--earfcn 6200 --sample-rate 2M");
     rejects("--technology lte --sample-rate 2400000");
+    /* A band scan walks the band; a decode reads one tuning; a survey prints
+       its own list. No two of them share a stdout or a receiver. */
+    rejects("--lte-scan 20");                       /* needs --headless */
+    rejects("--lte-scan 20 --headless --decode");
+    rejects("--lte-scan 20 --headless --survey --survey-range 791M:821M");
+    rejects("--lte-scan 20 --headless --earfcn 6200");
+    rejects("--lte-scan 20 --headless --file testfiles/lte_b20_pci32.bin");
+    rejects("--lte-scan 3 --headless");             /* out of a dongle's reach */
+    rejects("--lte-scan 0 --headless");
+    rejects("--lte-scan 20 --headless --technology gsm");
     rejects("--arfcn 73 --technology adsb");
     rejects("--arfcn 0");
     rejects("--arfcn 125");
@@ -215,6 +225,8 @@ static void test_conflicting_flags(void) {
     accepts("--earfcn 6200 --decode --headless --once "
             "--file testfiles/lte_b20_pci32.bin");
     accepts("--earfcn 6200 --sample-rate 1920000");
+    accepts("--lte-scan 20 --headless");
+    accepts("--lte-scan 28 --headless --gain max");
     accepts("--technology lte --headless --record-seconds 2");
     accepts("--survey-range 88M:108M --survey-dwell 0.5");
     accepts("--view survey --duration 20 --dc-filter off");
@@ -244,6 +256,16 @@ static void test_implications(void) {
            of 15 kHz, and the plugin refuses anything else. */
         expect(options.sample_rate == 1920000U,
                "--earfcn did not set LTE's sample grid");
+    }
+
+    if (parse_line("--lte-scan 8 --headless", &options) < 0) {
+        fail("--lte-scan 8 was rejected");
+    } else {
+        expect(options.lte_scan_band == 8, "--lte-scan did not record a band");
+        expect(options.technology && strcmp(options.technology, "lte") == 0,
+               "--lte-scan did not imply the LTE technology label");
+        expect(options.sample_rate == 1920000U,
+               "--lte-scan did not set LTE's sample grid");
     }
 
     if (parse_line("--technology lte", &options) < 0) {

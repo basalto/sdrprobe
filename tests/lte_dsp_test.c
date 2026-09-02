@@ -635,7 +635,7 @@ static void search_and_check(const char *label, int pci, int ports,
     int found;
 
     found = lte_cell_search(buffer_i + skip, buffer_q + skip,
-                            BUFFER_SAMPLES - skip, LTE_SAMPLE_RATE_HZ, &cell);
+                            BUFFER_SAMPLES - skip, LTE_SAMPLE_RATE_HZ, &cell, NULL);
     check_msg(found == 1, "%s: a cell is found\n", label);
     if (found != 1)
         return;
@@ -703,10 +703,10 @@ static void test_cell_search_refuses(void) {
     build_buffer(101, 1, 0.0, 0.006, 15u);
     check_int("a sample rate that is not LTE's is refused",
               lte_pss_detect(buffer_i, buffer_q, BUFFER_SAMPLES, 2000000.0,
-                             &pss), -1);
+                             &pss, NULL), -1);
     check_int("a block shorter than a symbol is refused",
               lte_pss_detect(buffer_i, buffer_q, 100, LTE_SAMPLE_RATE_HZ,
-                             &pss), -1);
+                             &pss, NULL), -1);
 
     rng_seed(99u);
     for (k = 0; k < BUFFER_SAMPLES; k++) {
@@ -715,7 +715,7 @@ static void test_cell_search_refuses(void) {
     }
     check_int("noise alone is not a cell",
               lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
-                              LTE_SAMPLE_RATE_HZ, &cell), 0);
+                              LTE_SAMPLE_RATE_HZ, &cell, NULL), 0);
     check_int("and nothing is claimed about it", cell.detected, 0);
 }
 
@@ -725,7 +725,7 @@ static void check_broadcast_bits(const char *label, int pci, int ports) {
     int written, n, wrong = 0;
 
     if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
-                        LTE_SAMPLE_RATE_HZ, &cell) != 1) {
+                        LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1) {
         check_msg(0, "%s: no cell to read the broadcast channel from\n", label);
         return;
     }
@@ -733,7 +733,7 @@ static void check_broadcast_bits(const char *label, int pci, int ports) {
 
     written = lte_pbch_soft_bits(buffer_i, buffer_q, BUFFER_SAMPLES,
                                  LTE_SAMPLE_RATE_HZ, &cell,
-                                 cell.subframe0_start, ports, soft);
+                                 cell.subframe0_start, ports, soft, NULL);
     check_msg(written == LTE_PBCH_SOFT_BITS,
               "%s: %d soft bits, expected %d\n", label, written,
               LTE_PBCH_SOFT_BITS);
@@ -773,17 +773,17 @@ static void test_broadcast_channel_refuses(void) {
 
     build_buffer(227, 1, 0.0, 0.004, 31u);
     if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
-                        LTE_SAMPLE_RATE_HZ, &cell) != 1)
+                        LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1)
         return;
 
     check_int("three antenna ports is not a thing",
               lte_pbch_soft_bits(buffer_i, buffer_q, BUFFER_SAMPLES,
                                  LTE_SAMPLE_RATE_HZ, &cell,
-                                 cell.subframe0_start, 3, soft), 0);
+                                 cell.subframe0_start, 3, soft, NULL), 0);
     check_int("a subframe that runs past the block is refused",
               lte_pbch_soft_bits(buffer_i, buffer_q, BUFFER_SAMPLES,
                                  LTE_SAMPLE_RATE_HZ, &cell,
-                                 BUFFER_SAMPLES - 100, 1, soft), 0);
+                                 BUFFER_SAMPLES - 100, 1, soft, NULL), 0);
 
     /* The extended prefix shortens the broadcast channel to 432 bits and puts
        a third reference symbol inside it. The plugin says so rather than
@@ -792,7 +792,7 @@ static void test_broadcast_channel_refuses(void) {
     check_int("the extended cyclic prefix is declined, not misread",
               lte_pbch_soft_bits(buffer_i, buffer_q, BUFFER_SAMPLES,
                                  LTE_SAMPLE_RATE_HZ, &cell,
-                                 cell.subframe0_start, 1, soft), 0);
+                                 cell.subframe0_start, 1, soft, NULL), 0);
 }
 
 
@@ -845,7 +845,7 @@ static void check_real_capture(const char *path, int pci, int extended_cp,
             q[n] = ((float)raw[2 * n + 1] - 127.5f) / 127.5f;
         }
         blocks++;
-        if (lte_cell_search(i, q, pairs, LTE_SAMPLE_RATE_HZ, &cell) != 1)
+        if (lte_cell_search(i, q, pairs, LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1)
             continue;
         found++;
         if (cell.pci == pci)

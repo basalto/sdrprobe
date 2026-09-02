@@ -484,6 +484,69 @@ int start_acquisition(struct app *app) {
 
 
 
+/*
+ * Retune, and optionally change the sample rate with it.
+ *
+ * The rate is here rather than in a second function because the two share
+ * every line of the rollback: both need the worker stopped, both can be
+ * refused by the receiver, and a failure has to put back whichever of them
+ * had already changed. Only the LTE view passes a different rate -- see
+ * ADR-0014 -- and retune_receiver() below is this with the rate left alone.
+ */
+int retune_receiver_at_rate(struct app *app, uint32_t frequency,
+                            uint32_t sample_rate, int ppm) {
+    uint32_t old_rate = app->applied_sample_rate;
+    int changed_rate = sample_rate != old_rate;
+    int result;
+
+    if (!app->receiver_mode) {
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "Changing the sample rate requires a live RTL-SDR receiver");
+        return -1;
+    }
+    if (!changed_rate)
+        return retune_receiver(app, frequency, ppm);
+
+    if (stop_acquisition(app) < 0)
+        return -1;
+    if (rtlsdr_set_sample_rate(app->dev, sample_rate) < 0 ||
+        rtlsdr_reset_buffer(app->dev) < 0) {
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "Receiver refused %.3f MS/s", sample_rate / 1e6);
+        rtlsdr_set_sample_rate(app->dev, old_rate);
+        rtlsdr_reset_buffer(app->dev);
+        start_acquisition(app);
+        return -1;
+    }
+    app->applied_sample_rate = rtlsdr_get_sample_rate(app->dev);
+    if (app->applied_sample_rate == 0)
+        app->applied_sample_rate = sample_rate;
+    /* Every spectrum and waterfall row was measured across a different span
+       and is now meaningless; the frame loop rebuilds them. */
+    app->spectrum_ready = 0;
+    app->spectrum_peak_ready = 0;
+
+    if (start_acquisition(app) < 0) {
+        rtlsdr_set_sample_rate(app->dev, old_rate);
+        rtlsdr_reset_buffer(app->dev);
+        app->applied_sample_rate = old_rate;
+        start_acquisition(app);
+        return -1;
+    }
+    result = retune_receiver(app, frequency, ppm);
+    if (result < 0) {
+        /* The tuning failed but the rate took. Put the rate back too, so a
+           refusal leaves the receiver where it was found. */
+        if (stop_acquisition(app) == 0) {
+            rtlsdr_set_sample_rate(app->dev, old_rate);
+            rtlsdr_reset_buffer(app->dev);
+            app->applied_sample_rate = old_rate;
+            start_acquisition(app);
+        }
+    }
+    return result;
+}
+
 int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     if (!app->receiver_mode) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
@@ -665,21 +728,37 @@ void set_tab(struct app *app, int new_tab) {
         return;
     if (app->tab == TAB_DECODE && app->decode == DECODE_GSM)
         leave_gsm(app);
+    if (app->tab == TAB_DECODE && app->decode == DECODE_LTE)
+        leave_lte(app);
     app->settings_open = 0;
     app->tab = new_tab;
     if (new_tab == TAB_DECODE && app->decode == DECODE_GSM)
         enter_gsm(app);
+    if (new_tab == TAB_DECODE && app->decode == DECODE_LTE)
+        enter_lte(app);
 }
 
-/* Switch the Decode sub-view. Entering/leaving GSM manages its tuning. */
+/*
+ * Switch the Decode sub-view. Entering and leaving GSM retunes the receiver,
+ * so it happens only when that view is the one on screen: called from the
+ * Scope tab -- which is how the startup flags and the survey's handoff both
+ * reach it -- this records the choice and leaves the tuning to the set_tab
+ * that follows. Doing it here as well would enter the GSM view twice and
+ * retune twice on the way in.
+ */
 void set_decode(struct app *app, int kind) {
+    int showing = app->tab == TAB_DECODE;
     if (kind == (int)app->decode)
         return;
-    if (app->decode == DECODE_GSM)
+    if (showing && app->decode == DECODE_GSM)
         leave_gsm(app);
+    if (showing && app->decode == DECODE_LTE)
+        leave_lte(app);
     app->decode = kind;
-    if (kind == DECODE_GSM)
+    if (showing && kind == DECODE_GSM)
         enter_gsm(app);
+    if (showing && kind == DECODE_LTE)
+        enter_lte(app);
 }
 
 /* One row of numbered mode options, the active one highlighted. */
@@ -739,7 +818,7 @@ static void draw_header(const struct app *app) {
         "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall",
         "5 survey"
     };
-    static const char *decode_opts[3] = { "1 GSM", "2 ADS-B", "3 LTE" };
+    static const char *decode_opts[3] = { "1 ADS-B", "2 GSM", "3 LTE" };
 
     DrawText("sdrprobe signal visualizer", 22, 14, 24,
              (Color){ 225, 236, 245, 255 });
@@ -781,7 +860,7 @@ static int handle_tab_input(struct app *app) {
     return 0;
 }
 
-/* --- Decode tab: numbered sub-views (1 GSM, 2 ADS-B) --- */
+/* --- Decode tab: numbered sub-views (1 ADS-B, 2 GSM, 3 LTE) --- */
 
 /* --- GSM analysis view (band survey: channel scan + ARFCN waterfall) --- */
 
@@ -968,9 +1047,9 @@ static int run_gui(struct app *app) {
                 open_calibration(app);
             } else if (input.tab == TAB_DECODE) {
                 if (IsKeyPressed(KEY_ONE))
-                    set_decode(app, DECODE_GSM);
-                else if (IsKeyPressed(KEY_TWO))
                     set_decode(app, DECODE_ADSB);
+                else if (IsKeyPressed(KEY_TWO))
+                    set_decode(app, DECODE_GSM);
                 else if (IsKeyPressed(KEY_THREE))
                     set_decode(app, DECODE_LTE);
                 if (app->decode == DECODE_GSM)
@@ -1048,9 +1127,15 @@ static int run_gui(struct app *app) {
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_GSM && !app->calibration_open)
             update_gsm_sch(app, now);
-        if (have_new && app->tab == TAB_DECODE &&
-            app->decode == DECODE_LTE && !app->calibration_open)
-            update_lte(app, now);
+        if (app->tab == TAB_DECODE && app->decode == DECODE_LTE &&
+            !app->calibration_open) {
+            /* The scan drives the tuning, so it runs every frame and not only
+               when a block arrives: most of its time is spent waiting for the
+               tuner to settle, and nothing arrives worth having then. */
+            update_lte_scan(app, now, have_new);
+            if (have_new && !app->lte.scan.running)
+                update_lte(app, now);
+        }
         update_drift_check(app, spectrum_updated);
         update_scatter(app, now,
                        have_new && app->tab == TAB_SCOPE &&
@@ -1315,6 +1400,65 @@ static int run_headless(struct app *app) {
         fprintf(stderr, "Acquiring headless; Ctrl-C to stop.\n");
     }
 
+    /*
+     * A headless band scan is its own run, like the survey: it retunes its
+     * way across a band and prints what it found. It exists for the same
+     * reason the headless survey does -- the scan is otherwise a button, and
+     * a button is not something a script or an agent can press (ADR-0012).
+     */
+    if (app->options.lte_scan_band) {
+        const struct lte_band *band = NULL;
+        double began = monotonic_seconds();
+        int i;
+
+        sdr_dsp_init(&app->dsp);
+        for (i = 0; i < lte_band_count(); i++)
+            if (lte_band_at(i)->band == app->options.lte_scan_band)
+                band = lte_band_at(i);
+        if (!band || lte_scan_begin(app, app->options.lte_scan_band,
+                                    monotonic_seconds() - began) < 0) {
+            fprintf(stderr, "Cannot scan band %d.\n",
+                    app->options.lte_scan_band);
+            stop_acquisition(app);
+            return -1;
+        }
+        fprintf(stderr, "Scanning band %d (%s): %d channels, about %.0f s.\n",
+                band->band, band->name, lte_scan_count(band),
+                lte_scan_seconds(band));
+        printf("# cell <earfcn> <frequency_hz> <pci> <n_id_1> <n_id_2>"
+               " <pss> <sss_margin>\n");
+        while (lte_scan_running(app) && !signal_stop_requested) {
+            struct timespec tick = { 0, 5 * 1000000L };
+            struct slot_snapshot snapshot;
+            double now = monotonic_seconds() - began;
+            int have_new = consume_latest(&app->acq, &snapshot);
+            if (have_new)
+                process_block(app, now);
+            if (snapshot.worker_failed) {
+                fprintf(stderr, "Acquisition failed: %s\n",
+                        snapshot.worker_error);
+                break;
+            }
+            update_lte_scan(app, now, have_new);
+            if (!have_new)
+                nanosleep(&tick, NULL);
+        }
+        for (i = 0; i < app->lte.scan.found_count; i++) {
+            const struct lte_found_cell *found = &app->lte.scan.found[i];
+            printf("cell %u %u %d %d %d %.3f %.3f\n", found->earfcn,
+                   found->frequency_hz, found->pci, found->pci / 3,
+                   found->pci % 3, (double)found->pss,
+                   (double)found->sss_margin);
+        }
+        printf("lte-scan band %d channels %d searched %d found %d\n",
+               band->band, lte_scan_count(band), app->lte.scan.candidate,
+               app->lte.scan.found_count);
+        fflush(stdout);
+        if (stop_acquisition(app) < 0)
+            return -1;
+        return 0;
+    }
+
     /* A headless survey is its own run: it sweeps, prints, and returns, rather
        than sharing the block loop below with a decode. */
     if (app->options.survey_report) {
@@ -1437,8 +1581,7 @@ int main(int argc, char **argv) {
     app->receiver_mode = options.file_path == NULL;
     app->remove_dc = options.remove_dc;
     view_gsm_defaults(app);
-    /* Cell 0 is a real identity, so "none announced" cannot be zero. */
-    app->lte.announced_pci = -1;
+    view_lte_defaults(app);
     view_scope_defaults(app);
     view_survey_defaults(app);
     if (options.gsm_features_seen) {

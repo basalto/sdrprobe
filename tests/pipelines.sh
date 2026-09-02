@@ -116,6 +116,16 @@ else
     fail "--technology lte accepted a sample rate other than 1.92 MS/s"
 fi
 
+# A band scan needs a receiver and cannot share stdout with a decode; both
+# refusals are the command line's, so they can be checked without one.
+checked
+if run --lte-scan 20 --headless --file testfiles/lte_b20_pci32.bin |
+       grep -q "^Usage:"; then
+    report "--lte-scan" "refuses a capture; a scan needs a receiver"
+else
+    fail "--lte-scan accepted a capture"
+fi
+
 # --- ADS-B: frames, and a position that needed two of them ----------------
 printf '  Mode S decode\n'
 decode_adsb() {

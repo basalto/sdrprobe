@@ -8,8 +8,8 @@ LTE cell search, `src/adsb_dsp.c`/`.h` for
 Mode S / ADS-B message decoding), and its UI into an SDR component layer
 (`src/sdrgui.c`/`.h`) over vendored raygui widgets (see "Files" below). The
 window is organised into two top-level tabs — Scope (the four signal views,
-keys 1-4) and Decode (message decoders selected by number keys: 1 GSM band
-analysis, 2 ADS-B) — recorded in
+keys 1-4) and Decode (message decoders selected by number keys: 1 ADS-B,
+2 GSM band analysis, 3 LTE cell search) — recorded in
 `docs/adr/0008-top-level-tab-navigation.md`. Calibration remains a button-driven,
 global full-screen overlay orthogonal to the tabs. Message decoding lives in a
 second bounded context (see `CONTEXT-MAP.md`). No CI.
@@ -282,6 +282,12 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
      the primary sequence is the obvious alternative, works perfectly on a
      synthesised frame, and scores 0.44 — indistinguishable from noise — on
      live captures that the differential method reads at 0.75.
+- `src/lte_scan.h` — the LTE band scan's order, header-only and checked by
+  `tests/lte_scan_test.c`. Every channel of a band named exactly once, whole
+  megahertz first. It is a separate file because the constraint behind it is
+  not obvious: LTE cannot be swept ten channels to a tuning the way GSM is,
+  because the primary sequence is found by a time-domain correlation that a
+  frequency error of more than a few kilohertz destroys.
 - `src/lte_mib.h` / `src/lte_mib.c` — the LTE Master Information Block, the
   Decoder context's side of LTE and the analogue of `gsm_bcch.c`: 480 soft bits
   in, a message out. Descrambling against four candidate offsets (one
@@ -309,7 +315,10 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `src/view_scope.c` — the Scope tab's four signal views, plus the waterfall
   texture and scatter history they keep between frames.
 - `src/view_gsm.c`, `src/view_adsb.c`, `src/view_lte.c` — the Decode tab's
-  three screens. The LTE one is two panels read together: what the
+  three screens. The LTE one also owns the band scan, and is the only view
+  that changes the sample rate — it borrows the receiver at 1.92 MS/s and
+  gives the rate and the tuning back on the way out, the way the GSM view
+  borrows the tuning alone. Its signal mode is two panels read together: what the
   synchronisation signals found, and what the broadcast said. A cell identity
   with an empty panel beside it is a carrier that is present and too weak to
   read, which one panel alone could not tell from an empty band.
