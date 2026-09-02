@@ -120,7 +120,11 @@ void adjust_active_scale(struct app *app, int zoom_in);
 void view_survey_defaults(struct app *app);
 void view_survey_enter(struct app *app);
 void view_survey_leave(struct app *app);
-void update_survey(struct app *app, double now);
+/* `spectrum_updated` says a fresh averaged spectrum arrived this frame.
+   The confirmation pass counts blocks, not frames: counting frames gave it
+   six looks in a tenth of a second and it measured a spectrum from before
+   the receiver had retuned. */
+void update_survey(struct app *app, double now, int spectrum_updated);
 void handle_survey_input(struct app *app);
 void draw_survey(struct app *app);
 /* True while a range field is taking typed input, so the frame loop leaves the

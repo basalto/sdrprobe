@@ -224,7 +224,10 @@ static void survey_save_sweep(struct app *app) {
         float level[SURVEY_MAX_PEAKS], prom[SURVEY_MAX_PEAKS];
         int i;
         for (i = 0; i < count; i++) {
-            hz[i] = candidates[i].found_hz;
+            /* The measured centre where there is one, for the same reason:
+               several peaks of one wide carrier are one signal to remember. */
+            hz[i] = candidates[i].measured ? candidates[i].centre_hz
+                                           : candidates[i].found_hz;
             level[i] = candidates[i].power_dbfs;
             prom[i] = candidates[i].prominence_db;
         }
@@ -252,6 +255,181 @@ static void survey_save_sweep(struct app *app) {
                  slash ? slash + 1 : path);
     }
     survey_history_refresh(app);
+}
+
+/*
+ * The confirmation pass: revisit each thing the sweep called new or missing
+ * and give it a proper look.
+ *
+ * It does not touch the survey's power array. Re-sweeping a narrow span would
+ * throw away the wide sweep that produced the claims in the first place, and
+ * getting that back costs minutes -- so this tunes to each target, folds
+ * several blocks into one spectrum, and asks whether a carrier is there. That
+ * is also better evidence than a re-sweep: six blocks on one frequency against
+ * the one or two the sweep could spare.
+ */
+static int survey_confirm_begin(struct app *app) {
+    struct survey_view *s = &app->survey;
+    int i, count = 0;
+
+    if (!app->receiver_mode)
+        return -1;
+    for (i = 0; i < s->peak_count && count < SURVEY_CONFIRM_MAX; i++) {
+        if (s->peak_status[i] != SITE_STATUS_NEW)
+            continue;
+        s->confirm.target[count].hz =
+            survey_plan_bin_centre(&s->plan, s->peaks[i].index);
+        s->confirm.target[count].claim = SURVEY_CLAIM_NEW;
+        s->confirm.target[count].verdict = SURVEY_VERDICT_PENDING;
+        s->confirm.target[count].prominence_db = 0.0f;
+        count++;
+    }
+    for (i = 0; i < s->missing_count && count < SURVEY_CONFIRM_MAX; i++) {
+        s->confirm.target[count].hz = s->missing[i]->hz;
+        s->confirm.target[count].claim = SURVEY_CLAIM_MISSING;
+        s->confirm.target[count].verdict = SURVEY_VERDICT_PENDING;
+        s->confirm.target[count].prominence_db = 0.0f;
+        count++;
+    }
+    if (count == 0)
+        return -1;
+
+    s->confirm.count = count;
+    s->confirm.index = 0;
+    s->confirm.confirmed = 0;
+    s->confirm.refuted = 0;
+    s->confirm.running = 1;
+    s->confirm.return_frequency = app->applied_frequency;
+    if (retune_receiver(app, (uint32_t)llround(s->confirm.target[0].hz),
+                        app->applied_ppm) < 0) {
+        s->confirm.running = 0;
+        return -1;
+    }
+    s->confirm.settled = 0;
+    s->confirm.looks = 0;
+    s->confirm.started_at = GetTime();
+    return 0;
+}
+
+/* Fold what the closer look found back into what the site remembers, then
+   forget the claims: they have been answered. */
+static void survey_confirm_finish(struct app *app) {
+    struct survey_view *s = &app->survey;
+
+    s->confirm.running = 0;
+    if (app->receiver_mode && s->confirm.return_frequency)
+        retune_receiver(app, s->confirm.return_frequency, app->applied_ppm);
+    /*
+     * Printed as well as shown. A pass started from the command line has
+     * nobody watching the status line, and a verdict nobody can read is a
+     * verdict that may as well not have been reached (ADR-0012).
+     */
+    if (s->confirm.printed) {
+        int i;
+        printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db>\n");
+        for (i = 0; i < s->confirm.count; i++) {
+            const struct survey_confirm_target *target = &s->confirm.target[i];
+            printf("confirm %.0f %s %s %.1f\n", target->hz,
+                   target->claim == SURVEY_CLAIM_NEW ? "new" : "missing",
+                   target->verdict == SURVEY_VERDICT_CONFIRMED ? "confirmed"
+                                                               : "refuted",
+                   (double)target->prominence_db);
+        }
+        printf("confirm-summary asked %d confirmed %d refuted %d\n",
+               s->confirm.count, s->confirm.confirmed, s->confirm.refuted);
+        fflush(stdout);
+        s->confirm.printed = 0;
+    }
+    snprintf(s->status, sizeof(s->status),
+             "Asked again about %d: %d held up, %d did not. %s",
+             s->confirm.count, s->confirm.confirmed, s->confirm.refuted,
+             s->confirm.refuted
+                 ? "A sweep step is a tenth of a second; this was six blocks."
+                 : "The sweep had them right.");
+}
+
+static void survey_confirm_step(struct app *app, double now, int have_block) {
+    struct survey_view *s = &app->survey;
+    struct survey_confirm_target *target;
+
+    if (!s->confirm.running)
+        return;
+    target = &s->confirm.target[s->confirm.index];
+
+    if (!s->confirm.settled) {
+        if (now - s->confirm.started_at >= SURVEY_CONFIRM_SETTLE_SECONDS) {
+            s->confirm.settled = 1;
+            s->confirm.started_at = now;
+        }
+        return;
+    }
+    if (have_block) {
+        s->confirm.looks++;
+        if (s->confirm.looks < SURVEY_CONFIRM_LOOKS)
+            return;
+    } else if (now - s->confirm.started_at < 3.0) {
+        return;                        /* still waiting for blocks */
+    }
+
+    {
+        /* The averaged spectrum has had every block of this dwell folded into
+           it, so the question is simply whether a carrier stands above the
+           local floor here. */
+        struct sdr_carrier_report report;
+        int measured = sdr_dsp_characterise_carrier(
+            app->spectrum_average, SDR_DSP_FFT_SIZE,
+            (double)app->applied_frequency,
+            (double)app->applied_sample_rate, target->hz, 200000.0, 20.0f,
+            app->magnitude_sorted, &report);
+        int present = measured && survey_confirm_present(report.prominence_db);
+
+        target->prominence_db = measured ? report.prominence_db : 0.0f;
+        target->verdict = (signed char)survey_confirm_verdict(target->claim,
+                                                              present);
+        if (target->verdict == SURVEY_VERDICT_CONFIRMED)
+            s->confirm.confirmed++;
+        else
+            s->confirm.refuted++;
+
+        /*
+         * Teach the site what the closer look found, not what the sweep
+         * guessed. A "new" that held up is worth remembering; one that did not
+         * was noise and must not enter the history, or the next sweep will
+         * call it missing and the noise becomes a permanent ghost.
+         */
+        if (app->config.site[0] && s->history_loaded &&
+            survey_confirm_should_record(target->claim, target->verdict)) {
+            /*
+             * Recorded at the carrier's measured centre, not at the peak that
+             * pointed here. A 200 kHz FM signal has several local maxima and
+             * the sweep reports each; remembering each would fill the history
+             * with five entries for one station, all of them "new" next time
+             * something moved by a bin.
+             */
+            site_history_record_one(&s->history,
+                                    measured ? report.centre_hz : target->hz,
+                                    report.peak_dbfs, report.prominence_db,
+                                    (double)app->applied_sample_rate /
+                                        SDR_DSP_FFT_SIZE);
+            site_history_save(&s->history);
+        }
+    }
+
+    s->confirm.index++;
+    if (s->confirm.index >= s->confirm.count) {
+        survey_confirm_finish(app);
+        survey_history_refresh(app);
+        return;
+    }
+    if (retune_receiver(app,
+                        (uint32_t)llround(s->confirm.target[s->confirm.index].hz),
+                        app->applied_ppm) < 0) {
+        survey_confirm_finish(app);
+        return;
+    }
+    s->confirm.settled = 0;
+    s->confirm.looks = 0;
+    s->confirm.started_at = now;
 }
 
 /*
@@ -344,6 +522,23 @@ static void survey_commit_installation(struct app *app) {
         config_remember_site(&app->config, app->config.site);
         config_save(&app->config);
         survey_history_refresh(app);
+        /*
+         * Moving to a site the receiver has been calibrated at restores that
+         * calibration. Levels and frequencies from two sites are only
+         * comparable if the receiver was corrected the same way at both, and
+         * the operator should not have to remember which number went with
+         * which room.
+         */
+        if (app->receiver_mode && app->config.site[0]) {
+            int ppm = config_site_ppm(&app->config, app->config.site);
+            if (ppm != app->applied_ppm &&
+                retune_receiver(app, app->applied_frequency, ppm) == 0) {
+                app->options.ppm = ppm;
+                snprintf(s->status, sizeof(s->status),
+                         "Site %s: applied its %+d PPM correction.",
+                         app->config.site, ppm);
+            }
+        }
     }
 }
 
@@ -650,6 +845,19 @@ static void survey_find_peaks(struct app *app) {
     /* The peaks just changed, so what is new and what is absent has
        changed with them. */
     survey_history_refresh(app);
+    /*
+     * A sweep asked for on the command line can ask again by itself, which is
+     * the only way the pass is reachable without somebody to click it
+     * (ADR-0012). Once: a second sweep is a new question, not a repeat.
+     */
+    if (app->options.survey_confirm && !app->survey.confirm.running) {
+        app->options.survey_confirm = 0;
+        /* The caller writes its own "swept N steps" line after this returns,
+           so there is no point announcing the pass here; it announces itself
+           on the button and reports when it is done. */
+        if (survey_confirm_begin(app) == 0)
+            app->survey.confirm.printed = 1;
+    }
 }
 
 /* Point the receiver at a candidate and start measuring it. The candidate is
@@ -715,9 +923,14 @@ static void survey_measure_block(struct app *app) {
     }
 }
 
-void update_survey(struct app *app, double now) {
+void update_survey(struct app *app, double now, int spectrum_updated) {
     struct survey_view *s = &app->survey;
 
+    if (s->confirm.running) {
+        /* A block arriving is what advances it, the same as the sweep. */
+        survey_confirm_step(app, now, spectrum_updated);
+        return;
+    }
     if (s->sweeping) {
         double elapsed = now - s->step_started_at;
         enum survey_step_phase phase = survey_step_phase_at(
@@ -873,6 +1086,13 @@ void handle_survey_input(struct app *app) {
         if (was != s->focus && (was == 3 || was == 4))
             survey_commit_installation(app);
     }
+    if (s->confirm.running) {
+        /* Everything else waits: the receiver is somewhere the operator did
+           not put it, and a click that retunes now would strand the pass. */
+        if (clicked(l.confirm_button) || IsKeyPressed(KEY_ESCAPE))
+            survey_confirm_finish(app);
+        return;
+    }
     if (clicked(l.site_menu_button))
         s->site_menu_open = !s->site_menu_open && app->config.site_count > 0;
     if (s->site_menu_open) {
@@ -884,13 +1104,35 @@ void handle_survey_input(struct app *app) {
                    whole point: one place spelled two ways is two places, and
                    nothing downstream can tell. */
                 snprintf(s->site, sizeof(s->site), "%s",
-                         app->config.sites[row]);
+                         app->config.sites[row].label);
                 s->site_length = (int)strlen(s->site);
                 survey_commit_installation(app);
             }
             s->site_menu_open = 0;
             return;
         }
+    }
+    if ((clicked(l.confirm_button) ||
+         (s->focus < 0 && IsKeyPressed(KEY_A))) &&
+        !s->confirm.running && !s->sweeping) {
+        int changes = 0, i;
+        for (i = 0; i < s->peak_count; i++)
+            if (s->peak_status[i] == SITE_STATUS_NEW)
+                changes++;
+        changes += s->missing_count;
+        if (changes == 0)
+            snprintf(s->status, sizeof(s->status),
+                     "Nothing to ask about: this sweep matches what the site"
+                     " has heard before.");
+        else if (survey_confirm_begin(app) < 0)
+            snprintf(s->status, sizeof(s->status),
+                     "Asking again needs a live receiver.");
+        else
+            snprintf(s->status, sizeof(s->status),
+                     "Asking again about %d %s, %.0f s.", changes,
+                     changes == 1 ? "change" : "changes",
+                     survey_confirm_seconds(changes));
+        return;
     }
     if (clicked(l.save_button)) {
         survey_commit_installation(app);
@@ -1482,11 +1724,19 @@ static void survey_draw_site_menu(const struct app *app,
         if (i == hovered)
             DrawRectangle((int)menu.x + 1, (int)y, (int)menu.width - 2,
                           (int)SURVEY_SITE_ROW_H, (Color){ 255, 174, 62, 40 });
-        sdrgui_text_fit(app->config.sites[i], (int)menu.x + 10, (int)y + 5, 16,
-                        menu.width - 20.0f,
-                        !strcmp(app->config.sites[i], app->config.site)
-                            ? (Color){ 255, 174, 62, 255 }
-                            : (Color){ 176, 198, 212, 255 });
+        {
+            /* The correction beside the name: it is what makes two sites'
+               numbers comparable, and switching site changes it. */
+            char row[CONFIG_VALUE_MAX + 24];
+            snprintf(row, sizeof(row), "%s   %+d ppm",
+                     app->config.sites[i].label, app->config.sites[i].ppm);
+            sdrgui_text_fit(row, (int)menu.x + 10, (int)y + 5, 16,
+                            menu.width - 20.0f,
+                            !strcmp(app->config.sites[i].label,
+                                    app->config.site)
+                                ? (Color){ 255, 174, 62, 255 }
+                                : (Color){ 176, 198, 212, 255 });
+        }
     }
 }
 
@@ -1597,6 +1847,22 @@ void draw_survey(struct app *app) {
                 app->config.site_count > 0);
     sdrgui_text_field(l.antenna_field, s->antenna, s->focus == 4);
     draw_button(l.save_button, "Save survey", s->peak_count > 0 && s->site[0]);
+    {
+        int changes = 0, i;
+        for (i = 0; i < s->peak_count; i++)
+            if (s->peak_status[i] == SITE_STATUS_NEW)
+                changes++;
+        changes += s->missing_count;
+        if (s->confirm.running)
+            snprintf(text, sizeof(text), "Asking %d/%d",
+                     s->confirm.index + 1, s->confirm.count);
+        else if (changes > 0)
+            snprintf(text, sizeof(text), "Ask again (%d)", changes);
+        else
+            snprintf(text, sizeof(text), "Ask again");
+        draw_button(l.confirm_button, text,
+                    s->confirm.running || (changes > 0 && app->receiver_mode));
+    }
     draw_button(l.sweep_button, s->sweeping ? "Sweeping" : "Sweep",
                 !s->sweeping);
     draw_button(l.reset_button, "Reset zoom", 0);

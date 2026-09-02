@@ -5,9 +5,8 @@ One JSON per sweep, kept so they can be compared. The data lives in
 antenna, the same kind of thing as `captures/`, and it is nobody else's
 baseline. This file is the format; the sweeps are yours.
 
-A single survey says what is transmitting; A single survey says what is
-transmitting; a series says what changed, which is the more useful question and
-the only one that needs the files to accumulate.
+A single survey says what is transmitting; a series says what changed, which is
+the more useful question and the only one that needs the files to accumulate.
 
 ## From the survey window
 
@@ -20,6 +19,48 @@ Save refuses while the site is empty and puts the cursor in the field, rather
 than writing a sweep labelled nothing. It writes the same JSON the script
 ingests, so a sweep saved from the window and one piped from a headless run are
 interchangeable, and one reporting tool reads both.
+
+The site is a **combo**: type a new one, or pick one this receiver has been to
+before. Picking beats retyping, because spelling one place two ways makes it
+two places and nothing downstream can tell.
+
+**The tuning correction is kept per site**, and shown beside each name in the
+list. It belongs to the receiver rather than the room, but it is measured
+against whatever reference the room offers and it drifts -- so calibrating at
+one place and carrying the dongle to another arrives with a number that was
+true somewhere else. Picking a site applies the correction recorded there, and
+`Apply PPM` in the calibration overlay records a new one against wherever you
+are. `--ppm` still wins for one run, and is recorded against the current site.
+
+## Asking again about what changed
+
+A sweep step is about a tenth of a second: enough to notice a carrier, not
+enough to be sure of one. So the marks below are claims, and over three hundred
+steps some will be wrong -- a transmitter between bursts reads as missing, a
+moment of noise reads as new.
+
+**Ask again** revisits each of them. It tunes to the frequency, folds six
+blocks into one spectrum, and sees. A handful of targets takes seconds against
+a sweep that ran for minutes, which is the same bargain the LTE band scan's
+confirmation pass makes and for the same reason: a wide search has to be
+generous, so something narrower must have the last word.
+
+What it finds goes into the history, rather than what the sweep guessed. A
+"new" signal that does not hold up is never remembered -- once it is in, the
+next sweep calls it missing and the noise becomes a permanent ghost.
+
+From a script, `--survey-confirm` runs it as soon as a `--survey-range` sweep
+finishes, and prints the verdicts:
+
+```
+confirm 94728027 new refuted 2.9
+confirm 95706500 missing refuted 47.8
+confirm 96900000 missing confirmed 3.1
+confirm-summary asked 11 confirmed 9 refuted 2
+```
+
+The middle line is why the pass exists: the sweep called that frequency missing,
+and a proper look found it 47.8 dB above the floor.
 
 ## What the site remembers
 

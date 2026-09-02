@@ -25,31 +25,55 @@ void config_defaults(struct config *config) {
 
 int config_remember_site(struct config *config, const char *site) {
     int i, found = -1;
-    char moved[CONFIG_VALUE_MAX];
+    struct config_site moved;
 
     if (!config || !site || !*site)
         return 0;
     for (i = 0; i < config->site_count; i++)
-        if (!strcmp(config->sites[i], site))
+        if (!strcmp(config->sites[i].label, site))
             found = i;
     if (found == 0)
         return 0;                       /* already where it belongs */
     if (found > 0) {
-        copy_value(moved, sizeof(moved), config->sites[found]);
+        moved = config->sites[found];
         for (i = found; i > 0; i--)
-            copy_value(config->sites[i], sizeof(config->sites[i]),
-                       config->sites[i - 1]);
-        copy_value(config->sites[0], sizeof(config->sites[0]), moved);
+            config->sites[i] = config->sites[i - 1];
+        config->sites[0] = moved;       /* its correction travels with it */
         return 0;
     }
     /* New: push it on the front, dropping the least recently used if full. */
     if (config->site_count < CONFIG_SITES_MAX)
         config->site_count++;
     for (i = config->site_count - 1; i > 0; i--)
-        copy_value(config->sites[i], sizeof(config->sites[i]),
-                   config->sites[i - 1]);
-    copy_value(config->sites[0], sizeof(config->sites[0]), site);
+        config->sites[i] = config->sites[i - 1];
+    memset(&config->sites[0], 0, sizeof(config->sites[0]));
+    copy_value(config->sites[0].label, sizeof(config->sites[0].label), site);
     return 1;
+}
+
+int config_site_ppm(const struct config *config, const char *site) {
+    int i;
+    if (!config || !site || !*site)
+        return 0;
+    for (i = 0; i < config->site_count; i++)
+        if (!strcmp(config->sites[i].label, site))
+            return config->sites[i].ppm;
+    return 0;
+}
+
+int config_set_site_ppm(struct config *config, const char *site, int ppm) {
+    int i;
+    if (!config || !site || !*site)
+        return 0;
+    config_remember_site(config, site);
+    for (i = 0; i < config->site_count; i++)
+        if (!strcmp(config->sites[i].label, site)) {
+            if (config->sites[i].ppm == ppm)
+                return 0;
+            config->sites[i].ppm = ppm;
+            return 1;
+        }
+    return 0;
 }
 
 int config_parse(const char *text, struct config *config) {
@@ -95,10 +119,29 @@ int config_parse(const char *text, struct config *config) {
             copy_value(config->site, sizeof(config->site), value);
             recognised++;
         } else if (!strcmp(key, "known_site")) {
-            /* Appended in file order, which is most recent first. */
-            if (config->site_count < CONFIG_SITES_MAX && *value)
-                copy_value(config->sites[config->site_count++],
-                           sizeof(config->sites[0]), value);
+            /* `known_site <ppm> <label>`, appended in file order, which is
+               most recent first. A file written before corrections were kept
+               per site has no number in front; the label then starts where the
+               number would be, and it reads as uncorrected. */
+            char *label = value;
+            int ppm = 0;
+            if ((*value == '-' || *value == '+' ||
+                 (*value >= '0' && *value <= '9'))) {
+                char *after = value;
+                long parsed = strtol(value, &after, 10);
+                if (after != value && (*after == ' ' || *after == '\t')) {
+                    ppm = (int)parsed;
+                    label = after;
+                    while (*label == ' ' || *label == '\t')
+                        label++;
+                }
+            }
+            if (config->site_count < CONFIG_SITES_MAX && *label) {
+                struct config_site *entry = &config->sites[config->site_count++];
+                memset(entry, 0, sizeof(*entry));
+                copy_value(entry->label, sizeof(entry->label), label);
+                entry->ppm = ppm;
+            }
             recognised++;
         } else if (config->unknown_count < CONFIG_UNKNOWN_MAX) {
             /* Not ours. Keep it so saving does not throw away a setting a
@@ -131,7 +174,8 @@ int config_format(const struct config *config, char *out, size_t size) {
     }
     for (i = 0; i < config->site_count; i++) {
         int more = snprintf(out + written, size - (size_t)written,
-                            "known_site %s\n", config->sites[i]);
+                            "known_site %d %s\n", config->sites[i].ppm,
+                            config->sites[i].label);
         if (more < 0 || (size_t)(written + more) >= size)
             return -1;
         written += more;

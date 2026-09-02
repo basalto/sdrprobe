@@ -134,6 +134,13 @@ mark where something it knows is absent, and the history under the cursor. That
 answers "what is new here" at a glance, which is the same question `diff`
 answers between two saved sweeps.
 
+**Do not report those marks as findings.** A sweep step is a tenth of a second,
+enough to notice a carrier and not enough to be sure of one. `Ask again` in the
+window, or `--survey-confirm` on a `--survey-range` run, revisits each claim
+with six blocks on the frequency and prints a verdict. It routinely overturns
+them: a sweep that called a station missing has been shown one 47.8 dB above
+its floor. Confirm before telling anyone the band changed.
+
 The antenna and site come from the saved configuration rather than the command
 line, so they are right by default; `--antenna` and `--site` change them and
 the change sticks. `diff` refuses two sweeps from different sites outright.

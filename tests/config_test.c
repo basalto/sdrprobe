@@ -114,14 +114,14 @@ static void test_remembered_sites(void) {
     check_int("a new one is new", config_remember_site(&config, "home"), 1);
     check_int("and another", config_remember_site(&config, "office"), 1);
     check_int("both are held", config.site_count, 2);
-    check_str("most recent first", config.sites[0], "office");
+    check_str("most recent first", config.sites[0].label, "office");
 
     check_int("one already known is not new",
               config_remember_site(&config, "home"), 0);
     check_int("and does not grow the list", config.site_count, 2);
     check_str("but moves to the front, where it will be looked for",
-              config.sites[0], "home");
-    check_str("pushing the other back", config.sites[1], "office");
+              config.sites[0].label, "home");
+    check_str("pushing the other back", config.sites[1].label, "office");
 
     check_int("nothing is not a site", config_remember_site(&config, ""), 0);
     check_int("nor is no site at all",
@@ -141,8 +141,8 @@ static void test_the_list_survives_the_file(void) {
 
     config_parse(text, &read);
     check_int("both sites come back", read.site_count, 2);
-    check_str("in the order they were in", read.sites[0], "office");
-    check_str("and the second", read.sites[1], "home");
+    check_str("in the order they were in", read.sites[0].label, "office");
+    check_str("and the second", read.sites[1].label, "home");
     check_str("with the current one still current", read.site, "office");
 }
 
@@ -157,7 +157,82 @@ static void test_the_list_has_an_end(void) {
     }
     check_int("it stops at its limit", config.site_count, CONFIG_SITES_MAX);
     /* The least recently used falls off the end, not the most recent. */
-    check_str("keeping the newest", config.sites[0], "site-16");
+    check_str("keeping the newest", config.sites[0].label, "site-16");
+}
+
+/*
+ * The tuning correction, kept per site.
+ *
+ * It belongs to the receiver, not the room -- but it is measured against
+ * whatever reference the room offers and it drifts, so calibrating at one
+ * place and carrying the dongle to another arrives with a number that was
+ * true somewhere else.
+ */
+static void test_a_correction_per_site(void) {
+    struct config config;
+    config_defaults(&config);
+
+    check_int("a site nobody has calibrated is uncorrected",
+              config_site_ppm(&config, "home"), 0);
+    check_int("recording one is a change",
+              config_set_site_ppm(&config, "home", -36), 1);
+    check_int("and it comes back", config_site_ppm(&config, "home"), -36);
+    check_int("recording the same value again is not a change",
+              config_set_site_ppm(&config, "home", -36), 0);
+
+    check_int("another site keeps its own",
+              config_set_site_ppm(&config, "roof-mast", 12), 1);
+    check_int("the first is untouched", config_site_ppm(&config, "home"), -36);
+    check_int("and the second is its own", config_site_ppm(&config, "roof-mast"), 12);
+
+    /* Recording against a site nobody has named yet names it, so calibrating
+       somewhere new does not silently discard the result. */
+    check_int("a correction for an unknown site is a change",
+              config_set_site_ppm(&config, "field", 4), 1);
+    check_int("and the site now exists", config.site_count, 3);
+    check_str("at the front, as the most recent", config.sites[0].label,
+              "field");
+
+    check_int("an unknown site is still uncorrected rather than wrong",
+              config_site_ppm(&config, "nowhere"), 0);
+}
+
+static void test_the_correction_survives_the_file(void) {
+    struct config written, read;
+    char text[2048];
+
+    config_defaults(&written);
+    config_set_site_ppm(&written, "home", -36);
+    config_set_site_ppm(&written, "roof-mast", 12);
+    check_true("formats", config_format(&written, text, sizeof(text)) > 0);
+    config_parse(text, &read);
+    check_int("both corrections come back",
+              config_site_ppm(&read, "home"), -36);
+    check_int("each with its own site",
+              config_site_ppm(&read, "roof-mast"), 12);
+
+    /* And moving a site to the front carries its correction with it, rather
+       than shuffling labels past values. */
+    config_remember_site(&read, "home");
+    check_str("the moved site leads", read.sites[0].label, "home");
+    check_int("still with its own number", config_site_ppm(&read, "home"), -36);
+    check_int("and the other's is intact",
+              config_site_ppm(&read, "roof-mast"), 12);
+}
+
+static void test_a_file_from_before_corrections(void) {
+    struct config config;
+    /* Written by a build that kept no correction: the label starts where the
+       number would be. It must read as an uncorrected site, not be dropped. */
+    config_parse("antenna whip\nknown_site home-desk\n"
+                 "known_site 12 roof-mast\n", &config);
+    check_int("both sites are read", config.site_count, 2);
+    check_str("the old-style one keeps its whole label",
+              config.sites[0].label, "home-desk");
+    check_int("and reads as uncorrected", config.sites[0].ppm, 0);
+    check_str("the new-style one is unaffected", config.sites[1].label,
+              "roof-mast");
+    check_int("with its correction", config.sites[1].ppm, 12);
 }
 
 int main(void) {
@@ -173,6 +248,10 @@ int main(void) {
     test_remembered_sites();
     test_the_list_survives_the_file();
     test_the_list_has_an_end();
+
+    test_a_correction_per_site();
+    test_the_correction_survives_the_file();
+    test_a_file_from_before_corrections();
 
     return check_report("the persisted installation");
 }

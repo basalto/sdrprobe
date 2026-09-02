@@ -13,6 +13,7 @@
 #include "band_plan.h"
 #include "config.h"
 #include "site_history.h"
+#include "survey_confirm.h"
 #include "adsb_dsp.h"
 #include "gsm_bcch.h"
 #include "gsm_dsp.h"
@@ -462,6 +463,24 @@ struct survey_view {
     signed char peak_status[SURVEY_MAX_PEAKS];
     const struct site_entry *missing[32];
     int missing_count;
+    /*
+     * Asking again about what changed. The sweep's marks are claims made from
+     * a tenth of a second each; this revisits them one at a time and gives
+     * each a proper look.
+     */
+    struct {
+        int running;
+        int index;
+        int count;
+        int looks;
+        int settled;
+        double started_at;
+        uint32_t return_frequency;
+        int confirmed;
+        int refuted;
+        int printed;      /* report the verdicts on stdout when done */
+        struct survey_confirm_target target[SURVEY_CONFIRM_MAX];
+    } confirm;
     int focus;                  /* 0 from, 1 to, 2 dwell, 3 site, 4 antenna */
     double dwell_seconds;       /* parsed at the start of a sweep */
 

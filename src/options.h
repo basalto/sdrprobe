@@ -88,6 +88,10 @@ struct options {
     /* headless: sweep and print the candidates found, so an agent can read a
        survey without a window or a person to click one. */
     int survey_report;
+    /* Run the confirmation pass as soon as a survey started from the command
+       line finishes. The pass is otherwise a button, and a decision reachable
+       only by clicking is one no check can reach (ADR-0012). */
+    int survey_confirm;
     /* headless: walk an LTE band's channels and print the cells found, for
        the same reason -- the scan is otherwise a button. 0 = not asked for,
        otherwise the band number. */
