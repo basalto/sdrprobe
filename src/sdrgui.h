@@ -222,6 +222,14 @@ int sdrgui_survey_chart_peak_at(Rectangle outer,
 /* The frequency under `point`, or NAN when the cursor is not over the plot.
    Same reason as the hit test: only the component knows where the plot sits
    inside the rectangle it was given. */
+/* And the way back: where on the plot a frequency sits, or NaN when it is off
+   screen. The inverse of the above, and the two must agree -- a marker drawn
+   at a frequency the hit test maps somewhere else is the same bug the bar
+   charts had, one or two positions out and only visible by clicking. */
+float sdrgui_survey_chart_x_at(Rectangle outer,
+                               const struct sdrgui_survey_params *params,
+                               double hz);
+
 double sdrgui_survey_chart_hz_at(Rectangle outer,
                                  const struct sdrgui_survey_params *params,
                                  Vector2 point);

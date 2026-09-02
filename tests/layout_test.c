@@ -279,7 +279,7 @@ static void check_adsb(void) {
 
 /* The band survey. Its lower row is a pair like the ADS-B view's, and its
    inspect button lives inside a panel that a short window shrinks. */
-#define SURVEY_RECTS 15
+#define SURVEY_RECTS 16
 
 struct survey_case {
     float width, height;
@@ -296,7 +296,8 @@ static const struct survey_case survey_cases[] = {
         { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
         { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
-        { "site_field", 82.00f, 180.00f, 190.00f, 30.00f },
+        { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
+        { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 988.00f, 198.90f },
@@ -313,7 +314,8 @@ static const struct survey_case survey_cases[] = {
         { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
         { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
-        { "site_field", 82.00f, 180.00f, 190.00f, 30.00f },
+        { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
+        { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 1168.00f, 234.90f },
@@ -330,7 +332,8 @@ static const struct survey_case survey_cases[] = {
         { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
         { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
-        { "site_field", 82.00f, 180.00f, 190.00f, 30.00f },
+        { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
+        { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 888.00f, 117.90f },
@@ -350,7 +353,7 @@ static void check_survey(void) {
         Rectangle got[SURVEY_RECTS] = {
             l.from_field, l.to_field, l.dwell_field, l.sweep_button,
             l.reset_button, l.stop_button,
-            l.site_field, l.antenna_field, l.save_button,
+            l.site_field, l.site_menu_button, l.antenna_field, l.save_button,
             l.chart, l.peak_list, l.detail,
             l.scan_button, l.waterfall_button, l.inspect_button
         };
@@ -426,6 +429,47 @@ static void check_survey(void) {
                       "%.0fx%.0f second-row control %d runs off the edge\n",
                       w->width, w->height, i);
         }
+        /*
+         * The site list. It is drawn over the chart, so a hit test one row out
+         * silently selects a place the operator did not point at -- and a
+         * wrong site is worse than no site, because it files a sweep under
+         * somewhere it was not taken.
+         */
+        for (int n = 1; n <= 6; n++) {
+            Rectangle menu = survey_site_menu_rect(l.site_field, n);
+            check_msg(menu.y >= l.site_field.y + l.site_field.height,
+                      "%.0fx%.0f site menu with %d rows covers its own field\n",
+                      w->width, w->height, n);
+            check_msg(menu.width >= l.site_field.width,
+                      "%.0fx%.0f site menu with %d rows is narrower than the "
+                      "field\n", w->width, w->height, n);
+            /* Every row maps back to itself: the point in the middle of where
+               row r is drawn must select row r. */
+            for (int r = 0; r < n; r++) {
+                Vector2 mid;
+                mid.x = menu.x + menu.width / 2.0f;
+                mid.y = menu.y + 4.0f + SURVEY_SITE_ROW_H * ((float)r + 0.5f);
+                check_msg(survey_site_menu_row_at(l.site_field, n, mid) == r,
+                          "%.0fx%.0f site menu row %d of %d does not map back "
+                          "to itself\n", w->width, w->height, r, n);
+            }
+            /* And nothing outside it selects anything. */
+            check_msg(survey_site_menu_row_at(l.site_field, n,
+                          (Vector2){ menu.x - 4.0f, menu.y + 10.0f }) == -1,
+                      "%.0fx%.0f a point left of the site menu selects a row\n",
+                      w->width, w->height);
+            check_msg(survey_site_menu_row_at(l.site_field, n,
+                          (Vector2){ menu.x + 10.0f,
+                                     menu.y + menu.height + 4.0f }) == -1,
+                      "%.0fx%.0f a point below the site menu selects a row\n",
+                      w->width, w->height);
+        }
+        check_msg(survey_site_menu_row_at(l.site_field, 0,
+                      (Vector2){ l.site_field.x + 10.0f,
+                                 l.site_field.y + 40.0f }) == -1,
+                  "%.0fx%.0f an empty site menu selects a row\n",
+                  w->width, w->height);
+
         /* And the status still clears the chart it sits above. */
         check_msg(l.status_y + 17.0f <= l.chart.y,
                   "%.0fx%.0f the status line overlaps the chart\n",

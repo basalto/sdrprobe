@@ -1597,6 +1597,11 @@ int main(int argc, char **argv) {
             snprintf(config.site, sizeof(config.site), "%s", options.site);
             changed = 1;
         }
+        /* Remembered whether or not it changed: a site named once should be
+           offered next time, and the very first --site would otherwise never
+           reach the list. */
+        if (config.site[0] && config_remember_site(&config, config.site))
+            changed = 1;
         if (changed && config_save(&config) == 0)
             fprintf(stderr, "Saved: antenna \"%s\"%s%s\n", config.antenna,
                     config.site[0] ? ", site " : "", config.site);

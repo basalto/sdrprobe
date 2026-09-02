@@ -174,6 +174,15 @@ comparable to anything. The survey view has both as fields and a **Save
 survey** button beside them, writing the same JSON the script ingests; it
 refuses while the site is empty rather than saving a sweep labelled nothing.
 
+The site is a combo: type a new one, or pick one this receiver has been to
+before, from the list `config_remember_site()` keeps -- spelling one place two
+ways makes it two places and nothing downstream can tell. Saving also folds the
+sweep into `surveys/history-<site>.txt` (`src/site_history.c`), which is what
+lets the window tick the candidates this site has never heard, mark where
+something it knows has gone quiet, and say under the cursor how many sweeps
+ago. Matching uses the coarser of the two sweeps' bin widths; the reason is in
+`site_entry.bin_hz` and it is not optional.
+
 Both the window and the headless report go through `survey_candidates_from()`
 in `src/survey_store.c`, so what a candidate *is* -- where it was found, what
 it measured to, whether it resembles the receiver, which allocation it falls in

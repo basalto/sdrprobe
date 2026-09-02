@@ -491,7 +491,9 @@ checks, and which diagnostic tool answers which question.
 
 ### The RF environment
 
-The survey view saves a finished sweep with a button, and the headless
+The survey view remembers what each site has heard (`src/site_history.c`) and
+marks the next sweep against it -- new signals, absent ones, and the history
+under the cursor. It saves a finished sweep with a button, and the headless
 `--survey` path prints one to be piped through `scripts/survey_tool.py ingest`;
 both write the same file. `surveys/` keeps one JSON per band survey so sweeps
 can be compared over time

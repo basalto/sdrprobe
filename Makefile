@@ -18,13 +18,13 @@ all: sdrprobe
 
 DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c
-APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/config.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
+APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_survey.c \
 	$(SRC)/band_plan.c \
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/survey_store.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/lte_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
@@ -145,6 +145,14 @@ check-survey-store: $(TESTS)/survey_store_test.c $(TESTS)/check.h \
 		-o $(BUILD)/survey_store_test $(TESTS)/survey_store_test.c \
 		$(SRC)/survey_store.c $(SRC)/sdr_dsp.c $(SRC)/band_plan.c -lm
 	$(Q)./$(BUILD)/survey_store_test
+
+# What a site has heard before, and how a sweep is judged against it.
+check-site-history: $(TESTS)/site_history_test.c $(TESTS)/check.h \
+		$(SRC)/site_history.c $(SRC)/site_history.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/site_history_test \
+		$(TESTS)/site_history_test.c $(SRC)/site_history.c -lm
+	$(Q)./$(BUILD)/site_history_test
 
 check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/options.c $(SRC)/options.h
 	@mkdir -p $(BUILD)
@@ -271,7 +279,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # Each suite prints one line saying what it covers and how much it proved, and
 # appends its counts to CHECK_TALLY so the total below is real rather than a
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
-CHECK_UNITS=check-config check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
+CHECK_UNITS=check-config check-site-history check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-lte-scan check-band-plan \
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
@@ -352,4 +360,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-config check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp clean
+.PHONY: all check hooks check-config check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp clean

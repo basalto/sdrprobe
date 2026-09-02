@@ -21,6 +21,36 @@ than writing a sweep labelled nothing. It writes the same JSON the script
 ingests, so a sweep saved from the window and one piped from a headless run are
 interchangeable, and one reporting tool reads both.
 
+## What the site remembers
+
+Saving a sweep also folds it into `surveys/history-<site>.txt`, a small
+line-oriented summary of everything that site has ever heard: each frequency,
+the level it was last heard at, how many sweeps it has appeared in, and which
+sweep it last appeared in. The JSON files are the archive; this is what the
+window reads, and it is deliberately simple enough to edit or delete by hand --
+delete it and it rebuilds from the next sweep you save.
+
+With a history the survey window annotates the sweep in front of you:
+
+- a **green tick** under a candidate this site has never heard before;
+- a **hollow mark** where something it has heard is absent this time, drawn
+  only inside the range the sweep actually covered -- a sweep of one band says
+  nothing about a signal three hundred megahertz away;
+- a **popup** under the cursor giving the frequency, the level, the allocation,
+  and what the site remembers: *new here*, or *heard in 3 of 5 sweeps*, or
+  *last 2 sweeps ago at -41.3 dBFS*.
+
+Both marks are drawn under the trace rather than over it. A survey is a
+measurement and the memory is an interpretation of it, and the two should not
+be easy to confuse.
+
+**Matching happens at the coarser of the two resolutions.** A sweep of the
+whole tuner places a station to within 200 kHz; a sweep of one band places it
+to 2. Comparing the fine sweep against the coarse memory at the fine tolerance
+calls the same station new *and* the old entry missing at once, which is
+exactly what the first live run did. Each entry therefore records the bin width
+that placed it, and the better placement wins when they merge.
+
 ## Recording one from a script
 
 ```sh

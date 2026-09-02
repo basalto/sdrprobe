@@ -29,6 +29,10 @@
 
 #define CONFIG_VALUE_MAX 96
 #define CONFIG_UNKNOWN_MAX 8
+/* How many places this receiver remembers having been. Enough for anyone
+   carrying a dongle around; the list is a convenience for picking, not a
+   register of everywhere it has ever been. */
+#define CONFIG_SITES_MAX 12
 
 /* What an installation looks like before anyone has said otherwise. A whip is
    what an RTL-SDR ships with, so it is the honest default rather than a
@@ -41,6 +45,11 @@ struct config {
        no default that could be right and a wrong one is worse than none: two
        sweeps both labelled "unknown" would compare as the same place. */
     char site[CONFIG_VALUE_MAX];
+    /* Every site named so far, most recent first, so the survey window can
+       offer them instead of asking the operator to spell one again --
+       and spelling it differently is how one place becomes two. */
+    char sites[CONFIG_SITES_MAX][CONFIG_VALUE_MAX];
+    int site_count;
     /* Lines this build did not recognise, kept verbatim so writing the file
        back does not discard a newer version's settings. */
     char unknown[CONFIG_UNKNOWN_MAX][CONFIG_VALUE_MAX * 2];
@@ -48,6 +57,13 @@ struct config {
 };
 
 void config_defaults(struct config *config);
+
+/*
+ * Note that a site has been used, moving it to the front of the list. Returns
+ * 1 when it was not there before. Pure, and the ordering is the point: the
+ * place you were last is the place you are most likely to be again.
+ */
+int config_remember_site(struct config *config, const char *site);
 
 /* Text in, settings out. Returns the number of keys recognised. */
 int config_parse(const char *text, struct config *config);
