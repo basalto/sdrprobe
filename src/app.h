@@ -240,8 +240,29 @@ struct lte_view {
     double mib_time;
     int mib_ports_used;         /* the combining the message decoded under */
 
+    /*
+     * A message is believed only once it repeats, and this is the one waiting
+     * to be believed.
+     *
+     * Sixteen bits of parity sound decisive until you count the attempts:
+     * four scrambling offsets against three masks, for each of three
+     * antenna-port hypotheses, is thirty-six chances per block, and a session
+     * that finds a cell nine thousand times over half an hour will see one
+     * pass by chance. That is not a rare accident to be tolerated -- it is
+     * the *expected* number, so a counter that believes the first pass is
+     * reporting noise as a message.
+     *
+     * What a real cell has and chance does not is consistency: a cell's
+     * bandwidth, acknowledgement channel and antenna count do not change
+     * between one frame and the next, and two random parity passes agree on
+     * all three about once in a hundred and forty-four times.
+     */
+    struct lte_mib pending_mib;
+    int pending_mib_hits;
+
     uint64_t blocks_seen;
     uint64_t cells_found;
+    uint64_t mib_parity_passes;  /* before the repeat is required */
     uint64_t mibs_decoded;
     /* The identity a scripted run has already printed. The search finds the
        same cell in every block, and a line each would bury the message. */

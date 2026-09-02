@@ -135,4 +135,16 @@ void lte_mib_encode(const struct lte_mib *mib, int pci, int quarter,
 int lte_mib_decode(const float soft[LTE_MIB_QUARTER_BITS], int pci,
                    struct lte_mib *mib);
 
+/*
+ * Whether two messages describe the same cell in the same configuration.
+ *
+ * The frame number is deliberately not compared: it advances, and that is the
+ * point of it. Everything else -- the bandwidth, the acknowledgement channel,
+ * the antenna-port count -- is fixed for a cell, so two readings that disagree
+ * about any of it were not both real. It is the test that separates a decoded
+ * message from a parity that passed by luck, which over a long session is not
+ * a hypothetical: thirty-six attempts a block makes one certain.
+ */
+int lte_mib_same_cell(const struct lte_mib *a, const struct lte_mib *b);
+
 #endif

@@ -41,6 +41,29 @@ plausible causes, none yet excluded:
   indoors; the cell search survives it because a 128-sample correlation has
   processing gain that a twelve-point channel estimate does not.
 
+## What a live session added
+
+A live band 20 session on 2026-09-02 sat on cell 32 with a considerably
+stronger signal than any capture: PSS 0.77 against 0.64, and SSS 0.94 with a
+runner-up of 0.46 against 0.75 and 0.40. Over 9312 blocks in which a cell was
+found, the broadcast channel never decoded.
+
+That is worth more than it looks, because it is the third cause above being
+tested. "Too weak" predicts that a signal half a dB stronger decodes
+sometimes; this one is far more than half a dB stronger and decodes never. So
+the weight moves onto the first two: a convention in the reference-signal
+construction that the synthetic round trip shares and cannot catch, or a
+half-frame the search has backwards.
+
+The same session is where the parity's own false-pass rate stopped being
+theoretical. The funnel read "messages 1", which looked like a success and was
+not: twelve attempts a call and three calls a block is one chance pass expected
+in about nine thousand cell detections, and nine thousand is what it had. A
+message is now believed only when a second one agrees about the bandwidth, the
+acknowledgement channel and the antenna count -- the things a cell cannot
+change between frames. The funnel counts parities and messages separately, so
+the difference is on the screen rather than in this file.
+
 ## What would settle it
 
 A stronger capture -- outdoors, or with a better antenna -- separates the last

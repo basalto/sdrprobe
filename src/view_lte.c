@@ -73,6 +73,36 @@ void view_lte_defaults(struct app *app) {
 /* Borrowing the receiver, and giving it back.                         */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Put the receiver inside the band the buttons say.
+ *
+ * A tuning already in the band is left alone -- someone who arrived with
+ * --earfcn meant that carrier, and moving off it would be rude. Otherwise the
+ * band's first channel, which is where a scan starts too, so pressing Scan
+ * costs one retune fewer.
+ *
+ * Without this the view opens wherever the program happened to be -- 1090 MHz
+ * on a default start -- with band 20 highlighted, a header reading "not on the
+ * 100 kHz raster", and a cell search grinding away against the ADS-B band. The
+ * GSM view has never had that problem because entering it tunes to a channel
+ * or starts a scan; this is the same idea with the scan left to the operator,
+ * since an LTE scan is a hundred and thirty seconds rather than ten.
+ */
+static void park_in_band(struct app *app) {
+    const struct lte_band *band = selected_band(app);
+    uint32_t low = 0, high = 0, first = 0;
+
+    if (!app->receiver_mode || !band)
+        return;
+    if (!lte_earfcn_downlink_hz(band->earfcn_low, &low) ||
+        !lte_earfcn_downlink_hz(band->earfcn_high, &high))
+        return;
+    if (app->applied_frequency >= low && app->applied_frequency <= high)
+        return;
+    if (lte_earfcn_downlink_hz(lte_scan_candidate(band, 0), &first))
+        retune_receiver(app, first, app->applied_ppm);
+}
+
 void enter_lte(struct app *app) {
     if (!app->receiver_mode)
         return;
@@ -81,14 +111,16 @@ void enter_lte(struct app *app) {
         app->lte.return_sample_rate = app->applied_sample_rate;
         app->lte.return_valid = 1;
     }
-    if (lte_on_grid(app))
-        return;
-    if (retune_receiver_at_rate(app, app->applied_frequency,
+    if (!lte_on_grid(app) &&
+        retune_receiver_at_rate(app, app->applied_frequency,
                                 (uint32_t)LTE_SAMPLE_RATE_HZ,
-                                app->applied_ppm) < 0)
+                                app->applied_ppm) < 0) {
         snprintf(app->lte.status, sizeof(app->lte.status),
                  "The receiver would not move to 1.92 MS/s: %.100s",
                  app->calibration_status);
+        return;
+    }
+    park_in_band(app);
 }
 
 void leave_lte(struct app *app) {
@@ -320,6 +352,8 @@ void update_lte(struct app *app, double now) {
         return;
     }
 
+    if (app->lte.cell_valid && cell.pci != app->lte.cell.pci)
+        app->lte.pending_mib_hits = 0;
     app->lte.cell = cell;
     app->lte.cell_valid = 1;
     app->lte.cell_time = now;
@@ -347,6 +381,30 @@ void update_lte(struct app *app, double now) {
          */
         if (mib.antenna_ports != port_hypotheses[h])
             continue;
+
+        app->lte.mib_parity_passes++;
+
+        /*
+         * And now the part the parity cannot do on its own. Thirty-six
+         * attempts a block means a pass by chance is not rare but expected,
+         * so a message counts only when a second one agrees about the things
+         * a cell does not change: its bandwidth, its acknowledgement channel
+         * and its antenna count. The frame number is left out of that
+         * comparison because it advances, which is what it is for.
+         */
+        if (lte_mib_same_cell(&app->lte.pending_mib, &mib) &&
+            app->lte.pending_mib_hits > 0) {
+            app->lte.pending_mib_hits++;
+        } else {
+            app->lte.pending_mib = mib;
+            app->lte.pending_mib_hits = 1;
+        }
+        if (app->lte.pending_mib_hits < 2) {
+            snprintf(app->lte.status, sizeof(app->lte.status),
+                     "A broadcast passed its parity; waiting for a second "
+                     "that agrees with it.");
+            return;
+        }
 
         app->lte.mib = mib;
         app->lte.mib_valid = 1;
@@ -669,17 +727,20 @@ void draw_lte(struct app *app) {
                  band ? band->band : 0, band ? band->name : "unknown");
     else
         snprintf(text, sizeof(text),
-                 "LTE downlink   %.3f MHz   not on the 100 kHz raster",
-                 app->applied_frequency / 1e6);
+                 "LTE downlink   %.3f MHz   outside band %d -- pick a band, "
+                 "or scan one", app->applied_frequency / 1e6,
+                 band ? band->band : 0);
     sdrgui_text_fit(text, header_x, 88, 17, l.header_right - l.header_left,
                     panel_caption);
 
     /* The funnel. Two empty panels look the same whether nothing is
        transmitting or every message is failing, and this is the difference. */
     snprintf(text, sizeof(text),
-             "funnel   blocks %llu -> cells %llu -> messages %llu%s",
+             "funnel   blocks %llu -> cells %llu -> parity %llu -> "
+             "messages %llu%s",
              (unsigned long long)app->lte.blocks_seen,
              (unsigned long long)app->lte.cells_found,
+             (unsigned long long)app->lte.mib_parity_passes,
              (unsigned long long)app->lte.mibs_decoded,
              lte_on_grid(app) ? "" : "   [wrong sample rate]");
     sdrgui_text_fit(text, header_x, 110, 16, l.header_right - l.header_left,
@@ -746,6 +807,9 @@ void handle_lte_input(struct app *app) {
         app->lte.scan.band = i;
         app->lte.scan.found_count = 0;
         app->lte.scan.selected = -1;
+        app->lte.cell_valid = 0;
+        app->lte.mib_valid = 0;
+        park_in_band(app);
         return;
     }
     if (clicked(l.scan_button)) {
