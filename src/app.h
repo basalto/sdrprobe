@@ -13,6 +13,7 @@
 #include "band_plan.h"
 #include "config.h"
 #include "site_history.h"
+#include "survey_carrier.h"
 #include "survey_confirm.h"
 #include "adsb_dsp.h"
 #include "gsm_bcch.h"
@@ -458,9 +459,18 @@ struct survey_view {
      * which candidates are new here without asking again per frame.
      * `missing` points into `history`, which outlives a frame.
      */
+    /*
+     * The peaks grouped into signals. A carrier has several local maxima and
+     * the finder returns each; everything above the measurement -- what is
+     * new, what is missing, what to ask again about, what to remember -- works
+     * on carriers, because a station is one thing and not five.
+     */
+    struct survey_carrier carriers[SURVEY_CARRIER_MAX];
+    int carrier_count;
+
     struct site_history history;
     int history_loaded;
-    signed char peak_status[SURVEY_MAX_PEAKS];
+    signed char carrier_status[SURVEY_CARRIER_MAX];
     const struct site_entry *missing[32];
     int missing_count;
     /*

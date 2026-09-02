@@ -32,6 +32,31 @@ true somewhere else. Picking a site applies the correction recorded there, and
 `Apply PPM` in the calibration overlay records a new one against wherever you
 are. `--ppm` still wins for one run, and is recorded against the current site.
 
+## Maxima and signals
+
+A peak finder returns local maxima and a transmission has more than one, so the
+raw candidate list counts shoulders as stations. Every sweep is therefore also
+grouped into **carriers**, and everything above the measurement -- what is new,
+what is missing, what to ask again about, what to remember -- works on those.
+
+Two maxima are one signal when nothing separates them: the power between them
+never drops far below the lower of the two. A trough is what a band edge looks
+like. Each carrier's extent runs out to the trough on either side, which is
+also what makes a *weak* peak's width mean anything -- marking where it falls
+20 dB below itself does not, since one already near the floor never gets there
+and its extent runs to the end of the band.
+
+A carrier reports two centres. `centre_hz` is the middle of its extent and is
+what identifies it; `power_centre_hz` is where the energy actually sits. They
+differ for a lopsided signal: a loaded LTE downlink measured on air had its
+power a megahertz above its middle, and a history matching on that would call
+the same carrier new every sweep.
+
+`report` says how many signals a sweep's candidates grouped into, and the
+headless sweep prints a `carrier` line per signal alongside the `candidate`
+lines -- the candidates are what was measured, the carriers what it was
+concluded to mean.
+
 ## Asking again about what changed
 
 A sweep step is about a tenth of a second: enough to notice a carrier, not
@@ -133,8 +158,10 @@ these: what is known, what is new, and what is worth measuring next.
 
 `schema`, `recorded_at`, `range_hz`, `sweep` (steps, bins, dwell, blocks),
 `receiver` (tuner, antenna, gain_db), `site` (label, fingerprint), `totals`,
-and `candidates` -- each with `hz`, `dbfs`, `prominence_db`, `centre_hz`,
-`width_hz`, `flags` and `allocation`.
+`candidates` -- each with `hz`, `dbfs`, `prominence_db`, `centre_hz`,
+`width_hz`, `flags` and `allocation` -- and `carriers`, each with `centre_hz`,
+`power_centre_hz`, `lower_hz`, `upper_hz`, `width_hz`, `dbfs`,
+`prominence_db`, `maxima` and `allocation`.
 
 Two conventions worth knowing before comparing anything:
 

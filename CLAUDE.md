@@ -174,6 +174,14 @@ comparable to anything. The survey view has both as fields and a **Save
 survey** button beside them, writing the same JSON the script ingests; it
 refuses while the site is empty rather than saving a sweep labelled nothing.
 
+A sweep's peaks are grouped into signals by `src/survey_carrier.h` before
+anything reads them: two maxima are one carrier when the power between them
+never drops far below the lower of the two, and each carrier's extent runs to
+the trough on either side rather than to a fixed number of decibels down --
+which is what gives a weak peak a width that means something. Its `centre_hz`
+is the middle of that extent and identifies the signal; `power_centre_hz` says
+where the energy sits, and the two part company on a lopsided carrier.
+
 The tuning correction is kept per site (`config_site_ppm()`): it drifts and is
 measured against whatever reference a place offers, so arriving somewhere the
 receiver has been calibrated restores that calibration rather than the last one

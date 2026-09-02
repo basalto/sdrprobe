@@ -158,8 +158,22 @@ static void test_the_file_it_writes(void) {
     c[1].prominence_db = 12.0f;
     c[1].suspect = SURVEY_SUSPECT_REFERENCE;
 
-    check_int("it writes", survey_store_write(app, &plan, c, 2, path,
-                                              sizeof(path)), 0);
+    {
+        /* One carrier holding both maxima, which is what the window would
+           have worked out from them. */
+        struct survey_carrier carrier;
+        memset(&carrier, 0, sizeof(carrier));
+        carrier.centre_hz = 94400000.0;
+        carrier.power_centre_hz = 94410000.0;
+        carrier.lower_hz = 94300000.0;
+        carrier.upper_hz = 94500000.0;
+        carrier.width_hz = 200000.0;
+        carrier.peak_dbfs = -7.7f;
+        carrier.prominence_db = 35.9f;
+        carrier.peaks = 2;
+        check_int("it writes", survey_store_write(app, &plan, c, 2, &carrier,
+                                                  1, path, sizeof(path)), 0);
+    }
     file = fopen(path, "rb");
     check_true("and the file is there", file != NULL);
     if (file) {
@@ -187,6 +201,18 @@ static void test_the_file_it_writes(void) {
                    strstr(text, "\"allocation\": null") != NULL);
         check_true("and one with an allocation names it",
                    strstr(text, "\"allocation\": \"FM broadcast\"") != NULL);
+        /* The signals as well as the maxima, and each saying how many it
+           accounts for -- a carrier of one peak and one of eleven are
+           different claims. */
+        check_true("the carriers are written too",
+                   strstr(text, "\"carriers\": [") != NULL);
+        check_true("with the width they were measured at",
+                   strstr(text, "\"width_hz\": 200000") != NULL);
+        check_true("and how many maxima each accounts for",
+                   strstr(text, "\"maxima\": 2") != NULL);
+        check_true("the identity and the power centre are both kept",
+                   strstr(text, "\"centre_hz\": 94400000") != NULL &&
+                   strstr(text, "\"power_centre_hz\": 94410000") != NULL);
     }
     if (chdir(cwd) != 0)
         exit(2);

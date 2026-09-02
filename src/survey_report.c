@@ -10,6 +10,7 @@
 #include "survey_sweep.h"
 #include "survey_suspect.h"
 #include "survey_store.h"
+#include "survey_carrier.h"
 
 /*
  * The band survey with no window and nobody watching: sweep, then print what
@@ -146,6 +147,38 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
                (double)c->power_dbfs, (double)c->prominence_db, centre, width,
                survey_flag_text(c->suspect, flags, sizeof(flags)),
                c->allocation ? c->allocation : "-");
+    }
+    /*
+     * And the same peaks grouped into signals. Printed as well as the
+     * candidates rather than instead of them: the candidates are what was
+     * measured and the carriers are what it was concluded to mean, and a
+     * reader is entitled to both. It is also the difference between "26
+     * candidates" and "6 stations", which is the number anybody actually
+     * wanted.
+     */
+    {
+        struct survey_carrier carriers[SURVEY_CARRIER_MAX];
+        int carrier_count = survey_carriers_from(
+            survey_power, plan->bins, SURVEY_SENTINEL_DBFS,
+            survey_plan_bin_centre(plan, 0), plan->bin_hz,
+            SURVEY_BANDWIDTH_DB, peaks, count,
+            carriers, SURVEY_CARRIER_MAX);
+        int c;
+        printf("# carrier <centre_hz> <power_centre_hz> <lower_hz> "
+               "<upper_hz> <width_hz> <level_dbfs> <prominence_db> <maxima> "
+               "<allocation|->\n");
+        for (c = 0; c < carrier_count; c++) {
+            const struct band_plan_entry *entry =
+                band_plan_lookup(carriers[c].centre_hz);
+            printf("carrier %.0f %.0f %.0f %.0f %.0f %.1f %.1f %d %s\n",
+                   carriers[c].centre_hz, carriers[c].power_centre_hz,
+                   carriers[c].lower_hz, carriers[c].upper_hz,
+                   carriers[c].width_hz,
+                   (double)carriers[c].peak_dbfs,
+                   (double)carriers[c].prominence_db, carriers[c].peaks,
+                   entry ? entry->name : "-");
+        }
+        printf("survey carriers %d\n", carrier_count);
     }
     printf("survey candidates %d suspicious %d", found, suspicious);
     if (spectrum)

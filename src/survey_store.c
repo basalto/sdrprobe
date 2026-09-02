@@ -151,7 +151,8 @@ static void put_string(FILE *file, const char *indent, const char *key,
 
 int survey_store_write(const struct app *app, const struct survey_plan *plan,
                        const struct survey_candidate *candidates, int count,
-                       char *path_out, size_t path_size) {
+                       const struct survey_carrier *carriers,
+                       int carrier_count, char *path_out, size_t path_size) {
     char name[64], path[256];
     time_t now = time(NULL);
     struct tm when;
@@ -247,6 +248,36 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
             fprintf(file, "null");
         }
         fprintf(file, "}%s\n", i + 1 < count ? "," : "");
+    }
+    fprintf(file, "  ],\n");
+    /*
+     * And the same peaks as signals. Both, not one: the candidates are what
+     * was measured and the carriers are what it was concluded to mean, and a
+     * reader comparing two sweeps wants the conclusion while a reader
+     * doubting one wants the measurement.
+     */
+    fprintf(file, "  \"carriers\": [\n");
+    for (i = 0; i < carrier_count; i++) {
+        const struct survey_carrier *c = &carriers[i];
+        const struct band_plan_entry *entry = band_plan_lookup(c->centre_hz);
+        char escaped[256];
+
+        fprintf(file, "   {\"centre_hz\": %.0f, \"power_centre_hz\": %.0f, "
+                      "\"lower_hz\": %.0f, \"upper_hz\": %.0f, "
+                      "\"width_hz\": %.0f, \"dbfs\": %.1f, "
+                      "\"prominence_db\": %.1f, \"maxima\": %d, "
+                      "\"allocation\": ",
+                c->centre_hz, c->power_centre_hz, c->lower_hz, c->upper_hz,
+                c->width_hz, (double)c->peak_dbfs, (double)c->prominence_db,
+                c->peaks);
+        if (entry) {
+            if (survey_json_escape(entry->name, escaped, sizeof(escaped)) < 0)
+                escaped[0] = '\0';
+            fprintf(file, "\"%s\"", escaped);
+        } else {
+            fprintf(file, "null");
+        }
+        fprintf(file, "}%s\n", i + 1 < carrier_count ? "," : "");
     }
     fprintf(file, "  ]\n}\n");
     fclose(file);
