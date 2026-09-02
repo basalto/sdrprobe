@@ -48,6 +48,14 @@ part comes out into a unit with a name. Logic not yet reachable is listed in
 `.scratch/testability/`, one ticket per area — add to it rather than leaving a
 gap implicit.
 
+**`make check` passing is not the same as being right.** A round trip cannot
+check a convention both directions share, and this repository has lost months
+to that twice — a conjugated LTE primary sequence and a scattered GSM SCH field
+layout, both green throughout. Before trusting a decode, diagnosing one that is
+wrong, or pinning a real-capture answer in a check, the `dsp-validation` skill
+in `.claude/skills/` carries what corroborates such an answer and what merely
+agrees with it.
+
 There is no CI and no linter, and the test framework is one header:
 `tests/check.h` holds the counters, the comparisons (`check_int`, `check_close`,
 `check_size`, `check_str`, `check_true`, and `check_msg(condition, fmt, ...)`

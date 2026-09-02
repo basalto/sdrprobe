@@ -446,6 +446,13 @@ open.
 
 ## Agent skills
 
+### Validating DSP work
+
+A round trip proves the code agrees with itself, not with the standard.
+`.claude/skills/dsp-validation/SKILL.md` carries what counts as independent
+corroboration of a real-signal answer, the two faults that hid behind green
+checks, and which diagnostic tool answers which question.
+
 ### Issue tracker
 
 Issues are tracked as local markdown under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
