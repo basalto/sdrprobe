@@ -118,7 +118,8 @@ check-lte-scan: $(TESTS)/lte_scan_test.c $(TESTS)/check.h $(SRC)/lte_scan.h \
 # the library -- both layouts are pure functions of the window size, which is
 # what makes them testable without opening a window.
 check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
-		$(SRC)/adsb_layout.h $(SRC)/chrome_layout.h
+		$(SRC)/adsb_layout.h $(SRC)/chrome_layout.h $(SRC)/lte_layout.h \
+		$(SRC)/survey_layout.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
