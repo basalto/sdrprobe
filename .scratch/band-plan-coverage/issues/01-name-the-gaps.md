@@ -33,8 +33,16 @@ comment for each range added, the way the existing entries do.
 
 ## Done when
 
-Every candidate in `surveys/2026-09-02-24M-1766M.json` either has an
-allocation, or is a frequency deliberately left unnamed for a reason recorded
-in the file. Re-running `./scripts/survey_tool.py report` on that same survey
-is the measure -- the "(no band plan entry)" row is the number to drive down,
-and it needs no receiver to check.
+The "(no band plan entry)" row of `./scripts/survey_tool.py report` is the
+measure: every candidate in a full-range sweep either has an allocation, or is
+a frequency deliberately left unnamed for a reason recorded in `band_plan.c`.
+
+Survey data is local and gitignored, so the sweep this began from is not in the
+repository -- the numbers above are the record of it, and a fresh sweep is four
+minutes:
+
+    ./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
+        | ./scripts/survey_tool.py ingest
+
+A different location will find different gaps. The table is Portugal's, so
+name what is allocated rather than what one sweep happened to hear.

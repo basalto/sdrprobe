@@ -1563,6 +1563,9 @@ static int run_headless(struct app *app) {
     return result;
 }
 
+/* Filled in by main before the app is built, and copied into it. */
+static struct config loaded_config;
+
 int main(int argc, char **argv) {
     struct app *app;
     int result = 1;
@@ -1575,6 +1578,30 @@ int main(int argc, char **argv) {
     }
     if (options.list_devices)
         return list_devices();
+    /*
+     * The installation: antenna and site. Loaded before anything measures,
+     * and written back when a flag changes one, so the next run starts where
+     * this one left off. A survey that cannot say what it was taken with is a
+     * number nobody can compare against.
+     */
+    {
+        struct config config;
+        int changed = 0;
+        config_load(&config);
+        if (options.antenna && strcmp(config.antenna, options.antenna)) {
+            snprintf(config.antenna, sizeof(config.antenna), "%s",
+                     options.antenna);
+            changed = 1;
+        }
+        if (options.site && strcmp(config.site, options.site)) {
+            snprintf(config.site, sizeof(config.site), "%s", options.site);
+            changed = 1;
+        }
+        if (changed && config_save(&config) == 0)
+            fprintf(stderr, "Saved: antenna \"%s\"%s%s\n", config.antenna,
+                    config.site[0] ? ", site " : "", config.site);
+        loaded_config = config;
+    }
     /* An ARFCN names a channel; the receiver is tuned 400 kHz below it so the
        carrier sits inside the span rather than on its DC spike, which is what
        the GSM view does when a channel is clicked. */
@@ -1611,6 +1638,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     app->options = options;
+    app->config = loaded_config;
     app->receiver_mode = options.file_path == NULL;
     app->remove_dc = options.remove_dc;
     view_gsm_defaults(app);

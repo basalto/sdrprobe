@@ -11,6 +11,7 @@
 
 #include "acquisition.h"
 #include "band_plan.h"
+#include "config.h"
 #include "adsb_dsp.h"
 #include "gsm_bcch.h"
 #include "gsm_dsp.h"
@@ -501,6 +502,9 @@ struct app {
     struct band_scan bandscan;
     struct acquisition acq;
     struct options options;
+    /* Antenna and site: what makes one sweep comparable to another, loaded
+       once at startup and reported by anything that measures. */
+    struct config config;
     struct sdr_dsp dsp;
     rtlsdr_dev_t *dev;
     FILE *capture;

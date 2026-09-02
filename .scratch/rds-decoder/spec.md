@@ -2,7 +2,7 @@
 
 ## Why this one
 
-The 2026-09-02 full-range sweep (`surveys/2026-09-02-24M-1766M.md`) puts FM
+The 2026-09-02 full-range sweep puts FM
 broadcast 14 dB above everything else on the air here -- 22 candidates, the
 strongest at -7.7 dBFS. It is also the only strong thing in the sweep that this
 program could read and does not already.

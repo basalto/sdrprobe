@@ -21,6 +21,7 @@ void usage(const char *program) {
             "          [--file capture.bin] [--device index]\n"
             "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte]\n"
             "          [--record-seconds n] [--technology gsm|adsb|lte|raw]\n"
+            "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
             "          [--dc-filter on|off]\n"
@@ -32,6 +33,10 @@ void usage(const char *program) {
             "  --view            screen to open on\n"
             "  --record-seconds  record raw I/Q to captures/ from startup,\n"
             "                    with a .json sidecar describing the tuning\n"
+            "  --antenna         name the antenna in use; saved, and reported\n"
+            "                    by a survey so two sweeps can be compared\n"
+            "  --site            name where the receiver is; saved likewise. A\n"
+            "                    survey taken somewhere else is not a baseline\n"
             "  --technology      what that recording is labelled; defaults to\n"
             "                    --view, or raw when there is no view\n"
             "  --duration        quit after n seconds\n"
@@ -394,6 +399,14 @@ int parse_options(int argc, char **argv, struct options *options) {
                 strcmp(options->technology, "lte") != 0 &&
                 strcmp(options->technology, "raw") != 0)
                 return -1;
+        } else if (strcmp(option, "--antenna") == 0) {
+            if (options->antenna || i + 1 >= argc || !*argv[i + 1])
+                return -1;
+            options->antenna = argv[++i];
+        } else if (strcmp(option, "--site") == 0) {
+            if (options->site || i + 1 >= argc || !*argv[i + 1])
+                return -1;
+            options->site = argv[++i];
         } else if (strcmp(option, "--record-seconds") == 0) {
             if (record_seen || i + 1 >= argc ||
                 parse_seconds(argv[++i], &options->record_seconds) < 0)

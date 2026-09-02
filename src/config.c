@@ -1,0 +1,185 @@
+#include "config.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+
+static void copy_value(char *out, size_t size, const char *value) {
+    size_t length = strlen(value);
+    if (length >= size)
+        length = size - 1;
+    memcpy(out, value, length);
+    out[length] = '\0';
+}
+
+void config_defaults(struct config *config) {
+    if (!config)
+        return;
+    memset(config, 0, sizeof(*config));
+    copy_value(config->antenna, sizeof(config->antenna),
+               CONFIG_ANTENNA_DEFAULT);
+    config->site[0] = '\0';
+}
+
+int config_parse(const char *text, struct config *config) {
+    const char *line = text;
+    int recognised = 0;
+
+    if (!text || !config)
+        return 0;
+    config_defaults(config);
+    while (*line) {
+        const char *end = strchr(line, '\n');
+        size_t length = end ? (size_t)(end - line) : strlen(line);
+        char buffer[CONFIG_VALUE_MAX * 2];
+        char *key, *value;
+
+        if (length >= sizeof(buffer))
+            length = sizeof(buffer) - 1;
+        memcpy(buffer, line, length);
+        buffer[length] = '\0';
+        line = end ? end + 1 : line + strlen(line);
+
+        /* Trim, then skip blanks and comments. */
+        key = buffer;
+        while (*key == ' ' || *key == '\t')
+            key++;
+        while (*key && buffer[strlen(buffer) - 1] == ' ')
+            buffer[strlen(buffer) - 1] = '\0';
+        if (!*key || *key == '#')
+            continue;
+
+        value = key;
+        while (*value && *value != ' ' && *value != '\t')
+            value++;
+        if (*value)
+            *value++ = '\0';
+        while (*value == ' ' || *value == '\t')
+            value++;
+
+        if (!strcmp(key, "antenna")) {
+            copy_value(config->antenna, sizeof(config->antenna), value);
+            recognised++;
+        } else if (!strcmp(key, "site")) {
+            copy_value(config->site, sizeof(config->site), value);
+            recognised++;
+        } else if (config->unknown_count < CONFIG_UNKNOWN_MAX) {
+            /* Not ours. Keep it so saving does not throw away a setting a
+               newer build understands. */
+            snprintf(config->unknown[config->unknown_count],
+                     sizeof(config->unknown[0]), "%s %s", key, value);
+            config->unknown_count++;
+        }
+    }
+    return recognised;
+}
+
+int config_format(const struct config *config, char *out, size_t size) {
+    int written, i;
+    if (!config || !out)
+        return -1;
+    written = snprintf(out, size,
+                       "# sdrprobe. What describes the receiver's situation\n"
+                       "# rather than one run of it. Edited by --antenna and\n"
+                       "# --site, and by hand if you prefer.\n"
+                       "antenna %s\n", config->antenna);
+    if (written < 0 || (size_t)written >= size)
+        return -1;
+    if (config->site[0]) {
+        int more = snprintf(out + written, size - (size_t)written,
+                            "site %s\n", config->site);
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+    }
+    for (i = 0; i < config->unknown_count; i++) {
+        int more = snprintf(out + written, size - (size_t)written, "%s\n",
+                            config->unknown[i]);
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+    }
+    return written;
+}
+
+int config_path(char *out, size_t size) {
+    const char *xdg = getenv("XDG_CONFIG_HOME");
+    const char *home = getenv("HOME");
+    int written;
+
+    if (!out)
+        return -1;
+    if (xdg && *xdg)
+        written = snprintf(out, size, "%s/sdrprobe/config", xdg);
+    else if (home && *home)
+        written = snprintf(out, size, "%s/.config/sdrprobe/config", home);
+    else
+        return -1;
+    return (written < 0 || (size_t)written >= size) ? -1 : 0;
+}
+
+int config_load(struct config *config) {
+    char path[512], text[4096];
+    size_t got;
+    FILE *file;
+
+    config_defaults(config);
+    if (config_path(path, sizeof(path)) < 0)
+        return 1;
+    file = fopen(path, "rb");
+    if (!file)
+        return 1;                 /* no file yet is not a failure */
+    got = fread(text, 1, sizeof(text) - 1, file);
+    fclose(file);
+    text[got] = '\0';
+    config_parse(text, config);
+    return 0;
+}
+
+int config_save(const struct config *config) {
+    char path[512], text[4096], *slash;
+    FILE *file;
+    int length;
+
+    if (config_path(path, sizeof(path)) < 0) {
+        fprintf(stderr, "No HOME or XDG_CONFIG_HOME; not saving settings\n");
+        return -1;
+    }
+    length = config_format(config, text, sizeof(text));
+    if (length < 0) {
+        fprintf(stderr, "Settings do not fit in %zu bytes\n", sizeof(text));
+        return -1;
+    }
+    slash = strrchr(path, '/');
+    if (slash) {
+        *slash = '\0';
+        /* One level is enough in practice: ~/.config exists, and mkdir on an
+           existing directory is not an error worth reporting. */
+        if (mkdir(path, 0755) < 0 && errno != EEXIST) {
+            char parent[512];
+            char *up;
+            snprintf(parent, sizeof(parent), "%s", path);
+            up = strrchr(parent, '/');
+            if (up) {
+                *up = '\0';
+                mkdir(parent, 0755);
+            }
+            if (mkdir(path, 0755) < 0 && errno != EEXIST) {
+                fprintf(stderr, "Could not create %s: %s\n", path,
+                        strerror(errno));
+                return -1;
+            }
+        }
+        *slash = '/';
+    }
+    file = fopen(path, "wb");
+    if (!file) {
+        fprintf(stderr, "Could not write %s: %s\n", path, strerror(errno));
+        return -1;
+    }
+    fwrite(text, 1, (size_t)length, file);
+    fclose(file);
+    return 0;
+}

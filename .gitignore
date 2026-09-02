@@ -18,3 +18,9 @@
 
 # Raw-I/Q recordings from the Record button (user captures, not fixtures).
 /captures/
+
+# Band surveys. Measurements of one operator's location with one antenna, the
+# same kind of thing as captures/ and kept for the same reason: they are how a
+# later sweep is compared with an earlier one, and they are nobody else's
+# baseline. docs/band-surveys.md documents the format; the data stays here.
+/surveys/

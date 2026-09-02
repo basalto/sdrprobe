@@ -44,6 +44,7 @@ def parse(text):
         "range_hz": None,
         "sweep": {},
         "receiver": {},
+        "site": {},
         "totals": {},
         "candidates": [],
     }
@@ -71,6 +72,12 @@ def parse(text):
                               ("dwell", float)):
                 if key in pairs:
                     out["sweep"][key if key != "dwell" else "dwell_s"] = cast(pairs[key])
+        elif f[:2] == ["survey", "antenna"]:
+            out["receiver"]["antenna"] = " ".join(f[2:])
+        elif f[:2] == ["survey", "site"]:
+            out["site"]["label"] = " ".join(f[2:])
+        elif f[:2] == ["survey", "gain"]:
+            out["receiver"]["gain_db"] = float(f[2])
         elif f[:2] == ["survey", "blocks"]:
             out["sweep"]["blocks"] = int(f[2])
         elif f[:2] == ["survey", "candidates"]:
@@ -83,6 +90,52 @@ def parse(text):
             if tuner:
                 out["receiver"]["tuner"] = tuner.group(1)
     return out
+
+
+# Obfuscation, not secrecy: enough that a survey file does not carry the
+# identifiers of the networks around it, while still comparing to the next one.
+# The files are local and gitignored; do not treat these as secret.
+FINGERPRINT_SALT = b"sdrprobe survey site v1"
+FINGERPRINT_KEEP = 12
+
+
+def fingerprint():
+    """A hash per visible WiFi network, as a check on the site label.
+
+    Not a location. It answers only "is this the same place as last time",
+    which is the question that matters -- coordinates would not distinguish
+    two spots in one room that differ by 20 dB, and the visible networks do.
+    Returns None when there is no way to look, which is not an error.
+    """
+    import hashlib
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["nmcli", "-t", "-f", "BSSID", "device", "wifi", "list",
+             "--rescan", "no"],
+            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    seen = set()
+    for line in out.stdout.splitlines():
+        bssid = line.replace("\\", "").strip().upper()
+        if len(bssid) < 17:
+            continue
+        digest = hashlib.sha256(FINGERPRINT_SALT + bssid.encode()).hexdigest()
+        seen.add(digest[:FINGERPRINT_KEEP])
+    return sorted(seen) or None
+
+
+def overlap(a, b):
+    """How much two fingerprints share, 0 to 1. Compared as sets rather than
+    by equality, because two or three networks come and go between any two
+    scans and an exact match would almost never happen."""
+    if not a or not b:
+        return None
+    sa, sb = set(a), set(b)
+    return len(sa & sb) / float(len(sa | sb))
 
 
 def name_for(record):
@@ -116,6 +169,10 @@ def cmd_ingest(args):
         record["note"] = args.note
     if args.gain is not None:
         record["receiver"]["gain_db"] = args.gain
+    if not args.no_fingerprint:
+        marks = fingerprint()
+        if marks:
+            record["site"]["fingerprint"] = marks
     os.makedirs(SURVEYS, exist_ok=True)
     path = args.out or os.path.join(SURVEYS, name_for(record))
     with open(path, "w") as handle:
@@ -131,8 +188,17 @@ def cmd_report(args):
     lo, hi = record["range_hz"]
     flagged = [c for c in record["candidates"] if c["flags"]]
     clean = [c for c in record["candidates"] if not c["flags"]]
+    site = record.get("site", {})
+    rx = record.get("receiver", {})
     print("%s  %s to %s  %s" % (args.survey, mhz(lo), mhz(hi),
                                 record["recorded_at"]))
+    print("  site %s   antenna %s%s"
+          % (site.get("label") or "UNSET",
+             rx.get("antenna") or "unrecorded",
+             "   gain %.1f dB" % rx["gain_db"] if rx.get("gain_db") else ""))
+    if not site.get("label"):
+        print("  ! no site. Levels cannot be compared with another sweep;"
+              " set one with --site.")
     print("  %d candidates, %d clean, %d resembling the receiver\n"
           % (len(record["candidates"]), len(clean), len(flagged)))
     groups = by_allocation({"candidates": clean})
@@ -166,6 +232,36 @@ def cmd_diff(args):
     o_clean = [c for c in old["candidates"] if not c["flags"]]
     n_clean = [c for c in new["candidates"] if not c["flags"]]
     print("%s -> %s" % (old["recorded_at"], new["recorded_at"]))
+
+    # Two sweeps from different places are not a before and after. A diff
+    # across them reports the move as though the band had changed, which is
+    # the one way this archive can mislead rather than merely disappoint.
+    o_site = old.get("site", {}).get("label")
+    n_site = new.get("site", {}).get("label")
+    if not o_site or not n_site:
+        print("  ! one of these has no site recorded, so this comparison"
+              " cannot be trusted.")
+    elif o_site != n_site:
+        message = ("these are different places: %r and %r" % (o_site, n_site))
+        if not args.force:
+            sys.exit("  refusing: %s.\n"
+                     "  A sweep somewhere else is not a baseline. Pass --force"
+                     " if you know why you want this." % message)
+        print("  ! forced across sites: %s" % message)
+    else:
+        print("  site %s" % o_site)
+        share = overlap(old.get("site", {}).get("fingerprint"),
+                        new.get("site", {}).get("fingerprint"))
+        if share is not None and share < 0.5:
+            print("  ! both are labelled %r but the networks around them"
+                  " share only %.0f%%.\n    One of these was probably taken"
+                  " somewhere else." % (o_site, share * 100))
+
+    o_ant = old.get("receiver", {}).get("antenna")
+    n_ant = new.get("receiver", {}).get("antenna")
+    if o_ant and n_ant and o_ant != n_ant:
+        print("  ! antenna differs, %r then %r. Levels are not comparable."
+              % (o_ant, n_ant))
     o_lo, o_hi = old["range_hz"]
     n_lo, n_hi = new["range_hz"]
     lo, hi = max(o_lo, n_lo), min(o_hi, n_hi)
@@ -232,6 +328,8 @@ def main():
     p.add_argument("--out", help="where to write; defaults to surveys/")
     p.add_argument("--note", help="what this sweep was for, or where it was taken")
     p.add_argument("--gain", type=float, help="receiver gain in dB, if it was set")
+    p.add_argument("--no-fingerprint", action="store_true",
+                   help="skip the WiFi-derived check on the site label")
     p.set_defaults(func=cmd_ingest)
 
     p = sub.add_parser("report", help="what one survey found")
@@ -243,6 +341,8 @@ def main():
     p.add_argument("old")
     p.add_argument("new")
     p.add_argument("--top", type=int, default=10)
+    p.add_argument("--force", action="store_true",
+                   help="compare two sites anyway; almost always a mistake")
     p.set_defaults(func=cmd_diff)
 
     args = parser.parse_args()

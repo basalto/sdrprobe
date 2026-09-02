@@ -66,6 +66,16 @@ struct options {
        so it says so here instead. */
     const char *technology;
 
+    /*
+     * What describes the installation rather than this run. Both persist:
+     * given here they are written to the configuration file and stand until
+     * changed again, because an antenna and a location are things somebody
+     * altered physically, not things they should retype every sweep.
+     * NULL means "whatever the configuration already says".
+     */
+    const char *antenna;
+    const char *site;
+
     /* Decode-side controls, so a capture can be decoded from a script the way
        the views decode it on screen. */
     int arfcn;                /* 0 = none; tunes 400 kHz below the channel */

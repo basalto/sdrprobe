@@ -32,6 +32,24 @@
 /* The array the sweep folds into, and the spectrum it was folded from. Static
    rather than on the stack: SURVEY_BINS floats is 32 KB, and this runs on the
    main thread beside everything else. */
+/*
+ * What the sweep was taken with, printed before anything it found.
+ *
+ * Levels only compare between sweeps taken the same way, so a survey that does
+ * not say what it was taken with cannot be a baseline for the next one. The
+ * site has no default and is omitted when unset: two sweeps both labelled with
+ * a guess would compare as the same place, which is the one error this is
+ * meant to prevent.
+ */
+static void survey_print_installation(const struct app *app) {
+    if (app->config.antenna[0])
+        printf("survey antenna %s\n", app->config.antenna);
+    if (app->config.site[0])
+        printf("survey site %s\n", app->config.site);
+    if (app->applied_gain_tenths > 0)
+        printf("survey gain %.1f\n", (double)app->applied_gain_tenths / 10.0);
+}
+
 static float survey_power[SURVEY_BINS];
 static float held_spectrum[SDR_DSP_FFT_SIZE];
 static int held_valid;
@@ -216,6 +234,7 @@ static int survey_capture(struct app *app) {
         return -1;
     }
 
+    survey_print_installation(app);
     printf("survey range %.0f %.0f\n", plan.lower_hz, plan.upper_hz);
     printf("survey steps %d bins %d bin_hz %.1f blocks %d\n", plan.step_count,
            plan.bins, plan.bin_hz, folded);
@@ -263,6 +282,7 @@ static int survey_receiver(struct app *app) {
     for (int i = 0; i < plan.bins; i++)
         survey_power[i] = SURVEY_SENTINEL_DBFS;
 
+    survey_print_installation(app);
     printf("survey range %.0f %.0f\n", plan.lower_hz, plan.upper_hz);
     printf("survey steps %d bins %d bin_hz %.1f dwell %.2f estimate_s %.0f\n",
            plan.step_count, plan.bins, plan.bin_hz, dwell, plan.seconds);

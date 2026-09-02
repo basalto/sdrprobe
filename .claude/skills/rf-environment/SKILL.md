@@ -123,5 +123,9 @@ Once both gates pass, rank on what the repository actually gets:
 ```
 
 About four minutes. The note is the part a later reader cannot recover, and
-levels only compare between sweeps taken the same way. `surveys/README.md` has
-the file format.
+levels only compare between sweeps taken the same way. `docs/band-surveys.md`
+has the file format.
+
+The antenna and site come from the saved configuration rather than the command
+line, so they are right by default; `--antenna` and `--site` change them and
+the change sticks. `diff` refuses two sweeps from different sites outright.
