@@ -88,6 +88,19 @@ which the view makes up to three.
 See `docs/liquid-dsp-sdrprobe-assessment.md` for the numbers and for where the
 time would come from if it were ever needed.
 
+Seeing what a view drew, without a person to look — `--screenshot` writes the
+last frame to a PNG the Read tool displays. The `screenshot` skill in
+`.claude/skills/` carries the per-view recipes and how long each needs to
+settle:
+
+```sh
+./sdrprobe --file testfiles/lte_b20_pci28.bin --view lte --earfcn 6200 \
+    --duration 6 --screenshot /tmp/shot.png
+```
+
+A screenshot is for seeing that something drew; for reading values off it the
+headless paths below are exact and do not truncate.
+
 Running the app without hardware — always prefer this over asking for a dongle:
 
 ```sh
