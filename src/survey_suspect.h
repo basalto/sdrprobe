@@ -29,7 +29,7 @@
  * removes a candidate and never says a peak *is* an artifact: it says the
  * frequency has the signature of one, and leaves the operator to decide.
  * Removing peaks would hide a real transmitter that happens to sit on a
- * harmonic, which is exactly the kind of silent editing ADR-0011 refuses.
+ * harmonic, which is exactly the kind of silent editing ADR-0015 refuses.
  *
  * Plain arithmetic, checked by tests/survey_suspect_test.c (ADR-0012).
  */

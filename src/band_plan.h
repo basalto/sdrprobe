@@ -11,7 +11,7 @@
  * anything is transmitting there, and a carrier found at that frequency has
  * not thereby been identified as GSM; nothing has been demodulated. Callers
  * must present the result as a lookup. See
- * docs/adr/0011-band-plan-is-a-lookup.md.
+ * docs/adr/0015-band-plan-is-a-lookup.md.
  *
  * The table holds Portugal's allocations -- ITU Region 1 as ANACOM applies it,
  * which is what most of Europe looks like too. A frequency allocated

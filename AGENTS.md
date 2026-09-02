@@ -138,7 +138,7 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   measures occupied bandwidth, duty and frequency stability over two seconds,
   then names the allocation from `src/band_plan.c` and offers to point a
   decoder at it. The band plan is a lookup and the UI says so: see
-  `docs/adr/0011-band-plan-is-a-lookup.md`, which is the boundary this view
+  `docs/adr/0015-band-plan-is-a-lookup.md`, which is the boundary this view
   exists next to. The band plan is also
   drawn behind the trace as shaded regions, named where there is room, so a
   peak reads against what the region is allocated to; dragging a rectangle across the
