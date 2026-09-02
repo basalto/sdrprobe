@@ -25,7 +25,8 @@ struct survey_layout {
     Rectangle site_field;
     Rectangle antenna_field;
     Rectangle save_button;
-    Rectangle site_menu_button;  /* opens the list of sites already visited */
+    Rectangle site_menu_button;     /* the list of sites already visited */
+    Rectangle antenna_menu_button;  /* and of antennas already used */
     Rectangle confirm_button;    /* asks again about what the sweep called new
                                     or missing */
     Rectangle chart;           /* power across the swept range */
@@ -39,29 +40,31 @@ struct survey_layout {
     float header_right;        /* x where it must stop */
 };
 
-/* One row of the site list, and the list itself. Separate from the layout
-   struct because its height depends on how many sites there are, which the
-   layout cannot know -- and a caller cannot compute it either without knowing
-   the row height, so it is here rather than in the view. */
+/* One row of a picker, and the picker itself. Separate from the layout struct
+   because its height depends on how many entries there are, which the layout
+   cannot know -- and a caller cannot compute it either without knowing the row
+   height, so it is here rather than in the view.
+
+   Shared by the site and the antenna, which are the same control twice. */
 #define SURVEY_SITE_ROW_H 26.0f
 
-static inline Rectangle survey_site_menu_rect(Rectangle site_field, int count) {
+static inline Rectangle survey_menu_rect(Rectangle field, int count) {
     Rectangle menu;
     if (count < 1)
         count = 1;
-    menu.x = site_field.x;
-    menu.y = site_field.y + site_field.height + 2.0f;
-    menu.width = site_field.width + 26.0f;
+    menu.x = field.x;
+    menu.y = field.y + field.height + 2.0f;
+    menu.width = field.width + 26.0f;
     menu.height = SURVEY_SITE_ROW_H * (float)count + 8.0f;
     return menu;
 }
 
 /* Which row of that list a point is over, or -1. The list is drawn over the
-   chart, so getting this wrong selects a site the operator did not point at
-   -- and a wrong site is worse than no site. */
-static inline int survey_site_menu_row_at(Rectangle site_field, int count,
-                                          Vector2 point) {
-    Rectangle menu = survey_site_menu_rect(site_field, count);
+   chart, so getting this wrong picks something the operator did not point at
+   -- and a wrong site files a sweep under a place it was not taken. */
+static inline int survey_menu_row_at(Rectangle field, int count,
+                                     Vector2 point) {
+    Rectangle menu = survey_menu_rect(field, count);
     int row;
     if (count < 1 || point.x < menu.x || point.x > menu.x + menu.width ||
         point.y < menu.y + 4.0f || point.y > menu.y + menu.height - 4.0f)
@@ -100,7 +103,8 @@ static inline struct survey_layout survey_layout_for(float width,
        configuration file they have never opened. */
     l.site_field = (Rectangle){ 82.0f, 180.0f, 164.0f, 30.0f };
     l.site_menu_button = (Rectangle){ 248.0f, 180.0f, 26.0f, 30.0f };
-    l.antenna_field = (Rectangle){ 288.0f, 180.0f, 230.0f, 30.0f };
+    l.antenna_field = (Rectangle){ 288.0f, 180.0f, 204.0f, 30.0f };
+    l.antenna_menu_button = (Rectangle){ 494.0f, 180.0f, 26.0f, 30.0f };
     l.save_button = (Rectangle){ 534.0f, 180.0f, 150.0f, 30.0f };
     l.confirm_button = (Rectangle){ 700.0f, 180.0f, 176.0f, 30.0f };
     l.status_y = 220.0f;

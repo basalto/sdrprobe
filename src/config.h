@@ -33,11 +33,15 @@
    carrying a dongle around; the list is a convenience for picking, not a
    register of everywhere it has ever been. */
 #define CONFIG_SITES_MAX 12
+/* And how many antennas. A dongle owner accumulates a few -- the whip it came
+   with, something on the roof, a loop for the low bands -- and picking one
+   beats retyping it. */
+#define CONFIG_ANTENNAS_MAX 8
 
-/* What an installation looks like before anyone has said otherwise. A whip is
-   what an RTL-SDR ships with, so it is the honest default rather than a
-   flattering one. */
-#define CONFIG_ANTENNA_DEFAULT "telescopic whip"
+/* What an installation looks like before anyone has said otherwise. A
+   telescopic whip is what an RTL-SDR ships with, so it is the honest default
+   rather than a flattering one. */
+#define CONFIG_ANTENNA_DEFAULT "telescopic"
 
 /*
  * A place, and the tuning correction that was right there.
@@ -65,6 +69,11 @@ struct config {
        and spelling it differently is how one place becomes two. */
     struct config_site sites[CONFIG_SITES_MAX];
     int site_count;
+    /* Every antenna named so far, most recent first. Same reason as the
+       sites: one antenna spelled two ways is two antennas, and levels only
+       compare between sweeps taken with the same one. */
+    char antennas[CONFIG_ANTENNAS_MAX][CONFIG_VALUE_MAX];
+    int antenna_count;
     /* Lines this build did not recognise, kept verbatim so writing the file
        back does not discard a newer version's settings. */
     char unknown[CONFIG_UNKNOWN_MAX][CONFIG_VALUE_MAX * 2];
@@ -83,6 +92,10 @@ int config_remember_site(struct config *config, const char *site);
 /* The correction recorded for a site, or 0 when it has none -- which is also
    what an uncalibrated receiver uses, so an unknown site is simply
    uncorrected rather than wrong. */
+/* The same for antennas, which carry no correction of their own -- only a
+   name, and the discipline of using one name for one antenna. */
+int config_remember_antenna(struct config *config, const char *antenna);
+
 int config_site_ppm(const struct config *config, const char *site);
 
 /* Record one against a site, remembering the site if it is new. Returns 1 when

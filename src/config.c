@@ -21,6 +21,11 @@ void config_defaults(struct config *config) {
     copy_value(config->antenna, sizeof(config->antenna),
                CONFIG_ANTENNA_DEFAULT);
     config->site[0] = '\0';
+    /* The default is in the list from the start, so the picker always has
+       something in it rather than being empty until somebody types. */
+    copy_value(config->antennas[0], sizeof(config->antennas[0]),
+               CONFIG_ANTENNA_DEFAULT);
+    config->antenna_count = 1;
 }
 
 int config_remember_site(struct config *config, const char *site) {
@@ -48,6 +53,34 @@ int config_remember_site(struct config *config, const char *site) {
         config->sites[i] = config->sites[i - 1];
     memset(&config->sites[0], 0, sizeof(config->sites[0]));
     copy_value(config->sites[0].label, sizeof(config->sites[0].label), site);
+    return 1;
+}
+
+int config_remember_antenna(struct config *config, const char *antenna) {
+    int i, found = -1;
+    char moved[CONFIG_VALUE_MAX];
+
+    if (!config || !antenna || !*antenna)
+        return 0;
+    for (i = 0; i < config->antenna_count; i++)
+        if (!strcmp(config->antennas[i], antenna))
+            found = i;
+    if (found == 0)
+        return 0;
+    if (found > 0) {
+        copy_value(moved, sizeof(moved), config->antennas[found]);
+        for (i = found; i > 0; i--)
+            copy_value(config->antennas[i], sizeof(config->antennas[i]),
+                       config->antennas[i - 1]);
+        copy_value(config->antennas[0], sizeof(config->antennas[0]), moved);
+        return 0;
+    }
+    if (config->antenna_count < CONFIG_ANTENNAS_MAX)
+        config->antenna_count++;
+    for (i = config->antenna_count - 1; i > 0; i--)
+        copy_value(config->antennas[i], sizeof(config->antennas[i]),
+                   config->antennas[i - 1]);
+    copy_value(config->antennas[0], sizeof(config->antennas[0]), antenna);
     return 1;
 }
 
@@ -118,6 +151,14 @@ int config_parse(const char *text, struct config *config) {
         } else if (!strcmp(key, "site")) {
             copy_value(config->site, sizeof(config->site), value);
             recognised++;
+        } else if (!strcmp(key, "known_antenna")) {
+            if (*value) {
+                /* Read straight in, in file order; the default is already
+                   there from config_defaults, so remember rather than append
+                   -- otherwise a file naming it once holds it twice. */
+                config_remember_antenna(config, value);
+            }
+            recognised++;
         } else if (!strcmp(key, "known_site")) {
             /* `known_site <ppm> <label>`, appended in file order, which is
                most recent first. A file written before corrections were kept
@@ -168,6 +209,16 @@ int config_format(const struct config *config, char *out, size_t size) {
     if (config->site[0]) {
         int more = snprintf(out + written, size - (size_t)written,
                             "site %s\n", config->site);
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+    }
+    for (i = config->antenna_count - 1; i >= 0; i--) {
+        /* Written oldest first so that reading them back through
+           config_remember_antenna() -- which pushes each to the front --
+           restores the order they are in now. */
+        int more = snprintf(out + written, size - (size_t)written,
+                            "known_antenna %s\n", config->antennas[i]);
         if (more < 0 || (size_t)(written + more) >= size)
             return -1;
         written += more;

@@ -174,6 +174,11 @@ comparable to anything. The survey view has both as fields and a **Save
 survey** button beside them, writing the same JSON the script ingests; it
 refuses while the site is empty rather than saving a sweep labelled nothing.
 
+The site and the antenna are combos over lists the configuration keeps
+(`config_remember_site()`, `config_remember_antenna()`), because one place or
+one antenna named two ways is two of them and levels only compare within one of
+each. The antenna defaults to `telescopic`.
+
 A sweep's peaks are grouped into signals by `src/survey_carrier.h` before
 anything reads them: two maxima are one carrier when the power between them
 never drops far below the lower of the two, and each carrier's extent runs to

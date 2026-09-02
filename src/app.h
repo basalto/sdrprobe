@@ -452,6 +452,7 @@ struct survey_view {
        to before. Spelling an existing site differently is how one place
        quietly becomes two, and the list is the cheapest guard against it. */
     int site_menu_open;
+    int antenna_menu_open;
     /*
      * What this site heard before, and how this sweep compares.
      *
