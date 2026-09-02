@@ -1303,6 +1303,8 @@ static void print_lte(struct app *app, double now)
                (double)cell->sss_correlation);
         app->lte.announced_pci = cell->pci;
     }
+    /* Only a message that repeated counts, so this prints at most once per
+       cell rather than once per lucky parity. */
     if (app->lte.mibs_decoded > messages_before)
         printf("MIB  %d blocks (%.2f MHz)  PHICH %s %s  SFN %d"
                "  %d antenna port%s\n",

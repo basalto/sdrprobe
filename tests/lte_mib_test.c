@@ -426,6 +426,77 @@ static void test_noise_alone_is_not_a_message(void) {
               decoded);
 }
 
+/*
+ * The parity is not enough on its own, and this is what backs that up.
+ *
+ * Four scrambling offsets against three masks is twelve attempts a call, and
+ * the LTE view makes three calls a block -- once per antenna-port guess. At
+ * about one in seven thousand a call, a session that finds a cell nine
+ * thousand times expects one pass by chance. That is not a rare accident to
+ * tolerate; it is the number, so believing the first pass means reporting
+ * noise as a message.
+ *
+ * What a chance pass cannot do is agree with the next one. A message that
+ * passed by luck carries whatever the trellis happened to produce, spread over
+ * the 144 configurations a cell could be in -- six bandwidths, two
+ * acknowledgement durations, four resource figures, three antenna counts --
+ * while a real cell says the same thing every frame. Measuring that is cheap
+ * and exact, and does not depend on waiting for a rare event to happen twice.
+ */
+static void test_a_message_has_to_repeat(void) {
+    struct lte_mib a = sample_message(3), b = sample_message(3);
+    int trial, agreed = 0;
+    const int draws = 20000;
+
+    b.system_frame_number = (a.system_frame_number + 44) % 1024;
+    b.quarter = (a.quarter + 1) % 4;
+    check_true("the same cell at a later frame is the same cell",
+               lte_mib_same_cell(&a, &b));
+    b.bandwidth_prb = (a.bandwidth_prb == 50) ? 25 : 50;
+    check_true("a different bandwidth is not", !lte_mib_same_cell(&a, &b));
+    b = a;
+    b.antenna_ports = (a.antenna_ports == 2) ? 4 : 2;
+    check_true("nor a different antenna count", !lte_mib_same_cell(&a, &b));
+    b = a;
+    b.phich_extended = !a.phich_extended;
+    check_true("nor a different acknowledgement duration",
+               !lte_mib_same_cell(&a, &b));
+    b = a;
+    b.phich_resource_sixths = (a.phich_resource_sixths == 6) ? 1 : 6;
+    check_true("nor a different acknowledgement resource",
+               !lte_mib_same_cell(&a, &b));
+    check_true("and nothing is the same as nothing",
+               !lte_mib_same_cell(NULL, &a) && !lte_mib_same_cell(&a, NULL));
+
+    /*
+     * Two chance passes in a row, twenty thousand times. A pass carries a
+     * configuration drawn from those 144, so agreement should happen about
+     * seven times in a thousand -- which is the factor the repeat buys.
+     */
+    rng_seed(8191u);
+    for (trial = 0; trial < draws; trial++) {
+        struct lte_mib first, second;
+        memset(&first, 0, sizeof(first));
+        memset(&second, 0, sizeof(second));
+        first.bandwidth_prb = all_bandwidths[rng_next() % 6];
+        first.phich_extended = (int)(rng_next() & 1u);
+        first.phich_resource_sixths = all_resources[rng_next() % 4];
+        first.antenna_ports = (int)(1u << (rng_next() % 3));
+        second.bandwidth_prb = all_bandwidths[rng_next() % 6];
+        second.phich_extended = (int)(rng_next() & 1u);
+        second.phich_resource_sixths = all_resources[rng_next() % 4];
+        second.antenna_ports = (int)(1u << (rng_next() % 3));
+        if (lte_mib_same_cell(&first, &second))
+            agreed++;
+    }
+    check_msg(agreed * 40 < draws,
+              "two chance passes agreed %d times in %d; the repeat is meant "
+              "to cut them by two orders of magnitude\n", agreed, draws);
+    check_msg(agreed > 0,
+              "no two chance passes agreed at all in %d, which means the "
+              "draw is not random and this measures nothing\n", draws);
+}
+
 static void test_how_much_damage_it_takes(void) {
     /*
      * What the coding is worth, measured rather than asserted. Soft bits of
@@ -477,6 +548,7 @@ int main(void) {
     test_whole_chain();
     test_the_wrong_cell_does_not_decode();
     test_noise_alone_is_not_a_message();
+    test_a_message_has_to_repeat();
     test_how_much_damage_it_takes();
 
     return check_report("lte master information block");

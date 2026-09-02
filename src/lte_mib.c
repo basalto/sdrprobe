@@ -348,6 +348,15 @@ void lte_mib_encode(const struct lte_mib *mib, int pci, int quarter,
     lte_mib_descramble(pci, quarter, soft);
 }
 
+int lte_mib_same_cell(const struct lte_mib *a, const struct lte_mib *b) {
+    if (!a || !b)
+        return 0;
+    return a->bandwidth_prb == b->bandwidth_prb &&
+           a->phich_extended == b->phich_extended &&
+           a->phich_resource_sixths == b->phich_resource_sixths &&
+           a->antenna_ports == b->antenna_ports;
+}
+
 int lte_mib_decode(const float soft[LTE_MIB_QUARTER_BITS], int pci,
                    struct lte_mib *mib) {
     int quarter;
