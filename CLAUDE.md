@@ -160,10 +160,17 @@ the survey found, since a sweep is otherwise reached by clicking:
 
 Surveys accumulate rather than scroll past: `scripts/survey_tool.py` turns that
 output into a JSON under `surveys/`, reports one grouped by allocation, and
-diffs two. `surveys/2026-09-02-24M-1766M.md` is the whole tuner, 24 to
-1766 MHz, and the `rf-environment` skill is the analysis over them -- what is
-known, what is new, and the two gates a candidate technology has to pass before
-anyone writes a ticket for it.
+diffs two -- refusing outright when the two were taken at different sites. The
+data is gitignored, the same as `captures/`: a sweep is one location with one
+antenna and nobody else's baseline. `docs/band-surveys.md` is the format, and
+the `rf-environment` skill is the analysis over them -- what is known, what is
+new, and the two gates a candidate technology has to pass before anyone writes
+a ticket for it.
+
+The antenna and the site persist between runs (`--antenna`, `--site`, kept in
+`~/.config/sdrprobe/config`), because they describe the installation rather
+than a run and a survey that cannot say what it was taken with is not
+comparable to anything.
 
 One record per line, keyword first, integer hertz, the band-plan allocation
 last because it is the only field that can contain a space. `candidate` rows

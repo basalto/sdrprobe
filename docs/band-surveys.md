@@ -1,6 +1,11 @@
-# Surveys
+# Band surveys
 
-One JSON per sweep, kept so they can be compared. A single survey says what is
+One JSON per sweep, kept so they can be compared. The data lives in
+`surveys/`, which is **gitignored**: a sweep measures one location with one
+antenna, the same kind of thing as `captures/`, and it is nobody else's
+baseline. This file is the format; the sweeps are yours.
+
+A single survey says what is transmitting; A single survey says what is
 transmitting; a series says what changed, which is the more useful question and
 the only one that needs the files to accumulate.
 
@@ -22,7 +27,7 @@ minutes.
 ## Reading them
 
 ```sh
-./scripts/survey_tool.py report surveys/2026-09-02-24M-1766M.json
+./scripts/survey_tool.py report surveys/<one>.json
 ./scripts/survey_tool.py diff  surveys/<older>.json surveys/<newer>.json
 ```
 
@@ -31,14 +36,22 @@ turns a list of 247 candidates into a finding. `diff` compares only where the
 two sweeps overlap, and says what appeared, what went, and what moved by 8 dB
 or more.
 
+**`diff` refuses two sweeps from different sites.** They are not a before and
+an after; comparing them reports the move as though the band had changed, which
+is the one way this archive can mislead rather than merely disappoint. Pass
+`--force` if you have a reason. It also warns when two sweeps share a site
+label but their fingerprints do not -- one of them was probably taken somewhere
+else -- and when the antenna differs.
+
 The `rf-environment` skill in `.claude/skills/` is the analysis layer over
 these: what is known, what is new, and what is worth measuring next.
 
 ## What is in a file
 
 `schema`, `recorded_at`, `range_hz`, `sweep` (steps, bins, dwell, blocks),
-`receiver`, `totals`, and `candidates` -- each with `hz`, `dbfs`,
-`prominence_db`, `centre_hz`, `width_hz`, `flags` and `allocation`.
+`receiver` (tuner, antenna, gain_db), `site` (label, fingerprint), `totals`,
+and `candidates` -- each with `hz`, `dbfs`, `prominence_db`, `centre_hz`,
+`width_hz`, `flags` and `allocation`.
 
 Two conventions worth knowing before comparing anything:
 

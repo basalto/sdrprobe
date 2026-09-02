@@ -310,6 +310,41 @@ static void test_implications(void) {
                "--gain 29.7 did not record 297 tenths");
 }
 
+/*
+ * --antenna and --site describe the installation rather than the run, and
+ * persist. Parsing is all that is checked here: writing the file is
+ * check-config's, and where it goes depends on a home directory this cannot
+ * assume.
+ */
+static void test_installation_flags(void) {
+    struct options options;
+    const char *ok[] = { "sdrprobe", "--antenna", "discone, roof",
+                         "--site", "lisbon-office" };
+    const char *no_value[] = { "sdrprobe", "--antenna" };
+    const char *empty[] = { "sdrprobe", "--site", "" };
+    const char *twice[] = { "sdrprobe", "--antenna", "a", "--antenna", "b" };
+
+    check_int("an antenna and a site are accepted",
+              parse_options(5, (char **)ok, &options), 0);
+    check_str("the antenna is kept whole, commas and all", options.antenna,
+              "discone, roof");
+    check_str("and the site", options.site, "lisbon-office");
+
+    check_true("a flag with nothing after it is refused",
+               parse_options(2, (char **)no_value, &options) < 0);
+    /* An empty name would write an empty setting, and an empty site compares
+       equal to another empty site -- the mistake the site exists to catch. */
+    check_true("so is an empty name",
+               parse_options(3, (char **)empty, &options) < 0);
+    check_true("and so is saying it twice",
+               parse_options(5, (char **)twice, &options) < 0);
+
+    check_int("neither is required",
+              parse_options(1, (char **)ok, &options), 0);
+    check_true("and unset means whatever the file already says",
+               options.antenna == NULL && options.site == NULL);
+}
+
 int main(void) {
     test_defaults();
     test_frequency_spellings();
@@ -317,6 +352,8 @@ int main(void) {
     test_named_values();
     test_conflicting_flags();
     test_implications();
+
+    test_installation_flags();
 
     return check_report("command line");
 }

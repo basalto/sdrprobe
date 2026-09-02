@@ -491,7 +491,9 @@ checks, and which diagnostic tool answers which question.
 
 ### The RF environment
 
-`surveys/` keeps one JSON per band survey so sweeps can be compared over time,
+`surveys/` keeps one JSON per band survey so sweeps can be compared over time
+-- gitignored, like `captures/`, because a sweep is one location with one
+antenna. `docs/band-surveys.md` is the format,
 and `.claude/skills/rf-environment/SKILL.md` reads them: what is on air, what
 changed, and what is worth decoding next. It carries the two gates -- does the
 signal fit the receiver, and is it actually there -- that 5G NR and DAB+ each

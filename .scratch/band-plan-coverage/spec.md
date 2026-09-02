@@ -31,7 +31,7 @@ it is the survey losing the one thing it can honestly say. A reader looking at
 whether it is a licensed service, an unlicensed one, or something in the room.
 
 It also makes the surveys harder to compare over time, which is the whole
-purpose of keeping them (`surveys/README.md`): "88 unallocated" is not a
+purpose of keeping them (`docs/band-surveys.md`): "88 unallocated" is not a
 baseline anyone can diff against usefully.
 
 ## What this is not
