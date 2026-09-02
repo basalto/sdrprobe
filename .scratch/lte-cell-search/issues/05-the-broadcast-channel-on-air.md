@@ -64,6 +64,73 @@ acknowledgement channel and the antenna count -- the things a cell cannot
 change between frames. The funnel counts parities and messages separately, so
 the difference is on the screen rather than in this file.
 
+## Where it has been narrowed to, 2026-09-02
+
+A day of measurement against `testfiles/lte_b20_pci32.bin` and a live session
+on the same cell. Two things are now established rather than suspected.
+
+**The reference signals are exactly where the code looks.** The proof needs no
+sequence at all: average the power on each of the six subcarrier phases of a
+symbol, over ten slots. At symbol 4 of each slot, phases 2 and 5 stand +4.4 dB
+and +2.2 dB above the mean while the rest sit 3 to 8 dB below --
+
+    symbol 4:   -3.0   -8.5   +4.4   -2.3   -4.8   +2.2   dB
+
+-- and cell 32 gives `pci % 6 = 2`, with the second port three phases on at 5.
+So the cell identity, the subcarrier shift rule, the frame boundary and the
+symbol timing are all right. (Symbol 0 shows no such pattern because the
+control channels fill it; symbol 4 is in the data region, which an idle cell
+leaves empty, so only the reference signals remain. That is why the earlier
+measurements at symbol 0 were inconclusive.)
+
+**And the sequence is wrong.** At those very subcarriers, no hypothesis
+correlates. What has been excluded, each averaged over ten symbols so the
+noise floor sits near 0.26 rather than the 0.9 that twelve samples alone
+reach:
+
+| Swept | Range | Best |
+| --- | --- | --- |
+| subcarrier shift | all 6 | noise |
+| sequence index | 0 to 438 | noise |
+| cyclic-prefix bit | both | noise |
+| slot numbering | +0 and +10 | noise |
+| Gold generator convention | 16, being every combination of seed order, register end, tap end and output end | noise |
+| seed multiplier | every affine function a*slot+b, a to 15, b to 255 | noise |
+
+Two metrics were used and agree: a coherent average of the channel estimates,
+and a differential one comparing neighbouring estimates, which is immune to
+channel tilt and timing ramps the way the secondary-sequence detector is. The
+code's own hypothesis scores 0.21 to 0.34 against a floor of 0.26.
+
+**Also ruled out: signal strength.** The live session locked PSS at 0.91 and
+SSS at 0.93 with 5562 cells in 5637 blocks, far stronger than any capture, and
+the broadcast never decoded. And **the frequency refinement is not the cause**:
+reference-signal correlation is the same with the coarse offset as the refined
+one (0.314 against 0.315), and sweeping the offset over +-3 kHz finds no peak
+-- which also means the refinement is currently refining nothing, and the
+parts-per-million figure the view shows is the coarse estimator's scatter.
+
+## What is left
+
+Whatever is wrong is not a parameter of the construction as this code models
+it. The remaining candidates, in the order worth trying:
+
+1. **Recover the transmitted sequence instead of guessing it.** The signals are
+   present and 4 dB clear at symbol 4. Divide neighbouring subcarriers to
+   cancel the channel, read the twelve differential values off as QPSK, and
+   compare them against what the generator produces. That yields the actual
+   bits rather than a yes/no, and the difference between them names the fault.
+   This is the move that cracked the primary sequence and it has not been tried
+   here.
+2. **A second cell.** Everything above assumes one transmitter. Two
+   synchronised cells overlap their reference signals at different shifts, and
+   the stronger one's would dominate the power measurement while neither
+   correlated cleanly.
+3. **The Gold sequence checked against a published vector** rather than
+   against itself. `check-lte-mib` proves it is balanced and deterministic,
+   which any wrong generator also is -- the same hole the conjugated primary
+   sequence went through.
+
 ## What would settle it
 
 A stronger capture -- outdoors, or with a better antenna -- separates the last
