@@ -110,26 +110,76 @@ one (0.314 against 0.315), and sweeping the offset over +-3 kHz finds no peak
 -- which also means the refinement is currently refining nothing, and the
 parts-per-million figure the view shows is the coarse estimator's scatter.
 
+## The pilots do lock -- four identities away
+
+The search that finally caught something swept the cell identity and the
+sequence index **together**, judged on ten symbols so the noise ceiling sat
+near 0.43 rather than the 0.9 that twelve samples reach on their own. It found
+a lock, and then the same lock in two more captures:
+
+| capture | the sync signals say | the pilots' sequence matches | score |
+| --- | --- | --- | --- |
+| lte_b20_pci32.bin | cell 32 | cell **28** | 0.979 |
+| earfcn 6300 | cell 160 | cell **156** | 0.818 |
+| earfcn 6400 | cell 406 | cell **402** | 0.903 |
+
+**Minus four, every time.** At sequence index 104 and slot offset 0 -- both
+exactly what the code uses -- so the index derivation and the frame boundary
+are confirmed correct, not merely unrefuted.
+
+The positions and the sequence disagree about the identity, and both
+disagreements are solid:
+
+- The **positions** say the reported identity is right. Cell 32 predicts pilot
+  phases 2 and 5 at symbol 4; those are the two that stand +4.4 dB and +2.2 dB
+  above the mean, while cell 28's predicted phases 1 and 4 are the two
+  *lowest*, at -8.5 dB and -4.8 dB. Cells 160 and 406 predict their observed
+  phases exactly too.
+- The **sequence** says the seed is built from four less.
+
+Written as arithmetic, the seed the air carries is (2N - 7)(1024A + 1) where
+the code produces (2N + 1)(1024A + 1). Nothing in the standard has that shape,
+which is why this reads as a symptom rather than the fault itself.
+
+## Also excluded since
+
+- **The Gold generator.** Written a second time as the standard writes it --
+  two arrays indexed by n rather than two shift registers -- and the two agree
+  bit for bit across eight seeds including the ones actually used. It was the
+  strongest suspect and it is clear.
+- **The slot numbering.** Swept 0 to 19 jointly with the identity; offset 0
+  wins, so the frame boundary from the half-frame decision is right.
+- **The subcarrier window.** Slid by -2 to +2; every offset is either the noise
+  floor or a relabelling of the same lock.
+- **The Master Information Block under both stories.** Positions, pilot
+  sequence and scrambling each independently set to the reported identity or
+  four less, across three port counts and five frames: nothing decodes. So
+  whatever the -4 is, substituting it does not by itself repair the chain.
+
 ## What is left
 
 Whatever is wrong is not a parameter of the construction as this code models
 it. The remaining candidates, in the order worth trying:
 
-1. **Recover the transmitted sequence instead of guessing it.** The signals are
-   present and 4 dB clear at symbol 4. Divide neighbouring subcarriers to
-   cancel the channel, read the twelve differential values off as QPSK, and
-   compare them against what the generator produces. That yields the actual
-   bits rather than a yes/no, and the difference between them names the fault.
-   This is the move that cracked the primary sequence and it has not been tried
-   here.
-2. **A second cell.** Everything above assumes one transmitter. Two
-   synchronised cells overlap their reference signals at different shifts, and
-   the stronger one's would dominate the power measurement while neither
-   correlated cleanly.
-3. **The Gold sequence checked against a published vector** rather than
-   against itself. `check-lte-mib` proves it is balanced and deterministic,
-   which any wrong generator also is -- the same hole the conjugated primary
-   sequence went through.
+1. **Explain the four.** It is exact, it is the same in three independent
+   cells, and it is the only quantity in the whole chain that is off by a
+   constant. Four is 3 + 1, and an identity is 3 * N_ID_1 + N_ID_2, so it is
+   also "one less of each" -- which would mean the cell search is reporting
+   both parts one too high and the positions agreeing with it by coincidence
+   three times over. That last part is hard to believe, but the arithmetic
+   deserves the check: force the search to report the identity four lower and
+   see whether the primary and secondary correlations move at all.
+2. **Read the sequence rather than searching for it.** Attempted, and the
+   recovery is too noisy to convict: the differential points cluster at 0.5 to
+   0.7 where four clean corners would be 1.0, so several of the twelve digits
+   are wrong and a comparison at 3 of 11 proves nothing. Averaging the
+   recovery over many slots, rather than reading each slot alone, would fix
+   that -- the sequence differs per slot, but the *channel* does not, and it
+   is the channel that is limiting the read.
+3. **Check the seed against a published vector.** The generator agrees with
+   itself in two spellings, which is exactly the assurance the conjugated
+   primary sequence also had. The seed formula around it has never been
+   checked against anything external at all.
 
 ## What would settle it
 
