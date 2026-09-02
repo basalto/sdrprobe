@@ -164,11 +164,13 @@ Tabs are presentation only, not the boundary (ADR-0010).
   boundary, and a frequency offset measured twice — coarsely from PSS, then
   from the reference signals of slot 1. **It runs at 1.92 MS/s and refuses
   anything else (ADR-0014).** Two traps are worth knowing before touching it:
-  the PSS exponent's sign is load-bearing, because conjugating a Zadoff-Chu
-  sequence of this length swaps roots 29 and 34 and a synthetic round trip
-  cannot see it; and the SSS is detected *differentially*, each subcarrier
-  against its neighbour, because the channel-referenced method works
-  synthetically and fails on air.
+  the PSS exponent's sign is load-bearing and **negative** -- conjugating a
+  Zadoff-Chu sequence of this length swaps roots 29 and 34, a synthetic round
+  trip cannot see it, and it has already been flipped once in error to make a
+  broken SSS detector agree; and the SSS is detected *differentially*, each
+  subcarrier against its neighbour. **The SSS does not currently work on live
+  air** and so there is no cell identity off the air -- see
+  `.scratch/lte-cell-search/issues/05`. The PSS half does work.
 - `src/lte_mib.{c,h}` — one layer further, Decoder side: 480 soft bits →
   descramble (four offsets, since one transmission does not say which quarter
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →

@@ -219,10 +219,20 @@ int lte_earfcn_for_hz(double hz) {
  * N_ID_2 0 invisible, because 63 - 25 = 38 is not a root any cell uses.
  *
  * A synthetic round trip cannot catch that: the generator and the detector
- * conjugate together and agree perfectly. It took three live captures whose
- * secondary sequence would not decode under any hypothesis, and finally a
- * reference-free search of the secondary sequence's own structure, which named
- * an N_ID_2 one step from the one the primary sequence claimed. See
+ * conjugate together and agree perfectly.
+ *
+ * The sign below is NEGATIVE, and that is not a judgement call -- it is
+ * 36.211 and it is srsRAN's lib/src/phy/sync/pss.c, which reads
+ *
+ *     const float root_value[] = {25.0, 29.0, 34.0};
+ *     root_idx = N_id_2;
+ *     int sign = -1;
+ *     arg = sign * M_PI * root_value[root_idx] * (i * (i + 1)) / 63.0;
+ *
+ * It has been flipped once already, on the strength of the secondary sequence
+ * disagreeing with it, and that was the wrong end to move: the disagreement
+ * was real but the secondary detector was the one at fault. Do not flip it
+ * again to make something downstream agree. See
  * .scratch/lte-cell-search/issues/04-the-conjugated-primary-sequence.md.
  */
 static const int pss_roots[LTE_N_ID_2_COUNT] = { 25, 29, 34 };
@@ -239,7 +249,7 @@ void lte_pss_sequence(int n_id_2, float *real, float *imag) {
            moved. */
         double m = (n < 31) ? (double)n * (double)(n + 1)
                             : (double)(n + 1) * (double)(n + 2);
-        double phase = M_PI * (double)u * m / 63.0;
+        double phase = -M_PI * (double)u * m / 63.0;
         real[n] = (float)cos(phase);
         imag[n] = (float)sin(phase);
     }

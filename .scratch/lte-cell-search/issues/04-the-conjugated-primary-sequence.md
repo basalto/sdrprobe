@@ -1,6 +1,6 @@
 # 04 — A conjugated primary sequence, and why nothing caught it
 
-Status: resolved
+Status: reopened, and the first fix was wrong
 Blocked by: (none)
 
 The first live captures found their cell immediately -- a correlation of 0.62
@@ -53,10 +53,39 @@ Working outward from what could not be doubted:
 
 One step apart, on the one pair of roots that are conjugates. That named it.
 
+## The fix was wrong, and that is the more useful lesson
+
+Flipping the sign of the exponent made the secondary-sequence detector start
+locking, so it looked right. It was not. Checked afterwards against
+3GPP 36.211 and against srsRAN's `lib/src/phy/sync/pss.c`, which is
+unambiguous:
+
+    const float root_value[] = {25.0, 29.0, 34.0};
+    root_idx = N_id_2;
+    int sign = -1;
+    arg = (float)sign * M_PI * root_value[root_idx] *
+          ((float)i * ((float)i + 1.0)) / 63.0;
+
+A **negative** sign, and the roots indexed directly by N_ID_2 -- which is what
+this file had in the first place. The reasoning that led to the flip was sound
+right up to its last step: the secondary sequence really did want an N_ID_2 one
+step from what the primary sequence reported, and the two really were
+inconsistent. The wrong conclusion was *which of them* to move.
+
+What the flip actually did was hide a second fault. Roots 29 and 34 are
+conjugates, so flipping the sign swaps N_ID_2 1 and 2 -- and it made a broken
+secondary detector agree with a now-broken primary one. Two wrongs agreeing is
+indistinguishable from two rights agreeing, from the inside, which is the same
+trap as the round trip.
+
+The independent witness that settled it is the cell's own reference signals.
+They have nothing in common with either synchronisation signal, and they name
+a cell whose N_ID_2 is what the **negative** sign reports. See `issues/05`.
+
 ## What changed
 
-- The sign of the exponent in `lte_pss_sequence`, with a comment saying why it
-  is not a matter of taste.
+- The sign of the exponent in `lte_pss_sequence`: flipped, then flipped back,
+  and now carrying a comment naming the reference rather than the reasoning.
 - The secondary-sequence detector is now the reference-free differential one
   that found the fault, because it also turned out to work far better on air:
   the live captures score 0.75 that way against 0.44 for the channel-referenced

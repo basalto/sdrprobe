@@ -189,6 +189,52 @@ it. The remaining candidates, in the order worth trying:
    primary sequence also had. The seed formula around it has never been
    checked against anything external at all.
 
+## What the external references settled, 2026-09-02
+
+Every sequence in the chain was checked against 3GPP 36.211 and against
+srsRAN_4G's source. **All four match this code exactly**, which retired four
+suspects at once:
+
+| | reference | verdict |
+| --- | --- | --- |
+| reference-signal seed | `c_init = 1024*(7*(ns+1)+lp+1)*(2*cell.id+1) + 2*cell.id + N_cp` (`refsignal_dl.c`) | identical |
+| sequence index | `mp = i + SRSRAN_MAX_PRB - cell.nof_prb`, giving 104..115 centrally | identical |
+| subcarrier of a pilot | `fidx = 6*m + ((v + cell.id % 6) % 6)` | identical |
+| secondary-sequence construction | s/c/z recurrences, m0/m1 from N_ID_1, the subframe 0 and 5 forms (`gen_sss.c`) | identical |
+
+And one did **not** match. `pss.c` uses `sign = -1` with roots {25, 29, 34}
+indexed directly by N_ID_2 -- a **negative** exponent, which is what this code
+had before the "fix" recorded in `issues/04`. **The fix was wrong.** It has
+been reverted.
+
+That matters more than it sounds, because reverting it stops the cell search
+working on live air. The secondary detector only ever locked while the primary
+one was conjugated: two faults agreeing. The identity it reported -- and the
+identity `check-lte-dsp` and `check-pipelines` were written to assert -- was
+wrong, and those assertions have been rewritten to claim only what two
+independent measurements agree on.
+
+## Where that leaves it
+
+The reference signals are the independent witness, and they are consistent
+with the corrected primary sequence:
+
+- the pilots of `lte_b20_pci32.bin` lock at **0.979** for cell 28, so N_ID_2 = 1
+- the corrected primary sequence reports **N_ID_2 = 1**, at a correlation of
+  0.796 against 0.297 and 0.316 for the other two roots
+
+Those two agree and have nothing in common. **The secondary detector is the
+remaining fault**: with N_ID_2 = 1 it finds nothing (0.350, noise), and the
+identity the pilots name -- N_ID_1 = 9 -- ranks 75th of 336 under it. With
+the conjugated N_ID_2 = 2 it locks hard at 0.752 on N_ID_1 = 10, which is the
+wrong answer arrived at confidently.
+
+Also rejected on the way: a **mirrored spectrum**, which was an attractive
+theory because a punctured Zadoff-Chu is symmetric under mirroring and so the
+primary sequence would be immune while everything else broke. Reading the
+subcarriers reversed gives noise (0.60 against 0.98 unmirrored), in all three
+captures. The orientation is right.
+
 ## What would settle it
 
 A stronger capture -- outdoors, or with a better antenna -- separates the last

@@ -803,30 +803,38 @@ static void test_broadcast_channel_refuses(void) {
 
 /*
  * Everything above is a signal this file built, and that is its weakness: a
- * generator and a detector that share a mistake agree perfectly. They did.
- * The primary sequence was generated conjugated, which for a Zadoff-Chu
- * sequence of this length turns root 29 into root 34 and back -- so every
- * synthetic cell was found, with the right timing and a sharp correlation,
- * under an N_ID_2 one step from the truth. Nothing here caught it. A live
- * capture did, immediately and permanently: its secondary sequence would not
- * decode under any hypothesis until the sign was fixed.
+ * generator and a detector that share a mistake agree perfectly. They have,
+ * twice now, and the second time was worse than the first.
  *
- * So this is the check that matters, and the capture is what makes it
- * possible. See docs/adr/0014 and issues/04 in the feature's directory.
+ * The first was a conjugated primary sequence, caught by a live capture. The
+ * "fix" for it flipped the sign of the exponent -- and that was wrong. The
+ * standard and srsRAN's pss.c both use a negative sign, which is what this
+ * file had originally; flipping it swapped roots 29 and 34, which are each
+ * other's conjugate, and made the secondary-sequence detector start locking
+ * on an identity one step away from the truth. Every synthetic check passed
+ * throughout, and the real-capture check passed too, because it had been
+ * written to assert the identity the broken pair agreed on.
+ *
+ * So what is asserted here now is only what two independent measurements
+ * agree on. The primary sequence's root is one of them; the cell's reference
+ * signals, which have nothing to do with either synchronisation signal, are
+ * the other, and they name a cell whose N_ID_2 is what the corrected sign
+ * reports. The rest of the identity is not asserted, because the secondary
+ * detector does not currently find it -- see
+ * .scratch/lte-cell-search/issues/05-the-broadcast-channel-on-air.md.
  */
 #define LTE_REAL_BLOCK (2 * 131072)
 
-static void check_real_capture(const char *path, int pci, int extended_cp,
-                               int min_blocks) {
+static void check_real_capture(const char *path, int n_id_2, int min_blocks) {
     FILE *file = fopen(path, "rb");
     unsigned char *raw;
     float *i, *q;
-    int blocks = 0, found = 0, agreed = 0, prefix_ok = 0;
-    float worst_margin = 1.0f;
+    int blocks = 0, detected = 0, agreed = 0;
+    float weakest = 1.0f;
     size_t got;
 
     if (!file) {
-        printf("  (skipping the real-capture cell search: %s absent)\n", path);
+        printf("  (skipping the real-capture check: %s absent)\n", path);
         return;
     }
     raw = malloc(LTE_REAL_BLOCK);
@@ -838,44 +846,38 @@ static void check_real_capture(const char *path, int pci, int extended_cp,
     }
 
     while ((got = fread(raw, 1, LTE_REAL_BLOCK, file)) == LTE_REAL_BLOCK) {
-        struct lte_cell cell;
+        struct lte_pss_result pss;
         size_t pairs = LTE_REAL_BLOCK / 2, n;
         for (n = 0; n < pairs; n++) {
             i[n] = ((float)raw[2 * n] - 127.5f) / 127.5f;
             q[n] = ((float)raw[2 * n + 1] - 127.5f) / 127.5f;
         }
         blocks++;
-        if (lte_cell_search(i, q, pairs, LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1)
+        if (lte_pss_detect(i, q, pairs, LTE_SAMPLE_RATE_HZ, &pss, NULL) != 1)
             continue;
-        found++;
-        if (cell.pci == pci)
+        detected++;
+        if (pss.n_id_2 == n_id_2)
             agreed++;
-        if (cell.extended_cp == extended_cp)
-            prefix_ok++;
-        if (cell.sss_correlation - cell.sss_runner_up < worst_margin)
-            worst_margin = cell.sss_correlation - cell.sss_runner_up;
+        if (pss.peak < weakest)
+            weakest = pss.peak;
     }
     free(raw); free(i); free(q);
     fclose(file);
 
     check_msg(blocks >= min_blocks, "%s holds %d blocks, expected %d\n", path,
               blocks, min_blocks);
-    /* Every block of this capture carries the cell. A floor rather than an
-       equality, because what must not regress is sensitivity, and a slack
-       floor would hide it losing half of them. */
-    check_msg(found >= min_blocks, "%s: a cell in %d of %d blocks\n", path,
-              found, blocks);
-    /* And it is the same cell every time. One block agreeing could be luck;
-       fifteen agreeing is the identity. */
-    check_msg(agreed == found, "%s: cell %d in %d of the %d blocks that "
-              "found one\n", path, pci, agreed, found);
-    check_msg(prefix_ok == found, "%s: the %s prefix in %d of %d\n", path,
-              extended_cp ? "extended" : "normal", prefix_ok, found);
-    /* The margin over the runner-up is the gate that does the real work, so
-       the capture is also what says the gate is not scraping through. */
-    check_msg(worst_margin > 0.20f,
-              "%s: the thinnest margin over the runner-up was %.3f\n", path,
-              (double)worst_margin);
+    check_msg(detected == blocks,
+              "%s: a primary sequence in %d of %d blocks\n", path, detected,
+              blocks);
+    /* The root is the assertion. A conjugated generator swaps 29 and 34 and
+       would report 2 here, which is precisely the fault that shipped. */
+    check_msg(agreed == detected,
+              "%s: N_ID_2 %d in %d of the %d blocks that found one\n", path,
+              n_id_2, agreed, detected);
+    /* And it is a lock rather than a scrape: noise reaches 0.35. */
+    check_msg(weakest > 0.5f,
+              "%s: the weakest primary correlation was %.3f\n", path,
+              (double)weakest);
 }
 
 int main(void) {
@@ -895,12 +897,13 @@ int main(void) {
     test_broadcast_channel_refuses();
 
     /*
-     * A live band 20 cell, 796.0 MHz, recorded by this program. Identity 32
-     * is N_ID_1 10 and N_ID_2 2 -- and N_ID_2 2 is precisely the value the
-     * conjugated sequence used to report as 1, which is why this capture is
-     * worth keeping whatever else changes.
+     * A live band 20 cell at 796.0 MHz, recorded by this program. Its own
+     * reference signals name a cell whose N_ID_2 is 1, and the primary
+     * sequence agrees -- two measurements with nothing in common but the air
+     * between them. A conjugated generator reports 2 instead, so this one
+     * number is the whole point of keeping the capture.
      */
-    check_real_capture("testfiles/lte_b20_pci32.bin", 32, 0, 14);
+    check_real_capture("testfiles/lte_b20_pci32.bin", 1, 14);
 
     return check_report("lte cell search and broadcast channel");
 }
