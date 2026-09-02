@@ -153,22 +153,30 @@ which is why this reads as a symptom rather than the fault itself.
   floor or a relabelling of the same lock.
 - **The Master Information Block under both stories.** Positions, pilot
   sequence and scrambling each independently set to the reported identity or
-  four less, across three port counts and five frames: nothing decodes. So
-  whatever the -4 is, substituting it does not by itself repair the chain.
+  four less, across three port counts and five frames: nothing decodes. Then
+  the same again through the production path rather than a probe -- src/lte_dsp.c
+  patched to seed the reference signals four lower and the ordinary
+  lte_pbch_soft_bits and lte_mib_decode run over it -- with the same result.
+  So whatever the -4 is, substituting it does not by itself repair the chain,
+  and something downstream of the channel estimate is wrong as well.
 
 ## What is left
 
 Whatever is wrong is not a parameter of the construction as this code models
 it. The remaining candidates, in the order worth trying:
 
-1. **Explain the four.** It is exact, it is the same in three independent
-   cells, and it is the only quantity in the whole chain that is off by a
-   constant. Four is 3 + 1, and an identity is 3 * N_ID_1 + N_ID_2, so it is
-   also "one less of each" -- which would mean the cell search is reporting
-   both parts one too high and the positions agreeing with it by coincidence
-   three times over. That last part is hard to believe, but the arithmetic
-   deserves the check: force the search to report the identity four lower and
-   see whether the primary and secondary correlations move at all.
+1. **Explain the four -- but not by doubting the identity.** That check is
+   now done and the identity survives it. The minus-four cell needs an N_ID_2
+   of 1, 0 and 0 in the three captures, and the primary sequence scores those
+   roots at 0.316, 0.319 and 0.357 against a noise floor of about 0.35, while
+   the reported roots score 0.796, 0.622 and 0.595. The primary sequence
+   rejects the minus-four identity outright, three times, and the pilot
+   positions back the reported one three times. So the identity and the
+   positions are right and the **seed formula** is the fault: the air carries
+   the sequence of (2N - 7)(1024A + 1) where the code makes (2N + 1)(1024A + 1).
+   Nothing in the standard as this code models it has that shape, which means
+   the model is wrong somewhere the code cannot see -- and the way to settle
+   that is a published test vector for c_init, not another sweep.
 2. **Read the sequence rather than searching for it.** Attempted, and the
    recovery is too noisy to convict: the differential points cluster at 0.5 to
    0.7 where four clean corners would be 1.0, so several of the twelve digits
