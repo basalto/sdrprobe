@@ -1,0 +1,906 @@
+#include "check.h"
+
+#include "lte_dsp.h"
+#include "lte_gold.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+/*
+ * The LTE plugin: the channel map, the three sequences the standard fixes, and
+ * a cell search run against a frame this file builds.
+ *
+ * The synthesised frame is the point of the suite. Every mapping the plugin
+ * relies on -- which subcarrier a sequence element sits on, which symbol
+ * carries the reference signals, where in the subframe the broadcast channel
+ * is -- is written out here a second time and independently, from the
+ * standard rather than from lte_dsp.c. A transform and its inverse sharing a
+ * mistake would still round-trip; two spellings of the same mapping agreeing
+ * is worth something. The one place that is deliberately not independent is
+ * lte_subcarrier_bin, which is checked against its six values by hand below
+ * and then used, because writing it twice would prove nothing.
+ */
+
+#define FRAME_SYMBOLS 140
+#define FRAMES 2
+#define LEAD_IN 3000
+#define BUFFER_SAMPLES (LEAD_IN + FRAMES * LTE_FRAME_SAMPLES + 2000)
+
+static float grid_re[FRAME_SYMBOLS][LTE_FFT_SIZE];
+static float grid_im[FRAME_SYMBOLS][LTE_FFT_SIZE];
+static float buffer_i[BUFFER_SAMPLES];
+static float buffer_q[BUFFER_SAMPLES];
+static uint8_t pbch_bits[LTE_PBCH_SOFT_BITS];
+
+/* Deterministic noise, so a failure is the same failure next time. */
+static uint32_t rng_state;
+
+static void rng_seed(uint32_t seed) { rng_state = seed ? seed : 1u; }
+
+static uint32_t rng_next(void) {
+    rng_state ^= rng_state << 13;
+    rng_state ^= rng_state >> 17;
+    rng_state ^= rng_state << 5;
+    return rng_state;
+}
+
+static double rng_uniform(void) {
+    return ((double)(rng_next() >> 8) + 0.5) / 16777216.0;
+}
+
+static double rng_normal(void) {
+    double u = rng_uniform(), v = rng_uniform();
+    return sqrt(-2.0 * log(u)) * cos(2.0 * M_PI * v);
+}
+
+
+/* ------------------------------------------------------------------ */
+/* The frame's geometry, written from the standard rather than read    */
+/* from lte_dsp.c.                                                     */
+/* ------------------------------------------------------------------ */
+
+/* Useful-part start of a symbol, counted from the frame. Normal cyclic
+   prefix: ten samples before the first symbol of a slot and nine before each
+   of the other six, which fills the slot's 960 exactly. */
+static size_t useful_start(int symbol_index) {
+    int slot = symbol_index / 7;
+    int l = symbol_index % 7;
+    size_t base = (size_t)slot * LTE_SLOT_SAMPLES;
+    if (l == 0)
+        return base + 10;
+    return base + 10 + LTE_FFT_SIZE + (size_t)(l - 1) * (9 + LTE_FFT_SIZE) + 9;
+}
+
+static int cp_length(int symbol_index) {
+    return (symbol_index % 7) == 0 ? 10 : 9;
+}
+
+/* Synchronisation element n -> physical subcarrier: 31 either side of the
+   unused DC. */
+static int sync_subcarrier_of(int n) { return (n < 31) ? n - 31 : n - 30; }
+
+/* Broadcast-channel element -> physical subcarrier: 36 either side. */
+static int pbch_subcarrier_of(int index) {
+    return (index < 36) ? index - 36 : index - 35;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Channels, one per antenna port.                                     */
+/* ------------------------------------------------------------------ */
+
+static const double port_gain[4] = { 0.80, 0.55, 0.42, 0.37 };
+static const double port_phase[4] = { 0.4, -1.9, 2.6, -0.7 };
+/* A gentle tilt across the band, so the estimate has to interpolate between
+   reference signals rather than copy a constant. */
+static const double port_tilt[4] = { 0.5, -0.4, 0.3, -0.6 };
+
+static void channel_at(int port, int subcarrier, double *re, double *im) {
+    double phase = port_phase[port] + port_tilt[port] * (double)subcarrier / 36.0;
+    *re = port_gain[port] * cos(phase);
+    *im = port_gain[port] * sin(phase);
+}
+
+static void grid_add(int symbol, int subcarrier, int port,
+                     double re, double im) {
+    int bin = lte_subcarrier_bin(subcarrier);
+    double hr, hi;
+    channel_at(port, subcarrier, &hr, &hi);
+    grid_re[symbol][bin] += (float)(re * hr - im * hi);
+    grid_im[symbol][bin] += (float)(re * hi + im * hr);
+}
+
+static void grid_set_silent(int symbol, int subcarrier) {
+    int bin = lte_subcarrier_bin(subcarrier);
+    grid_re[symbol][bin] = 0.0f;
+    grid_im[symbol][bin] = 0.0f;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Building a frame.                                                   */
+/* ------------------------------------------------------------------ */
+
+/* Precomputed roots of unity: only 128 distinct angles appear. */
+static double twiddle_re[LTE_FFT_SIZE];
+static double twiddle_im[LTE_FFT_SIZE];
+
+static void twiddles_init(void) {
+    int n;
+    for (n = 0; n < LTE_FFT_SIZE; n++) {
+        twiddle_re[n] = cos(2.0 * M_PI * (double)n / (double)LTE_FFT_SIZE);
+        twiddle_im[n] = sin(2.0 * M_PI * (double)n / (double)LTE_FFT_SIZE);
+    }
+}
+
+/* A plain inverse transform, quadratic and obvious. It is the OFDM modulator
+   here and, in test_fft_matches_dft, the yardstick the plugin's radix-2 FFT is
+   held against. */
+static void idft(const float *re, const float *im, float *out_re,
+                 float *out_im) {
+    int n, k;
+    for (n = 0; n < LTE_FFT_SIZE; n++) {
+        double sr = 0.0, si = 0.0;
+        for (k = 0; k < LTE_FFT_SIZE; k++) {
+            int angle = (k * n) % LTE_FFT_SIZE;
+            sr += (double)re[k] * twiddle_re[angle] -
+                  (double)im[k] * twiddle_im[angle];
+            si += (double)re[k] * twiddle_im[angle] +
+                  (double)im[k] * twiddle_re[angle];
+        }
+        out_re[n] = (float)(sr / LTE_FFT_SIZE);
+        out_im[n] = (float)(si / LTE_FFT_SIZE);
+    }
+}
+
+static void qpsk(int b0, int b1, double *re, double *im) {
+    *re = (1 - 2 * b0) / sqrt(2.0);
+    *im = (1 - 2 * b1) / sqrt(2.0);
+}
+
+/* Whether a subcarrier of a broadcast-channel symbol is reserved for a
+   reference signal. All four ports' positions are reserved whatever the cell
+   transmits on, which is what lets a receiver find the bits before it knows
+   the port count. */
+static int is_reference_position(int pci, int symbol, int index) {
+    return symbol < 2 && (index % 3) == (pci % 6) % 3;
+}
+
+static void fill_other_traffic(void) {
+    int symbol, sc;
+    for (symbol = 0; symbol < FRAME_SYMBOLS; symbol++) {
+        for (sc = -50; sc <= 50; sc++) {
+            double re, im;
+            if (sc == 0)
+                continue;
+            qpsk((int)(rng_next() & 1u), (int)(rng_next() & 1u), &re, &im);
+            grid_add(symbol, sc, 0, re * 0.9, im * 0.9);
+        }
+    }
+}
+
+static void place_sync(int pci) {
+    int n_id_2 = pci % 3;
+    int n_id_1 = pci / 3;
+    float pss_re[LTE_SYNC_SUBCARRIERS], pss_im[LTE_SYNC_SUBCARRIERS];
+    float sss[LTE_SYNC_SUBCARRIERS];
+    int half, n;
+
+    lte_pss_sequence(n_id_2, pss_re, pss_im);
+    for (half = 0; half < 2; half++) {
+        /* Last symbol of slot 0 and of slot 10; the one before each carries
+           the secondary sequence. */
+        int pss_symbol = half ? 76 : 6;
+        int sss_symbol = pss_symbol - 1;
+        lte_sss_sequence(n_id_1, n_id_2, half, sss);
+        for (n = 0; n < LTE_SYNC_SUBCARRIERS; n++) {
+            int sc = sync_subcarrier_of(n);
+            grid_set_silent(pss_symbol, sc);
+            grid_set_silent(sss_symbol, sc);
+            grid_add(pss_symbol, sc, 0, pss_re[n], pss_im[n]);
+            grid_add(sss_symbol, sc, 0, sss[n], 0.0);
+        }
+    }
+}
+
+/* One port's reference signals in one symbol of slot 1, written from
+   36.211 table 6.10.1.2-1 rather than from the plugin's copy of it. */
+static void place_reference_signals(int pci, int port, int symbol_in_slot) {
+    float ref_re[LTE_PBCH_SUBCARRIERS / 6], ref_im[LTE_PBCH_SUBCARRIERS / 6];
+    int shift = pci % 6;
+    int v, first, m;
+
+    if (port == 0)
+        v = (symbol_in_slot == 0) ? 0 : 3;
+    else if (port == 1)
+        v = (symbol_in_slot == 0) ? 3 : 0;
+    else if (port == 2)
+        v = 3;                /* 3 * (slot 1 is odd) */
+    else
+        v = 0;                /* 3 + 3, which comes round to nothing */
+    first = (v + shift) % 6;
+
+    lte_crs_sequence(pci, 1, symbol_in_slot, port, 0, ref_re, ref_im);
+    for (m = 0; m < LTE_PBCH_SUBCARRIERS / 6; m++) {
+        int subcarrier = pbch_subcarrier_of(first + 6 * m);
+        grid_set_silent(7 + symbol_in_slot, subcarrier);
+        grid_add(7 + symbol_in_slot, subcarrier, port, ref_re[m], ref_im[m]);
+    }
+}
+
+static void place_broadcast(int pci, int ports) {
+    double x_re[LTE_PBCH_RESOURCE_ELEMENTS], x_im[LTE_PBCH_RESOURCE_ELEMENTS];
+    int symbol_of[LTE_PBCH_RESOURCE_ELEMENTS];
+    int index_of[LTE_PBCH_RESOURCE_ELEMENTS];
+    int symbol, index, n, count = 0, port;
+    double root_half = 1.0 / sqrt(2.0);
+
+    /* Clear the whole broadcast region, then write only what is transmitted:
+       the reference positions of ports this cell actually has, and the data. */
+    for (symbol = 0; symbol < LTE_PBCH_SYMBOLS; symbol++)
+        for (index = 0; index < LTE_PBCH_SUBCARRIERS; index++)
+            grid_set_silent(7 + symbol, pbch_subcarrier_of(index));
+
+    /* Ports 0 and 1 twice in the slot, at symbols 0 and 4 with their shifts
+       swapped; ports 2 and 3 once, at symbol 1. Symbol 4 is outside the
+       broadcast channel but inside the subframe, and it is what the frequency
+       refinement reads. */
+    for (port = 0; port < ports && port < 2; port++) {
+        place_reference_signals(pci, port, 0);
+        place_reference_signals(pci, port, 4);
+    }
+    for (port = 2; port < ports; port++)
+        place_reference_signals(pci, port, 1);
+
+    for (symbol = 0; symbol < LTE_PBCH_SYMBOLS; symbol++) {
+        for (index = 0; index < LTE_PBCH_SUBCARRIERS; index++) {
+            if (is_reference_position(pci, symbol, index))
+                continue;
+            qpsk(pbch_bits[2 * count], pbch_bits[2 * count + 1],
+                 &x_re[count], &x_im[count]);
+            symbol_of[count] = 7 + symbol;
+            index_of[count] = index;
+            count++;
+        }
+    }
+
+    if (ports == 1) {
+        for (n = 0; n < count; n++)
+            grid_add(symbol_of[n], pbch_subcarrier_of(index_of[n]), 0,
+                     x_re[n], x_im[n]);
+    } else if (ports == 2) {
+        for (n = 0; n + 1 < count; n += 2) {
+            int a = n, b = n + 1;
+            int sca = pbch_subcarrier_of(index_of[a]);
+            int scb = pbch_subcarrier_of(index_of[b]);
+            grid_add(symbol_of[a], sca, 0, x_re[n] * root_half,
+                     x_im[n] * root_half);
+            grid_add(symbol_of[a], sca, 1, x_re[n + 1] * root_half,
+                     x_im[n + 1] * root_half);
+            grid_add(symbol_of[b], scb, 0, -x_re[n + 1] * root_half,
+                     x_im[n + 1] * root_half);
+            grid_add(symbol_of[b], scb, 1, x_re[n] * root_half,
+                     -x_im[n] * root_half);
+        }
+    } else {
+        for (n = 0; n + 3 < count; n += 4) {
+            int pair;
+            for (pair = 0; pair < 2; pair++) {
+                int a = n + 2 * pair, b = a + 1;
+                int p0 = pair, p1 = pair + 2;
+                int sca = pbch_subcarrier_of(index_of[a]);
+                int scb = pbch_subcarrier_of(index_of[b]);
+                double f0re = x_re[a], f0im = x_im[a];
+                double f1re = x_re[b], f1im = x_im[b];
+                grid_add(symbol_of[a], sca, p0, f0re * root_half,
+                         f0im * root_half);
+                grid_add(symbol_of[a], sca, p1, f1re * root_half,
+                         f1im * root_half);
+                grid_add(symbol_of[b], scb, p0, -f1re * root_half,
+                         f1im * root_half);
+                grid_add(symbol_of[b], scb, p1, f0re * root_half,
+                         -f0im * root_half);
+            }
+        }
+    }
+}
+
+/*
+ * Lay the frame twice into the buffer, so a search that lands in the second
+ * half-frame still has a whole subframe 0 ahead of it, then rotate the whole
+ * thing by the frequency offset and add noise.
+ */
+static void build_buffer(int pci, int ports, double offset_hz, double sigma,
+                         uint32_t seed) {
+    int symbol, frame, n;
+    size_t k;
+
+    rng_seed(seed);
+    memset(grid_re, 0, sizeof(grid_re));
+    memset(grid_im, 0, sizeof(grid_im));
+    for (n = 0; n < LTE_PBCH_SOFT_BITS; n++)
+        pbch_bits[n] = (uint8_t)(rng_next() & 1u);
+
+    fill_other_traffic();
+    place_sync(pci);
+    place_broadcast(pci, ports);
+
+    memset(buffer_i, 0, sizeof(buffer_i));
+    memset(buffer_q, 0, sizeof(buffer_q));
+    for (frame = 0; frame < FRAMES; frame++) {
+        size_t frame_base = (size_t)LEAD_IN + (size_t)frame * LTE_FRAME_SAMPLES;
+        for (symbol = 0; symbol < FRAME_SYMBOLS; symbol++) {
+            float time_re[LTE_FFT_SIZE], time_im[LTE_FFT_SIZE];
+            size_t start = frame_base + useful_start(symbol);
+            int cp = cp_length(symbol);
+            idft(grid_re[symbol], grid_im[symbol], time_re, time_im);
+            for (n = 0; n < LTE_FFT_SIZE; n++) {
+                buffer_i[start + (size_t)n] = time_re[n];
+                buffer_q[start + (size_t)n] = time_im[n];
+            }
+            /* The cyclic prefix is the tail of the symbol repeated. */
+            for (n = 0; n < cp; n++) {
+                buffer_i[start - (size_t)cp + (size_t)n] =
+                    time_re[LTE_FFT_SIZE - cp + n];
+                buffer_q[start - (size_t)cp + (size_t)n] =
+                    time_im[LTE_FFT_SIZE - cp + n];
+            }
+        }
+    }
+
+    for (k = 0; k < BUFFER_SAMPLES; k++) {
+        double phase = 2.0 * M_PI * offset_hz * (double)k / LTE_SAMPLE_RATE_HZ;
+        double cr = cos(phase), ci = sin(phase);
+        double ir = buffer_i[k], qi = buffer_q[k];
+        buffer_i[k] = (float)(ir * cr - qi * ci + sigma * rng_normal());
+        buffer_q[k] = (float)(ir * ci + qi * cr + sigma * rng_normal());
+    }
+}
+
+
+/* ------------------------------------------------------------------ */
+/* The checks.                                                         */
+/* ------------------------------------------------------------------ */
+
+static void test_bands(void) {
+    uint32_t hz = 0;
+    int i;
+
+    check_int("band 20 lowest EARFCN", lte_earfcn_downlink_hz(6150, &hz), 1);
+    check_int("band 20 lowest carrier", (long)hz, 791000000L);
+    lte_earfcn_downlink_hz(6300, &hz);
+    check_int("EARFCN 6300", (long)hz, 806000000L);
+    lte_earfcn_downlink_hz(6449, &hz);
+    check_int("band 20 highest carrier", (long)hz, 820900000L);
+    lte_earfcn_downlink_hz(3450, &hz);
+    check_int("band 8 lowest carrier", (long)hz, 925000000L);
+    lte_earfcn_downlink_hz(27210, &hz);
+    check_int("band 28 lowest carrier", (long)hz, 758000000L);
+
+    check_int("EARFCN nobody claims", lte_earfcn_downlink_hz(700, &hz), 0);
+    check_true("no band for an unclaimed EARFCN",
+               lte_band_for_earfcn(700) == NULL);
+    check_int("band of EARFCN 6300", lte_band_for_earfcn(6300)->band, 20);
+
+    /* Every channel of every band survives the round trip, and the raster is
+       what it claims to be: one hundred kilohertz, no gaps, no overlaps. */
+    for (i = 0; i < lte_band_count(); i++) {
+        const struct lte_band *band = lte_band_at(i);
+        unsigned int earfcn;
+        int round_trips = 1, spacing_holds = 1;
+        uint32_t previous = 0;
+        for (earfcn = band->earfcn_low; earfcn <= band->earfcn_high; earfcn++) {
+            uint32_t f = 0;
+            if (!lte_earfcn_downlink_hz(earfcn, &f))
+                round_trips = 0;
+            if (lte_earfcn_for_hz((double)f) != (int)earfcn)
+                round_trips = 0;
+            if (earfcn > band->earfcn_low && f - previous != 100000u)
+                spacing_holds = 0;
+            previous = f;
+        }
+        check_msg(round_trips, "band %d round trips\n", band->band);
+        check_msg(spacing_holds, "band %d raster is 100 kHz\n", band->band);
+    }
+
+    /* Between two channels, the nearer one wins. */
+    check_int("40 kHz above 6300", lte_earfcn_for_hz(806040000.0), 6300);
+    check_int("60 kHz above 6300", lte_earfcn_for_hz(806060000.0), 6301);
+    check_int("far outside every band", lte_earfcn_for_hz(1090000000.0), 0);
+}
+
+static void test_subcarrier_bin(void) {
+    /* LTE never transmits on the centre subcarrier, so the bin either side of
+       zero is the first one used. */
+    check_int("subcarrier +1", lte_subcarrier_bin(1), 1);
+    check_int("subcarrier -1", lte_subcarrier_bin(-1), 127);
+    check_int("subcarrier +31", lte_subcarrier_bin(31), 31);
+    check_int("subcarrier -31", lte_subcarrier_bin(-31), 97);
+    check_int("subcarrier +36", lte_subcarrier_bin(36), 36);
+    check_int("subcarrier -36", lte_subcarrier_bin(-36), 92);
+}
+
+static void test_fft_matches_dft(void) {
+    float re[LTE_FFT_SIZE], im[LTE_FFT_SIZE];
+    float back_re[LTE_FFT_SIZE], back_im[LTE_FFT_SIZE];
+    float time_re[LTE_FFT_SIZE], time_im[LTE_FFT_SIZE];
+    double worst = 0.0;
+    int n;
+
+    rng_seed(20260902u);
+    for (n = 0; n < LTE_FFT_SIZE; n++) {
+        re[n] = (float)(rng_uniform() * 2.0 - 1.0);
+        im[n] = (float)(rng_uniform() * 2.0 - 1.0);
+    }
+    /* Straight through the quadratic inverse transform and back out through
+       the plugin's radix-2 forward one: two independent pieces of code, so
+       agreement is evidence rather than tautology. */
+    idft(re, im, time_re, time_im);
+    lte_symbol_fft(time_re, time_im, back_re, back_im);
+    for (n = 0; n < LTE_FFT_SIZE; n++) {
+        double dr = fabs((double)back_re[n] - re[n]);
+        double di = fabs((double)back_im[n] - im[n]);
+        if (dr > worst) worst = dr;
+        if (di > worst) worst = di;
+    }
+    check_msg(worst < 2e-4, "FFT inverts the DFT, worst error %.2e\n", worst);
+}
+
+static void test_pss_sequence(void) {
+    float re[LTE_N_ID_2_COUNT][LTE_SYNC_SUBCARRIERS];
+    float im[LTE_N_ID_2_COUNT][LTE_SYNC_SUBCARRIERS];
+    int r, n, unit = 1;
+    double worst_cross = 0.0;
+
+    for (r = 0; r < LTE_N_ID_2_COUNT; r++)
+        lte_pss_sequence(r, re[r], im[r]);
+
+    for (r = 0; r < LTE_N_ID_2_COUNT; r++)
+        for (n = 0; n < LTE_SYNC_SUBCARRIERS; n++) {
+            double magnitude = sqrt((double)re[r][n] * re[r][n] +
+                                    (double)im[r][n] * im[r][n]);
+            if (fabs(magnitude - 1.0) > 1e-5)
+                unit = 0;
+        }
+    check_true("every PSS element has unit magnitude", unit);
+    /* The first element of a Zadoff-Chu sequence is its own zero phase. */
+    check_close("PSS 0 starts at one", re[0][0], 1.0, 1e-5);
+    check_close("PSS 0 starts with no quadrature", im[0][0], 0.0, 1e-5);
+
+    /* Different roots are what makes N_ID_2 recoverable: their correlation has
+       to be far below the 62 a sequence scores against itself. */
+    for (r = 0; r < LTE_N_ID_2_COUNT; r++) {
+        int s;
+        for (s = r + 1; s < LTE_N_ID_2_COUNT; s++) {
+            double cr = 0.0, ci = 0.0, magnitude;
+            for (n = 0; n < LTE_SYNC_SUBCARRIERS; n++) {
+                cr += (double)re[r][n] * re[s][n] + (double)im[r][n] * im[s][n];
+                ci += (double)im[r][n] * re[s][n] - (double)re[r][n] * im[s][n];
+            }
+            magnitude = sqrt(cr * cr + ci * ci);
+            if (magnitude > worst_cross)
+                worst_cross = magnitude;
+        }
+    }
+    /* Not orthogonal, and they never were: puncturing the middle element of
+       a length-63 Zadoff-Chu sequence costs the perfect cross-correlation the
+       full-length one would have, and roots 29 and 34 are each other's
+       conjugate besides. The measured worst is 23.8 of a possible 62. What
+       matters is the gap, not orthogonality. */
+    check_msg(worst_cross < 26.0,
+              "PSS roots stay apart, worst cross-correlation %.2f of 62\n",
+              worst_cross);
+}
+
+static void test_sss_sequences(void) {
+    static float sequences[2 * LTE_N_ID_1_COUNT][LTE_SYNC_SUBCARRIERS];
+    int n_id_1, half, n, binary = 1, duplicates = 0;
+    int a, b;
+
+    /* One N_ID_2 is enough to prove the construction; the identity only enters
+       through the two scrambling sequences, which the frame test exercises. */
+    for (n_id_1 = 0; n_id_1 < LTE_N_ID_1_COUNT; n_id_1++)
+        for (half = 0; half < 2; half++)
+            lte_sss_sequence(n_id_1, 0, half, sequences[2 * n_id_1 + half]);
+
+    for (a = 0; a < 2 * LTE_N_ID_1_COUNT; a++)
+        for (n = 0; n < LTE_SYNC_SUBCARRIERS; n++)
+            if (sequences[a][n] != 1.0f && sequences[a][n] != -1.0f)
+                binary = 0;
+    check_true("every SSS element is plus or minus one", binary);
+
+    /* 336 sequences, all different: this is the whole basis for reading a cell
+       identity and a half-frame off one symbol. */
+    for (a = 0; a < 2 * LTE_N_ID_1_COUNT; a++)
+        for (b = a + 1; b < 2 * LTE_N_ID_1_COUNT; b++) {
+            int same = 1;
+            for (n = 0; n < LTE_SYNC_SUBCARRIERS; n++)
+                if (sequences[a][n] != sequences[b][n]) {
+                    same = 0;
+                    break;
+                }
+            if (same)
+                duplicates++;
+        }
+    check_int("no two SSS sequences are the same", duplicates, 0);
+
+    /* The two halves of a frame differ by a swap, not by a new sequence: the
+       even elements of subframe 5 are the odd elements of subframe 0 with a
+       different scrambling, which is why a receiver can tell them apart. */
+    check_true("the two half-frames differ",
+               memcmp(sequences[0], sequences[1], sizeof(sequences[0])) != 0);
+}
+
+static void test_gold_sequence(void) {
+    uint8_t a[400], b[400];
+    int n, ones = 0, differs = 0;
+
+    lte_gold_sequence(0, 400, a);
+    lte_gold_sequence(0, 400, b);
+    check_int("the same seed gives the same sequence",
+              memcmp(a, b, sizeof(a)), 0);
+
+    lte_gold_sequence(12345, 400, b);
+    for (n = 0; n < 400; n++)
+        if (a[n] != b[n])
+            differs++;
+    check_msg(differs > 150 && differs < 250,
+              "a different seed gives a different sequence, %d of 400 bits\n",
+              differs);
+
+    for (n = 0; n < 400; n++) {
+        check_msg(a[n] <= 1, "gold bit %d is binary\n", n);
+        ones += a[n];
+    }
+    check_msg(ones > 160 && ones < 240,
+              "the sequence is balanced, %d ones of 400\n", ones);
+}
+
+static void test_crs(void) {
+    float re[LTE_PBCH_SUBCARRIERS / 6], im[LTE_PBCH_SUBCARRIERS / 6];
+    int positions[LTE_PBCH_SUBCARRIERS / 6];
+    int pci = 227;   /* 227 mod 6 = 5, so the shift is not zero */
+    int count, m, unit = 1, spaced = 1;
+
+    count = lte_crs_sequence(pci, 1, 0, 0, 0, re, im);
+    check_int("twelve reference signals across the broadcast channel",
+              count, 12);
+    for (m = 0; m < count; m++) {
+        double magnitude = sqrt((double)re[m] * re[m] + (double)im[m] * im[m]);
+        if (fabs(magnitude - 1.0) > 1e-5)
+            unit = 0;
+    }
+    check_true("every reference signal has unit magnitude", unit);
+
+    count = lte_crs_subcarriers(pci, 1, 0, 0, positions);
+    check_int("twelve reference positions", count, 12);
+    check_int("port 0 starts at the cell's own shift", positions[0], pci % 6);
+    for (m = 1; m < count; m++)
+        if (positions[m] - positions[m - 1] != 6)
+            spaced = 0;
+    check_true("every sixth subcarrier", spaced);
+
+    lte_crs_subcarriers(pci, 1, 0, 1, positions);
+    check_int("port 1 sits three subcarriers from port 0", positions[0],
+              (pci % 6 + 3) % 6);
+    lte_crs_subcarriers(pci, 1, 1, 2, positions);
+    check_int("port 2 is in the next symbol", positions[0], (pci % 6 + 3) % 6);
+    lte_crs_subcarriers(pci, 1, 1, 3, positions);
+    check_int("port 3 shares port 0's shift", positions[0], pci % 6);
+
+    /* Ports 0 and 1 come round again later in the slot with their shifts
+       swapped, which is what gives the frequency refinement two readings far
+       enough apart to be worth comparing. */
+    lte_crs_subcarriers(pci, 1, 4, 0, positions);
+    check_int("port 0 swaps shift at symbol 4", positions[0],
+              (pci % 6 + 3) % 6);
+    lte_crs_subcarriers(pci, 1, 4, 1, positions);
+    check_int("port 1 swaps the other way", positions[0], pci % 6);
+    {
+        float later_re[12], later_im[12];
+        lte_crs_sequence(pci, 1, 4, 0, 0, later_re, later_im);
+        check_true("and carries a different sequence there",
+                   memcmp(re, later_re, sizeof(re)) != 0);
+    }
+
+    /* A port is absent from the symbols that are not its own. */
+    check_int("port 0 has nothing in the second symbol",
+              lte_crs_subcarriers(pci, 1, 1, 0, positions), 0);
+    check_int("port 2 has nothing in the first",
+              lte_crs_subcarriers(pci, 1, 0, 2, positions), 0);
+    check_int("nothing at all in symbol 3",
+              lte_crs_subcarriers(pci, 1, 3, 0, positions), 0);
+
+    /* The sequence is the cell's, so two cells differ. */
+    {
+        float other_re[12], other_im[12];
+        lte_crs_sequence(pci + 1, 1, 0, 0, 0, other_re, other_im);
+        check_true("a different cell has different reference signals",
+                   memcmp(re, other_re, sizeof(re)) != 0);
+    }
+}
+
+/* The plugin's answer for one built frame, so several cases can assert on it
+   without repeating the arithmetic. */
+static void search_and_check(const char *label, int pci, int ports,
+                             double offset_hz, size_t skip,
+                             size_t expected_subframe0, int expected_half) {
+    struct lte_cell cell;
+    int found;
+
+    found = lte_cell_search(buffer_i + skip, buffer_q + skip,
+                            BUFFER_SAMPLES - skip, LTE_SAMPLE_RATE_HZ, &cell);
+    check_msg(found == 1, "%s: a cell is found\n", label);
+    if (found != 1)
+        return;
+    check_msg(cell.pci == pci, "%s: cell identity %d, expected %d\n", label,
+              cell.pci, pci);
+    check_msg(cell.n_id_2 == pci % 3, "%s: N_ID_2 %d, expected %d\n", label,
+              cell.n_id_2, pci % 3);
+    check_msg(cell.n_id_1 == pci / 3, "%s: N_ID_1 %d, expected %d\n", label,
+              cell.n_id_1, pci / 3);
+    check_msg(!cell.extended_cp, "%s: the normal cyclic prefix is found\n",
+              label);
+    check_msg(cell.half_frame == expected_half,
+              "%s: half-frame %d, expected %d\n", label, cell.half_frame,
+              expected_half);
+    check_msg(cell.subframe0_start == expected_subframe0,
+              "%s: subframe 0 at %zu, expected %zu\n", label,
+              cell.subframe0_start, expected_subframe0);
+    check_msg(fabs(cell.frequency_offset_hz - offset_hz) < 50.0,
+              "%s: offset %.0f Hz, expected %.0f\n", label,
+              cell.frequency_offset_hz, offset_hz);
+    check_msg(cell.pss_correlation > 0.5f,
+              "%s: PSS correlation %.2f\n", label, cell.pss_correlation);
+    check_msg(cell.sss_correlation > 0.7f,
+              "%s: SSS correlation %.2f\n", label, cell.sss_correlation);
+    check_msg(cell.sss_correlation - cell.sss_runner_up > 0.3f,
+              "%s: SSS beats its runner-up, %.2f against %.2f\n", label,
+              cell.sss_correlation, cell.sss_runner_up);
+    (void)ports;
+}
+
+static void test_cell_search(void) {
+    /* Three identities chosen so all three N_ID_2 values and three different
+       reference-signal shifts are exercised. */
+    build_buffer(0, 1, 0.0, 0.006, 11u);
+    search_and_check("cell 0", 0, 1, 0.0, 0, LEAD_IN, 0);
+
+    build_buffer(227, 1, 2000.0, 0.006, 12u);
+    search_and_check("cell 227 at +2 kHz", 227, 1, 2000.0, 0, LEAD_IN, 0);
+
+    build_buffer(503, 2, -3500.0, 0.006, 13u);
+    search_and_check("cell 503 at -3.5 kHz", 503, 2, -3500.0, 0, LEAD_IN, 0);
+}
+
+static void test_cell_search_from_the_second_half_frame(void) {
+    /*
+     * Start reading part-way through, so the first synchronisation signal in
+     * the search window is the one halfway through a frame rather than the one
+     * at its start. The secondary sequence is the only thing that says so, and
+     * getting it wrong puts the frame boundary five subframes out -- which
+     * would point the broadcast channel at empty air.
+     */
+    size_t skip = LEAD_IN + 2000;
+    size_t expected = (size_t)LTE_FRAME_SAMPLES - 2000;
+
+    build_buffer(310, 1, 1200.0, 0.006, 14u);
+    search_and_check("cell 310 found in the second half-frame", 310, 1,
+                     1200.0, skip, expected, 1);
+}
+
+static void test_cell_search_refuses(void) {
+    struct lte_cell cell;
+    struct lte_pss_result pss;
+    size_t k;
+
+    build_buffer(101, 1, 0.0, 0.006, 15u);
+    check_int("a sample rate that is not LTE's is refused",
+              lte_pss_detect(buffer_i, buffer_q, BUFFER_SAMPLES, 2000000.0,
+                             &pss), -1);
+    check_int("a block shorter than a symbol is refused",
+              lte_pss_detect(buffer_i, buffer_q, 100, LTE_SAMPLE_RATE_HZ,
+                             &pss), -1);
+
+    rng_seed(99u);
+    for (k = 0; k < BUFFER_SAMPLES; k++) {
+        buffer_i[k] = (float)(0.05 * rng_normal());
+        buffer_q[k] = (float)(0.05 * rng_normal());
+    }
+    check_int("noise alone is not a cell",
+              lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                              LTE_SAMPLE_RATE_HZ, &cell), 0);
+    check_int("and nothing is claimed about it", cell.detected, 0);
+}
+
+static void check_broadcast_bits(const char *label, int pci, int ports) {
+    struct lte_cell cell;
+    float soft[LTE_PBCH_SOFT_BITS];
+    int written, n, wrong = 0;
+
+    if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                        LTE_SAMPLE_RATE_HZ, &cell) != 1) {
+        check_msg(0, "%s: no cell to read the broadcast channel from\n", label);
+        return;
+    }
+    check_msg(cell.pci == pci, "%s: cell identity %d\n", label, cell.pci);
+
+    written = lte_pbch_soft_bits(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                 LTE_SAMPLE_RATE_HZ, &cell,
+                                 cell.subframe0_start, ports, soft);
+    check_msg(written == LTE_PBCH_SOFT_BITS,
+              "%s: %d soft bits, expected %d\n", label, written,
+              LTE_PBCH_SOFT_BITS);
+    if (written != LTE_PBCH_SOFT_BITS)
+        return;
+
+    for (n = 0; n < LTE_PBCH_SOFT_BITS; n++) {
+        int decided = soft[n] > 0.0f ? 0 : 1;
+        if (decided != (int)pbch_bits[n])
+            wrong++;
+    }
+    check_msg(wrong == 0, "%s: %d of %d broadcast bits wrong\n", label, wrong,
+              LTE_PBCH_SOFT_BITS);
+}
+
+static void test_broadcast_channel(void) {
+    /*
+     * One transmit antenna, then two and four. The port count changes how the
+     * elements are combined, not where they are: a cell with four antennas
+     * leaves the same holes in the grid as one with a single antenna, which is
+     * what lets the count itself stay unknown until the message's own parity
+     * settles it.
+     */
+    build_buffer(227, 1, 900.0, 0.004, 21u);
+    check_broadcast_bits("one antenna port", 227, 1);
+
+    build_buffer(227, 2, 900.0, 0.004, 22u);
+    check_broadcast_bits("two antenna ports", 227, 2);
+
+    build_buffer(101, 4, -1500.0, 0.004, 23u);
+    check_broadcast_bits("four antenna ports", 101, 4);
+}
+
+static void test_broadcast_channel_refuses(void) {
+    struct lte_cell cell;
+    float soft[LTE_PBCH_SOFT_BITS];
+
+    build_buffer(227, 1, 0.0, 0.004, 31u);
+    if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                        LTE_SAMPLE_RATE_HZ, &cell) != 1)
+        return;
+
+    check_int("three antenna ports is not a thing",
+              lte_pbch_soft_bits(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                 LTE_SAMPLE_RATE_HZ, &cell,
+                                 cell.subframe0_start, 3, soft), 0);
+    check_int("a subframe that runs past the block is refused",
+              lte_pbch_soft_bits(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                 LTE_SAMPLE_RATE_HZ, &cell,
+                                 BUFFER_SAMPLES - 100, 1, soft), 0);
+
+    /* The extended prefix shortens the broadcast channel to 432 bits and puts
+       a third reference symbol inside it. The plugin says so rather than
+       reading it wrong. */
+    cell.extended_cp = 1;
+    check_int("the extended cyclic prefix is declined, not misread",
+              lte_pbch_soft_bits(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                 LTE_SAMPLE_RATE_HZ, &cell,
+                                 cell.subframe0_start, 1, soft), 0);
+}
+
+
+
+/* ------------------------------------------------------------------ */
+/* And the same thing off the air.                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Everything above is a signal this file built, and that is its weakness: a
+ * generator and a detector that share a mistake agree perfectly. They did.
+ * The primary sequence was generated conjugated, which for a Zadoff-Chu
+ * sequence of this length turns root 29 into root 34 and back -- so every
+ * synthetic cell was found, with the right timing and a sharp correlation,
+ * under an N_ID_2 one step from the truth. Nothing here caught it. A live
+ * capture did, immediately and permanently: its secondary sequence would not
+ * decode under any hypothesis until the sign was fixed.
+ *
+ * So this is the check that matters, and the capture is what makes it
+ * possible. See docs/adr/0014 and issues/04 in the feature's directory.
+ */
+#define LTE_REAL_BLOCK (2 * 131072)
+
+static void check_real_capture(const char *path, int pci, int extended_cp,
+                               int min_blocks) {
+    FILE *file = fopen(path, "rb");
+    unsigned char *raw;
+    float *i, *q;
+    int blocks = 0, found = 0, agreed = 0, prefix_ok = 0;
+    float worst_margin = 1.0f;
+    size_t got;
+
+    if (!file) {
+        printf("  (skipping the real-capture cell search: %s absent)\n", path);
+        return;
+    }
+    raw = malloc(LTE_REAL_BLOCK);
+    i = malloc((LTE_REAL_BLOCK / 2) * sizeof(*i));
+    q = malloc((LTE_REAL_BLOCK / 2) * sizeof(*q));
+    if (!raw || !i || !q) {
+        fprintf(stderr, "real-capture allocation failed\n");
+        exit(2);
+    }
+
+    while ((got = fread(raw, 1, LTE_REAL_BLOCK, file)) == LTE_REAL_BLOCK) {
+        struct lte_cell cell;
+        size_t pairs = LTE_REAL_BLOCK / 2, n;
+        for (n = 0; n < pairs; n++) {
+            i[n] = ((float)raw[2 * n] - 127.5f) / 127.5f;
+            q[n] = ((float)raw[2 * n + 1] - 127.5f) / 127.5f;
+        }
+        blocks++;
+        if (lte_cell_search(i, q, pairs, LTE_SAMPLE_RATE_HZ, &cell) != 1)
+            continue;
+        found++;
+        if (cell.pci == pci)
+            agreed++;
+        if (cell.extended_cp == extended_cp)
+            prefix_ok++;
+        if (cell.sss_correlation - cell.sss_runner_up < worst_margin)
+            worst_margin = cell.sss_correlation - cell.sss_runner_up;
+    }
+    free(raw); free(i); free(q);
+    fclose(file);
+
+    check_msg(blocks >= min_blocks, "%s holds %d blocks, expected %d\n", path,
+              blocks, min_blocks);
+    /* Every block of this capture carries the cell. A floor rather than an
+       equality, because what must not regress is sensitivity, and a slack
+       floor would hide it losing half of them. */
+    check_msg(found >= min_blocks, "%s: a cell in %d of %d blocks\n", path,
+              found, blocks);
+    /* And it is the same cell every time. One block agreeing could be luck;
+       fifteen agreeing is the identity. */
+    check_msg(agreed == found, "%s: cell %d in %d of the %d blocks that "
+              "found one\n", path, pci, agreed, found);
+    check_msg(prefix_ok == found, "%s: the %s prefix in %d of %d\n", path,
+              extended_cp ? "extended" : "normal", prefix_ok, found);
+    /* The margin over the runner-up is the gate that does the real work, so
+       the capture is also what says the gate is not scraping through. */
+    check_msg(worst_margin > 0.20f,
+              "%s: the thinnest margin over the runner-up was %.3f\n", path,
+              (double)worst_margin);
+}
+
+int main(void) {
+    twiddles_init();
+
+    test_bands();
+    test_subcarrier_bin();
+    test_fft_matches_dft();
+    test_pss_sequence();
+    test_sss_sequences();
+    test_gold_sequence();
+    test_crs();
+    test_cell_search();
+    test_cell_search_from_the_second_half_frame();
+    test_cell_search_refuses();
+    test_broadcast_channel();
+    test_broadcast_channel_refuses();
+
+    /*
+     * A live band 20 cell, 796.0 MHz, recorded by this program. Identity 32
+     * is N_ID_1 10 and N_ID_2 2 -- and N_ID_2 2 is precisely the value the
+     * conjugated sequence used to report as 1, which is why this capture is
+     * worth keeping whatever else changes.
+     */
+    check_real_capture("testfiles/lte_b20_pci32.bin", 32, 0, 14);
+
+    return check_report("lte cell search and broadcast channel");
+}

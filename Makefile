@@ -16,7 +16,8 @@ BUILD=build
 
 all: sdrprobe
 
-DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c
+DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
+	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c
 APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_survey.c $(SRC)/band_plan.c \
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
@@ -27,7 +28,8 @@ APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/app.h $(SRC)/view.h
-DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h
+DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
+	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
 GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
@@ -77,6 +79,27 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(TESTS)/check.h $(SRC)/adsb_dsp.c $(SR
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_dsp_test \
 		$(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c -lm
 	$(Q)./$(BUILD)/adsb_dsp_test
+
+# The LTE cell search: the channel map, the three sequences the standard
+# fixes, and a whole frame synthesised here and read back. The frame is what
+# makes it worth running -- every mapping the plugin uses is written out a
+# second time and independently, so agreement means something.
+check-lte-dsp: $(TESTS)/lte_dsp_test.c $(TESTS)/check.h $(SRC)/lte_dsp.c \
+		$(SRC)/lte_dsp.h $(SRC)/lte_gold.h testfiles/lte_b20_pci32.bin
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_dsp_test \
+		$(TESTS)/lte_dsp_test.c $(SRC)/lte_dsp.c -lm
+	$(Q)./$(BUILD)/lte_dsp_test
+
+# And the Decoder side of LTE: 480 soft bits to a Master Information Block.
+# Scrambling, rate matching, a tail-biting trellis and a masked parity, each
+# pushed on in both directions. No samples, no receiver.
+check-lte-mib: $(TESTS)/lte_mib_test.c $(TESTS)/check.h $(SRC)/lte_mib.c \
+		$(SRC)/lte_mib.h $(SRC)/lte_gold.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_mib_test \
+		$(TESTS)/lte_mib_test.c $(SRC)/lte_mib.c -lm
+	$(Q)./$(BUILD)/lte_mib_test
 
 # Layout check: the GSM and ADS-B views' rectangles and the window chrome,
 # pinned at several window sizes. Needs raylib's headers for the Rectangle type but not
@@ -216,7 +239,8 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # Each suite prints one line saying what it covers and how much it proved, and
 # appends its counts to CHECK_TALLY so the total below is real rather than a
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
-CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan \
+CHECK_UNITS=check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
+	check-lte-mib check-band-plan \
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
@@ -234,7 +258,8 @@ check: sdrprobe
 	@awk '{checks += $$1; bad += $$2} END { printf \
 		"\n%d checks in %d suites, no failures\n\n", checks, NR}' $(TALLY)
 
-check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan
+check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
+	check-lte-mib check-band-plan
 
 # White-box diagnostic walk through the GSM SCH chain (not a unit test). It
 # compiles gsm_dsp.c in (to reach its statics), so it links only sdr_dsp.c.
@@ -254,6 +279,15 @@ probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_chain_probe \
 		scripts/adsb_chain_probe.c $(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/adsb_chain_probe $(FILE_ADSB)
+
+# White-box diagnostic walk through the LTE cell search and broadcast channel.
+FILE_LTE ?= testfiles/lte_b20_pci32.bin
+probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
+		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_chain_probe \
+		scripts/lte_chain_probe.c $(SRC)/lte_mib.c -lm
+	$(Q)./$(BUILD)/lte_chain_probe $(FILE_LTE)
 
 # What the DSP costs per sample block, against the 65.5 ms one block covers.
 # BENCH_ARCH=-march=native answers the SIMD question by measuring it: the
@@ -276,4 +310,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain bench-dsp clean
+.PHONY: all check hooks check-lte-dsp check-lte-mib check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain bench-dsp clean
