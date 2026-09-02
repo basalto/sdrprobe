@@ -25,21 +25,6 @@
 - [ ] Add optional Mode S/ADS-B preamble and valid-message counters, while
   keeping full aircraft tracking and networking out of this probe.
 
-- [ ] **The LTE secondary synchronisation signal does not work on live air**,
-  and until it does there is no cell identity and nothing above it. It only
-  ever appeared to work because the primary sequence was conjugated at the
-  time; correcting the sign -- which 36.211 and srsRAN both confirm -- leaves
-  it finding nothing. Everything else in the chain has now been checked
-  against srsRAN and matches. The answer for `testfiles/lte_b20_pci28.bin` is
-  known independently from its reference signals, which is the position to
-  attack it from. See `.scratch/lte-cell-search/issues/05`.
-- [ ] Read an LTE Master Information Block off the air. The chain is written
-  and checked (`make check-lte-mib`) and recovers a synthesised broadcast
-  channel exactly, but no live capture decodes: the cell-specific reference
-  signals do not lock, so there is no channel estimate behind the soft bits.
-  See `.scratch/lte-cell-search/issues/05-the-broadcast-channel-on-air.md` —
-  the next step is a stronger capture, which separates "too weak" from "a
-  convention is wrong" in one measurement.
 - [ ] The LTE band scan misses a cell that only decodes in about half its
   blocks: it looks at two blocks per channel, so a quarter of the time it sees
   neither. A third look would halve that and cost thirty seconds a band. The
