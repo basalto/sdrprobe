@@ -179,7 +179,7 @@ static void test_conflicting_flags(void) {
     rejects("--lte-scan 20 --headless --decode");
     rejects("--lte-scan 20 --headless --survey --survey-range 791M:821M");
     rejects("--lte-scan 20 --headless --earfcn 6200");
-    rejects("--lte-scan 20 --headless --file testfiles/lte_b20_pci32.bin");
+    rejects("--lte-scan 20 --headless --file testfiles/lte_b20_pci28.bin");
     rejects("--lte-scan 3 --headless");             /* out of a dongle's reach */
     rejects("--lte-scan 0 --headless");
     rejects("--lte-scan 20 --headless --technology gsm");
@@ -223,7 +223,7 @@ static void test_conflicting_flags(void) {
             " --decode --once");
     accepts("--arfcn 73 --decode --headless --gsm-features none");
     accepts("--earfcn 6200 --decode --headless --once "
-            "--file testfiles/lte_b20_pci32.bin");
+            "--file testfiles/lte_b20_pci28.bin");
     accepts("--earfcn 6200 --sample-rate 1920000");
     accepts("--lte-scan 20 --headless");
     accepts("--lte-scan 28 --headless --gain max");

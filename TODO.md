@@ -30,7 +30,7 @@
   ever appeared to work because the primary sequence was conjugated at the
   time; correcting the sign -- which 36.211 and srsRAN both confirm -- leaves
   it finding nothing. Everything else in the chain has now been checked
-  against srsRAN and matches. The answer for `testfiles/lte_b20_pci32.bin` is
+  against srsRAN and matches. The answer for `testfiles/lte_b20_pci28.bin` is
   known independently from its reference signals, which is the position to
   attack it from. See `.scratch/lte-cell-search/issues/05`.
 - [ ] Read an LTE Master Information Block off the air. The chain is written
@@ -72,9 +72,12 @@
   the rate and the tuning back when it is left.
 - [x] LTE analysis charts: the correlation profile, the candidate scores, the
   channel across the broadcast's subcarriers, and the elements themselves.
-- [x] LTE primary synchronisation: the Zadoff-Chu correlation, the root, the
-  symbol timing and a coarse frequency offset. Locks at 0.6 to 0.8 on three
-  live band 20 carriers, and its root is corroborated by the cell's own
-  reference signals.
+- [x] LTE, off the air: cell search to a physical cell identity, and the
+  Master Information Block behind it -- bandwidth, PHICH configuration,
+  antenna ports and a system frame number that keeps time. Reads cell 28 as a
+  50-block 10 MHz carrier on two ports from `testfiles/lte_b20_pci28.bin` and
+  from a live receiver. The part that was missing for a day: a phase
+  measurement of a frequency offset only reports it modulo one subcarrier, and
+  an uncalibrated dongle is two subcarriers out at 800 MHz.
 - [x] Add GSM 900 ARFCN calibration with expected/measured waterfall markers,
   confidence reporting, stability gating, and PPM application.

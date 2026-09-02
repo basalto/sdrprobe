@@ -87,10 +87,11 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(TESTS)/check.h $(SRC)/adsb_dsp.c $(SR
 # makes it worth running -- every mapping the plugin uses is written out a
 # second time and independently, so agreement means something.
 check-lte-dsp: $(TESTS)/lte_dsp_test.c $(TESTS)/check.h $(SRC)/lte_dsp.c \
-		$(SRC)/lte_dsp.h $(SRC)/lte_gold.h testfiles/lte_b20_pci32.bin
+		$(SRC)/lte_dsp.h $(SRC)/lte_gold.h $(SRC)/lte_mib.c $(SRC)/lte_mib.h \
+		testfiles/lte_b20_pci28.bin
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_dsp_test \
-		$(TESTS)/lte_dsp_test.c $(SRC)/lte_dsp.c -lm
+		$(TESTS)/lte_dsp_test.c $(SRC)/lte_dsp.c $(SRC)/lte_mib.c -lm
 	$(Q)./$(BUILD)/lte_dsp_test
 
 # And the Decoder side of LTE: 480 soft bits to a Master Information Block.
@@ -292,7 +293,7 @@ probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 	$(Q)./$(BUILD)/adsb_chain_probe $(FILE_ADSB)
 
 # White-box diagnostic walk through the LTE cell search and broadcast channel.
-FILE_LTE ?= testfiles/lte_b20_pci32.bin
+FILE_LTE ?= testfiles/lte_b20_pci28.bin
 probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h
 	@mkdir -p $(BUILD)

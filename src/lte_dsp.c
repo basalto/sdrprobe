@@ -683,8 +683,9 @@ static int sss_best_candidate(const struct sss_observation *frames, int count,
  */
 static int sss_try(const float *i_samples, const float *q_samples,
                    size_t pair_count, const struct lte_pss_result *pss,
-                   double sample_rate, int lead, int *n_id_1, int *subframe5,
-                   float *score, float *runner_up, float *scores) {
+                   double sample_rate, double offset_hz, int lead,
+                   int *n_id_1, int *subframe5, float *score,
+                   float *runner_up, float *scores) {
     struct sss_observation frames[LTE_SSS_MAX_FRAMES];
     int count = 0, found;
 
@@ -695,8 +696,8 @@ static int sss_try(const float *i_samples, const float *q_samples,
                        (size_t)count * LTE_FRAME_SAMPLES;
         if (start + LTE_FFT_SIZE > pair_count)
             break;
-        sss_observe(i_samples, q_samples, start, pss->frequency_offset_hz,
-                    sample_rate, &frames[count]);
+        sss_observe(i_samples, q_samples, start, offset_hz, sample_rate,
+                    &frames[count]);
         count++;
     }
     if (count == 0)
@@ -710,6 +711,69 @@ static int sss_try(const float *i_samples, const float *q_samples,
     return 0;
 }
 
+/*
+ * Find the primary sequence's peak again, now that the whole tuning error is
+ * known.
+ *
+ * The first search had to run without it, and a frequency offset does not
+ * merely weaken a Zadoff-Chu correlation -- it moves it. The sequence is a
+ * chirp, so an error in frequency and an error in time trade against each
+ * other, and the peak lands somewhere other than the symbol boundary. On the
+ * band 20 captures here the displacement is about seven samples, which is
+ * inside the cyclic prefix and so does no harm to the secondary sequence, and
+ * a great deal of harm to everything after it: seven samples is a phase ramp
+ * of a third of a turn per subcarrier across the broadcast channel, which
+ * the channel estimate cannot follow.
+ *
+ * With the offset removed the correlation can also be taken whole rather than
+ * in two halves, which is what the halves were only ever a workaround for.
+ */
+static size_t pss_refine_timing(const float *i_samples, const float *q_samples,
+                                size_t pair_count, double sample_rate,
+                                double offset_hz, int n_id_2, size_t around,
+                                float *peak) {
+    struct pss_reference reference;
+    double step = -2.0 * M_PI * offset_hz / sample_rate;
+    long from = (long)around - LTE_TIMING_SEARCH;
+    long to = (long)around + LTE_TIMING_SEARCH;
+    size_t best_start = around;
+    float best = -1.0f;
+    long start;
+
+    pss_reference_build(n_id_2, &reference);
+    if (from < 0)
+        from = 0;
+    while (to + LTE_FFT_SIZE > (long)pair_count)
+        to--;
+
+    for (start = from; start <= to; start++) {
+        double cr = 0.0, ci = 0.0, energy = 0.0, magnitude;
+        int n;
+        for (n = 0; n < LTE_FFT_SIZE; n++) {
+            double phase = step * (double)n;
+            float c = (float)cos(phase), s = (float)sin(phase);
+            float xr = i_samples[start + n], xi = q_samples[start + n];
+            float dr = xr * c - xi * s;   /* the offset taken out */
+            float di = xr * s + xi * c;
+            cr += (double)dr * reference.re[n] + (double)di * reference.im[n];
+            ci += (double)di * reference.re[n] - (double)dr * reference.im[n];
+            energy += (double)dr * dr + (double)di * di;
+        }
+        if (energy <= 0.0)
+            continue;
+        magnitude = sqrt(cr * cr + ci * ci) /
+                    sqrt(energy * (reference.half_energy[0] +
+                                   reference.half_energy[1]));
+        if ((float)magnitude > best) {
+            best = (float)magnitude;
+            best_start = (size_t)start;
+        }
+    }
+    if (peak)
+        *peak = best;
+    return best_start;
+}
+
 /* Defined with the broadcast channel below, because it reads the same
    reference signals. */
 static double refine_offset(const float *i_samples, const float *q_samples,
@@ -721,11 +785,13 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
                     struct lte_cell *cell, struct lte_trace *trace) {
     struct lte_pss_result pss;
     float scores[2][LTE_N_ID_1_COUNT];
+    float winning_scores[LTE_N_ID_1_COUNT];
     int leads[2] = { LTE_SSS_LEAD_NORMAL, LTE_SSS_LEAD_EXTENDED };
-    int best_index = -1, best_id = 0, best_half = 0;
+    int best_index = -1, best_id = 0, best_half = 0, best_integer = 0;
     float best_score = -2.0f, best_runner_up = 0.0f;
+    double offset;
     long start;
-    int k;
+    int k, integer;
 
     if (!cell)
         return -1;
@@ -738,19 +804,47 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
                        &pss, trace) <= 0)
         return 0;
 
-    for (k = 0; k < 2; k++) {
-        int n_id_1 = 0, subframe5 = 0;
-        float score = 0.0f, runner_up = 0.0f;
-        if (sss_try(i_samples, q_samples, pair_count, &pss, sample_rate,
-                    leads[k], &n_id_1, &subframe5, &score, &runner_up,
-                    trace ? scores[k] : NULL) < 0)
-            continue;
-        if (score > best_score) {
-            best_score = score;
-            best_runner_up = runner_up;
-            best_index = k;
-            best_id = n_id_1;
-            best_half = subframe5;
+    /*
+     * Both cyclic prefixes, and every whole-subcarrier tuning error the
+     * primary sequence could not report.
+     *
+     * The integer sweep is not an optimisation, it is the other half of the
+     * frequency measurement. Two subcarriers of error leaves the primary
+     * correlation standing -- degraded, but well over the floor -- while
+     * putting every subcarrier the secondary sequence needs two places from
+     * where it is read, so the search confidently returns a wrong identity or
+     * none. On the captures here the answer is two, and finding it turns an
+     * agreement of 36 of 61 into 52.
+     */
+    for (k = 0; k < 2 && best_score < LTE_SSS_CONFIDENT; k++) {
+        int step;
+        /* Outward from zero -- 0, -1, +1, -2, +2 -- so the common answer is
+           reached in a few hypotheses rather than after all eleven. */
+        for (step = 0; step <= 2 * LTE_INTEGER_OFFSETS; step++) {
+            int n_id_1 = 0, subframe5 = 0;
+            float score = 0.0f, runner_up = 0.0f;
+            integer = (step + 1) / 2;
+            if (step % 2)
+                integer = -integer;
+            if (best_score >= LTE_SSS_CONFIDENT &&
+                best_score - best_runner_up >= LTE_SSS_MIN_MARGIN)
+                break;
+            offset = pss.frequency_offset_hz +
+                     (double)integer * LTE_SUBCARRIER_SPACING_HZ;
+            if (sss_try(i_samples, q_samples, pair_count, &pss, sample_rate,
+                        offset, leads[k], &n_id_1, &subframe5, &score,
+                        &runner_up, trace ? scores[k] : NULL) < 0)
+                continue;
+            if (score > best_score) {
+                best_score = score;
+                best_runner_up = runner_up;
+                best_index = k;
+                best_id = n_id_1;
+                best_half = subframe5;
+                best_integer = integer;
+                if (trace)
+                    memcpy(winning_scores, scores[k], sizeof(winning_scores));
+            }
         }
     }
     /* Whatever happens next, say what was measured. A refusal that reports
@@ -763,6 +857,24 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
     if (best_index < 0 || best_score < LTE_SSS_MIN_CORRELATION ||
         best_score - best_runner_up < LTE_SSS_MIN_MARGIN)
         return 0;
+
+    /*
+     * The tuning error is known now, so the primary sequence's peak can be
+     * found properly -- see pss_refine_timing. Everything below is measured
+     * from it, so this has to happen before the frame boundary is worked out.
+     */
+    offset = pss.frequency_offset_hz +
+             (double)best_integer * LTE_SUBCARRIER_SPACING_HZ;
+    {
+        float refined_peak = 0.0f;
+        size_t refined = pss_refine_timing(i_samples, q_samples, pair_count,
+                                           sample_rate, offset, pss.n_id_2,
+                                           pss.useful_start, &refined_peak);
+        if (refined_peak > pss.peak) {
+            pss.useful_start = refined;
+            pss.peak = refined_peak;
+        }
+    }
 
     /*
      * Where the frame begins. The PSS found sits at a known offset into its
@@ -785,19 +897,24 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
     cell->extended_cp = (best_index == 1);
     cell->half_frame = best_half;
     cell->subframe0_start = (size_t)start;
-    cell->frequency_offset_hz = pss.frequency_offset_hz;
+    cell->integer_offset = best_integer;
+    /* The whole-subcarrier part the primary sequence could not see, plus the
+       fraction it could. Only together are they the tuning error. */
+    cell->frequency_offset_hz = pss.frequency_offset_hz +
+                                (double)best_integer *
+                                    LTE_SUBCARRIER_SPACING_HZ;
     /* The reference signals are only where the normal prefix puts them, and
-       an extended-prefix cell keeps the coarse reading. */
+       an extended-prefix cell keeps the coarser reading. */
     if (!cell->extended_cp)
         cell->frequency_offset_hz =
             refine_offset(i_samples, q_samples, sample_rate, cell->pci,
-                          cell->subframe0_start, pss.frequency_offset_hz);
+                          cell->subframe0_start, cell->frequency_offset_hz);
     cell->pss_correlation = pss.peak;
     cell->pss_runner_up = pss.runner_up;
     cell->sss_correlation = best_score;
     cell->sss_runner_up = best_runner_up;
     if (trace) {
-        memcpy(trace->candidate, scores[best_index], sizeof(trace->candidate));
+        memcpy(trace->candidate, winning_scores, sizeof(trace->candidate));
         trace->candidate_count = LTE_N_ID_1_COUNT;
         trace->candidate_best = best_id;
         trace->valid = 1;

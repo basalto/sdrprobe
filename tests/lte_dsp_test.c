@@ -2,6 +2,7 @@
 
 #include "lte_dsp.h"
 #include "lte_gold.h"
+#include "lte_mib.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -803,34 +804,38 @@ static void test_broadcast_channel_refuses(void) {
 
 /*
  * Everything above is a signal this file built, and that is its weakness: a
- * generator and a detector that share a mistake agree perfectly. They have,
- * twice now, and the second time was worse than the first.
+ * generator and a detector that share a mistake agree perfectly. Twice they
+ * did, and both times only live air said so.
  *
- * The first was a conjugated primary sequence, caught by a live capture. The
- * "fix" for it flipped the sign of the exponent -- and that was wrong. The
- * standard and srsRAN's pss.c both use a negative sign, which is what this
- * file had originally; flipping it swapped roots 29 and 34, which are each
- * other's conjugate, and made the secondary-sequence detector start locking
- * on an identity one step away from the truth. Every synthetic check passed
- * throughout, and the real-capture check passed too, because it had been
- * written to assert the identity the broken pair agreed on.
+ * The first was a conjugated primary sequence. The second was the "fix" for
+ * it, which flipped the sign of the exponent -- wrongly, as 36.211 and
+ * srsRAN's pss.c both say -- and made a broken secondary detector agree with
+ * a newly broken primary one. What was actually missing was the whole-
+ * subcarrier part of the tuning error: the primary sequence measures a phase,
+ * a phase wraps every subcarrier, and an uncalibrated dongle is two
+ * subcarriers out at 800 MHz. Every synthetic check passed throughout both.
  *
- * So what is asserted here now is only what two independent measurements
- * agree on. The primary sequence's root is one of them; the cell's reference
- * signals, which have nothing to do with either synchronisation signal, are
- * the other, and they name a cell whose N_ID_2 is what the corrected sign
- * reports. The rest of the identity is not asserted, because the secondary
- * detector does not currently find it -- see
- * .scratch/lte-cell-search/issues/05-the-broadcast-channel-on-air.md.
+ * So the assertions here are the ones only real air can make, and each is
+ * chosen because a plausible fault fails it:
+ *
+ *   the identity          a conjugated primary sequence gets N_ID_2 wrong
+ *   the integer offset    without it the secondary sequence reads the wrong
+ *                         subcarriers and returns a confident wrong answer
+ *   the message           and only correct timing gets that far
+ *   the frame number      which must advance at the rate the block length
+ *                         implies -- the one thing chance cannot fake
  */
 #define LTE_REAL_BLOCK (2 * 131072)
 
-static void check_real_capture(const char *path, int n_id_2, int min_blocks) {
+static void check_real_capture(const char *path, int pci, int integer_offset,
+                               int bandwidth_prb, int antenna_ports,
+                               int min_blocks) {
     FILE *file = fopen(path, "rb");
     unsigned char *raw;
     float *i, *q;
-    int blocks = 0, detected = 0, agreed = 0;
-    float weakest = 1.0f;
+    int blocks = 0, cells = 0, agreed = 0, prefix = 0, offset_ok = 0;
+    int messages = 0, described = 0, advanced = 0, steps = 0;
+    int previous_sfn = -1;
     size_t got;
 
     if (!file) {
@@ -846,38 +851,82 @@ static void check_real_capture(const char *path, int n_id_2, int min_blocks) {
     }
 
     while ((got = fread(raw, 1, LTE_REAL_BLOCK, file)) == LTE_REAL_BLOCK) {
-        struct lte_pss_result pss;
+        struct lte_cell cell;
         size_t pairs = LTE_REAL_BLOCK / 2, n;
+        int h;
         for (n = 0; n < pairs; n++) {
             i[n] = ((float)raw[2 * n] - 127.5f) / 127.5f;
             q[n] = ((float)raw[2 * n + 1] - 127.5f) / 127.5f;
         }
         blocks++;
-        if (lte_pss_detect(i, q, pairs, LTE_SAMPLE_RATE_HZ, &pss, NULL) != 1)
+        if (lte_cell_search(i, q, pairs, LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1)
             continue;
-        detected++;
-        if (pss.n_id_2 == n_id_2)
+        cells++;
+        if (cell.pci == pci)
             agreed++;
-        if (pss.peak < weakest)
-            weakest = pss.peak;
+        if (!cell.extended_cp)
+            prefix++;
+        if (cell.integer_offset == integer_offset)
+            offset_ok++;
+
+        for (h = 0; h < 3; h++) {
+            static const int ports[3] = { 1, 2, 4 };
+            float soft[LTE_PBCH_SOFT_BITS];
+            struct lte_mib mib;
+            if (lte_pbch_soft_bits(i, q, pairs, LTE_SAMPLE_RATE_HZ, &cell,
+                                   cell.subframe0_start, ports[h], soft,
+                                   NULL) != LTE_PBCH_SOFT_BITS)
+                continue;
+            if (!lte_mib_decode(soft, cell.pci, &mib))
+                continue;
+            messages++;
+            if (mib.bandwidth_prb == bandwidth_prb &&
+                mib.antenna_ports == antenna_ports)
+                described++;
+            /*
+             * One block covers 131072 samples, which is 6.83 frames, so the
+             * frame number advances by six or seven and by nothing else. It
+             * is the assertion worth having: a bandwidth can be guessed, a
+             * clock that keeps time cannot.
+             */
+            if (previous_sfn >= 0) {
+                int step = (mib.system_frame_number - previous_sfn + 1024) %
+                           1024;
+                steps++;
+                if (step == 6 || step == 7)
+                    advanced++;
+            }
+            previous_sfn = mib.system_frame_number;
+            break;
+        }
     }
     free(raw); free(i); free(q);
     fclose(file);
 
     check_msg(blocks >= min_blocks, "%s holds %d blocks, expected %d\n", path,
               blocks, min_blocks);
-    check_msg(detected == blocks,
-              "%s: a primary sequence in %d of %d blocks\n", path, detected,
+    /* 29 of 30 as measured; the floor sits one under so a real loss of
+       sensitivity shows and one marginal block does not. */
+    check_msg(cells >= blocks - 1, "%s: a cell in %d of %d blocks\n", path,
+              cells, blocks);
+    check_msg(agreed == cells, "%s: cell %d in %d of the %d found\n", path,
+              pci, agreed, cells);
+    check_msg(prefix == cells, "%s: the normal prefix in %d of %d\n", path,
+              prefix, cells);
+    /* Without the whole-subcarrier search this is zero and everything above
+       it is wrong, which is exactly how it went unnoticed. */
+    check_msg(offset_ok == cells,
+              "%s: %d whole subcarriers of tuning error in %d of %d\n", path,
+              integer_offset, offset_ok, cells);
+    check_msg(messages >= blocks - 2,
+              "%s: a broadcast message in %d of %d blocks\n", path, messages,
               blocks);
-    /* The root is the assertion. A conjugated generator swaps 29 and 34 and
-       would report 2 here, which is precisely the fault that shipped. */
-    check_msg(agreed == detected,
-              "%s: N_ID_2 %d in %d of the %d blocks that found one\n", path,
-              n_id_2, agreed, detected);
-    /* And it is a lock rather than a scrape: noise reaches 0.35. */
-    check_msg(weakest > 0.5f,
-              "%s: the weakest primary correlation was %.3f\n", path,
-              (double)weakest);
+    check_msg(described == messages,
+              "%s: %d blocks and %d ports in %d of the %d messages\n", path,
+              bandwidth_prb, antenna_ports, described, messages);
+    check_msg(steps > 8 && advanced >= steps - 1,
+              "%s: the frame number advanced correctly %d times of %d\n",
+              path, advanced, steps);
 }
 
 int main(void) {
@@ -897,13 +946,12 @@ int main(void) {
     test_broadcast_channel_refuses();
 
     /*
-     * A live band 20 cell at 796.0 MHz, recorded by this program. Its own
-     * reference signals name a cell whose N_ID_2 is 1, and the primary
-     * sequence agrees -- two measurements with nothing in common but the air
-     * between them. A conjugated generator reports 2 instead, so this one
-     * number is the whole point of keeping the capture.
+     * A live band 20 cell at 796.0 MHz, recorded by this program: identity
+     * 28, two subcarriers of tuning error, a 10 MHz carrier on two antenna
+     * ports. Every one of those is a number the code got wrong at some point
+     * while every synthetic check passed.
      */
-    check_real_capture("testfiles/lte_b20_pci32.bin", 1, 14);
+    check_real_capture("testfiles/lte_b20_pci28.bin", 28, -2, 50, 2, 14);
 
     return check_report("lte cell search and broadcast channel");
 }

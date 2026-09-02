@@ -1,0 +1,18 @@
+{
+  "provenance": "recorded by sdrprobe",
+  "format": "unsigned 8-bit interleaved I/Q, 127.5 = zero",
+  "technology": "lte",
+  "center_frequency_hz": 796000000,
+  "sample_rate_hz": 1920000,
+  "gain_db": 29.7,
+  "ppm": 0,
+  "source": "RTL-SDR: Generic RTL2832U",
+  "tuner": "R820T",
+  "started_at": "2026-09-02T00:26:44",
+  "duration_seconds": 2.048,
+  "bytes": 7864320,
+  "short_blocks": 0,
+  "earfcn": 6200,
+  "band": 20,
+  "note": "Live band 20 downlink, 796.0 MHz, recorded by sdrprobe at LTE's own 1.92 MS/s grid. Physical cell identity 28 (N_ID_1 9, N_ID_2 1), normal cyclic prefix, two antenna ports, 50 resource blocks -- a 10 MHz carrier. The receiver's tuning error is two whole subcarriers plus about -1.8 kHz, roughly -36 ppm at this frequency; the whole-subcarrier part is the thing a primary sequence cannot measure and the reason this capture spent a day decoding as cell 32. The frame number advances by six or seven per 68 ms block, which is what check-lte-dsp asserts."
+}
