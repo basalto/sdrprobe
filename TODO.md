@@ -25,6 +25,18 @@
 - [ ] Add optional Mode S/ADS-B preamble and valid-message counters, while
   keeping full aircraft tracking and networking out of this probe.
 
+- [ ] Read RDS off FM broadcast. The full-range sweep puts FM 14 dB above
+  everything else here, the 19 kHz pilot sits 32 dB over the noise and the
+  57 kHz band 10 dB over it, and the payload -- programme identification,
+  station name, radio text -- is the same shape as GSM's BCCH and LTE's Master
+  Information Block. It is also the only strong thing in the sweep that fits
+  the receiver with room to spare. `.scratch/rds-decoder/`.
+- [ ] Name the frequencies the band plan cannot. 88 of the sweep's candidates
+  fall in gaps in the table, a third of everything heard, including
+  416.652 MHz at -23.9 dBFS -- the loudest thing that is not broadcast radio.
+  A survey's allocation is the only claim it is allowed to make about identity
+  (ADR-0015), so a gap is the survey losing the one thing it can honestly say.
+  `.scratch/band-plan-coverage/`.
 - [ ] Extended-cyclic-prefix LTE. The cell search reports it; the broadcast
   channel declines it, because that prefix puts a third reference symbol
   inside the channel and shortens it to 432 bits. No commercial FDD cell uses
@@ -46,6 +58,13 @@
   coarse-to-fine order, and a headless `--lte-scan` so the results can be read
   without clicking. The LTE view borrows the receiver at 1.92 MS/s and gives
   the rate and the tuning back when it is left.
+- [x] Surveys that accumulate. `surveys/` keeps one JSON per sweep,
+  `scripts/survey_tool.py` ingests, reports and diffs them, and the
+  `rf-environment` skill reads them for what is known, what is new, and
+  whether a candidate technology passes the two gates -- does it fit the
+  receiver, and is it actually there. Both gates exist because something
+  failed them: 5G NR after a ticket was written for it, DAB+ just before one
+  was.
 - [x] Told what is transmitting on n28, which turned out to close the question
   rather than open a decoder. The 700 MHz downlink here carries 5G NR at
   30 kHz subcarrier spacing: a burst every 20 ms at 8.1 times its floor with

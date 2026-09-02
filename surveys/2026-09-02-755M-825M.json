@@ -1,0 +1,169 @@
+{
+ "candidates": [
+  {
+   "allocation": "LTE band 20 downlink",
+   "centre_hz": null,
+   "dbfs": -30.7,
+   "flags": [],
+   "hz": 801326294,
+   "prominence_db": 18.9,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 20 downlink",
+   "centre_hz": null,
+   "dbfs": -34.8,
+   "flags": [],
+   "hz": 811289673,
+   "prominence_db": 15.0,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 20 downlink",
+   "centre_hz": null,
+   "dbfs": -35.1,
+   "flags": [],
+   "hz": 820526733,
+   "prominence_db": 14.7,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 20 downlink",
+   "centre_hz": null,
+   "dbfs": -36.0,
+   "flags": [],
+   "hz": 811426392,
+   "prominence_db": 13.8,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 20 downlink",
+   "centre_hz": null,
+   "dbfs": -36.1,
+   "flags": [],
+   "hz": 791354370,
+   "prominence_db": 13.7,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 20 downlink",
+   "centre_hz": null,
+   "dbfs": -37.7,
+   "flags": [],
+   "hz": 817664185,
+   "prominence_db": 12.1,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 20 downlink",
+   "centre_hz": null,
+   "dbfs": -39.3,
+   "flags": [],
+   "hz": 798643188,
+   "prominence_db": 10.4,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 28 downlink",
+   "centre_hz": null,
+   "dbfs": -40.1,
+   "flags": [],
+   "hz": 774230347,
+   "prominence_db": 7.4,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 20 downlink",
+   "centre_hz": null,
+   "dbfs": -40.5,
+   "flags": [],
+   "hz": 808222046,
+   "prominence_db": 9.2,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 28 downlink",
+   "centre_hz": null,
+   "dbfs": -42.2,
+   "flags": [],
+   "hz": 778289185,
+   "prominence_db": 6.5,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 28 downlink",
+   "centre_hz": null,
+   "dbfs": -42.7,
+   "flags": [],
+   "hz": 782313843,
+   "prominence_db": 6.0,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 28 downlink",
+   "centre_hz": null,
+   "dbfs": -42.9,
+   "flags": [],
+   "hz": 780750122,
+   "prominence_db": 5.8,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 28 downlink",
+   "centre_hz": null,
+   "dbfs": -43.9,
+   "flags": [],
+   "hz": 781536255,
+   "prominence_db": 4.8,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 28 downlink",
+   "centre_hz": null,
+   "dbfs": -46.8,
+   "flags": [],
+   "hz": 760404663,
+   "prominence_db": 4.5,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 28 downlink",
+   "centre_hz": null,
+   "dbfs": -47.1,
+   "flags": [],
+   "hz": 776571655,
+   "prominence_db": 0.2,
+   "width_hz": null
+  },
+  {
+   "allocation": "LTE band 28 downlink",
+   "centre_hz": null,
+   "dbfs": -51.7,
+   "flags": [],
+   "hz": 777477417,
+   "prominence_db": -4.5,
+   "width_hz": null
+  }
+ ],
+ "note": "Bands 20 and 28 only, longer dwell, same antenna as the full sweep.",
+ "range_hz": [
+  755000000,
+  825000000
+ ],
+ "receiver": {
+  "tuner": "Rafael Micro R820T"
+ },
+ "recorded_at": "2026-09-02T19:01:57",
+ "schema": 1,
+ "sweep": {
+  "bin_hz": 8544.9,
+  "bins": 8192,
+  "blocks": 220,
+  "dwell_s": 0.25,
+  "steps": 44
+ },
+ "totals": {
+  "candidates": 16,
+  "suspicious": 0
+ }
+}
