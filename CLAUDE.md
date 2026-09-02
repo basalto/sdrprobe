@@ -158,6 +158,13 @@ the survey found, since a sweep is otherwise reached by clicking:
 ./sdrprobe --headless --survey --survey-range 470M:690M --survey-dwell 0.2
 ```
 
+Surveys accumulate rather than scroll past: `scripts/survey_tool.py` turns that
+output into a JSON under `surveys/`, reports one grouped by allocation, and
+diffs two. `surveys/2026-09-02-24M-1766M.md` is the whole tuner, 24 to
+1766 MHz, and the `rf-environment` skill is the analysis over them -- what is
+known, what is new, and the two gates a candidate technology has to pass before
+anyone writes a ticket for it.
+
 One record per line, keyword first, integer hertz, the band-plan allocation
 last because it is the only field that can contain a space. `candidate` rows
 carry the frequency the survey found, the frequency the measurement refined it

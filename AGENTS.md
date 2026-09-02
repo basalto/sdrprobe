@@ -489,6 +489,14 @@ A round trip proves the code agrees with itself, not with the standard.
 corroboration of a real-signal answer, the two faults that hid behind green
 checks, and which diagnostic tool answers which question.
 
+### The RF environment
+
+`surveys/` keeps one JSON per band survey so sweeps can be compared over time,
+and `.claude/skills/rf-environment/SKILL.md` reads them: what is on air, what
+changed, and what is worth decoding next. It carries the two gates -- does the
+signal fit the receiver, and is it actually there -- that 5G NR and DAB+ each
+failed after looking like the obvious next thing.
+
 ### Issue tracker
 
 Issues are tracked as local markdown under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
