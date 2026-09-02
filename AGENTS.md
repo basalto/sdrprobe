@@ -435,6 +435,42 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `docs/sdrprobe-implementation.md` — implementation and verification
   contract for the `sdrprobe` probe.
 
+## Adding a view
+
+Each screen has a view file, and they are built the same way; `view_lte.c`
+with `lte_layout.h` is the most recent and the closest thing to a template.
+The order that avoids rework:
+
+1. **`src/<tech>_layout.h`** — header-only, one pure
+   `<tech>_layout_for(float width, float height)` returning a struct of
+   `Rectangle`s. It reads nothing from the window and calls no raylib
+   function; that is what lets a check pin the geometry without opening one.
+2. **`src/view_<tech>.c`** — draws from that struct and decides nothing.
+   Declare its entry points in `src/view.h` beside the LTE set: `draw_`,
+   `handle_<tech>_input`, `update_`, `view_<tech>_defaults`, and
+   `enter_`/`leave_` if it borrows the receiver.
+3. **`struct <tech>_view` in `src/app.h`**, reached as `app-><tech>.*`. State
+   belonging to one view lives with it rather than loose in `struct app`.
+4. **`enum decode_kind` in `src/app.h`** — extend it. An ad-hoc mode flag is
+   the thing those enums replaced (ADR-0008).
+5. **`tests/layout_test.c`** — include the header and pin the geometry.
+6. **The Makefile** — add the header to `check-layout`'s prerequisites. This
+   step has been missed once: the test binary is prebuilt, so a change to a
+   header the rule does not name leaves the old checks in place, and they
+   pass.
+7. **Input** — add the dispatch at the end of the frame loop's precedence
+   chain (CLAUDE.md sets out the order) rather than reading keys while
+   drawing.
+
+Then the rule that outranks the list: anything the view *decides* — a
+threshold, a range, a pointer mapped to an index, a state machine advanced —
+comes out into a named unit a check can reach (ADR-0012).
+`src/sdrgui_geometry.h` is where that lands for anything positional, and
+`sdrgui_bar_index_at()` is the worked example. It exists because a hit test
+written inside a draw function selected the bar one or two to the right of the
+pointer, the bars having been drawn inside a label gutter the hit test did not
+know about, and there is no way to see that broken except by clicking.
+
 ## Seeing the window
 
 `--screenshot <file>` writes the last frame of a windowed run to a PNG, which
