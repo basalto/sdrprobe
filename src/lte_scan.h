@@ -60,9 +60,49 @@
  * already shown something is looked at again, so the extra looks are spent
  * where they decide something.
  */
-#define LTE_SCAN_MIN_LOOKS 2
+#define LTE_SCAN_MIN_LOOKS 3
 #define LTE_SCAN_MAX_LOOKS 5
 #define LTE_SCAN_CONFIRMATIONS 2
+
+/*
+ * Why the minimum is three and not two.
+ *
+ * A channel is only looked at again once it has said something, so the
+ * minimum is what a *silent* channel costs -- and a cell that yields an
+ * identity in about half its blocks is silent through two looks a quarter of
+ * the time. That is not hypothetical: the live band 20 carrier at 816 MHz
+ * does exactly this, and a scan that finds it four times in five is a scan
+ * whose empty result means nothing. A third look takes the miss to an eighth
+ * and costs one probe on every channel -- about thirty-six seconds on band
+ * 20's three hundred, against a sweep that already runs for two minutes.
+ *
+ * Going further is the wrong way to spend the time. A fourth look would buy
+ * a sixteenth for another thirty-six seconds, where the confirmation pass
+ * below buys more certainty than that for four.
+ */
+
+/*
+ * The confirmation pass.
+ *
+ * The sweep's job is to miss nothing, so its gate is loose enough that some
+ * of what it lists is not real -- a repeatable artefact clears "the same
+ * identity twice" exactly as a weak cell does, because repeatability is the
+ * one thing an artefact has. The sweep cannot afford to ask harder: every
+ * extra look it takes is paid three hundred times over.
+ *
+ * A pass at the end can, because by then there are only the few entries the
+ * sweep listed. Each is revisited and asked five more times, and keeps its
+ * place only if the identity it was listed under comes back at least twice.
+ * For a handful of cells that is about four seconds -- the cheapest certainty
+ * in the whole scan, and the reason the sweep is allowed to stay generous.
+ */
+#define LTE_SCAN_CONFIRM_LOOKS 5
+#define LTE_SCAN_CONFIRM_AGREE 2
+
+/* Whether a revisited entry keeps its place. */
+static inline int lte_scan_confirmed(int agreements) {
+    return agreements >= LTE_SCAN_CONFIRM_AGREE;
+}
 
 /* The passes, in channels: a whole megahertz, then every half, then the rest
    of the 100 kHz raster. */
@@ -95,6 +135,40 @@ static inline int lte_scan_same_carrier(double a_hz, double b_hz) {
 /* How many cells a scan will remember. More than any band holds in practice;
    the list is what the reader picks from, not a database. */
 #define LTE_SCAN_MAX_FOUND 24
+
+/*
+ * One entry in that list: where it was found, what it said, and how well.
+ *
+ * It lives here rather than in app.h so that the arithmetic over a list of
+ * them -- dropping a rejected entry and keeping the rest in order -- is
+ * reachable by a check (ADR-0012). The view owns the list; this owns what may
+ * be done to it.
+ */
+struct lte_found_cell {
+    unsigned int earfcn;
+    uint32_t frequency_hz;
+    int pci;
+    float pss;
+    float sss_margin;
+};
+
+/*
+ * Drop entry `index`, keep the rest in their order, and return the new count.
+ *
+ * Two callers: the confirmation pass, removing an entry that did not come
+ * back, and the sweep, replacing a ghost with the carrier it was a ghost of.
+ * They had the same four lines written twice, and one of them also has to fix
+ * up the selected row, which is how they would have drifted apart.
+ */
+static inline int lte_scan_remove(struct lte_found_cell *found, int count,
+                                  int index) {
+    int i;
+    if (!found || index < 0 || index >= count)
+        return count;
+    for (i = index; i < count - 1; i++)
+        found[i] = found[i + 1];
+    return count - 1;
+}
 
 /* How many channels a band holds. */
 static inline int lte_scan_count(const struct lte_band *band) {
@@ -156,6 +230,20 @@ static inline double lte_scan_seconds(const struct lte_band *band) {
     return (double)lte_scan_count(band) *
            (LTE_SCAN_SETTLE_SECONDS +
             LTE_SCAN_MIN_LOOKS * LTE_SCAN_PROBE_SECONDS);
+}
+
+/*
+ * What the confirmation pass adds, once the sweep has found this many. Unlike
+ * the sweep it cannot be quoted before starting, because nobody knows yet how
+ * many entries there will be to revisit -- which is why the view reports it
+ * only while it is happening.
+ */
+static inline double lte_scan_confirm_seconds(int found_count) {
+    if (found_count <= 0)
+        return 0.0;
+    return (double)found_count *
+           (LTE_SCAN_SETTLE_SECONDS +
+            LTE_SCAN_CONFIRM_LOOKS * LTE_SCAN_PROBE_SECONDS);
 }
 
 /* And how long the first pass takes, which is the number that matters: it is

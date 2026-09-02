@@ -169,6 +169,10 @@ static int scan_start(struct app *app, double now) {
     scan->found_count = 0;
     scan->selected = -1;
     scan->running = 1;
+    scan->confirming = 0;
+    scan->confirm_index = 0;
+    scan->confirm_total = 0;
+    scan->confirm_dropped = 0;
     app->lte.cell_valid = 0;
     app->lte.mib_valid = 0;
     if (scan_tune(app, lte_scan_candidate(band, 0), now) < 0) {
@@ -227,9 +231,7 @@ static void scan_record(struct app *app, unsigned int earfcn,
             continue;
         if (scan->found[i].pss >= cell->pss_correlation)
             return;
-        memmove(&scan->found[i], &scan->found[i + 1],
-                (size_t)(scan->found_count - i - 1) * sizeof(scan->found[0]));
-        scan->found_count--;
+        scan->found_count = lte_scan_remove(scan->found, scan->found_count, i);
         if (scan->selected >= scan->found_count)
             scan->selected = -1;
         break;
@@ -273,6 +275,78 @@ static void scan_select(struct app *app, int row) {
     retune_receiver(app, scan->found[row].frequency_hz, app->applied_ppm);
 }
 
+/*
+ * The confirmation pass: revisit one listed cell and ask it again.
+ *
+ * The sweep has to be generous, because it gets one chance at each of three
+ * hundred channels and an entry it never lists can never be recovered. That
+ * generosity is what lets a repeatable artefact onto the list: clearing the
+ * gate twice with the same identity is exactly what a weak cell does, and
+ * repeatability is the one property an artefact shares with it.
+ *
+ * What separates them is how they behave when asked properly. By the end of
+ * the sweep there are a handful of entries rather than three hundred
+ * channels, so each can afford five more looks -- and an entry that cannot
+ * produce the identity it was listed under twice in five loses its place.
+ */
+static void scan_confirm_step(struct app *app, double now, int have_block) {
+    struct lte_band_scan *scan = &app->lte.scan;
+    struct lte_cell cell;
+
+    if (!scan->settled) {
+        if (now - scan->step_started >= LTE_SCAN_SETTLE_SECONDS) {
+            scan->settled = 1;
+            scan->step_started = now;
+        }
+        return;
+    }
+
+    if (have_block &&
+        app->pair_count >= LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE) {
+        scan->looks++;
+        if (lte_cell_search(app->i_samples, app->q_samples, app->pair_count,
+                            (double)app->applied_sample_rate, &cell,
+                            NULL) == 1 &&
+            cell.pci == scan->found[scan->confirm_index].pci)
+            scan->pending_hits++;
+        /* Stop early once it has answered: the remaining looks would be spent
+           on a question already settled, and this pass is worth having
+           because it is cheap. */
+        if (!lte_scan_confirmed(scan->pending_hits) &&
+            scan->looks < LTE_SCAN_CONFIRM_LOOKS)
+            return;
+    } else if (now - scan->step_started <
+               LTE_SCAN_CONFIRM_LOOKS * LTE_SCAN_PROBE_SECONDS + 1.0) {
+        return;   /* still waiting for a block worth looking at */
+    }
+
+    if (lte_scan_confirmed(scan->pending_hits)) {
+        scan->confirm_index++;
+    } else {
+        scan->found_count = lte_scan_remove(scan->found, scan->found_count,
+                                            scan->confirm_index);
+        scan->confirm_dropped++;
+        if (scan->selected == scan->confirm_index)
+            scan->selected = -1;
+        else if (scan->selected > scan->confirm_index)
+            scan->selected--;
+        /* Whatever followed has moved into this slot, so the index stays
+           where it is. */
+    }
+
+    if (scan->confirm_index >= scan->found_count) {
+        scan->confirming = 0;
+        scan->running = 0;
+        if (scan->found_count > 0)
+            scan_select(app, 0);
+        return;
+    }
+    if (scan_tune(app, scan->found[scan->confirm_index].earfcn, now) < 0) {
+        scan->confirming = 0;
+        scan->running = 0;
+    }
+}
+
 void update_lte_scan(struct app *app, double now, int have_block) {
     struct lte_band_scan *scan = &app->lte.scan;
     const struct lte_band *band = selected_band(app);
@@ -281,6 +355,11 @@ void update_lte_scan(struct app *app, double now, int have_block) {
 
     if (!scan->running || !band)
         return;
+
+    if (scan->confirming) {
+        scan_confirm_step(app, now, have_block);
+        return;
+    }
 
     if (!scan->settled) {
         /* Samples arriving now were taken while the tuner was still moving,
@@ -324,11 +403,21 @@ void update_lte_scan(struct app *app, double now, int have_block) {
 
     scan->candidate++;
     if (scan->candidate >= scan->total) {
+        /* The band is walked. Now ask the few it listed to say it again --
+           four seconds against the two minutes already spent, and the only
+           part of the scan that can take an entry away. */
+        if (scan->found_count > 0) {
+            scan->confirming = 1;
+            scan->confirm_index = 0;
+            scan->confirm_total = scan->found_count;
+            scan->confirm_dropped = 0;
+            if (scan_tune(app, scan->found[0].earfcn, now) < 0) {
+                scan->confirming = 0;
+                scan->running = 0;
+            }
+            return;
+        }
         scan->running = 0;
-        /* Park on the first cell found, so a finished scan leaves the view
-           looking at something rather than at wherever it stopped. */
-        if (scan->found_count > 0)
-            scan_select(app, 0);
         return;
     }
     if (scan_tune(app, lte_scan_candidate(band, scan->candidate), now) < 0)
@@ -526,7 +615,17 @@ static void draw_found_panel(const struct app *app, Rectangle rect) {
     char text[160];
     int i;
 
-    if (scan->running && band) {
+    if (scan->running && scan->confirming) {
+        /* The sweep's own progress line would sit at 100% and stop moving,
+           which reads as a scan that has hung rather than one spending its
+           most useful four seconds. */
+        snprintf(text, sizeof(text), "confirming %d of %d   %d dropped",
+                 scan->confirm_index + scan->confirm_dropped + 1,
+                 scan->confirm_total, scan->confirm_dropped);
+        sdrgui_text_fit(text, (int)rect.x + 12,
+                        (int)(rect.y + rect.height) - 22, 15,
+                        rect.width - 24.0f, warning);
+    } else if (scan->running && band) {
         double done = scan->total > 0
                           ? 100.0 * scan->candidate / scan->total : 0.0;
         uint32_t hz = 0;
@@ -542,6 +641,11 @@ static void draw_found_panel(const struct app *app, Rectangle rect) {
         const char *note;
         if (scan->running)
             note = "Looking...";
+        else if (scan->confirm_dropped > 0)
+            /* Otherwise this is indistinguishable from a band nobody has
+               looked at, when in fact it was looked at and everything it
+               offered was withdrawn. */
+            note = "Nothing held up: every candidate failed its second look.";
         else if (!app->receiver_mode)
             note = "A scan needs a live receiver; a capture holds one tuning.";
         else

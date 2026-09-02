@@ -194,14 +194,6 @@ struct adsb_view {
  * strong one.
  */
 /* One cell a scan found, and enough about it to be worth listing. */
-struct lte_found_cell {
-    unsigned int earfcn;
-    uint32_t frequency_hz;
-    int pci;
-    float pss;
-    float sss_margin;
-};
-
 /*
  * A walk along a band's channels, looking for a cell at each.
  *
@@ -228,6 +220,19 @@ struct lte_band_scan {
     struct lte_found_cell found[LTE_SCAN_MAX_FOUND];
     int found_count;
     int selected;               /* the row the reader picked, -1 for none */
+    /*
+     * The confirmation pass, which runs once the sweep has walked the band:
+     * every entry above is revisited and asked again, and one that does not
+     * repeat its identity is dropped. `confirming` says the pass is under
+     * way, `confirm_index` which entry is being revisited, and
+     * `confirm_total` how many there were when it began -- the list shortens
+     * as entries fail, so it cannot be recovered afterwards, and the caption
+     * needs it to say how far along the pass is.
+     */
+    int confirming;
+    int confirm_index;
+    int confirm_total;
+    int confirm_dropped;
 };
 
 struct lte_view {

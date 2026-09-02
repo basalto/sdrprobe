@@ -25,15 +25,6 @@
 - [ ] Add optional Mode S/ADS-B preamble and valid-message counters, while
   keeping full aircraft tracking and networking out of this probe.
 
-- [ ] The LTE band scan misses a cell that only decodes in about half its
-  blocks: it looks at two blocks per channel, so a quarter of the time it sees
-  neither. A third look would halve that and cost thirty seconds a band. The
-  live band 20 carrier at 816 MHz is the one that comes and goes.
-- [ ] Weak entries in the LTE scan list are not always real. Confirming an
-  identity twice removed the three obvious false positives, and the list is
-  ordered by correlation so the doubtful ones sink, but a repeatable artefact
-  would still survive. Revisiting each found cell at the end with five looks
-  would settle it for about four seconds.
 - [ ] Extended-cyclic-prefix LTE. The cell search reports it; the broadcast
   channel declines it, because that prefix puts a third reference symbol
   inside the channel and shortens it to 432 bits. No commercial FDD cell uses
@@ -55,6 +46,14 @@
   coarse-to-fine order, and a headless `--lte-scan` so the results can be read
   without clicking. The LTE view borrows the receiver at 1.92 MS/s and gives
   the rate and the tuning back when it is left.
+- [x] An LTE band scan that can be believed either way. The sweep takes three
+  looks at every channel rather than two, because a cell that answers in half
+  its blocks is silent through two looks a quarter of the time -- the live
+  band 20 carrier at 816 MHz is the one that taught this. A confirmation pass
+  then revisits each listed cell with five more looks and drops any that
+  cannot repeat its identity, which costs about four seconds for a handful of
+  cells and is what lets the sweep stay generous. `--lte-scan` reports the
+  drops alongside the finds.
 - [x] LTE analysis charts: the correlation profile, the candidate scores, the
   channel across the broadcast's subcarriers, and the elements themselves.
 - [x] LTE, off the air: cell search to a physical cell identity, and the

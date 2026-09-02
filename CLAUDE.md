@@ -129,12 +129,15 @@ Walking an LTE band without a window -- the scan is otherwise a button, and a
 button is not something a script can press:
 
 ```sh
-./sdrprobe --headless --lte-scan 20        # bands 8, 20, 28; ~130 s for a band
+./sdrprobe --headless --lte-scan 20        # bands 8, 20, 28; ~170 s for a band
 ```
 
-One `cell` line per identity found, then a summary. Only the strong ones are
-certain: the line carries the PSS correlation and the SSS margin so a weak
-entry can be told from a solid one.
+One `cell` line per identity found, then a summary. The sweep takes three
+looks at every channel and lists an identity that repeats; a confirmation pass
+then revisits each entry with five more looks and drops any that cannot say the
+same thing twice, which the summary reports as `dropped`. The `cell` line
+carries the PSS correlation and the SSS margin, so a weak survivor can still be
+told from a solid one.
 
 Reading a band survey without a window — the only way an agent can see what
 the survey found, since a sweep is otherwise reached by clicking:
