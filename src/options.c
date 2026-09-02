@@ -9,14 +9,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The LTE sample grid, spelled here as an integer so this file stays free of
+   the DSP headers -- the same reason parse_gsm_features takes its flags as
+   arguments. lte_dsp.h derives it from 128 subcarriers of 15 kHz. */
+#define LTE_SAMPLE_RATE_HZ_U32 1920000U
+
 void usage(const char *program) {
     fprintf(stderr,
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
-            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb]\n"
-            "          [--record-seconds n] [--technology gsm|adsb|raw]\n"
-            "          [--arfcn 1-124] [--gsm-features list] [--dc-filter on|off]\n"
+            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte]\n"
+            "          [--record-seconds n] [--technology gsm|adsb|lte|raw]\n"
+            "          [--arfcn 1-124] [--earfcn n] [--gsm-features list]\n"
+            "          [--dc-filter on|off]\n"
             "          [--survey-range low:high] [--survey-dwell seconds]\n"
             "          [--duration n] [--once] [--headless] [--decode]\n"
             "          [--list-devices]\n"
@@ -31,6 +37,8 @@ void usage(const char *program) {
             "                    --record-seconds to capture from a script\n"
             "  --arfcn           tune to a GSM 900 downlink channel (its\n"
             "                    carrier sits 400 kHz above the tuned centre)\n"
+            "  --earfcn          tune to an LTE downlink carrier, centred on\n"
+            "                    it, and set the 1.92 MS/s LTE sample grid\n"
             "  --gsm-features    SCH decoder refinements to enable: any of\n"
             "                    filter,finecfo,trellis, or none (default all)\n"
             "  --dc-filter       spectrum/waterfall DC-spike removal\n"
@@ -176,7 +184,8 @@ int parse_view(const char *text, enum start_view *view) {
         { "waterfall", START_VIEW_WATERFALL },
         { "survey", START_VIEW_SURVEY },
         { "gsm", START_VIEW_GSM },
-        { "adsb", START_VIEW_ADSB }
+        { "adsb", START_VIEW_ADSB },
+        { "lte", START_VIEW_LTE }
     };
 
     if (!text)
@@ -316,6 +325,16 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->survey_dwell_seconds > 0.0 || i + 1 >= argc ||
                 parse_seconds(argv[++i], &options->survey_dwell_seconds) < 0)
                 return -1;
+        } else if (strcmp(option, "--earfcn") == 0) {
+            /* The range is every band the plugin knows, checked properly
+               against the table in main(); this only refuses what could not
+               be a channel number at all. */
+            if (options->earfcn || i + 1 >= argc ||
+                parse_int(argv[++i], &options->earfcn) < 0 ||
+                options->earfcn < 0 || options->earfcn > 65535)
+                return -1;
+            if (options->earfcn == 0)
+                return -1;
         } else if (strcmp(option, "--arfcn") == 0) {
             if (options->arfcn || i + 1 >= argc ||
                 parse_int(argv[++i], &options->arfcn) < 0 ||
@@ -349,6 +368,7 @@ int parse_options(int argc, char **argv, struct options *options) {
             options->technology = argv[++i];
             if (strcmp(options->technology, "gsm") != 0 &&
                 strcmp(options->technology, "adsb") != 0 &&
+                strcmp(options->technology, "lte") != 0 &&
                 strcmp(options->technology, "raw") != 0)
                 return -1;
         } else if (strcmp(option, "--record-seconds") == 0) {
@@ -398,6 +418,10 @@ int parse_options(int argc, char **argv, struct options *options) {
     /* An ARFCN is a frequency; naming both leaves no way to say which wins. */
     if (options->arfcn && frequency_seen)
         return -1;
+    if (options->earfcn && frequency_seen)
+        return -1;
+    if (options->earfcn && options->arfcn)
+        return -1;
     /* Looping is a property of playback, and decoding needs to know which
        decoder to run: --technology names it, and --arfcn implies GSM. */
     if (options->play_once && !options->file_path)
@@ -417,12 +441,31 @@ int parse_options(int argc, char **argv, struct options *options) {
         return -1;
     if (options->survey_report && options->file_path && options->survey_seen)
         return -1;
-    if (options->decode && !options->technology && !options->arfcn)
+    /* A decode has to know which decoder to run. --technology names it; a
+       channel number implies it. */
+    if (options->decode && !options->technology && !options->arfcn &&
+        !options->earfcn)
         return -1;
     if (options->arfcn) {
         if (options->technology && strcmp(options->technology, "gsm") != 0)
             return -1;
         options->technology = "gsm";
+    }
+    /* An EARFCN implies LTE, and LTE implies its own sample rate: 1.92 MS/s
+       is 128 subcarriers of 15 kHz, and the plugin refuses anything else
+       rather than resampling (ADR-0014). Setting it here means a capture
+       recorded with --earfcn is on the right grid without being asked, and an
+       explicit --sample-rate that disagrees is a contradiction rather than
+       something to silently override. */
+    if (options->earfcn) {
+        if (options->technology && strcmp(options->technology, "lte") != 0)
+            return -1;
+        options->technology = "lte";
+    }
+    if (options->technology && strcmp(options->technology, "lte") == 0) {
+        if (sample_rate_seen && options->sample_rate != LTE_SAMPLE_RATE_HZ_U32)
+            return -1;
+        options->sample_rate = LTE_SAMPLE_RATE_HZ_U32;
     }
     return 0;
 }

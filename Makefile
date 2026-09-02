@@ -19,11 +19,13 @@ all: sdrprobe
 DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c
 APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
-	$(SRC)/view_adsb.c $(SRC)/view_survey.c $(SRC)/band_plan.c \
+	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_survey.c \
+	$(SRC)/band_plan.c \
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
 	$(SRC)/survey_report.c
 APP_HDR=$(SRC)/options.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
+	$(SRC)/lte_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \

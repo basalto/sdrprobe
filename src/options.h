@@ -33,7 +33,8 @@ enum start_view {
     START_VIEW_WATERFALL,
     START_VIEW_SURVEY,
     START_VIEW_GSM,
-    START_VIEW_ADSB
+    START_VIEW_ADSB,
+    START_VIEW_LTE
 };
 
 enum gain_request_kind {
@@ -68,6 +69,11 @@ struct options {
     /* Decode-side controls, so a capture can be decoded from a script the way
        the views decode it on screen. */
     int arfcn;                /* 0 = none; tunes 400 kHz below the channel */
+    /* An LTE channel number. Unlike an ARFCN it tunes to the carrier centre
+       and not beside it: the synchronisation signals sit on the middle
+       subcarriers, and LTE leaves the very centre unused, so the receiver's
+       own DC spike lands where the standard already transmits nothing. */
+    int earfcn;
     int decode;               /* headless: print decoded messages to stdout */
     /* headless: sweep and print the candidates found, so an agent can read a
        survey without a window or a person to click one. */
@@ -100,7 +106,8 @@ int parse_frequency(const char *text, uint32_t *value);
 int parse_numeric_gain(const char *text, int *tenths);
 /* A positive count of seconds, at most MAX_RUN_SECONDS. */
 int parse_seconds(const char *text, double *value);
-/* A starting-screen name: magnitude, spectrum, scatter, waterfall, gsm, adsb. */
+/* A starting-screen name: magnitude, spectrum, scatter, waterfall, gsm, adsb,
+   lte. */
 int parse_view(const char *text, enum start_view *view);
 /* A comma-separated GSM feature list -- filter, finecfo, trellis -- or "none".
    Returns the GSM_OPT_* bitmask; the caller supplies the flag values so this

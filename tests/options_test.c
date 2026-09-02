@@ -165,6 +165,14 @@ static void test_conflicting_flags(void) {
     rejects("--headless --decode");
     /* An ARFCN is a frequency; naming both leaves no way to say which wins. */
     rejects("--arfcn 73 --frequency 900M");
+    rejects("--earfcn 6200 --frequency 796M");
+    rejects("--earfcn 6200 --arfcn 73");
+    rejects("--earfcn 6200 --technology gsm");
+    rejects("--earfcn 0");
+    /* LTE runs on its own sample grid, so a rate that is not it is a
+       contradiction rather than something to quietly override (ADR-0014). */
+    rejects("--earfcn 6200 --sample-rate 2M");
+    rejects("--technology lte --sample-rate 2400000");
     rejects("--arfcn 73 --technology adsb");
     rejects("--arfcn 0");
     rejects("--arfcn 125");
@@ -204,6 +212,10 @@ static void test_conflicting_flags(void) {
     accepts("--file testfiles/adsb_cpr_pair.bin --headless --technology adsb"
             " --decode --once");
     accepts("--arfcn 73 --decode --headless --gsm-features none");
+    accepts("--earfcn 6200 --decode --headless --once "
+            "--file testfiles/lte_b20_pci32.bin");
+    accepts("--earfcn 6200 --sample-rate 1920000");
+    accepts("--technology lte --headless --record-seconds 2");
     accepts("--survey-range 88M:108M --survey-dwell 0.5");
     accepts("--view survey --duration 20 --dc-filter off");
     accepts("--list-devices");
@@ -220,6 +232,25 @@ static void test_implications(void) {
         expect(options.technology && strcmp(options.technology, "gsm") == 0,
                "--arfcn did not imply the GSM technology label");
         expect(options.arfcn == 73, "--arfcn did not record the channel");
+    }
+
+    if (parse_line("--earfcn 6200", &options) < 0) {
+        fail("--earfcn 6200 was rejected");
+    } else {
+        expect(options.technology && strcmp(options.technology, "lte") == 0,
+               "--earfcn did not imply the LTE technology label");
+        expect(options.earfcn == 6200, "--earfcn did not record the channel");
+        /* The rate is not a default here but a consequence: 128 subcarriers
+           of 15 kHz, and the plugin refuses anything else. */
+        expect(options.sample_rate == 1920000U,
+               "--earfcn did not set LTE's sample grid");
+    }
+
+    if (parse_line("--technology lte", &options) < 0) {
+        fail("--technology lte was rejected");
+    } else {
+        expect(options.sample_rate == 1920000U,
+               "--technology lte did not set LTE's sample grid");
     }
 
     if (parse_line("--survey-range 88M:108M", &options) < 0) {

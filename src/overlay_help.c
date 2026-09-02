@@ -35,6 +35,7 @@ enum help_topic {
     HELP_CONSTELLATION,
     HELP_ADSB,
     HELP_ADSB_ANALYSIS,
+    HELP_LTE,
     HELP_CALIBRATION,
     HELP_TOPIC_COUNT
 };
@@ -57,8 +58,10 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "\n"
     "Two tabs. Scope charts the signal itself and stops at signal statistics: "
     "nothing there has been demodulated, and nothing there is a message. "
-    "Decode is where bits become messages -- GSM synchronisation bursts and "
-    "Mode S / ADS-B frames.\n"
+    "Decode is where bits become messages -- GSM synchronisation bursts, "
+    "Mode S / ADS-B frames, and LTE cell identities. The LTE screen is the "
+    "one exception to the block size above: it acquires at 1.92 MS/s, LTE's "
+    "own grid, so its block covers 68 ms.\n"
     "\n"
     "Every chart draws inside its own rectangle: caption at the top left, "
     "axis labels in the left gutter, and a summary line under the plot "
@@ -73,7 +76,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "\n"
     "Keys\n"
     "1-5   Scope tab: magnitude, spectrum, I/Q scatter, waterfall, survey\n"
-    "1-2   Decode tab: GSM, ADS-B\n"
+    "1-3   Decode tab: GSM, ADS-B, LTE\n"
     "Up/Down   stretch or compress the active chart's scale\n"
     "s   Settings: centre frequency, gain, PPM, DC-spike filter\n"
     "c   Calibration\n"
@@ -535,6 +538,50 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "of the scatter decoded this time and will not next time."
 },
 {
+    "LTE cell search",
+    "Finding an LTE cell, and reading what it broadcasts",
+    "Where: the Decode tab's LTE view. Two panels, and they are meant to be "
+    "read together.\n"
+    "\n"
+    "This view only works at 1.92 MS/s. That is not a preference: LTE is a "
+    "grid of 15 kHz subcarriers, and 128 of them is 1.92 MHz exactly, which is "
+    "the only rate at which the standard's symbol and slot lengths are whole "
+    "numbers of samples. Start with --earfcn and the rate comes with it; a "
+    "receiver already running at 2 MS/s cannot be switched over without "
+    "restarting, and the view says so rather than showing nothing.\n"
+    "\n"
+    "Cell search is the left panel. A cell announces itself twice every "
+    "10 ms with two signals on the middle 62 subcarriers of the carrier -- 62 "
+    "of them however wide the carrier really is, so that a handset can find a "
+    "cell before it knows anything about it. The primary one is a Zadoff-Chu "
+    "sequence, one of three, and finding which gives a third of the cell "
+    "identity along with the symbol timing and the frequency error. The "
+    "secondary one, in the symbol before it, gives the other two thirds and "
+    "says which half of the frame this is, which is what fixes the frame "
+    "boundary. Physical cell identity is 3 x N_ID_1 + N_ID_2, from 0 to 503; "
+    "it is not the cell's name in the network, it is its name to the radio.\n"
+    "\n"
+    "Broadcast is the right panel: the Master Information Block, which is all "
+    "of 24 bits and says how wide the cell is, how its acknowledgement "
+    "channel is arranged, and what time it thinks it is. The frame number's "
+    "lowest two bits are not in the message at all -- one transmission is a "
+    "quarter of a 40 ms period and does not say which quarter, so the decoder "
+    "tries all four and the one whose parity checks out answers both "
+    "questions at once.\n"
+    "\n"
+    "Reading them: an identity on the left with an empty panel beside it "
+    "means a cell is there and its broadcast is not surviving -- a real "
+    "state, and a different one from an empty band. The funnel line above "
+    "counts blocks, cells and messages, which is the fastest way to tell "
+    "those apart.\n"
+    "\n"
+    "What is not here, and cannot be: everything above that message. System "
+    "Information rides the shared data channel, scheduled across the cell's "
+    "whole bandwidth -- 9 MHz for a typical 800 MHz carrier. Sampling 1.92 "
+    "MS/s sees 1.08 MHz of it. That is the receiver's limit, not a missing "
+    "feature."
+},
+{
     "Calibration",
     "Calibration and drift",
     "Where: the Calibration button, or c, from any view.\n"
@@ -624,6 +671,8 @@ static int help_topic_for_screen(const struct app *app) {
     if (app->tab == TAB_DECODE) {
         if (app->decode == DECODE_ADSB)
             return app->adsb.analysis_mode ? HELP_ADSB_ANALYSIS : HELP_ADSB;
+        if (app->decode == DECODE_LTE)
+            return HELP_LTE;
         if (app->scan_selected_arfcn > 0 && app->gsm_analysis_mode)
             return HELP_BURST;
         return HELP_SCAN;
