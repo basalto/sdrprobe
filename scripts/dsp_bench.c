@@ -19,6 +19,8 @@
 #include "sdr_dsp.h"
 #include "adsb_dsp.h"
 #include "gsm_dsp.h"
+#include "lte_dsp.h"
+#include "lte_mib.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -165,6 +167,66 @@ int main(int argc, char **argv) {
         gsm_fcch_detect(i_samples, q_samples, pairs, SAMPLE_RATE, 67708.0,
                         GSM_FCCH_SEARCH_HALF_HZ, &fcch);
     report("FCCH tone detection", now_ms() - start, runs);
+
+    /*
+     * LTE is a different capture, a different sample rate, and -- because the
+     * rate is lower -- a different budget: the same 131072 pairs cover 68.3 ms
+     * at 1.92 MS/s rather than 65.5 at 2. It is reported against its own.
+     */
+    load_block("testfiles/lte_b20_pci32.bin", raw);
+    pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, i_samples, q_samples,
+                               magnitudes, BLOCK_PAIRS);
+    {
+        const double lte_budget_ms =
+            (double)BLOCK_PAIRS / LTE_SAMPLE_RATE_HZ * 1000.0;
+        struct lte_cell cell;
+        struct lte_pss_result pss;
+        float soft[LTE_PBCH_SOFT_BITS];
+        struct lte_mib mib;
+        int lte_runs = runs < 4 ? runs : 4;   /* the search is the slow one */
+        double per;
+
+        printf("\nLTE path (testfiles/lte_b20_pci32.bin, "
+               "%.1f ms to a block at 1.92 MS/s)\n", lte_budget_ms);
+
+        start = now_ms();
+        for (int r = 0; r < lte_runs; r++)
+            lte_pss_detect(i_samples, q_samples, pairs, LTE_SAMPLE_RATE_HZ,
+                           &pss);
+        per = (now_ms() - start) / lte_runs;
+        printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
+               "PSS search (9600 offsets x 3 roots)", per,
+               100.0 * per / lte_budget_ms);
+
+        start = now_ms();
+        for (int r = 0; r < lte_runs; r++)
+            lte_cell_search(i_samples, q_samples, pairs, LTE_SAMPLE_RATE_HZ,
+                            &cell);
+        per = (now_ms() - start) / lte_runs;
+        printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
+               "cell search (PSS, SSS, refinement)", per,
+               100.0 * per / lte_budget_ms);
+
+        if (cell.detected) {
+            start = now_ms();
+            for (int r = 0; r < runs; r++)
+                lte_pbch_soft_bits(i_samples, q_samples, pairs,
+                                   LTE_SAMPLE_RATE_HZ, &cell,
+                                   cell.subframe0_start, 2, soft);
+            per = (now_ms() - start) / runs;
+            printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
+                   "broadcast channel, soft bits", per,
+                   100.0 * per / lte_budget_ms);
+
+            start = now_ms();
+            for (int r = 0; r < runs; r++)
+                lte_mib_decode(soft, cell.pci, &mib);
+            per = (now_ms() - start) / runs;
+            printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
+                   "  and the message behind them", per,
+                   100.0 * per / lte_budget_ms);
+        }
+    }
 
     puts("\nA stage at a few per cent of the budget is not where the time");
     puts("goes; the receiver delivers one block every 65.5 ms whatever the");
