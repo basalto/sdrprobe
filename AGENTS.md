@@ -435,6 +435,15 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `docs/sdrprobe-implementation.md` — implementation and verification
   contract for the `sdrprobe` probe.
 
+## Seeing the window
+
+`--screenshot <file>` writes the last frame of a windowed run to a PNG, which
+the Read tool displays, so a change to a view can be looked at without a
+person. It needs `--duration`, since the frame captured is the one before the
+run ends. `.claude/skills/screenshot/SKILL.md` has the per-view recipes, how
+long each needs to settle, and how to photograph a window that is already
+open.
+
 ## Agent skills
 
 ### Issue tracker

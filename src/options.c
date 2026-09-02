@@ -26,6 +26,7 @@ void usage(const char *program) {
             "          [--dc-filter on|off]\n"
             "          [--survey-range low:high] [--survey-dwell seconds]\n"
             "          [--duration n] [--once] [--headless] [--decode]\n"
+            "          [--screenshot file.png]\n"
             "          [--list-devices]\n"
             "\n"
             "  --view            screen to open on\n"
@@ -51,6 +52,9 @@ void usage(const char *program) {
             "                    transmitters that are not always on\n"
             "  --once            play a capture through once instead of looping\n"
             "  --decode          headless: print decoded messages to stdout\n"
+            "  --screenshot      write the last frame to a PNG before quitting,\n"
+            "                    so a view can be looked at without a person;\n"
+            "                    pair with --duration\n"
             "  --list-devices    print the receivers found, and exit\n",
             program);
 }
@@ -328,6 +332,12 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->survey_dwell_seconds > 0.0 || i + 1 >= argc ||
                 parse_seconds(argv[++i], &options->survey_dwell_seconds) < 0)
                 return -1;
+        } else if (strcmp(option, "--screenshot") == 0) {
+            if (options->screenshot_path || i + 1 >= argc)
+                return -1;
+            options->screenshot_path = argv[++i];
+            if (!options->screenshot_path[0])
+                return -1;
         } else if (strcmp(option, "--lte-scan") == 0) {
             if (options->lte_scan_band || i + 1 >= argc ||
                 parse_int(argv[++i], &options->lte_scan_band) < 0)
@@ -440,6 +450,12 @@ int parse_options(int argc, char **argv, struct options *options) {
     if (options->play_once && !options->file_path)
         return -1;
     if (options->decode && !options->headless)
+        return -1;
+    /* A picture of a frame needs a frame. */
+    if (options->screenshot_path && options->headless)
+        return -1;
+    /* And a run that never ends never takes one, which reads as a hang. */
+    if (options->screenshot_path && options->duration_seconds <= 0.0)
         return -1;
     /* A headless survey prints candidates; a headless decode prints messages.
        Asking for both leaves two things interleaved on one stdout. */

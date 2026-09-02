@@ -82,6 +82,10 @@ struct options {
        the same reason -- the scan is otherwise a button. 0 = not asked for,
        otherwise the band number. */
     int lte_scan_band;
+    /* Where to write a picture of the last frame, so an agent working on a
+       view can see what it drew. A windowed run only: there is no frame
+       without a window. */
+    const char *screenshot_path;
     int play_once;            /* stop at the end of a capture, do not loop */
     int gsm_features;         /* GSM_OPT_* bitmask for the SCH decoder */
     int gsm_features_seen;

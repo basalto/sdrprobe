@@ -183,6 +183,11 @@ static void test_conflicting_flags(void) {
     rejects("--lte-scan 3 --headless");             /* out of a dongle's reach */
     rejects("--lte-scan 0 --headless");
     rejects("--lte-scan 20 --headless --technology gsm");
+    /* A picture of a frame needs a frame, and a run that never ends never
+       takes one -- which would read as a hang rather than a refusal. */
+    rejects("--screenshot shot.png");
+    rejects("--screenshot shot.png --headless --duration 5");
+    rejects("--view lte --screenshot");
     rejects("--arfcn 73 --technology adsb");
     rejects("--arfcn 0");
     rejects("--arfcn 125");
@@ -226,6 +231,7 @@ static void test_conflicting_flags(void) {
             "--file testfiles/lte_b20_pci28.bin");
     accepts("--earfcn 6200 --sample-rate 1920000");
     accepts("--lte-scan 20 --headless");
+    accepts("--view spectrum --duration 5 --screenshot shot.png");
     accepts("--lte-scan 28 --headless --gain max");
     accepts("--technology lte --headless --record-seconds 2");
     accepts("--survey-range 88M:108M --survey-dwell 0.5");

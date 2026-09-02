@@ -994,10 +994,18 @@ static int run_gui(struct app *app) {
     double run_started = GetTime();
 
     while (!signal_stop_requested) {
+        /*
+         * A run that is ending draws one more frame before it goes, so
+         * --screenshot photographs a finished screen rather than whatever was
+         * half-composed when the clock ran out.
+         */
+        int last_frame = 0;
         if (WindowShouldClose())
-            break;
+            last_frame = 1;
         if (app->options.duration_seconds > 0.0 &&
             GetTime() - run_started >= app->options.duration_seconds)
+            last_frame = 1;
+        if (last_frame && !app->options.screenshot_path)
             break;
 
         /* Who gets this frame's input. The precedence is in input_route.h,
@@ -1182,6 +1190,25 @@ static int run_gui(struct app *app) {
             draw_help(app);
         EndDrawing();
 
+        if (last_frame) {
+            /*
+             * The framebuffer is read after the frame is finished and
+             * presented, and exported rather than handed to TakeScreenshot,
+             * which prefixes the working directory to whatever it is given --
+             * so an absolute path silently becomes nonsense and no file
+             * appears. Here the path is used as written.
+             */
+            Image frame = LoadImageFromScreen();
+            if (ExportImage(frame, app->options.screenshot_path))
+                fprintf(stderr, "Wrote %s (%dx%d)\n",
+                        app->options.screenshot_path, frame.width,
+                        frame.height);
+            else
+                fprintf(stderr, "Could not write %s\n",
+                        app->options.screenshot_path);
+            UnloadImage(frame);
+            break;
+        }
         if (snapshot.worker_failed) {
             result = -1;
             break;
