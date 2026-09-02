@@ -25,6 +25,15 @@
 - [ ] Add optional Mode S/ADS-B preamble and valid-message counters, while
   keeping full aircraft tracking and networking out of this probe.
 
+- [ ] Tell what is transmitting on n28. Band 28 is occupied here -- a survey
+  found ten candidates across 758-788 MHz, the strongest at 774.2 MHz -- and
+  `--lte-scan 28` finds no LTE cell in any of it, which is consistent with 5G
+  and equally consistent with a weak LTE carrier. Nothing in this program can
+  currently tell those apart. An NR synchronisation detector would, as far as a
+  cell identity: 127 subcarriers at 15 kHz is 1.905 MHz and fits the 1.92 MS/s
+  grid, while the 240-subcarrier broadcast block does not fit any rate this
+  dongle has. See `.scratch/nr-cell-search/`, whose first ticket is whether
+  n28's subcarrier spacing makes even the identity reachable.
 - [ ] Extended-cyclic-prefix LTE. The cell search reports it; the broadcast
   channel declines it, because that prefix puts a third reference symbol
   inside the channel and shortens it to 432 bits. No commercial FDD cell uses
