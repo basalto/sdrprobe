@@ -76,6 +76,41 @@ struct site_history {
     int count;
 };
 
+/*
+ * A signal heard in fewer than this fraction of a site's sweeps is
+ * intermittent rather than steady. Two thirds, which separates "it is always
+ * there" from "it comes and goes" without calling a signal unreliable for
+ * missing one sweep in five.
+ */
+#define SITE_STEADY_NUMERATOR 2
+#define SITE_STEADY_DENOMINATOR 3
+/* And how many sweeps a site needs before any of that means anything. One
+   sweep makes everything look perfectly steady. */
+#define SITE_ENOUGH_SWEEPS 3
+
+/*
+ * How a signal has behaved here, for the operator rather than for the code.
+ *
+ * `site_status` answers the question the marks need -- has this site heard it
+ * before -- and nothing more. This is the fuller answer: heard every time,
+ * heard sometimes, heard before but not now.
+ */
+enum site_seen {
+    SITE_SEEN_UNKNOWN = 0,   /* too little history to say anything */
+    SITE_SEEN_NEW,
+    SITE_SEEN_STEADY,
+    SITE_SEEN_INTERMITTENT,
+    SITE_SEEN_MISSING
+};
+
+/* `entry` may be NULL, which is what a signal this site has not heard looks
+   like. `heard_now` says whether this sweep found it. */
+enum site_seen site_history_seen(const struct site_history *history,
+                                 const struct site_entry *entry,
+                                 int heard_now);
+/* Short enough for a column: "new", "steady", "on/off", "gone". */
+const char *site_seen_name(enum site_seen seen);
+
 /* What the window says about one frequency in the sweep in front of it. */
 enum site_status {
     SITE_STATUS_UNKNOWN = 0,  /* no history for this site yet */

@@ -224,6 +224,67 @@ static void test_recording_one_signal(void) {
     }
 }
 
+/*
+ * How a signal has behaved here, in a word.
+ *
+ * The marks on the chart only need "has this site heard it"; the list wants
+ * the fuller answer, and the interesting one is intermittent -- a transmitter
+ * that comes and goes is a different thing from one that is always there and
+ * from one that has just appeared.
+ */
+static void test_how_it_has_behaved(void) {
+    struct site_history h;
+    double one[] = { 94.5e6 };
+    const struct site_entry *e;
+    int i;
+
+    site_history_init(&h, "home");
+    check_int("with no history at all, nothing is claimed",
+              (int)site_history_seen(&h, NULL, 1), (int)SITE_SEEN_UNKNOWN);
+
+    /* Five sweeps, all of which heard it. */
+    for (i = 0; i < 5; i++)
+        site_history_merge(&h, one, NULL, NULL, 1, 2000.0);
+    e = site_history_find(&h, 94.5e6, 2000.0);
+    check_int("heard every time is steady",
+              (int)site_history_seen(&h, e, 1), (int)SITE_SEEN_STEADY);
+    check_int("and not hearing it now is gone",
+              (int)site_history_seen(&h, e, 0), (int)SITE_SEEN_MISSING);
+    check_int("something never heard here is new",
+              (int)site_history_seen(&h, NULL, 1), (int)SITE_SEEN_NEW);
+
+    /* Five more that heard nothing at all, so it has been heard in five of
+       ten. A sweep that finds nothing still happened. */
+    for (i = 0; i < 5; i++)
+        site_history_merge(&h, NULL, NULL, NULL, 0, 2000.0);
+    check_int("a quiet sweep still counts", h.sweeps, 10);
+    e = site_history_find(&h, 94.5e6, 2000.0);
+    check_int("heard half the time comes and goes",
+              (int)site_history_seen(&h, e, 1), (int)SITE_SEEN_INTERMITTENT);
+
+    check_str("each has a word", site_seen_name(SITE_SEEN_INTERMITTENT),
+              "on/off");
+    check_str("and so does the absent case",
+              site_seen_name(SITE_SEEN_MISSING), "gone");
+}
+
+static void test_one_sweep_proves_nothing(void) {
+    struct site_history h;
+    double one[] = { 94.5e6 };
+    const struct site_entry *e;
+
+    /* A signal heard in the only sweep there has ever been is not steady in
+       any useful sense, but calling it intermittent would be worse. It reads
+       as steady and the threshold waits for enough sweeps to mean it. */
+    site_history_init(&h, "home");
+    site_history_merge(&h, one, NULL, NULL, 1, 2000.0);
+    e = site_history_find(&h, 94.5e6, 2000.0);
+    check_int("one sweep is not enough to call anything unreliable",
+              (int)site_history_seen(&h, e, 1), (int)SITE_SEEN_STEADY);
+    check_true("and the threshold says how many it wants",
+               SITE_ENOUGH_SWEEPS >= 3);
+}
+
 int main(void) {
     test_a_new_site_knows_nothing();
     test_first_sweep_then_second();
@@ -234,6 +295,9 @@ int main(void) {
     test_recording_one_signal();
     test_round_trip();
     test_the_filename_is_a_filename();
+
+    test_how_it_has_behaved();
+    test_one_sweep_proves_nothing();
 
     return check_report("what a site remembers");
 }

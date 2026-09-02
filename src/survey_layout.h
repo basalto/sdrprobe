@@ -36,6 +36,18 @@ struct survey_layout {
     Rectangle waterfall_button; /* inside detail: watch it over time */
     Rectangle inspect_button;   /* inside detail, when a decoder fits the band */
     float status_y;            /* baseline of the status line, below both rows */
+    /*
+     * How far above a field its caption sits, and how tall captions are.
+     *
+     * In the layout rather than the draw call because it is geometry, and
+     * geometry the layout does not own is geometry no check can see. A second
+     * control row once landed its captions on the row above, and the sweep's
+     * progress line was drawn at a literal 168 that became the caption strip
+     * -- both invisible to check-layout, which could only compare the
+     * rectangles it was given.
+     */
+    float label_offset;
+    float label_height;
     float header_left;         /* x where the status text starts */
     float header_right;        /* x where it must stop */
 };
@@ -108,6 +120,8 @@ static inline struct survey_layout survey_layout_for(float width,
     l.save_button = (Rectangle){ 534.0f, 180.0f, 150.0f, 30.0f };
     l.confirm_button = (Rectangle){ 700.0f, 180.0f, 176.0f, 30.0f };
     l.status_y = 220.0f;
+    l.label_offset = 20.0f;
+    l.label_height = 16.0f;
     l.header_left = 82.0f;
     l.header_right = width - 150.0f;
 

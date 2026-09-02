@@ -130,13 +130,52 @@ enum site_status site_history_status(const struct site_history *history,
                                                   : SITE_STATUS_NEW;
 }
 
+enum site_seen site_history_seen(const struct site_history *history,
+                                 const struct site_entry *entry,
+                                 int heard_now) {
+    if (!history || history->sweeps <= 0)
+        return SITE_SEEN_UNKNOWN;
+    if (!entry)
+        return heard_now ? SITE_SEEN_NEW : SITE_SEEN_UNKNOWN;
+    if (!heard_now)
+        return SITE_SEEN_MISSING;
+    /* Steady and intermittent are the same thing until there is enough
+       history to tell them apart, and calling a signal reliable on the
+       strength of one sweep is worse than saying nothing. */
+    if (history->sweeps < SITE_ENOUGH_SWEEPS)
+        return SITE_SEEN_STEADY;
+    if (entry->sweeps * SITE_STEADY_DENOMINATOR <
+        history->sweeps * SITE_STEADY_NUMERATOR)
+        return SITE_SEEN_INTERMITTENT;
+    return SITE_SEEN_STEADY;
+}
+
+const char *site_seen_name(enum site_seen seen) {
+    switch (seen) {
+    case SITE_SEEN_NEW:          return "new";
+    case SITE_SEEN_STEADY:       return "steady";
+    case SITE_SEEN_INTERMITTENT: return "on/off";
+    case SITE_SEEN_MISSING:      return "gone";
+    case SITE_SEEN_UNKNOWN:      break;
+    }
+    return "-";
+}
+
 int site_history_merge(struct site_history *history, const double *hz,
                        const float *dbfs, const float *prominence, int count,
                        double bin_hz) {
     int i, added = 0;
 
-    if (!history || !hz)
+    if (!history)
         return 0;
+    /*
+     * A sweep that heard nothing is still a sweep, and it has to count: the
+     * whole of "intermittent" is the ratio of sweeps that heard a signal to
+     * sweeps that happened, and dropping the quiet ones makes every signal
+     * look perfectly steady.
+     */
+    if (!hz)
+        count = 0;
     history->sweeps++;
     for (i = 0; i < count; i++) {
         struct site_entry *match = NULL;

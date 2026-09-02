@@ -10,7 +10,13 @@ the more useful question and the only one that needs the files to accumulate.
 
 ## From the survey window
 
-The Scope tab's survey view (key 5) carries the same thing: a **site** and an
+The survey is where the application opens, and the **Survey** button at the
+left of the Scope tab returns to it. It is a button rather than a fifth
+numbered view because it is not a fifth way of looking at the current tuning:
+the other four draw whatever the receiver is pointed at, and this one walks the
+receiver across a band.
+
+The view carries the same thing as the command line: a **site** and an
 **antenna** field on the row under the range, and a **Save survey** button. The
 fields start from the saved configuration and write straight back to it, so
 naming the site here is the same act as `--site` and lasts as long.
@@ -53,6 +59,14 @@ what identifies it; `power_centre_hz` is where the energy actually sits. They
 differ for a lopsided signal: a loaded LTE downlink measured on air had its
 power a megahertz above its middle, and a history matching on that would call
 the same carrier new every sweep.
+
+The candidate list shows each maximum with the **width** and **shape** of the
+signal it belongs to, and what this site has heard of it: `new`, `steady`,
+`on/off` for something that comes and goes, or `gone`. The shape is a
+description of the measurement -- `tone`, `narrow`, `medium`, `wide`, `very
+wide` -- and never an identification; read it against the allocation, which is
+the other half. Medium inside the FM allocation is a station; medium inside a
+gap in the table is worth a closer look.
 
 `report` says how many signals a sweep's candidates grouped into, and the
 headless sweep prints a `carrier` line per signal alongside the `candidate`

@@ -764,8 +764,9 @@ void set_decode(struct app *app, int kind) {
 /* One row of numbered mode options, the active one highlighted. */
 static void draw_option_row(int active, const char **labels, int count,
                             const char *suffix) {
-    int x = 22;
-    const int y = 50;
+    struct chrome_layout chrome = chrome_layout_now();
+    int x = (int)chrome.option_row_left;
+    const int y = (int)chrome.option_row_y;
     for (int i = 0; i < count; i++) {
         Color color = (i == active) ? (Color){ 255, 201, 103, 255 }
                                     : (Color){ 150, 172, 188, 255 };
@@ -814,20 +815,22 @@ int start_capture_record(struct app *app, const char *basename,
 }
 
 static void draw_header(const struct app *app) {
-    static const char *scope_opts[5] = {
-        "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall",
-        "5 survey"
+    static const char *scope_opts[4] = {
+        "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall"
     };
     static const char *decode_opts[3] = { "1 ADS-B", "2 GSM", "3 LTE" };
 
     DrawText("sdrprobe signal visualizer", 22, 14, 24,
              (Color){ 225, 236, 245, 255 });
-    if (app->tab == TAB_SCOPE)
-        draw_option_row((int)app->view, scope_opts, 5,
+    if (app->tab == TAB_SCOPE) {
+        draw_option_row((int)app->view, scope_opts, 4,
                         "Up/Down scale   h help   Esc quit");
-    else
+        draw_button(chrome_layout_now().survey_button, "Survey",
+                    app->view == VIEW_SURVEY);
+    } else {
         draw_option_row((int)app->decode, decode_opts, 3,
                         "h help   Esc scope");
+    }
 
     draw_tab_bar(app);
     draw_button(settings_button(), "Settings", 0);
@@ -922,7 +925,10 @@ static int run_gui(struct app *app) {
         return -1;
 
     sdr_dsp_init(&app->dsp);
-    app->view = VIEW_MAGNITUDE;
+    /* The survey is where a session starts: "what is out there" comes before
+       "what does this one look like", and the other four views need somebody
+       to have tuned the receiver first. */
+    app->view = VIEW_SURVEY;
 
     sigset_t worker_signals;
     sigset_t original_mask;
@@ -967,6 +973,7 @@ static int run_gui(struct app *app) {
        to GSM, so switching to the Decode tab first would enter the GSM view
        and immediately leave it again, retuning twice on the way to ADS-B. */
     switch (app->options.view) {
+    case START_VIEW_MAGNITUDE: app->view = VIEW_MAGNITUDE; break;
     case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM; break;
     case START_VIEW_SCATTER:   app->view = VIEW_SCATTER; break;
     case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL; break;
@@ -1094,7 +1101,8 @@ static int run_gui(struct app *app) {
                     selected = VIEW_SCATTER;
                 if (IsKeyPressed(KEY_FOUR))
                     selected = VIEW_WATERFALL;
-                if (IsKeyPressed(KEY_FIVE))
+                if (app->tab == TAB_SCOPE &&
+                    clicked(chrome_layout_now().survey_button))
                     selected = VIEW_SURVEY;
                 if (selected != app->view) {
                     /* Leaving the survey puts the receiver back where it was

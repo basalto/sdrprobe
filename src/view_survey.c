@@ -468,6 +468,17 @@ static void survey_history_refresh(struct app *app) {
             (int)(sizeof(s->missing) / sizeof(s->missing[0])));
 }
 
+/* Which signal a maximum belongs to, or NULL. The list and the popup both ask,
+   because a reader points at a bump and wants to know about the carrier. */
+static const struct survey_carrier *survey_carrier_at(const struct survey_view *s,
+                                                      double hz) {
+    int i;
+    for (i = 0; i < s->carrier_count; i++)
+        if (hz >= s->carriers[i].lower_hz && hz <= s->carriers[i].upper_hz)
+            return &s->carriers[i];
+    return NULL;
+}
+
 /* What the popup says about one remembered signal. */
 static void survey_history_line(const struct site_history *history,
                                 const struct site_entry *entry, char *out,
@@ -1494,8 +1505,9 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
                         (int)rect.y + 10, 16, rect.width - 190.0f,
                         (Color){ 250, 190, 74, 255 });
     }
-    DrawText("   FREQUENCY       LEVEL     ABOVE FLOOR", (int)rect.x + 12,
-             (int)rect.y + 30, 15, (Color){ 126, 151, 166, 255 });
+    DrawText("   FREQUENCY       LEVEL    WIDTH   SHAPE      SEEN",
+             (int)rect.x + 12, (int)rect.y + 30, 15,
+             (Color){ 126, 151, 166, 255 });
 
     if (visible == 0) {
         DrawText(s->sweeping ? "sweeping..."
@@ -1527,10 +1539,40 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
         /* The marker leads the row. Trailing it put it at the end of the
            longest line in the panel, where sdrgui_text_fit ellipsised it away
            on exactly the rows that needed it. */
-        snprintf(text, sizeof(text), "%s %10.4f MHz  %6.1f dBFS  %5.1f dB",
-                 suspect ? "*" : " ", hz / 1e6,
-                 (double)s->peaks[i].power_dbfs,
-                 (double)s->peaks[i].prominence_db);
+        {
+            /*
+             * What was measured, what shape it is, and what this site has
+             * heard of it before. The prominence gave way to the width and
+             * the shape: prominence is already why the row is here at all,
+             * and how wide a thing is says more about what it is.
+             */
+            const struct survey_carrier *carrier = survey_carrier_at(s, hz);
+            const struct site_entry *known =
+                s->history_loaded
+                    ? site_history_find(&s->history,
+                                        carrier ? carrier->centre_hz : hz,
+                                        s->plan.bin_hz > 0.0 ? s->plan.bin_hz
+                                                             : 1e5)
+                    : NULL;
+            enum site_seen seen = s->history_loaded
+                ? site_history_seen(&s->history, known, 1) : SITE_SEEN_UNKNOWN;
+            char width[16];
+
+            if (carrier && carrier->width_hz >= 1e6)
+                snprintf(width, sizeof(width), "%.1fM", carrier->width_hz / 1e6);
+            else if (carrier)
+                snprintf(width, sizeof(width), "%.0fk", carrier->width_hz / 1e3);
+            else
+                snprintf(width, sizeof(width), "-");
+            snprintf(text, sizeof(text),
+                     "%s %10.4f MHz  %6.1f dBFS  %6s  %-9s  %s",
+                     suspect ? "*" : " ", hz / 1e6,
+                     (double)s->peaks[i].power_dbfs, width,
+                     carrier ? survey_shape_name(
+                                   survey_carrier_shape(carrier->width_hz))
+                             : "-",
+                     site_seen_name(seen));
+        }
         if (suspect && i != s->selected && i != s->hover)
             color = (Color){ 178, 168, 140, 255 };
         sdrgui_text_fit(text, (int)rect.x + 12, (int)y, 17,
@@ -1914,19 +1956,24 @@ void draw_survey(struct app *app) {
 
     survey_refresh_fields(s);
 
-    DrawText("Range", (int)l.from_field.x, (int)l.from_field.y - 20, 16,
+    DrawText("Range", (int)l.from_field.x,
+             (int)(l.from_field.y - l.label_offset), (int)l.label_height,
              (Color){ 157, 180, 194, 255 });
-    DrawText("to", (int)l.to_field.x, (int)l.to_field.y - 20, 16,
+    DrawText("to", (int)l.to_field.x,
+             (int)(l.to_field.y - l.label_offset), (int)l.label_height,
              (Color){ 157, 180, 194, 255 });
-    DrawText("dwell (s)", (int)l.dwell_field.x, (int)l.dwell_field.y - 20, 16,
+    DrawText("dwell (s)", (int)l.dwell_field.x,
+             (int)(l.dwell_field.y - l.label_offset), (int)l.label_height,
              (Color){ 157, 180, 194, 255 });
     sdrgui_text_field(l.from_field, s->from, s->focus == 0);
     sdrgui_text_field(l.to_field, s->to, s->focus == 1);
     sdrgui_text_field(l.dwell_field, s->dwell, s->focus == 2);
-    DrawText("site", (int)l.site_field.x, (int)l.site_field.y - 20, 16,
+    DrawText("site", (int)l.site_field.x,
+             (int)(l.site_field.y - l.label_offset), (int)l.label_height,
              s->site[0] ? (Color){ 157, 180, 194, 255 }
                         : (Color){ 214, 168, 90, 255 });
-    DrawText("antenna", (int)l.antenna_field.x, (int)l.antenna_field.y - 20, 16,
+    DrawText("antenna", (int)l.antenna_field.x,
+             (int)(l.antenna_field.y - l.label_offset), (int)l.label_height,
              (Color){ 157, 180, 194, 255 });
     sdrgui_text_field(l.site_field, s->site, s->focus == 3);
     draw_button(l.site_menu_button, s->site_menu_open ? "^" : "v",
@@ -1963,7 +2010,7 @@ void draw_survey(struct app *app) {
                  s->step + 1, s->step_count,
                  app->applied_frequency / 1e6,
                  survey_bin_width_hz(s) / 1e3, s->dwell_seconds);
-        sdrgui_text_fit(text, (int)l.header_left, 168, 17,
+        sdrgui_text_fit(text, (int)l.header_left, (int)l.status_y, 17,
                         l.header_right - l.header_left,
                         (Color){ 250, 190, 74, 255 });
     } else {

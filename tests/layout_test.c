@@ -175,6 +175,34 @@ static void check_chrome(void) {
         check_msg(fabsf(l.status_left - w->status_left) <= 0.01f,
                   "%.0fx%.0f status_left: got %.2f, expected %.2f\n", w->width,
                   w->height, l.status_left, w->status_left);
+        /*
+         * Survey sits at the left, where the numbered options used to begin,
+         * so the options have to begin after it. The same window that has to
+         * hold both at 1000 px holds the tabs and the right-hand buttons too.
+         */
+        {
+            struct expected survey = { "survey_button", 22.00f, 44.00f,
+                                       104.00f, 28.00f };
+            check(w->width, w->height, "survey_button", l.survey_button,
+                  &survey);
+            check_msg(l.option_row_left >=
+                          l.survey_button.x + l.survey_button.width,
+                      "%.0fx%.0f the numbered options start on the Survey "
+                      "button\n", w->width, w->height);
+            /* And the button's own line clears the title above it. */
+            check_msg(l.survey_button.y >= 38.0f,
+                      "%.0fx%.0f the Survey button lands on the title\n",
+                      w->width, w->height);
+            check_msg(l.option_row_y >= l.survey_button.y &&
+                      l.option_row_y <=
+                          l.survey_button.y + l.survey_button.height,
+                      "%.0fx%.0f the options and the Survey button are not on "
+                      "the same line\n", w->width, w->height);
+            /* It must not run under the tabs on the narrowest window. */
+            check_msg(l.survey_button.x + l.survey_button.width < l.tab[0].x,
+                      "%.0fx%.0f the Survey button reaches the tab bar\n",
+                      w->width, w->height);
+        }
     }
 }
 
@@ -279,6 +307,14 @@ static void check_adsb(void) {
 
 /* The band survey. Its lower row is a pair like the ADS-B view's, and its
    inspect button lives inside a panel that a short window shrinks. */
+/* raylib's own CheckCollisionRecs would do, but this check links no raylib --
+   it compiles against the headers and nothing else, which is what lets it run
+   with no window. */
+static int overlaps(Rectangle a, Rectangle b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x &&
+           a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
 #define SURVEY_RECTS 18
 
 struct survey_case {
@@ -482,6 +518,57 @@ static void check_survey(void) {
                                  l.site_field.y + 40.0f }) == -1,
                   "%.0fx%.0f an empty site menu selects a row\n",
                   w->width, w->height);
+
+        /*
+         * Nothing written may land on anything drawn.
+         *
+         * This is the check that was missing. check-layout compared the
+         * rectangles the layout returned and was blind to text, so a caption
+         * strip could sit on the row above it and the sweep's progress line
+         * could be drawn at a literal coordinate that became the caption
+         * strip. Both happened. Text is geometry, so the layout owns its
+         * baselines and they are compared here like anything else.
+         */
+        {
+            Rectangle controls[11] = {
+                l.from_field, l.to_field, l.dwell_field, l.sweep_button,
+                l.reset_button, l.stop_button, l.site_field,
+                l.site_menu_button, l.antenna_field, l.antenna_menu_button,
+                l.save_button
+            };
+            /* Each caption, as the box it actually occupies. */
+            Rectangle captioned[5] = { l.from_field, l.to_field, l.dwell_field,
+                                       l.site_field, l.antenna_field };
+            int a, b;
+            for (a = 0; a < 5; a++) {
+                Rectangle caption;
+                caption.x = captioned[a].x;
+                caption.y = captioned[a].y - l.label_offset;
+                caption.width = captioned[a].width;
+                caption.height = l.label_height;
+                for (b = 0; b < 11; b++) {
+                    if (overlaps(caption, controls[b]))
+                        check_msg(0, "%.0fx%.0f a caption lands on control %d\n",
+                                  w->width, w->height, b);
+                }
+            }
+            /* And the status line, which doubles as the sweep's progress
+               readout: one line, and for a while it had two coordinates. */
+            {
+                Rectangle status;
+                status.x = l.header_left;
+                status.y = l.status_y;
+                status.width = l.header_right - l.header_left;
+                status.height = 17.0f;
+                for (b = 0; b < 11; b++)
+                    if (overlaps(status, controls[b]))
+                        check_msg(0, "%.0fx%.0f the status line lands on "
+                                  "control %d\n", w->width, w->height, b);
+                check_msg(status.y + status.height <= l.chart.y,
+                          "%.0fx%.0f the status line lands on the chart\n",
+                          w->width, w->height);
+            }
+        }
 
         /* And the status still clears the chart it sits above. */
         check_msg(l.status_y + 17.0f <= l.chart.y,

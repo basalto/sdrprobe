@@ -46,6 +46,48 @@
  * tests/survey_carrier_test.c (ADR-0012).
  */
 
+/*
+ * What kind of thing a carrier looks like, from how wide it is.
+ *
+ * A description of the measurement and not an identification: the band plan
+ * says what a frequency is allocated to and this says what shape is sitting
+ * there, and the two are worth reading together. "Medium, in the FM broadcast
+ * allocation" is a broadcast station; "medium, in a gap in the table" is
+ * something worth a closer look. Neither half claims the other's job
+ * (ADR-0015).
+ */
+enum survey_shape {
+    SURVEY_SHAPE_TONE = 0,   /* a carrier with little or nothing on it */
+    SURVEY_SHAPE_NARROW,     /* voice, paging, telemetry */
+    SURVEY_SHAPE_MEDIUM,     /* broadcast FM, a GSM carrier */
+    SURVEY_SHAPE_WIDE,
+    SURVEY_SHAPE_VERY_WIDE   /* a cellular downlink, a television multiplex */
+};
+
+static inline enum survey_shape survey_carrier_shape(double width_hz) {
+    if (width_hz < 5000.0)
+        return SURVEY_SHAPE_TONE;
+    if (width_hz < 50000.0)
+        return SURVEY_SHAPE_NARROW;
+    if (width_hz < 500000.0)
+        return SURVEY_SHAPE_MEDIUM;
+    if (width_hz < 3000000.0)
+        return SURVEY_SHAPE_WIDE;
+    return SURVEY_SHAPE_VERY_WIDE;
+}
+
+/* Short enough for a column in the candidate list. */
+static inline const char *survey_shape_name(enum survey_shape shape) {
+    switch (shape) {
+    case SURVEY_SHAPE_TONE:      return "tone";
+    case SURVEY_SHAPE_NARROW:    return "narrow";
+    case SURVEY_SHAPE_MEDIUM:    return "medium";
+    case SURVEY_SHAPE_WIDE:      return "wide";
+    case SURVEY_SHAPE_VERY_WIDE: return "very wide";
+    }
+    return "-";
+}
+
 #define SURVEY_CARRIER_MAX 64
 
 /*
