@@ -9,7 +9,19 @@ A single survey says what is transmitting; A single survey says what is
 transmitting; a series says what changed, which is the more useful question and
 the only one that needs the files to accumulate.
 
-## Recording one
+## From the survey window
+
+The Scope tab's survey view (key 5) carries the same thing: a **site** and an
+**antenna** field on the row under the range, and a **Save survey** button. The
+fields start from the saved configuration and write straight back to it, so
+naming the site here is the same act as `--site` and lasts as long.
+
+Save refuses while the site is empty and puts the cursor in the field, rather
+than writing a sweep labelled nothing. It writes the same JSON the script
+ingests, so a sweep saved from the window and one piped from a headless run are
+interchangeable, and one reporting tool reads both.
+
+## Recording one from a script
 
 ```sh
 ./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \

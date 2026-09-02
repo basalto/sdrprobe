@@ -438,7 +438,14 @@ struct survey_view {
     int to_length;
     char dwell[12];
     int dwell_length;
-    int focus;                  /* 0 = from, 1 = to, 2 = dwell */
+    /* Where the receiver is and what it is listening with. Edited here and
+       written straight back to the configuration, because they describe the
+       installation and should still be true next session. */
+    char site[CONFIG_VALUE_MAX];
+    int site_length;
+    char antenna[CONFIG_VALUE_MAX];
+    int antenna_length;
+    int focus;                  /* 0 from, 1 to, 2 dwell, 3 site, 4 antenna */
     double dwell_seconds;       /* parsed at the start of a sweep */
 
     double lower_hz;            /* the range actually swept */

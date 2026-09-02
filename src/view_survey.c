@@ -9,6 +9,7 @@
 #include "survey_layout.h"
 #include "survey_window.h"
 #include "survey_suspect.h"
+#include "survey_store.h"
 #include "sdrgui.h"
 
 /*
@@ -143,6 +144,124 @@ static void survey_reset_view(struct survey_view *s) {
 
 /* Keep the field range current, and before the first sweep keep the window on
    it: editing the range should move the chart it is about to sweep. */
+/*
+ * Which field a focus index names, and what it will accept.
+ *
+ * The range and dwell take a frequency's spelling; the site and the antenna
+ * are names a person chose, so they take anything printable. Written as a
+ * lookup because the alternative -- a chain of ternaries per keystroke -- had
+ * already reached three fields and would not survive five.
+ */
+struct survey_field {
+    char *text;
+    int *length;
+    int capacity;
+    int numeric;
+};
+
+static struct survey_field survey_field_at(struct survey_view *s, int focus) {
+    struct survey_field f;
+    memset(&f, 0, sizeof(f));
+    switch (focus) {
+    case 0: f.text = s->from;    f.length = &s->from_length;
+            f.capacity = (int)sizeof(s->from);    f.numeric = 1; break;
+    case 1: f.text = s->to;      f.length = &s->to_length;
+            f.capacity = (int)sizeof(s->to);      f.numeric = 1; break;
+    case 2: f.text = s->dwell;   f.length = &s->dwell_length;
+            f.capacity = (int)sizeof(s->dwell);   f.numeric = 1; break;
+    case 3: f.text = s->site;    f.length = &s->site_length;
+            f.capacity = (int)sizeof(s->site);    break;
+    case 4: f.text = s->antenna; f.length = &s->antenna_length;
+            f.capacity = (int)sizeof(s->antenna); break;
+    default: break;
+    }
+    return f;
+}
+
+/*
+ * Write the sweep down, so the next one has something to be compared with.
+ *
+ * The spectrum is only handed over when the whole survey came from one tuning.
+ * Across a swept range it belongs to whichever step happened to be last, and a
+ * bandwidth measured out of it would be a number about the wrong signal --
+ * the same rule the headless report follows, and the reason both now go
+ * through survey_candidates_from().
+ */
+static void survey_save_sweep(struct app *app) {
+    struct survey_view *s = &app->survey;
+    struct survey_candidate candidates[SURVEY_MAX_PEAKS];
+    char path[256];
+    int count;
+
+    if (s->peak_count <= 0) {
+        snprintf(s->status, sizeof(s->status),
+                 "Nothing to save yet: sweep first.");
+        return;
+    }
+    if (!s->site[0]) {
+        /* Refused rather than saved as unknown. Two sweeps with no site
+           compare as the same place, which is the one way this archive can
+           mislead instead of merely disappoint. */
+        snprintf(s->status, sizeof(s->status),
+                 "Name the site first -- a sweep without one cannot be "
+                 "compared with another.");
+        s->focus = 3;
+        return;
+    }
+    count = survey_candidates_from(app, &s->plan, s->peaks, s->peak_count,
+                                   s->plan.step_count <= 1
+                                       ? app->spectrum_average : NULL,
+                                   candidates, SURVEY_MAX_PEAKS);
+    if (survey_store_write(app, &s->plan, candidates, count, path,
+                           sizeof(path)) < 0) {
+        snprintf(s->status, sizeof(s->status),
+                 "Could not write the survey; see the terminal.");
+        return;
+    }
+    {
+        /* The name, not the path: the status line is one line and the
+           directory is always the same one. */
+        const char *slash = strrchr(path, '/');
+        snprintf(s->status, sizeof(s->status),
+                 "Saved %d candidates to surveys/%.64s -- compare sweeps "
+                 "with scripts/survey_tool.py diff", count,
+                 slash ? slash + 1 : path);
+    }
+}
+
+/* The fields start from whatever the last session left. */
+static void survey_load_installation(struct app *app) {
+    struct survey_view *s = &app->survey;
+    snprintf(s->site, sizeof(s->site), "%s", app->config.site);
+    s->site_length = (int)strlen(s->site);
+    snprintf(s->antenna, sizeof(s->antenna), "%s", app->config.antenna);
+    s->antenna_length = (int)strlen(s->antenna);
+}
+
+/*
+ * And an edit goes straight back to the file.
+ *
+ * Saved when the field loses focus rather than on every keystroke: a
+ * half-typed site is a wrong site, and writing it would leave the wrong one
+ * behind if the operator then walked away.
+ */
+static void survey_commit_installation(struct app *app) {
+    struct survey_view *s = &app->survey;
+    int changed = 0;
+
+    if (strcmp(app->config.site, s->site)) {
+        snprintf(app->config.site, sizeof(app->config.site), "%s", s->site);
+        changed = 1;
+    }
+    if (s->antenna[0] && strcmp(app->config.antenna, s->antenna)) {
+        snprintf(app->config.antenna, sizeof(app->config.antenna), "%s",
+                 s->antenna);
+        changed = 1;
+    }
+    if (changed)
+        config_save(&app->config);
+}
+
 static void survey_refresh_fields(struct survey_view *s) {
     uint32_t from_hz;
     uint32_t to_hz;
@@ -274,6 +393,7 @@ void view_survey_defaults(struct app *app) {
     s->to_length = (int)strlen(s->to);
     snprintf(s->dwell, sizeof(s->dwell), "%.2f", SURVEY_DWELL_DEFAULT);
     s->dwell_length = (int)strlen(s->dwell);
+    survey_load_installation(app);
     s->dwell_seconds = SURVEY_DWELL_DEFAULT;
     s->selected = -1;
     s->hover = -1;
@@ -622,41 +742,51 @@ void handle_survey_input(struct app *app) {
     /* Typing into whichever range field has focus. The same spellings the
        Settings panel takes, because parse_frequency is the same parser. */
     if (s->focus >= 0 && IsKeyPressed(KEY_ESCAPE)) {
+        if (s->focus == 3 || s->focus == 4)
+            survey_commit_installation(app);
         s->focus = -1;
         return;
     }
     while (s->focus >= 0 && (character = GetCharPressed()) != 0) {
-        int valid = (character >= '0' && character <= '9') ||
-                    character == '.' || character == 'k' || character == 'K' ||
-                    character == 'm' || character == 'M' || character == 'g' ||
-                    character == 'G';
-        char *text = s->focus == 0 ? s->from
-                                   : s->focus == 1 ? s->to : s->dwell;
-        int *length = s->focus == 0 ? &s->from_length
-                                    : s->focus == 1 ? &s->to_length
-                                                    : &s->dwell_length;
-        int capacity = s->focus == 0 ? (int)sizeof(s->from)
-                                     : s->focus == 1 ? (int)sizeof(s->to)
-                                                     : (int)sizeof(s->dwell);
-        if (valid && *length < capacity - 1) {
-            text[(*length)++] = (char)character;
-            text[*length] = '\0';
+        struct survey_field f = survey_field_at(s, s->focus);
+        int valid = f.numeric
+                        ? ((character >= '0' && character <= '9') ||
+                           character == '.' || character == 'k' ||
+                           character == 'K' || character == 'm' ||
+                           character == 'M' || character == 'g' ||
+                           character == 'G')
+                        : (character >= ' ' && character < 127);
+        if (f.text && valid && *f.length < f.capacity - 1) {
+            f.text[(*f.length)++] = (char)character;
+            f.text[*f.length] = '\0';
         }
     }
     if (s->focus >= 0 && IsKeyPressed(KEY_BACKSPACE)) {
-        if (s->focus == 0 && s->from_length > 0)
-            s->from[--s->from_length] = '\0';
-        if (s->focus == 1 && s->to_length > 0)
-            s->to[--s->to_length] = '\0';
-        if (s->focus == 2 && s->dwell_length > 0)
-            s->dwell[--s->dwell_length] = '\0';
+        struct survey_field f = survey_field_at(s, s->focus);
+        if (f.text && *f.length > 0)
+            f.text[--(*f.length)] = '\0';
     }
-    if (clicked(l.from_field))
-        s->focus = 0;
-    if (clicked(l.to_field))
-        s->focus = 1;
-    if (clicked(l.dwell_field))
-        s->focus = 2;
+    {
+        /* Moving focus away from a name is what commits it. */
+        int was = s->focus;
+        if (clicked(l.from_field))
+            s->focus = 0;
+        if (clicked(l.to_field))
+            s->focus = 1;
+        if (clicked(l.dwell_field))
+            s->focus = 2;
+        if (clicked(l.site_field))
+            s->focus = 3;
+        if (clicked(l.antenna_field))
+            s->focus = 4;
+        if (was != s->focus && (was == 3 || was == 4))
+            survey_commit_installation(app);
+    }
+    if (clicked(l.save_button)) {
+        survey_commit_installation(app);
+        survey_save_sweep(app);
+        s->focus = -1;
+    }
     /* One Sweep, and it sweeps what the chart is showing. Zoomed in, that is
        the window; zoomed out or never zoomed, the window is the whole range in
        the fields, so it is the same thing. There used to be two buttons, and
@@ -1195,6 +1325,14 @@ void draw_survey(struct app *app) {
     sdrgui_text_field(l.from_field, s->from, s->focus == 0);
     sdrgui_text_field(l.to_field, s->to, s->focus == 1);
     sdrgui_text_field(l.dwell_field, s->dwell, s->focus == 2);
+    DrawText("site", (int)l.site_field.x, (int)l.site_field.y - 20, 16,
+             s->site[0] ? (Color){ 157, 180, 194, 255 }
+                        : (Color){ 214, 168, 90, 255 });
+    DrawText("antenna", (int)l.antenna_field.x, (int)l.antenna_field.y - 20, 16,
+             (Color){ 157, 180, 194, 255 });
+    sdrgui_text_field(l.site_field, s->site, s->focus == 3);
+    sdrgui_text_field(l.antenna_field, s->antenna, s->focus == 4);
+    draw_button(l.save_button, "Save survey", s->peak_count > 0 && s->site[0]);
     draw_button(l.sweep_button, s->sweeping ? "Sweeping" : "Sweep",
                 !s->sweeping);
     draw_button(l.reset_button, "Reset zoom", 0);
@@ -1211,7 +1349,7 @@ void draw_survey(struct app *app) {
                         l.header_right - l.header_left,
                         (Color){ 250, 190, 74, 255 });
     } else {
-        sdrgui_text_fit(s->status, (int)l.header_left, 168, 17,
+        sdrgui_text_fit(s->status, (int)l.header_left, (int)l.status_y, 17,
                         l.header_right - l.header_left,
                         (Color){ 190, 208, 218, 255 });
     }
