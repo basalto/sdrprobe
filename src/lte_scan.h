@@ -69,6 +69,29 @@
 #define LTE_SCAN_COARSE_STEP 10
 #define LTE_SCAN_MEDIUM_STEP 5
 
+/*
+ * How close two entries in the scan list may be before they are the same
+ * carrier seen twice.
+ *
+ * 1.4 MHz is the narrowest carrier the standard allows, so two real ones are
+ * never nearer than that. Anything closer is the same one found from beside
+ * it -- which happens for the same reason the timing needed re-finding: a
+ * Zadoff-Chu correlation trades frequency error against timing error, so a
+ * strong cell's primary sequence still peaks a few hundred kilohertz off its
+ * own centre, at the wrong time, with whatever identity the secondary
+ * sequence then makes of the wrong subcarriers. A live band 20 scan listed
+ * three such ghosts around one real carrier.
+ */
+#define LTE_SCAN_MIN_CARRIER_GAP_HZ 1400000.0
+
+/* Whether two tunings are too close to be different carriers. */
+static inline int lte_scan_same_carrier(double a_hz, double b_hz) {
+    double gap = a_hz - b_hz;
+    if (gap < 0.0)
+        gap = -gap;
+    return gap < LTE_SCAN_MIN_CARRIER_GAP_HZ;
+}
+
 /* How many cells a scan will remember. More than any band holds in practice;
    the list is what the reader picks from, not a database. */
 #define LTE_SCAN_MAX_FOUND 24

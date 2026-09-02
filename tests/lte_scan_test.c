@@ -115,6 +115,24 @@ static void test_how_long_it_takes(void) {
                lte_scan_first_pass_seconds(band) < lte_scan_seconds(band) / 9.0);
 }
 
+/*
+ * Two entries too close together are one carrier. The rule exists because a
+ * Zadoff-Chu correlation peaks a few hundred kilohertz off a strong cell's
+ * own centre -- a live scan listed three ghosts around one real carrier --
+ * and it is safe because the standard has no carrier narrower than 1.4 MHz.
+ */
+static void test_ghosts_are_one_carrier(void) {
+    check_true("400 kHz apart is one carrier",
+               lte_scan_same_carrier(796000000.0, 796400000.0));
+    check_true("and so is 1.1 MHz, whichever way round",
+               lte_scan_same_carrier(797100000.0, 796000000.0));
+    check_true("the real carriers here are not",
+               !lte_scan_same_carrier(796000000.0, 806000000.0));
+    check_true("nor two at the narrowest spacing the standard allows",
+               !lte_scan_same_carrier(796000000.0, 797400000.0));
+    check_true("a carrier is itself", lte_scan_same_carrier(796e6, 796e6));
+}
+
 static void test_refuses_nonsense(void) {
     const struct lte_band *band = lte_band_for_earfcn(6200);
     check_int("no band, no channels", lte_scan_count(NULL), 0);
@@ -127,6 +145,7 @@ int main(void) {
     test_every_channel_once();
     test_the_likely_ones_come_first();
     test_how_long_it_takes();
+    test_ghosts_are_one_carrier();
     test_refuses_nonsense();
 
     return check_report("lte band scan order");
