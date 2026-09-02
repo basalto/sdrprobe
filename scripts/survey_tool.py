@@ -47,6 +47,7 @@ def parse(text):
         "site": {},
         "totals": {},
         "candidates": [],
+        "carriers": [],
     }
     for line in text.splitlines():
         f = line.split()
@@ -72,6 +73,19 @@ def parse(text):
                               ("dwell", float)):
                 if key in pairs:
                     out["sweep"][key if key != "dwell" else "dwell_s"] = cast(pairs[key])
+        elif line.startswith("carrier ") and len(f) >= 10:
+            allocation = " ".join(f[9:])
+            out["carriers"].append({
+                "centre_hz": int(float(f[1])),
+                "power_centre_hz": int(float(f[2])),
+                "lower_hz": int(float(f[3])),
+                "upper_hz": int(float(f[4])),
+                "width_hz": int(float(f[5])),
+                "dbfs": float(f[6]),
+                "prominence_db": float(f[7]),
+                "maxima": int(f[8]),
+                "allocation": None if allocation == "-" else allocation,
+            })
         elif f[:2] == ["survey", "antenna"]:
             out["receiver"]["antenna"] = " ".join(f[2:])
         elif f[:2] == ["survey", "site"]:
@@ -199,8 +213,15 @@ def cmd_report(args):
     if not site.get("label"):
         print("  ! no site. Levels cannot be compared with another sweep;"
               " set one with --site.")
-    print("  %d candidates, %d clean, %d resembling the receiver\n"
+    carriers = record.get("carriers") or []
+    print("  %d candidates, %d clean, %d resembling the receiver"
           % (len(record["candidates"]), len(clean), len(flagged)))
+    if carriers:
+        merged = sum(1 for c in carriers if c.get("maxima", 1) > 1)
+        print("  grouped into %d signals%s" % (
+            len(carriers),
+            ", %d of them holding several maxima" % merged if merged else ""))
+    print("")
     groups = by_allocation({"candidates": clean})
     print("  %-38s %4s %10s %10s  %s" % ("allocation", "n", "best dBFS",
                                          "prominence", "at"))

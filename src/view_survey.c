@@ -220,27 +220,27 @@ static void survey_save_sweep(struct app *app) {
      * calling known signals new, which is worse than having no memory at all.
      */
     {
-        double hz[SURVEY_MAX_PEAKS];
-        float level[SURVEY_MAX_PEAKS], prom[SURVEY_MAX_PEAKS];
+        double hz[SURVEY_CARRIER_MAX];
+        float level[SURVEY_CARRIER_MAX], prom[SURVEY_CARRIER_MAX];
         int i;
-        for (i = 0; i < count; i++) {
-            /* The measured centre where there is one, for the same reason:
-               several peaks of one wide carrier are one signal to remember. */
-            hz[i] = candidates[i].measured ? candidates[i].centre_hz
-                                           : candidates[i].found_hz;
-            level[i] = candidates[i].power_dbfs;
-            prom[i] = candidates[i].prominence_db;
+        /* Carriers, not candidates. The site remembers signals; a candidate
+           is one maximum of one, and a station with four would arrive as four
+           things to be surprised by next time. */
+        for (i = 0; i < s->carrier_count; i++) {
+            hz[i] = s->carriers[i].centre_hz;
+            level[i] = s->carriers[i].peak_dbfs;
+            prom[i] = s->carriers[i].prominence_db;
         }
         if (!s->history_loaded)
             site_history_load(app->config.site, &s->history);
         site_history_init(&s->history, app->config.site);
         site_history_load(app->config.site, &s->history);
-        site_history_merge(&s->history, hz, level, prom, count,
+        site_history_merge(&s->history, hz, level, prom, s->carrier_count,
                            s->plan.bin_hz);
         site_history_save(&s->history);
     }
-    if (survey_store_write(app, &s->plan, candidates, count, path,
-                           sizeof(path)) < 0) {
+    if (survey_store_write(app, &s->plan, candidates, count, s->carriers,
+                           s->carrier_count, path, sizeof(path)) < 0) {
         snprintf(s->status, sizeof(s->status),
                  "Could not write the survey; see the terminal.");
         return;
@@ -274,11 +274,10 @@ static int survey_confirm_begin(struct app *app) {
 
     if (!app->receiver_mode)
         return -1;
-    for (i = 0; i < s->peak_count && count < SURVEY_CONFIRM_MAX; i++) {
-        if (s->peak_status[i] != SITE_STATUS_NEW)
+    for (i = 0; i < s->carrier_count && count < SURVEY_CONFIRM_MAX; i++) {
+        if (s->carrier_status[i] != SITE_STATUS_NEW)
             continue;
-        s->confirm.target[count].hz =
-            survey_plan_bin_centre(&s->plan, s->peaks[i].index);
+        s->confirm.target[count].hz = s->carriers[i].centre_hz;
         s->confirm.target[count].claim = SURVEY_CLAIM_NEW;
         s->confirm.target[count].verdict = SURVEY_VERDICT_PENDING;
         s->confirm.target[count].prominence_db = 0.0f;
@@ -441,12 +440,12 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
  */
 static void survey_history_refresh(struct app *app) {
     struct survey_view *s = &app->survey;
-    double hz[SURVEY_MAX_PEAKS];
+    double hz[SURVEY_CARRIER_MAX];
     double tolerance;
     int i;
 
     s->missing_count = 0;
-    memset(s->peak_status, 0, sizeof(s->peak_status));
+    memset(s->carrier_status, 0, sizeof(s->carrier_status));
     s->history_loaded = 0;
     if (!app->config.site[0]) {
         site_history_init(&s->history, "");
@@ -457,16 +456,16 @@ static void survey_history_refresh(struct app *app) {
     s->history_loaded = 1;
 
     tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
-    for (i = 0; i < s->peak_count && i < SURVEY_MAX_PEAKS; i++) {
-        hz[i] = survey_plan_bin_centre(&s->plan, s->peaks[i].index);
-        s->peak_status[i] = (signed char)site_history_status(&s->history,
-                                                             hz[i], tolerance);
+    for (i = 0; i < s->carrier_count; i++) {
+        hz[i] = s->carriers[i].centre_hz;
+        s->carrier_status[i] = (signed char)site_history_status(
+            &s->history, hz[i], tolerance);
     }
-    if (s->peak_count > 0)
+    if (s->carrier_count > 0)
         s->missing_count = site_history_missing(
-            &s->history, hz, s->peak_count, s->plan.lower_hz, s->plan.upper_hz,
-            tolerance, s->missing, (int)(sizeof(s->missing) /
-                                         sizeof(s->missing[0])));
+            &s->history, hz, s->carrier_count, s->plan.lower_hz,
+            s->plan.upper_hz, tolerance, s->missing,
+            (int)(sizeof(s->missing) / sizeof(s->missing[0])));
 }
 
 /* What the popup says about one remembered signal. */
@@ -842,6 +841,14 @@ static void survey_find_peaks(struct app *app) {
                                        SURVEY_BANDWIDTH_DB,
                                        app->magnitude_sorted, s->peaks,
                                        SURVEY_MAX_PEAKS);
+    /* Maxima into signals, before anything asks what changed: a carrier's
+       shoulders are not separate things to notice. */
+    s->carrier_count = survey_carriers_from(
+        s->power, s->bins, SURVEY_SENTINEL_DBFS,
+        survey_plan_bin_centre(&s->plan, 0),
+        s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1.0, SURVEY_BANDWIDTH_DB,
+        s->peaks, s->peak_count,
+        s->carriers, SURVEY_CARRIER_MAX);
     /* The peaks just changed, so what is new and what is absent has
        changed with them. */
     survey_history_refresh(app);
@@ -1116,8 +1123,8 @@ void handle_survey_input(struct app *app) {
          (s->focus < 0 && IsKeyPressed(KEY_A))) &&
         !s->confirm.running && !s->sweeping) {
         int changes = 0, i;
-        for (i = 0; i < s->peak_count; i++)
-            if (s->peak_status[i] == SITE_STATUS_NEW)
+        for (i = 0; i < s->carrier_count; i++)
+            if (s->carrier_status[i] == SITE_STATUS_NEW)
                 changes++;
         changes += s->missing_count;
         if (changes == 0)
@@ -1681,13 +1688,11 @@ static void survey_draw_history_marks(const struct app *app,
 
     if (!s->history_loaded || s->history.sweeps == 0)
         return;
-    for (i = 0; i < s->peak_count; i++) {
+    for (i = 0; i < s->carrier_count; i++) {
         float x;
-        if (s->peak_status[i] != SITE_STATUS_NEW)
+        if (s->carrier_status[i] != SITE_STATUS_NEW)
             continue;
-        x = sdrgui_survey_chart_x_at(l->chart, p,
-                                     survey_plan_bin_centre(&s->plan,
-                                                            s->peaks[i].index));
+        x = sdrgui_survey_chart_x_at(l->chart, p, s->carriers[i].centre_hz);
         if (x != x)                       /* NaN: off screen */
             continue;
         DrawTriangle((Vector2){ x, base }, (Vector2){ x - 5.0f, base + 9.0f },
@@ -1762,11 +1767,34 @@ static void survey_draw_popup(const struct app *app,
         return;
     tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
     if (s->hover >= 0 && s->hover < s->peak_count) {
-        double hz = survey_plan_bin_centre(&s->plan, s->peaks[s->hover].index);
-        const struct band_plan_entry *band = band_plan_lookup(hz);
-        snprintf(title, sizeof(title), "%.3f MHz   %.1f dBFS   %s",
-                 hz / 1e6, (double)s->peaks[s->hover].power_dbfs,
-                 band ? band->name : "no band plan entry");
+        double peak_hz = survey_plan_bin_centre(&s->plan,
+                                                s->peaks[s->hover].index);
+        const struct survey_carrier *carrier = NULL;
+        const struct band_plan_entry *band;
+        double hz = peak_hz;
+        int k;
+
+        /* Which signal that maximum belongs to. The reader pointed at a bump;
+           what they want to know about is the carrier it is part of. */
+        for (k = 0; k < s->carrier_count; k++)
+            if (peak_hz >= s->carriers[k].lower_hz &&
+                peak_hz <= s->carriers[k].upper_hz) {
+                carrier = &s->carriers[k];
+                hz = carrier->centre_hz;
+                break;
+            }
+        band = band_plan_lookup(hz);
+        if (carrier)
+            snprintf(title, sizeof(title),
+                     "%.3f MHz   %.1f dBFS   %.0f kHz wide%s   %s",
+                     hz / 1e6, (double)carrier->peak_dbfs,
+                     carrier->width_hz / 1e3,
+                     carrier->peaks > 1 ? "" : "",
+                     band ? band->name : "no band plan entry");
+        else
+            snprintf(title, sizeof(title), "%.3f MHz   %.1f dBFS   %s",
+                     hz / 1e6, (double)s->peaks[s->hover].power_dbfs,
+                     band ? band->name : "no band plan entry");
         entry = s->history_loaded
                     ? site_history_find(&s->history, hz, tolerance) : NULL;
         if (!s->history_loaded || s->history.sweeps == 0)
@@ -1849,8 +1877,8 @@ void draw_survey(struct app *app) {
     draw_button(l.save_button, "Save survey", s->peak_count > 0 && s->site[0]);
     {
         int changes = 0, i;
-        for (i = 0; i < s->peak_count; i++)
-            if (s->peak_status[i] == SITE_STATUS_NEW)
+        for (i = 0; i < s->carrier_count; i++)
+            if (s->carrier_status[i] == SITE_STATUS_NEW)
                 changes++;
         changes += s->missing_count;
         if (s->confirm.running)

@@ -5,6 +5,7 @@
 #include <time.h>
 
 #include "sdr_dsp.h"
+#include "survey_carrier.h"
 #include "survey_sweep.h"
 
 /*
@@ -78,6 +79,7 @@ int survey_json_escape(const char *in, char *out, size_t size);
  */
 int survey_store_write(const struct app *app, const struct survey_plan *plan,
                        const struct survey_candidate *candidates, int count,
+                       const struct survey_carrier *carriers, int carrier_count,
                        char *path_out, size_t path_size);
 
 #endif

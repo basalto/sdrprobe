@@ -491,7 +491,10 @@ checks, and which diagnostic tool answers which question.
 
 ### The RF environment
 
-The survey view remembers what each site has heard (`src/site_history.c`) and
+A sweep's maxima are grouped into signals first (`src/survey_carrier.h`), and
+everything above the measurement works on those: a station has several maxima
+and counting each is how one carrier becomes five things to remember. The
+survey view remembers what each site has heard (`src/site_history.c`) and
 marks the next sweep against it -- new signals, absent ones, and the history
 under the cursor. Those marks are claims from a tenth of a second each, so
 **Ask again** (`src/survey_confirm.h`, or `--survey-confirm` from a script)
