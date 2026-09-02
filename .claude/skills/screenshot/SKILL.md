@@ -64,15 +64,28 @@ captured is the last one.
 - **20 seconds** gives a waterfall visible history. Shorter leaves it mostly
   black, which reads as a fault and is not one.
 
-## The window size belongs to the compositor
+## Asking for a window size
 
-A tiling compositor gives the window whatever the layout has spare, so the
-capture is not 1100x720 and is not the same twice if other windows moved. The
-layout adapts — that is what `check-layout` pins — but panel captions and
-values truncate when it is narrow.
+A tiling compositor gives the window whatever the layout has spare, so a plain
+run is not the same size twice and panel text truncates when the tile is
+narrow. `shot.sh` floats the window and asks for a size before the frame is
+captured:
 
-Truncated text means the tile was small, not that the drawing is wrong. Either
-ask for a wider window, or get the value from a headless run instead.
+```sh
+.claude/skills/screenshot/shot.sh 1500 950 /tmp/shot.png \
+    --file testfiles/gsm_arfcn_69.bin --view gsm --arfcn 69 --duration 8
+```
+
+**1500x950 fits every view.** Ask for more when a chart wants the room: the
+window may end up larger than the screen and the capture is still whole,
+because it comes from the program's own framebuffer rather than from the
+display. The width and height are logical, and the PNG arrives multiplied by
+the monitor scale -- 1500x950 at scale 1.25 is an 1875x1188 image.
+
+Truncated captions mean the tile was small, not that the drawing is wrong.
+
+The resize needs Hyprland. Without `hyprctl` the script still captures, at
+whatever size the layout gave it.
 
 ## A window someone already has open
 
