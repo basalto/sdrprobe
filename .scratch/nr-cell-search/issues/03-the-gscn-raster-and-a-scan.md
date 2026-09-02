@@ -1,6 +1,6 @@
 # 03 — The GSCN raster, and walking it without a window
 
-Status: needs-triage
+Status: wontfix
 Blocked by: 02
 
 `src/nr_scan.h`, the analogue of `lte_scan.h`: plain arithmetic, no receiver
@@ -25,3 +25,11 @@ were not free, and nothing about them is LTE-specific.
 
 Then a headless entry point in the shape of `--lte-scan`, since a scan is
 otherwise a button and a button is not something a script can press (ADR-0012).
+
+## Comments
+
+**2026-09-02 - wontfix.** Blocked by 02, which is closed: there is nothing
+for a raster walk to find if no point on it can be detected. The observation
+about the economics stands and is worth keeping -- 25 GSCN points against 300
+EARFCNs is a different design from `lte_scan.h` -- if the hardware ever
+changes.

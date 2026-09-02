@@ -25,15 +25,6 @@
 - [ ] Add optional Mode S/ADS-B preamble and valid-message counters, while
   keeping full aircraft tracking and networking out of this probe.
 
-- [ ] Tell what is transmitting on n28. Band 28 is occupied here -- a survey
-  found ten candidates across 758-788 MHz, the strongest at 774.2 MHz -- and
-  `--lte-scan 28` finds no LTE cell in any of it, which is consistent with 5G
-  and equally consistent with a weak LTE carrier. Nothing in this program can
-  currently tell those apart. An NR synchronisation detector would, as far as a
-  cell identity: 127 subcarriers at 15 kHz is 1.905 MHz and fits the 1.92 MS/s
-  grid, while the 240-subcarrier broadcast block does not fit any rate this
-  dongle has. See `.scratch/nr-cell-search/`, whose first ticket is whether
-  n28's subcarrier spacing makes even the identity reachable.
 - [ ] Extended-cyclic-prefix LTE. The cell search reports it; the broadcast
   channel declines it, because that prefix puts a third reference symbol
   inside the channel and shortens it to 432 bits. No commercial FDD cell uses
@@ -55,6 +46,15 @@
   coarse-to-fine order, and a headless `--lte-scan` so the results can be read
   without clicking. The LTE view borrows the receiver at 1.92 MS/s and gives
   the rate and the tuning back when it is left.
+- [x] Told what is transmitting on n28, which turned out to close the question
+  rather than open a decoder. The 700 MHz downlink here carries 5G NR at
+  30 kHz subcarrier spacing: a burst every 20 ms at 8.1 times its floor with
+  nothing at all at 5 ms, and a cyclic prefix that correlates at 64 samples
+  rather than 128. At 30 kHz a synchronisation block's 127 subcarriers span
+  3.81 MHz and an RTL-SDR reaches about 2.4 MS/s, so not even a cell identity
+  is within reach and `.scratch/nr-cell-search/` is closed. `make
+  probe-periodicity` is what survives: it separates LTE from NR and names the
+  grid, on a signal nothing here can demodulate.
 - [x] An LTE band scan that can be believed either way. The sweep takes three
   looks at every channel rather than two, because a cell that answers in half
   its blocks is silent through two looks a quarter of the time -- the live

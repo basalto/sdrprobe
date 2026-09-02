@@ -306,6 +306,16 @@ probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 # BENCH_ARCH=-march=native answers the SIMD question by measuring it: the
 # default build has no -march, so the compiler targets the baseline ISA.
 BENCH_ARCH ?=
+# What technology is a capture, and on what grid? Two model-free measurements
+# and a conclusion, for a signal nothing here can demodulate.
+FILE_PERIODICITY?=testfiles/lte_b20_pci28.bin
+RATE_PERIODICITY?=1920000
+probe-periodicity: scripts/signal_periodicity.c
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -o $(BUILD)/signal_periodicity \
+		scripts/signal_periodicity.c -lm
+	$(Q)./$(BUILD)/signal_periodicity $(FILE_PERIODICITY) $(RATE_PERIODICITY)
+
 bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(BENCH_ARCH) -I$(SRC) -o $(BUILD)/dsp_bench \
@@ -323,4 +333,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain bench-dsp clean
+.PHONY: all check hooks check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp clean
