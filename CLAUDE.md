@@ -174,8 +174,13 @@ comparable to anything. The survey view has both as fields and a **Save
 survey** button beside them, writing the same JSON the script ingests; it
 refuses while the site is empty rather than saving a sweep labelled nothing.
 
-The site is a combo: type a new one, or pick one this receiver has been to
-before, from the list `config_remember_site()` keeps -- spelling one place two
+The tuning correction is kept per site (`config_site_ppm()`): it drifts and is
+measured against whatever reference a place offers, so arriving somewhere the
+receiver has been calibrated restores that calibration rather than the last one
+measured anywhere. A sweep's marks are claims from a tenth of a second each;
+**Ask again**, or `--survey-confirm` on a scripted sweep, revisits each with six
+blocks on the frequency and prints a verdict. The site is a combo: type a new
+one, or pick one this receiver has been to before, from the list `config_remember_site()` keeps -- spelling one place two
 ways makes it two places and nothing downstream can tell. Saving also folds the
 sweep into `surveys/history-<site>.txt` (`src/site_history.c`), which is what
 lets the window tick the candidates this site has never heard, mark where

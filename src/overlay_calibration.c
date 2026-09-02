@@ -372,6 +372,11 @@ void handle_calibration_input(struct app *app) {
         if (retune_receiver(app, app->cal.tune_hz,
                             app->cal.suggested_ppm) == 0) {
             app->options.ppm = app->cal.suggested_ppm;
+            /* A measured correction belongs to where it was measured. */
+            if (app->config.site[0] &&
+                config_set_site_ppm(&app->config, app->config.site,
+                                    app->cal.suggested_ppm))
+                config_save(&app->config);
             app->cal.track.measurements = 0;
             app->cal.track.recent_count = 0;
             app->cal.track.recent_head = 0;

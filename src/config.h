@@ -39,6 +39,21 @@
    flattering one. */
 #define CONFIG_ANTENNA_DEFAULT "telescopic whip"
 
+/*
+ * A place, and the tuning correction that was right there.
+ *
+ * The correction belongs to the receiver, not the room -- but it is measured
+ * against whatever reference the room offers, it drifts with temperature, and
+ * an operator who calibrates at one site and carries the dongle to another
+ * arrives with a number that was true somewhere else. Keeping it per site
+ * means walking back to a place restores the correction that was measured
+ * there, rather than the last one measured anywhere.
+ */
+struct config_site {
+    char label[CONFIG_VALUE_MAX];
+    int ppm;
+};
+
 struct config {
     char antenna[CONFIG_VALUE_MAX];
     /* Where the receiver is. Empty until the operator says, because there is
@@ -48,7 +63,7 @@ struct config {
     /* Every site named so far, most recent first, so the survey window can
        offer them instead of asking the operator to spell one again --
        and spelling it differently is how one place becomes two. */
-    char sites[CONFIG_SITES_MAX][CONFIG_VALUE_MAX];
+    struct config_site sites[CONFIG_SITES_MAX];
     int site_count;
     /* Lines this build did not recognise, kept verbatim so writing the file
        back does not discard a newer version's settings. */
@@ -64,6 +79,15 @@ void config_defaults(struct config *config);
  * place you were last is the place you are most likely to be again.
  */
 int config_remember_site(struct config *config, const char *site);
+
+/* The correction recorded for a site, or 0 when it has none -- which is also
+   what an uncalibrated receiver uses, so an unknown site is simply
+   uncorrected rather than wrong. */
+int config_site_ppm(const struct config *config, const char *site);
+
+/* Record one against a site, remembering the site if it is new. Returns 1 when
+   the value changed and the file is worth writing. */
+int config_set_site_ppm(struct config *config, const char *site, int ppm);
 
 /* Text in, settings out. Returns the number of keys recognised. */
 int config_parse(const char *text, struct config *config);

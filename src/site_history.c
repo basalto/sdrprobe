@@ -181,6 +181,48 @@ int site_history_merge(struct site_history *history, const double *hz,
     return added;
 }
 
+int site_history_record_one(struct site_history *history, double hz,
+                            float dbfs, float prominence_db, double bin_hz) {
+    struct site_entry *match = NULL;
+    double nearest = -1.0;
+    int i, added = 0;
+
+    if (!history)
+        return 0;
+    if (history->sweeps < 1)
+        history->sweeps = 1;    /* the sweep this belongs to */
+    for (i = 0; i < history->count; i++) {
+        struct site_entry *e = &history->entries[i];
+        double tolerance = site_match_tolerance_for(bin_hz, e->bin_hz);
+        double gap = fabs(e->hz - hz);
+        if (gap <= tolerance && (nearest < 0.0 || gap < nearest)) {
+            nearest = gap;
+            match = e;
+        }
+    }
+    if (!match) {
+        if (history->count >= SITE_HISTORY_MAX)
+            return 0;
+        match = &history->entries[history->count++];
+        memset(match, 0, sizeof(*match));
+        match->hz = hz;
+        match->bin_hz = bin_hz;
+        added = 1;
+    }
+    if (match->bin_hz <= 0.0 || bin_hz <= match->bin_hz) {
+        match->hz = hz;
+        match->bin_hz = bin_hz;
+    }
+    match->dbfs = dbfs;
+    match->prominence_db = prominence_db;
+    /* Counted for this sweep only if it has not been counted already. */
+    if (match->last_sweep < history->sweeps) {
+        match->sweeps++;
+        match->last_sweep = history->sweeps;
+    }
+    return added;
+}
+
 int site_history_missing(const struct site_history *history, const double *hz,
                          int count, double lower_hz, double upper_hz,
                          double bin_hz, const struct site_entry **out,

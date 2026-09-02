@@ -178,6 +178,52 @@ static void test_the_filename_is_a_filename(void) {
               site_history_path("", path, sizeof(path)), -1);
 }
 
+/*
+ * Recording one signal, as the confirmation pass does.
+ *
+ * It belongs to the sweep already counted, not to a new one. Folding targets
+ * in through merge and decrementing afterwards left entries claiming more
+ * sweeps than the site had recorded -- "heard in 4 of 3 sweeps", which the
+ * popup duly printed.
+ */
+static void test_recording_one_signal(void) {
+    struct site_history h;
+    double sweep[] = { 94.5e6 };
+    const struct site_entry *e;
+
+    site_history_init(&h, "home-desk");
+    site_history_merge(&h, sweep, NULL, NULL, 1, 2441.4);
+    check_int("one sweep", h.sweeps, 1);
+
+    /* A confirmed new signal joins the sweep that found it. */
+    check_int("recording something new says so",
+              site_history_record_one(&h, 96.1e6, -30.0f, 12.0f, 976.6), 1);
+    check_int("the sweep count does not move", h.sweeps, 1);
+    e = site_history_find(&h, 96.1e6, 976.6);
+    check_int("and it is credited with this sweep, not a new one",
+              e->sweeps, 1);
+    check_int("which is the one that exists", e->last_sweep, h.sweeps);
+
+    /* Recording something already heard this sweep updates it and no more:
+       counting it twice would make one sweep look like two. */
+    check_int("recording a known signal is not new",
+              site_history_record_one(&h, 94.5e6, -10.0f, 20.0f, 976.6), 0);
+    e = site_history_find(&h, 94.5e6, 976.6);
+    check_int("and does not count it twice", e->sweeps, 1);
+    check_close("but does take the better measurement",
+                (double)e->dbfs, -10.0, 0.01);
+
+    /* Nothing may ever claim more sweeps than the site has had. */
+    {
+        int i;
+        for (i = 0; i < h.count; i++)
+            check_msg(h.entries[i].sweeps <= h.sweeps &&
+                      h.entries[i].last_sweep <= h.sweeps,
+                      "entry %d claims %d of %d sweeps, last %d\n", i,
+                      h.entries[i].sweeps, h.sweeps, h.entries[i].last_sweep);
+    }
+}
+
 int main(void) {
     test_a_new_site_knows_nothing();
     test_first_sweep_then_second();
@@ -185,6 +231,7 @@ int main(void) {
     test_a_coarse_memory_still_matches_a_fine_sweep();
     test_tolerance_scales_with_the_sweep();
     test_one_wide_carrier_counts_once();
+    test_recording_one_signal();
     test_round_trip();
     test_the_filename_is_a_filename();
 

@@ -33,6 +33,8 @@ void usage(const char *program) {
             "  --view            screen to open on\n"
             "  --record-seconds  record raw I/Q to captures/ from startup,\n"
             "                    with a .json sidecar describing the tuning\n"
+            "  --survey-confirm  after a --survey-range sweep, ask again about\n"
+            "                    every signal it called new or missing\n"
             "  --antenna         name the antenna in use; saved, and reported\n"
             "                    by a survey so two sweeps can be compared\n"
             "  --site            name where the receiver is; saved likewise. A\n"
@@ -399,6 +401,8 @@ int parse_options(int argc, char **argv, struct options *options) {
                 strcmp(options->technology, "lte") != 0 &&
                 strcmp(options->technology, "raw") != 0)
                 return -1;
+        } else if (strcmp(option, "--survey-confirm") == 0) {
+            options->survey_confirm = 1;
         } else if (strcmp(option, "--antenna") == 0) {
             if (options->antenna || i + 1 >= argc || !*argv[i + 1])
                 return -1;
@@ -450,6 +454,9 @@ int parse_options(int argc, char **argv, struct options *options) {
         return -1;
     if (options->survey_seen && view_seen &&
         options->view != START_VIEW_SURVEY)
+        return -1;
+    /* Asking again is about what a sweep found, so there has to be one. */
+    if (options->survey_confirm && !options->survey_seen)
         return -1;
     /* An ARFCN is a frequency; naming both leaves no way to say which wins. */
     if (options->arfcn && frequency_seen)

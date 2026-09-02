@@ -279,7 +279,7 @@ static void check_adsb(void) {
 
 /* The band survey. Its lower row is a pair like the ADS-B view's, and its
    inspect button lives inside a panel that a short window shrinks. */
-#define SURVEY_RECTS 16
+#define SURVEY_RECTS 17
 
 struct survey_case {
     float width, height;
@@ -300,6 +300,7 @@ static const struct survey_case survey_cases[] = {
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
+        { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 988.00f, 198.90f },
         { "peak_list", 82.00f, 472.90f, 414.96f, 217.10f },
         { "detail", 516.96f, 472.90f, 553.04f, 217.10f },
@@ -318,6 +319,7 @@ static const struct survey_case survey_cases[] = {
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
+        { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 1168.00f, 234.90f },
         { "peak_list", 82.00f, 508.90f, 490.56f, 261.10f },
         { "detail", 592.56f, 508.90f, 657.44f, 261.10f },
@@ -336,6 +338,7 @@ static const struct survey_case survey_cases[] = {
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 230.00f, 30.00f },
         { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
+        { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 888.00f, 117.90f },
         { "peak_list", 82.00f, 391.90f, 372.96f, 118.10f },
         { "detail", 474.96f, 391.90f, 495.04f, 118.10f },
@@ -354,6 +357,7 @@ static void check_survey(void) {
             l.from_field, l.to_field, l.dwell_field, l.sweep_button,
             l.reset_button, l.stop_button,
             l.site_field, l.site_menu_button, l.antenna_field, l.save_button,
+            l.confirm_button,
             l.chart, l.peak_list, l.detail,
             l.scan_button, l.waterfall_button, l.inspect_button
         };
@@ -413,8 +417,9 @@ static void check_survey(void) {
         }
         /* The second row: where the sweep will be recorded, and the button
            that records it. */
-        Rectangle second[3] = { l.site_field, l.antenna_field, l.save_button };
-        for (int i = 0; i < 3; i++) {
+        Rectangle second[4] = { l.site_field, l.antenna_field, l.save_button,
+                                l.confirm_button };
+        for (int i = 0; i < 4; i++) {
             check_msg(i == 0 ||
                       second[i].x >= second[i - 1].x + second[i - 1].width,
                       "%.0fx%.0f second-row control %d overlaps\n",

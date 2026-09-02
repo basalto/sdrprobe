@@ -1127,7 +1127,7 @@ static int run_gui(struct app *app) {
             update_calibration_measurement(app);
             if (app->tab == TAB_SCOPE && app->view == VIEW_SURVEY &&
                 !app->calibration_open)
-                update_survey(app, now);
+                update_survey(app, now, spectrum_updated);
         }
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_ADSB && !app->calibration_open)
@@ -1602,6 +1602,20 @@ int main(int argc, char **argv) {
            reach the list. */
         if (config.site[0] && config_remember_site(&config, config.site))
             changed = 1;
+        /*
+         * The correction follows the site. Arriving somewhere the receiver has
+         * been calibrated should restore that calibration, not carry the last
+         * one measured somewhere else -- but an explicit --ppm outranks it and
+         * is recorded against wherever we now are.
+         */
+        if (config.site[0]) {
+            if (options.ppm_seen) {
+                if (config_set_site_ppm(&config, config.site, options.ppm))
+                    changed = 1;
+            } else {
+                options.ppm = config_site_ppm(&config, config.site);
+            }
+        }
         if (changed && config_save(&config) == 0)
             fprintf(stderr, "Saved: antenna \"%s\"%s%s\n", config.antenna,
                     config.site[0] ? ", site " : "", config.site);

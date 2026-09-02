@@ -26,6 +26,8 @@ struct survey_layout {
     Rectangle antenna_field;
     Rectangle save_button;
     Rectangle site_menu_button;  /* opens the list of sites already visited */
+    Rectangle confirm_button;    /* asks again about what the sweep called new
+                                    or missing */
     Rectangle chart;           /* power across the swept range */
     Rectangle peak_list;       /* lower left: the candidates found */
     Rectangle detail;          /* lower right: the selected one */
@@ -100,6 +102,7 @@ static inline struct survey_layout survey_layout_for(float width,
     l.site_menu_button = (Rectangle){ 248.0f, 180.0f, 26.0f, 30.0f };
     l.antenna_field = (Rectangle){ 288.0f, 180.0f, 230.0f, 30.0f };
     l.save_button = (Rectangle){ 534.0f, 180.0f, 150.0f, 30.0f };
+    l.confirm_button = (Rectangle){ 700.0f, 180.0f, 176.0f, 30.0f };
     l.status_y = 220.0f;
     l.header_left = 82.0f;
     l.header_right = width - 150.0f;

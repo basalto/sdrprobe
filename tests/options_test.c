@@ -345,6 +345,22 @@ static void test_installation_flags(void) {
                options.antenna == NULL && options.site == NULL);
 }
 
+static void test_asking_again_needs_a_sweep(void) {
+    struct options options;
+    const char *alone[] = { "sdrprobe", "--survey-confirm" };
+    const char *withSweep[] = { "sdrprobe", "--survey-range", "88M:108M",
+                                "--survey-confirm" };
+
+    /* There is nothing to ask again about without a sweep to have found it. */
+    check_true("asking again alone is refused",
+               parse_options(2, (char **)alone, &options) < 0);
+    check_int("with a range it is accepted",
+              parse_options(4, (char **)withSweep, &options), 0);
+    check_true("and is off unless asked for", options.survey_confirm == 1);
+    parse_options(3, (char **)withSweep, &options);
+    check_int("a sweep alone does not ask again", options.survey_confirm, 0);
+}
+
 int main(void) {
     test_defaults();
     test_frequency_spellings();
@@ -354,6 +370,8 @@ int main(void) {
     test_implications();
 
     test_installation_flags();
+
+    test_asking_again_needs_a_sweep();
 
     return check_report("command line");
 }

@@ -100,6 +100,22 @@ int site_history_merge(struct site_history *history, const double *hz,
                        const float *dbfs, const float *prominence, int count,
                        double bin_hz);
 
+/*
+ * Record one signal as heard in the sweep already counted, without counting a
+ * new sweep.
+ *
+ * This is what the confirmation pass needs and merge cannot give it: merge
+ * takes a whole sweep and advances the sweep number, so folding targets in one
+ * at a time through merge counts one sweep per target. Doing that and
+ * decrementing afterwards leaves entries claiming to have been heard in more
+ * sweeps than the site has recorded -- which it did, and which reads as
+ * "heard in 4 of 3 sweeps".
+ *
+ * Returns 1 when the signal was not already known here.
+ */
+int site_history_record_one(struct site_history *history, double hz,
+                            float dbfs, float prominence_db, double bin_hz);
+
 /* The entry nearest `hz` within the tolerance, or NULL. */
 const struct site_entry *site_history_find(const struct site_history *history,
                                            double hz, double bin_hz);
