@@ -429,11 +429,18 @@ static const Color row_muted = { 120, 140, 155, 255 };
 static const Color warning = { 250, 190, 74, 255 };
 static const Color row_pick = { 120, 230, 255, 255 };
 
-/* A panel and its caption; returns the y the first row goes on. */
+/*
+ * A panel and its caption; returns the y the first row goes on.
+ *
+ * The caption is clipped to the panel rather than drawn straight, because the
+ * scan column is narrow and a caption that overruns does not stop at the edge
+ * -- it lands on top of the panel beside it, which is what it did.
+ */
 static int draw_panel(Rectangle rect, const char *caption) {
     DrawRectangleRec(rect, (Color){ 17, 26, 37, 255 });
     DrawRectangleLinesEx(rect, 1.0f, panel_edge);
-    DrawText(caption, (int)rect.x + 12, (int)rect.y + 10, 16, panel_caption);
+    sdrgui_text_fit(caption, (int)rect.x + 12, (int)rect.y + 10, 16,
+                    rect.width - 24.0f, panel_caption);
     return (int)rect.y + 36;
 }
 
@@ -476,7 +483,7 @@ static Rectangle found_rect(const struct app *app,
 static void draw_found_panel(const struct app *app, Rectangle rect) {
     const struct lte_band_scan *scan = &app->lte.scan;
     const struct lte_band *band = selected_band(app);
-    int y = draw_panel(rect, "Scan -- MHz, cell, PSS / SSS margin");
+    int y = draw_panel(rect, "Scan -- MHz, cell, PSS/margin");
     int hovered = found_row_at(rect, scan->found_count, GetMousePosition());
     char text[160];
     int i;
@@ -500,10 +507,19 @@ static void draw_found_panel(const struct app *app, Rectangle rect) {
         else if (!app->receiver_mode)
             note = "A scan needs a live receiver; a capture holds one tuning.";
         else
-            note = "Press Scan band. The first pass tries every whole "
-                   "megahertz, which is where carriers usually sit.";
+            note = "Press Scan band.";
         sdrgui_text_fit(note, (int)rect.x + 12, y, 15, rect.width - 24.0f,
                         row_muted);
+        if (!scan->running && app->receiver_mode) {
+            /* Two short lines rather than one long one: the column is narrow
+               and sdrgui_text_fit truncates rather than wrapping. */
+            sdrgui_text_fit("The first pass tries", (int)rect.x + 12, y + 20,
+                            15, rect.width - 24.0f, row_muted);
+            sdrgui_text_fit("every whole megahertz,", (int)rect.x + 12, y + 38,
+                            15, rect.width - 24.0f, row_muted);
+            sdrgui_text_fit("where carriers sit.", (int)rect.x + 12, y + 56,
+                            15, rect.width - 24.0f, row_muted);
+        }
         return;
     }
 
