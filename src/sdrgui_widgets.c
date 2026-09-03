@@ -11,8 +11,9 @@
  */
 
 void sdrgui_health_dot(const struct sdrgui_health_params *params) {
-    float cx = (float)GetScreenWidth() - 152.0f;
-    float cy = 33.0f;
+    float cx = params->centre.x;
+    float cy = params->centre.y;
+    const char *cap = params->label ? params->label : "cal";
     Color color;
     switch (params->state) {
     case SDRGUI_HEALTH_GOOD:
@@ -28,7 +29,6 @@ void sdrgui_health_dot(const struct sdrgui_health_params *params) {
         color = (Color){ 110, 122, 133, 255 };
         break;
     }
-    const char *cap = "GSM cal";
     DrawText(cap, (int)(cx - 12.0f - (float)MeasureText(cap, 16)),
              (int)cy - 8, 16, (Color){ 150, 170, 184, 255 });
     DrawCircle((int)cx, (int)cy, 9.0f, color);
@@ -36,8 +36,9 @@ void sdrgui_health_dot(const struct sdrgui_health_params *params) {
 
     if (params->state == SDRGUI_HEALTH_CHECKING) {
         char text[96];
-        snprintf(text, sizeof(text),
-                 "Checking GSM drift on ARFCN %d...", params->arfcn);
+        snprintf(text, sizeof(text), "Checking %s drift on %s %d...",
+                 cap, params->channel_name ? params->channel_name : "channel",
+                 params->channel);
         DrawText(text, 22, 178, 17, (Color){ 250, 190, 74, 255 });
     } else if (params->state == SDRGUI_HEALTH_DRIFT && params->notice &&
                params->notice[0]) {

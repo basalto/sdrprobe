@@ -644,6 +644,13 @@ struct app {
     /* Calibration-health indicator and background drift re-check. */
     int auto_drift_check;          /* Settings toggle: enable periodic re-check */
     int gsm_cal_valid;             /* an FCCH-backed GSM calibration exists */
+    /* And the same for LTE. Two references measuring one crystal: when they
+       agree the correction is worth trusting, and when they do not that is
+       the most useful thing either of them has said. */
+    int lte_cal_valid;
+    int lte_cal_earfcn;
+    int lte_cal_ppm;               /* what the LTE reference suggested */
+    uint32_t cal_return_sample_rate;  /* LTE calibration borrows the rate */
     int gsm_cal_ppm;               /* PPM applied at calibration */
     int gsm_cal_arfcn;             /* channel, for the notice text */
     int drift_health;              /* enum cal_health */

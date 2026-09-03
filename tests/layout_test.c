@@ -203,6 +203,29 @@ static void check_chrome(void) {
                       "%.0fx%.0f the Survey button reaches the tab bar\n",
                       w->width, w->height);
         }
+        /*
+         * The two calibration circles. One per reference, and two widgets each
+         * choosing their own position would be two widgets that can land on
+         * each other -- which is why the position is here and not inside the
+         * widget.
+         */
+        {
+            float gap = l.lte_dot.y - l.gsm_dot.y;
+            check_msg(gap >= 18.0f,
+                      "%.0fx%.0f the calibration dots overlap: %.0f px apart\n",
+                      w->width, w->height, gap);
+            check_msg(l.gsm_dot.x == l.lte_dot.x,
+                      "%.0fx%.0f the calibration dots are not in a column\n",
+                      w->width, w->height);
+            /* Both clear of the buttons they sit beside, captions and all. */
+            check_msg(l.gsm_dot.x + 12.0f < l.settings_button.x,
+                      "%.0fx%.0f a calibration dot reaches the buttons\n",
+                      w->width, w->height);
+            check_msg(l.lte_dot.y + 12.0f <= l.calibration_button.y +
+                          l.calibration_button.height,
+                      "%.0fx%.0f the LTE dot hangs below the button column\n",
+                      w->width, w->height);
+        }
     }
 }
 

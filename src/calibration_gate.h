@@ -27,7 +27,25 @@
 #define CALIBRATION_VIEW_HALF_WIDTH_HZ 250000.0
 #define CALIBRATION_SOURCE_CENTROID 0
 #define CALIBRATION_SOURCE_FCCH 1
+/*
+ * The offset an LTE cell search measures.
+ *
+ * A third source, and the source rule below matters more with three than it
+ * did with two: an FCCH residual and an LTE residual are measurements of the
+ * same crystal, but taken at different frequencies against different
+ * references, and a buffer holding both has a centre belonging to neither.
+ */
+#define CALIBRATION_SOURCE_LTE 2
 #define CALIBRATION_FCCH_MISS_LIMIT 12
+
+/*
+ * How good an LTE cell has to be before its offset is worth believing.
+ *
+ * The correlation, not the margin: a weak lock on the right cell still
+ * measures the right offset, while a lock this poor is as likely to be noise
+ * as a cell -- and a noise "offset" is a number with no crystal behind it.
+ */
+#define CALIBRATION_MIN_PSS 0.55f
 
 /* How many residuals a lock needs. Both counts were bare 32s inside the
    expression; a lock that needs "enough" measurements should say how many. */
@@ -101,10 +119,25 @@ static inline double calibration_standard_error(double spread, int count) {
 static inline int calibration_is_stable(double elapsed_seconds,
                                         int measurements, int residual_count,
                                         double standard_error_ppm, int source,
-                                        float prominence_db) {
-    int quality_ok = source == CALIBRATION_SOURCE_FCCH
-                         ? 1
-                         : prominence_db >= CALIBRATION_MIN_PROMINENCE_DB;
+                                        float quality) {
+    /*
+     * What "good enough" means depends on what measured it. A tone lock is
+     * its own quality gate -- the detector would not have locked otherwise.
+     * A centroid needs the carrier to stand clear of the floor. An LTE offset
+     * needs the cell search to have actually found a cell.
+     */
+    int quality_ok;
+    switch (source) {
+    case CALIBRATION_SOURCE_FCCH:
+        quality_ok = 1;
+        break;
+    case CALIBRATION_SOURCE_LTE:
+        quality_ok = quality >= CALIBRATION_MIN_PSS;
+        break;
+    default:
+        quality_ok = quality >= CALIBRATION_MIN_PROMINENCE_DB;
+        break;
+    }
 
     return elapsed_seconds >= CALIBRATION_MIN_SECONDS &&
            measurements >= CALIBRATION_MIN_MEASUREMENTS &&
@@ -176,6 +209,26 @@ static inline void calibration_tracker_init(struct calibration_tracker *t) {
     t->fcch_miss = 0;
     t->fcch_hits = 0;
 }
+
+/*
+ * Point the buffer at a source, clearing it if it was holding another.
+ *
+ * The switch is the dangerous moment: residuals from two references have
+ * different centres, and a buffer that keeps the old ones while filling with
+ * new has a standard error small enough to pass the gate while the correction
+ * it suggests belongs to neither. That is ADR-0004's mistake, and with three
+ * sources there are now six ways to make it.
+ */
+static inline void calibration_tracker_use(struct calibration_tracker *t,
+                                           int source) {
+    if (!t)
+        return;
+    if (!calibration_source_matches(t->source, source)) {
+        calibration_tracker_reset(t);
+        t->source = source;
+    }
+}
+
 
 /* What this block can contribute. */
 enum calibration_action {

@@ -32,6 +32,11 @@ struct chrome_layout {
     Rectangle settings_button;
     Rectangle calibration_button;
     Rectangle tab[2];      /* Scope, Decode */
+    /* The calibration dots, one per technology. Here rather than inside the
+       widget because there are two of them and two widgets each choosing
+       their own position are two widgets that can overlap. */
+    Vector2 gsm_dot;
+    Vector2 lte_dot;
     float status_left;     /* x where the buttons begin: text must stop here */
 };
 
@@ -51,7 +56,10 @@ static inline struct chrome_layout chrome_layout_for(float width,
     for (int i = 0; i < 2; i++)
         l.tab[i] = (Rectangle){ width - 512.0f + (float)i * 128.0f, 14.0f,
                                 118.0f, 36.0f };
-    /* Status text stops a little short of the buttons rather than touching. */
+    l.gsm_dot = (Vector2){ width - 152.0f, 33.0f };
+    l.lte_dot = (Vector2){ width - 152.0f, 62.0f };
+    /* Status text stops a little short of the buttons rather than touching,
+       and now short of the captions those dots carry too. */
     l.status_left = width - right_inset - 12.0f;
     return l;
 }
