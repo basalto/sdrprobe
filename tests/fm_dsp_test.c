@@ -629,6 +629,36 @@ static void test_a_real_capture_decodes(void) {
     check_close("at 19 kHz", fm_pilot_hz(&front.pilot), FM_PILOT_HZ, 1.0);
     check_true("and baseband came out of it", bb > 20000);
 
+    /*
+     * The sound, off the same capture. Not a judgement about how it sounds --
+     * only a listener can make that -- but the two ways it can be wrong
+     * without anyone noticing are checkable: silence, and a level so low it
+     * is inaudible. Both look like a working audio path in every log.
+     */
+    {
+        static int16_t pcm[131072];
+        struct fm_audio audio;
+        size_t made, k, loud = 0;
+        double sum = 0.0;
+
+        check_int("the audio path takes the capture",
+                  fm_audio_init(&audio, 2048000.0), 0);
+        check_int("decimating by 41", audio.decimate, 41);
+        made = fm_audio_mono(&audio, capture_mpx, n, pcm, 131072);
+        check_true("two seconds of sound came out", made > 90000);
+        for (k = made / 2; k < made; k++) {
+            sum += (double)pcm[k] * (double)pcm[k];
+            if (pcm[k] > 3000 || pcm[k] < -3000)
+                loud++;
+        }
+        check_msg(sqrt(sum / (double)(made - made / 2)) > 2000.0,
+                  "the capture's audio is near silence (rms %.0f of 32000)\n",
+                  sqrt(sum / (double)(made - made / 2)));
+        check_msg(loud > (made - made / 2) / 20,
+                  "only %zu of %zu samples reach a tenth of full scale\n",
+                  loud, made - made / 2);
+    }
+
     bits = fm_rds_soft_bits(bb_i, bb_q, bb, soft, 8192, &offset, &axis);
     check_true("so did soft bits", bits > 1500);
     /* The axis is whatever the channel left it at and is not predictable;
@@ -770,6 +800,144 @@ static void test_the_multiplex_spectrum(void) {
                fm_multiplex_spectrum(out, 100, RATE, bins, 64, &bin_hz), 0);
 }
 
+
+/*
+ * The audio path.
+ *
+ * Checked by what comes out for a known tone in: the right rate, the right
+ * number of samples, the audio band passed and the pilot not. A listener is
+ * the only judge of whether it sounds like a radio, but "a 1 kHz tone in
+ * gives a 1 kHz tone out and 19 kHz does not" is the part that can fail
+ * silently -- an audio path with the pilot still in it sounds fine to
+ * everybody and is wrong.
+ */
+static void test_the_audio_rate_needs_no_resampler(void) {
+    struct fm_audio audio;
+
+    /* The house rate divides exactly, which is the whole reason the rate is
+       chosen rather than fixed at 48 kHz. */
+    check_int("the house rate is accepted", fm_audio_init(&audio, 2000000.0),
+              0);
+    check_int("decimated by a whole number", audio.decimate, 40);
+    check_close("giving exactly 50 kHz", fm_audio_rate(&audio), 50000.0, 1e-9);
+
+    check_int("and the FM capture rate", fm_audio_init(&audio, 2048000.0), 0);
+    check_int("by 41", audio.decimate, 41);
+    check_close("giving 49951 Hz, which a sound card does not mind",
+                fm_audio_rate(&audio), 2048000.0 / 41.0, 1e-6);
+
+    check_true("a rate too low to carry a multiplex is refused",
+               fm_audio_init(&audio, 100000.0) < 0);
+    check_true("and no audio at all", fm_audio_init(NULL, 2000000.0) < 0);
+    check_close("which reports no rate", fm_audio_rate(NULL), 0.0, 1e-12);
+}
+
+static void test_the_audio_band_gets_through(void) {
+    struct fm_audio audio;
+    static int16_t pcm[16384];
+    size_t n, made;
+
+    /* The count, first: about one sample per `decimate` inputs. */
+    build(FM_PILOT_HZ, 0.10, 0.30, 0.0);
+    n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+    fm_audio_init(&audio, RATE);
+    made = fm_audio_mono(&audio, out, n, pcm, 16384);
+    check_true("audio came out", made > 1000);
+    {
+        size_t expected = n / (size_t)audio.decimate;
+        if (expected > 16384)
+            expected = 16384;    /* what the buffer had room for */
+        check_msg(made == expected,
+                  "%zu samples from %zu inputs decimated by %d, room for "
+                  "16384\n", made, n, audio.decimate);
+    }
+
+    /* Capacity is respected rather than overrun. */
+    made = fm_audio_mono(&audio, out, n, pcm, 64);
+    check_size("it stops at the room it was given", made, 64);
+    check_size("no output buffer, no output",
+               fm_audio_mono(&audio, out, n, NULL, 64), 0);
+    check_size("nor no input", fm_audio_mono(&audio, NULL, 100, pcm, 64), 0);
+}
+
+/*
+ * What the filter actually does, which is the part that fails silently.
+ *
+ * A path that left the 19 kHz pilot in sounds perfectly fine to a listener --
+ * nobody hears 19 kHz -- and is wrong in a way that shows up later as a tone
+ * beating against something. So the pilot is measured, not assumed.
+ */
+/*
+ * Both tones in one signal, which is the only way to measure the filter here.
+ *
+ * The level follower normalises whatever it is handed, so running a 1 kHz
+ * tone and a 19 kHz tone separately and comparing what comes out measures the
+ * follower and not the filter -- it brings both up to the same place. Put
+ * them in together and the gain multiplies both equally, so their ratio is
+ * the filter's and the follower cancels out.
+ */
+static double tone_in(const int16_t *pcm, size_t count, double rate,
+                      double hz) {
+    double re = 0.0, im = 0.0;
+    size_t k;
+
+    /* The second half only, so the filters and the follower have settled. */
+    for (k = count / 2; k < count; k++) {
+        double t = (double)k / rate;
+        re += (double)pcm[k] * cos(2.0 * M_PI * hz * t);
+        im += (double)pcm[k] * sin(2.0 * M_PI * hz * t);
+    }
+    return sqrt(re * re + im * im) / (double)(count - count / 2);
+}
+
+static void test_the_pilot_does_not_reach_the_speaker(void) {
+    struct fm_audio audio;
+    static int16_t pcm[65536];
+    size_t n, made, k;
+    double phase = 0.0;
+    double at_1k, at_5k, at_19k, rate;
+
+    /* A 1 kHz tone, a 5 kHz tone and a pilot, all at the same level in the
+       multiplex, so what comes out is the filter and nothing else. */
+    for (k = 0; k < SAMPLES; k++) {
+        double t = (double)k / RATE;
+        double m = 0.25 * sin(2.0 * M_PI * 1000.0 * t) +
+                   0.25 * sin(2.0 * M_PI * 5000.0 * t) +
+                   0.25 * cos(2.0 * M_PI * FM_PILOT_HZ * t);
+        phase += 2.0 * M_PI * 75000.0 * m / RATE;
+        iq_i[k] = (float)cos(phase);
+        iq_q[k] = (float)sin(phase);
+    }
+    n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+    check_int("the audio path takes this rate", fm_audio_init(&audio, RATE), 0);
+    made = fm_audio_mono(&audio, out, n, pcm, 65536);
+    check_true("audio came out", made > 4000);
+    rate = fm_audio_rate(&audio);
+
+    at_1k = tone_in(pcm, made, rate, 1000.0);
+    at_5k = tone_in(pcm, made, rate, 5000.0);
+    at_19k = tone_in(pcm, made, rate, FM_PILOT_HZ);
+
+    check_true("1 kHz comes through", at_1k > 100.0);
+    /*
+     * 5 kHz comes through quieter than 1 kHz, and that is the de-emphasis
+     * doing its job rather than the anti-alias filter starting early: 50
+     * microseconds is a 3.2 kHz corner, so 5 kHz is meant to be down about
+     * 5 dB. A path with no de-emphasis would have them equal and sound
+     * harsh.
+     */
+    check_msg(at_5k < at_1k && at_5k > at_1k / 8.0,
+              "5 kHz at %.0f against 1 kHz at %.0f: de-emphasis is not "
+              "shaping this\n", at_5k, at_1k);
+    /*
+     * And the pilot, which is the one that fails silently: nobody hears
+     * 19 kHz, so a path that leaves it in sounds perfectly fine and is wrong.
+     */
+    check_msg(at_19k < at_1k / 10.0,
+              "the pilot comes through at %.0f against 1 kHz at %.0f\n",
+              at_19k, at_1k);
+}
+
 int main(void) {
     test_the_discriminator();
     test_the_byte_path_matches();
@@ -784,6 +952,9 @@ int main(void) {
     test_it_survives_noise();
     test_soft_bits_refuse_nonsense();
     test_the_multiplex_spectrum();
+    test_the_audio_rate_needs_no_resampler();
+    test_the_audio_band_gets_through();
+    test_the_pilot_does_not_reach_the_speaker();
     test_a_real_capture_decodes();
 
     return check_report("FM multiplex: pilot, subcarrier and soft bits");

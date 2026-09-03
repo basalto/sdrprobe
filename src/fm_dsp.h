@@ -303,4 +303,58 @@ size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
 size_t fm_multiplex_spectrum(const float *mpx, size_t n, double sample_rate,
                              float *dbfs, size_t bins, double *bin_hz);
 
+/*
+ * The audio, which is what an FM carrier is actually for.
+ *
+ * Mono: the multiplex below 15 kHz is the sum signal, and every FM receiver
+ * that has ever existed can play that. Stereo is genuinely within reach here
+ * -- the difference signal rides at 38 kHz on twice the pilot phase, and the
+ * pilot is already recovered coherently for the RDS subcarrier -- and it is
+ * not done, because the point of this button is to hear whether the receiver
+ * is pointed at what the panels say it is, and mono answers that.
+ *
+ * The rate is chosen rather than fixed, so no resampler is needed: decimating
+ * by a whole number gives whatever it gives, and the audio device is told
+ * that number. 2 MS/s divided by 40 is exactly 50 kHz; 2.048 divided by 41 is
+ * 49951, and a sound card does not care.
+ *
+ * De-emphasis is 50 microseconds, which is Europe. The Americas use 75, and a
+ * capture from there played here would sound bright. There is nothing in the
+ * signal that says which, so this is a choice about where the receiver is --
+ * the same kind of choice as rds_pty_name's table, and worth knowing about
+ * rather than worth a setting nobody would find.
+ */
+#define FM_AUDIO_TARGET_RATE 50000.0
+#define FM_AUDIO_TOP_HZ 14000.0
+#define FM_DEEMPHASIS_SECONDS 50e-6
+/* How quickly the level control follows. Slow, because a station's own
+   dynamics are the thing being listened to and an eager one flattens them --
+   this is only here so a weak station is audible at the same knob setting as
+   a strong one. */
+#define FM_AUDIO_AGC_SECONDS 1.5
+
+struct fm_audio {
+    double sample_rate;
+    int decimate;
+    double audio_rate;
+    double lowpass[3];      /* the anti-alias, before decimating */
+    double lowpass_k;
+    double deemphasis;
+    double deemphasis_k;
+    double accumulator;
+    int accumulated;
+    double level;           /* smoothed peak, for the gain below */
+};
+
+/* Returns negative for a rate too low to carry audio at all. */
+int fm_audio_init(struct fm_audio *audio, double sample_rate);
+/* What to tell the sound card. Zero before init. */
+double fm_audio_rate(const struct fm_audio *audio);
+/*
+ * Multiplex in, signed 16-bit mono out. Returns how many samples were made,
+ * which is about n / decimate.
+ */
+size_t fm_audio_mono(struct fm_audio *audio, const float *mpx, size_t n,
+                     int16_t *out, size_t capacity);
+
 #endif

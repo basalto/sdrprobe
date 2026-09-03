@@ -347,6 +347,10 @@ Tabs are presentation only, not the boundary (ADR-0010).
   Lock is *coherence*, not amplitude: the pilot's size against the multiplex
   ranks a 48 dB station below a 29 dB one, because the loud one has more audio
   in the denominator.
+  `fm_audio_mono()` is the sound: low-pass, decimate by a whole number so no
+  resampler is needed (2 MS/s over 40 is exactly 50 kHz), 50 µs de-emphasis
+  — which is Europe, and nothing in the signal says which — and a slow level
+  follower. **Play** in the FM view opens the device on first press.
 - `src/fm_scan.h` — walking band II, in two passes and for an arithmetic
   reason: 205 channels on a 100 kHz raster, and deciding whether one carries
   RDS means demodulating it for a quarter of a second, so visiting all of them

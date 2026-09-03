@@ -1109,6 +1109,11 @@ static int run_gui(struct app *app) {
      * three overlapping regions because there was no way to look at it, and
      * three analysis screens had no way either.
      */
+    if (app->options.fm_play) {
+        set_decode(app, DECODE_FM);
+        set_tab(app, TAB_DECODE);
+        fm_play(app);
+    }
     if (app->options.fm_scan) {
         set_decode(app, DECODE_FM);
         set_tab(app, TAB_DECODE);
@@ -1349,6 +1354,9 @@ static int run_gui(struct app *app) {
             update_fm_scan(app, now, have_new);
             if (have_new && !app->fm.scan.running)
                 update_fm(app, now);
+            /* Every frame, not every block: the sound card asks on its own
+               schedule and a block is several of its buffers. */
+            update_fm_audio(app);
         }
         update_drift_check(app, spectrum_updated);
         update_scatter(app, now,
@@ -2366,6 +2374,7 @@ cleanup:
             result = 1;
         }
     }
+    fm_audio_close(app);
     debug_log_write("close", "result %d", result);
     debug_log_close();
     free(app);
