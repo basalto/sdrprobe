@@ -24,6 +24,7 @@
 #include "chrome_layout.h"
 #include "sdrgui.h"
 #include "view.h"
+#include "debug_log.h"
 #include "raygui.h"
 
 
@@ -549,6 +550,11 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
 }
 
 int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
+    /* Logged before the attempt, not after: a retune that fails is exactly
+       the one worth having a record of, and the failure path returns from
+       several places. */
+    debug_log_write("tune", "%.6f MHz, %+d ppm (from %.6f MHz)",
+                    frequency / 1e6, ppm, app->applied_frequency / 1e6);
     if (!app->receiver_mode) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Calibration requires a live RTL-SDR receiver");
@@ -888,6 +894,53 @@ static struct input_state input_state_now(const struct app *app) {
     return state;
 }
 
+/*
+ * What is on screen, for the log. Read from the same fields the drawing reads
+ * so the two cannot describe different screens.
+ */
+static struct debug_screen debug_screen_now(const struct app *app) {
+    struct debug_screen s;
+
+    memset(&s, 0, sizeof(s));
+    s.tab = (int)app->tab;
+    s.view = (int)app->view;
+    s.decode = (int)app->decode;
+    s.settings_open = app->settings_open;
+    s.calibration_open = app->calibration_open;
+    s.scan_open = app->scan_open;
+    s.help_open = app->help.open;
+    s.menu_open = app->survey.site_menu_open || app->survey.antenna_menu_open;
+    s.analysis = app->adsb.analysis_mode || app->lte.analysis_mode ||
+                 app->gsm_analysis_mode;
+    return s;
+}
+
+/*
+ * Every key the window received this frame, and where the router sent it.
+ *
+ * GetKeyPressed drains a queue raylib fills alongside the state IsKeyPressed
+ * reads, so taking from it costs the handlers nothing. It is the only way to
+ * see a key the program received and then ignored -- which is the difference
+ * between "the key did not arrive" and "the key arrived and nothing was bound
+ * to it", and those are two different bugs that look the same.
+ */
+static void debug_log_frame_keys(const struct app *app,
+                                 const struct input_state *input) {
+    int key;
+
+    if (!debug_log_active())
+        return;
+    while ((key = GetKeyPressed()) != 0) {
+        struct debug_screen screen = debug_screen_now(app);
+        char where[64];
+
+        debug_screen_describe(&screen, where, sizeof(where));
+        debug_log_write("key", "%s -> %s on %s",
+                        debug_key_name(key),
+                        debug_target_name((int)input_route(input)), where);
+    }
+}
+
 static int handle_tab_input(struct app *app) {
     for (int i = 0; i < TAB_COUNT; i++) {
         if (clicked(tab_rect(i))) {
@@ -1067,6 +1120,16 @@ static int run_gui(struct app *app) {
         struct input_state input = input_state_now(app);
         int shortcuts = input_shortcuts_live(&input);
 
+        debug_log_frame_keys(app, &input);
+        if (debug_log_active() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            Vector2 at = GetMousePosition();
+            struct debug_screen screen = debug_screen_now(app);
+            char where[64];
+
+            debug_screen_describe(&screen, where, sizeof(where));
+            debug_log_write("click", "%.0f,%.0f on %s", at.x, at.y, where);
+        }
+
         /* Quit is checked before the chain, so it means the same thing from
            every screen -- except while something is taking typed input, where
            losing a half-entered value to a stray letter is worse than having
@@ -1132,6 +1195,29 @@ static int run_gui(struct app *app) {
         }
         if (break_requested)
             break;
+
+        /*
+         * The screen, when it changes. After the input phase rather than
+         * before, so the line that follows a key is the screen that key
+         * produced -- which is the whole question when a key is reported as
+         * doing nothing.
+         */
+        if (debug_log_active()) {
+            static struct debug_screen previous;
+            static int seen;
+            struct debug_screen screen = debug_screen_now(app);
+
+            if (!seen || debug_screen_differs(&screen, &previous)) {
+                char was[64], is[64];
+
+                debug_screen_describe(&previous, was, sizeof(was));
+                debug_screen_describe(&screen, is, sizeof(is));
+                debug_log_write("screen", "%s%s%s", seen ? was : "",
+                                seen ? " -> " : "", is);
+                previous = screen;
+                seen = 1;
+            }
+        }
 
         double now = GetTime();
 
@@ -2115,6 +2201,15 @@ int main(int argc, char **argv) {
         app->gsm.selected_hz = (double)options.frequency + 400000.0;
     }
 
+    if (options.debug_log && debug_log_open(options.debug_log) == 0) {
+        /* From the options rather than from the app: the source has not been
+           attached yet here, and the fields it fills in are still zero. */
+        debug_log_write("open", "sdrprobe, %s, %u S/s, %.6f MHz, %+d ppm",
+                        options.file_path ? options.file_path : "receiver",
+                        options.sample_rate, options.frequency / 1e6,
+                        options.ppm);
+    }
+
     /* Before any path that can reach cleanup, which touches this. */
     int acq_result = acquisition_init(&app->acq);
     if (acq_result != 0) {
@@ -2218,6 +2313,8 @@ cleanup:
             result = 1;
         }
     }
+    debug_log_write("close", "result %d", result);
+    debug_log_close();
     free(app);
     return result;
 }

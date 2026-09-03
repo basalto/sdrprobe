@@ -22,6 +22,7 @@ void usage(const char *program) {
             "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte|fm|\n"
             "                  calibration|settings|help]\n"
             "          [--record-seconds n] [--technology gsm|adsb|lte|fm|raw]\n"
+            "          [--debug-log FILE|-]\n"
             "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
@@ -409,6 +410,12 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->play_once)
                 return -1;
             options->play_once = 1;
+        } else if (strcmp(option, "--debug-log") == 0) {
+            if (options->debug_log || i + 1 >= argc)
+                return -1;
+            options->debug_log = argv[++i];
+            if (!*options->debug_log)
+                return -1;
         } else if (strcmp(option, "--technology") == 0) {
             if (options->technology || i + 1 >= argc)
                 return -1;
