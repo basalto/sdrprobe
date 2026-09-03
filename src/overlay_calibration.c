@@ -11,6 +11,14 @@
 #include "chrome_layout.h"
 #include "calibration_layout.h"
 #include "lte_scan.h"
+
+/*
+ * Time here is monotonic_seconds(), not raylib's GetTime(). Only differences
+ * are ever taken, so the epoch does not matter -- but raylib's clock needs a
+ * window, and the calibration has to be runnable without one. A gate this
+ * program will not open unless somebody clicks is a decision no check can
+ * reach, which is the thing ADR-0012 forbids.
+ */
 #include "sdrgui.h"
 
 /*
@@ -86,13 +94,13 @@ static int start_lte_calibration(struct app *app) {
     app->cal.track.source = CALIBRATION_SOURCE_LTE;
     if (!app->cal_return_sample_rate)
         app->cal_return_sample_rate = app->applied_sample_rate;
-    if (retune_receiver_at_rate(app, app->cal.tune_hz, app->applied_ppm,
-                                LTE_SAMPLE_RATE_HZ) < 0) {
+    if (retune_receiver_at_rate(app, app->cal.tune_hz, LTE_SAMPLE_RATE_HZ,
+                                app->applied_ppm) < 0) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "The receiver would not take LTE's 1.92 MS/s");
         return -1;
     }
-    app->cal.started_at = GetTime();
+    app->cal.started_at = monotonic_seconds();
     app->cal.running = 1;
     app->lte_cal_earfcn = earfcn;
     snprintf(app->calibration_status, sizeof(app->calibration_status),
@@ -131,7 +139,7 @@ int start_calibration(struct app *app) {
     calibration_tracker_init(&app->cal.track);
     if (retune_receiver(app, app->cal.tune_hz, app->applied_ppm) < 0)
         return -1;
-    app->cal.started_at = GetTime();
+    app->cal.started_at = monotonic_seconds();
     app->cal.running = 1;
     snprintf(app->calibration_status, sizeof(app->calibration_status),
              "Measuring GSM 900 ARFCN %d at %.3f MHz", arfcn,
@@ -191,6 +199,17 @@ static void update_lte_calibration(struct app *app) {
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
         app->applied_ppm, app->cal.measured_hz,
         (double)app->calibration_expected_hz);
+    /*
+     * And the gate. Easy to leave out, and invisible when you do: the numbers
+     * on screen all look right and the lock simply never comes. Headlessly it
+     * was obvious at once -- 2217 measurements with a standard error of
+     * 0.01 PPM and `locked 0`.
+     */
+    app->cal.track.stable = calibration_is_stable(
+        monotonic_seconds() - app->cal.started_at,
+        app->cal.track.measurements, app->cal.track.recent_count,
+        app->cal.track.recent_sem, app->cal.track.source,
+        cell.pss_correlation);
     snprintf(app->calibration_status, sizeof(app->calibration_status),
              "%s (LTE cell %d): %d meas, +/- %.2f PPM (spread %.2f), "
              "offset %+.1f kHz, PSS %.2f, suggested %+d PPM",
@@ -212,7 +231,7 @@ static void update_lte_calibration(struct app *app) {
 static void update_lte_calibration_scan(struct app *app) {
     if (!app->cal_lte_scanning)
         return;
-    update_lte_scan(app, GetTime(), 1);
+    update_lte_scan(app, monotonic_seconds(), 1);
     if (lte_scan_running(app)) {
         const struct lte_band *band = lte_band_at(app->cal_lte_band);
         snprintf(app->calibration_status, sizeof(app->calibration_status),
@@ -239,7 +258,7 @@ void update_calibration_measurement(struct app *app) {
     if (!app->cal.running)
         return;
     if (app->calibration_technology == 1) {
-        double waited = GetTime() - app->cal.started_at;
+        double waited = monotonic_seconds() - app->cal.started_at;
         if (waited < CALIBRATION_SETTLE_SECONDS) {
             snprintf(app->calibration_status, sizeof(app->calibration_status),
                      "Settling receiver... %.1f s", waited);
@@ -255,7 +274,7 @@ void update_calibration_measurement(struct app *app) {
                    app->applied_sample_rate / 2.0;
     double upper = (double)app->applied_frequency +
                    app->applied_sample_rate / 2.0;
-    double elapsed = GetTime() - app->cal.started_at;
+    double elapsed = monotonic_seconds() - app->cal.started_at;
     if (elapsed < CALIBRATION_SETTLE_SECONDS) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Settling receiver... %.1f s", elapsed);
@@ -353,7 +372,7 @@ void update_drift_check(struct app *app, int have_block) {
     if (app->calibration_open || app->scan_open || app->settings_open)
         return;
 
-    double now = GetTime();
+    double now = monotonic_seconds();
 
     if (app->drift_phase == DRIFT_IDLE) {
         if (now - app->cal.drift_last_check_at < DRIFT_CHECK_INTERVAL_SECONDS)
@@ -400,7 +419,7 @@ void update_drift_check(struct app *app, int have_block) {
 
     retune_receiver(app, app->cal.drift_saved_frequency, app->gsm_cal_ppm);
     app->drift_phase = DRIFT_IDLE;
-    app->cal.drift_last_check_at = GetTime();
+    app->cal.drift_last_check_at = monotonic_seconds();
 
     if (app->cal.drift_recent_count >= DRIFT_MIN_MEASUREMENTS) {
         double center = 0.0;
@@ -435,8 +454,8 @@ void close_calibration(struct app *app) {
     if (app->cal_return_sample_rate &&
         app->cal_return_sample_rate != app->applied_sample_rate) {
         if (retune_receiver_at_rate(app, app->cal.return_frequency,
-                                    app->applied_ppm,
-                                    app->cal_return_sample_rate) < 0)
+                                    app->cal_return_sample_rate,
+                                    app->applied_ppm) < 0)
             return;
         app->cal_return_sample_rate = 0;
     } else if (app->cal.running) {
@@ -496,10 +515,10 @@ void handle_calibration_input(struct app *app) {
                 if (!app->cal_return_sample_rate)
                     app->cal_return_sample_rate = app->applied_sample_rate;
                 if (retune_receiver_at_rate(app, app->applied_frequency,
-                                            app->applied_ppm,
-                                            LTE_SAMPLE_RATE_HZ) == 0 &&
+                                            LTE_SAMPLE_RATE_HZ,
+                                            app->applied_ppm) == 0 &&
                     band &&
-                    lte_scan_begin(app, band->band, GetTime()) == 0) {
+                    lte_scan_begin(app, band->band, monotonic_seconds()) == 0) {
                     app->cal_lte_scanning = 1;
                     snprintf(app->calibration_status,
                              sizeof(app->calibration_status),
@@ -610,7 +629,7 @@ void handle_calibration_input(struct app *app) {
             app->cal.track.recent_count = 0;
             app->cal.track.recent_head = 0;
             app->cal.track.stable = 0;
-            app->cal.started_at = GetTime();
+            app->cal.started_at = monotonic_seconds();
             snprintf(app->calibration_status,
                      sizeof(app->calibration_status),
                      "Applied %+d PPM; measuring residual error",
@@ -629,7 +648,7 @@ void handle_calibration_input(struct app *app) {
                 app->cal.drift_ppm = 0.0;
                 app->drift_notice[0] = '\0';
                 app->drift_phase = DRIFT_IDLE;
-                app->cal.drift_last_check_at = GetTime();
+                app->cal.drift_last_check_at = monotonic_seconds();
             } else {
                 app->gsm_cal_valid = 0;
                 app->drift_health = CAL_HEALTH_UNKNOWN;

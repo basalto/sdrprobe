@@ -351,6 +351,20 @@ Its shape:
   Calibration and settings are full-screen overlays orthogonal to the tabs
   (ADR-0008); `enum active_tab` (Scope/Decode) and `enum decode_kind` replaced the
   old ad-hoc mode flags — don't add a new one, extend those enums.
+Calibrating with no window, which is how the gate is reachable at all
+(ADR-0012):
+
+```sh
+./sdrprobe --headless --calibrate gsm --arfcn 113
+./sdrprobe --headless --calibrate lte --earfcn 6200
+./sdrprobe --headless --calibrate lte --calibrate-band 20   # scan, take the best
+```
+
+One `cal-measure` line per residual and a `calibrate-result` at the end saying
+whether it locked and, if not, which clause of the gate was still unsatisfied.
+Every measurement rather than a summary, because the verdict is one bit and the
+sequence is what shows whether the scatter is the estimator or the crystal.
+
 Calibration takes two references. GSM measures an FCCH tone; LTE takes the
 offset `lte_cell_search` already measures -- coarsely from the primary
 sequence, then the whole subcarriers by search, which is the half that matters

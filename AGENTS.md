@@ -491,6 +491,11 @@ checks, and which diagnostic tool answers which question.
 
 ### Calibrating against two references
 
+`--calibrate gsm|lte` runs one with no window and prints every residual, and
+`--calibrate-band N` scans an LTE band and takes its strongest cell rather than
+being told an EARFCN. The lock gate decides whether a correction may be
+applied, so it has to be reachable without somebody clicking Start.
+
 The calibration overlay takes 2G or 4G. GSM measures an FCCH tone; LTE takes
 the offset the cell search already measures, and borrows 1.92 MS/s to do it.
 Two circles at the top right, one per reference, because two independent
