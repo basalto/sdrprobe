@@ -19,7 +19,8 @@ void usage(const char *program) {
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
-            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte]\n"
+            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte|\n"
+            "                  calibration]\n"
             "          [--record-seconds n] [--technology gsm|adsb|lte|raw]\n"
             "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
@@ -211,7 +212,8 @@ int parse_view(const char *text, enum start_view *view) {
         { "survey", START_VIEW_SURVEY },
         { "gsm", START_VIEW_GSM },
         { "adsb", START_VIEW_ADSB },
-        { "lte", START_VIEW_LTE }
+        { "lte", START_VIEW_LTE },
+        { "calibration", START_VIEW_CALIBRATION }
     };
 
     if (!text)
@@ -538,9 +540,11 @@ int parse_options(int argc, char **argv, struct options *options) {
      * A calibration needs to know what to point at: an ARFCN for GSM, and for
      * LTE either an EARFCN or a band to find one in.
      */
-    if (options->calibrate == 1 && !options->arfcn)
+    if (options->calibrate == 1 && !options->arfcn &&
+        options->view != START_VIEW_CALIBRATION)
         return -1;
-    if (options->calibrate == 2 && !options->earfcn && !options->calibrate_band)
+    if (options->calibrate == 2 && !options->earfcn &&
+        !options->calibrate_band && options->view != START_VIEW_CALIBRATION)
         return -1;
     if (options->calibrate == 2 && options->earfcn && options->calibrate_band)
         return -1;   /* two answers to one question */
@@ -549,9 +553,13 @@ int parse_options(int argc, char **argv, struct options *options) {
     if (options->calibrate_seconds > 0.0 && !options->calibrate)
         return -1;
     /* And it is a headless run of its own, not something to bolt onto a
-       sweep or a decode. */
-    if (options->calibrate && (options->survey_seen || options->decode ||
-                               options->lte_scan_band))
+       sweep or a decode -- unless it is naming the technology for
+       `--view calibration`, which opens the overlay to be looked at. */
+    if (options->calibrate && options->view != START_VIEW_CALIBRATION &&
+        (options->survey_seen || options->decode || options->lte_scan_band))
+        return -1;
+    if (options->calibrate && options->view == START_VIEW_CALIBRATION &&
+        options->headless)
         return -1;
 
     /* Saving is saving a sweep, so there has to be one. */

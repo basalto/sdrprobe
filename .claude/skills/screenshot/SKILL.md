@@ -49,6 +49,7 @@ same every run. All are verified.
 | ADS-B | `--file testfiles/adsb_cpr_pair.bin --view adsb` |
 | Scope | `--file testfiles/gsm_arfcn_69.bin --view spectrum` |
 | Survey | `--file testfiles/gsm_arfcn_69.bin --frequency 948.4M --view survey` |
+| Calibration | `--view calibration` (add `--calibrate lte` for the 4G arrangement) |
 
 `--view` also takes `magnitude`, `scatter` and `waterfall`. A live receiver
 works in place of `--file`, and changes between runs, so prefer a capture

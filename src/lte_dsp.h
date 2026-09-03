@@ -89,6 +89,18 @@ struct lte_band {
 
 int lte_band_count(void);
 const struct lte_band *lte_band_at(int index);
+
+/*
+ * The bands an RTL-SDR can actually reach, in the order a picker should offer
+ * them. The table above holds bands 1, 3 and 7 as well, because a caller
+ * holding an EARFCN deserves the frequency it names -- but offering them in a
+ * scan picker wastes minutes tuning where an R820T cannot hear, which is what
+ * the calibration's band buttons did when they took the table's first three.
+ */
+#define LTE_REACHABLE_BANDS 3
+int lte_reachable_band(int index);
+/* The table entry for a band number, or NULL. */
+const struct lte_band *lte_band_for_number(int number);
 const struct lte_band *lte_band_for_earfcn(unsigned int earfcn);
 
 /* Downlink centre frequency of an EARFCN. Returns 0 for one no band claims. */

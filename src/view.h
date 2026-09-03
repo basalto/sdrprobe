@@ -141,6 +141,9 @@ void draw_help(const struct app *app);
 /* Calibration overlay: the GSM 900 channel calibration, its band scan, and the
    periodic drift re-check. Drawn over whichever tab is active. */
 void open_calibration(struct app *app);
+/* Choose 2G, 4G or 5G, with the channel default and the instruction that
+   goes with it. Shared by the buttons and by opening already on one. */
+void calibration_select_technology(struct app *app, int technology);
 void close_calibration(struct app *app);
 void update_calibration_measurement(struct app *app);
 void handle_calibration_input(struct app *app);

@@ -104,6 +104,12 @@ which the view makes up to three.
 See `docs/liquid-dsp-sdrprobe-assessment.md` for the numbers and for where the
 time would come from if it were ever needed.
 
+`--view calibration` opens the calibration overlay, and `--calibrate lte`
+alongside it opens on the 4G arrangement. Every screen has to be reachable from
+the command line for the same reason every decision does: the LTE calibration
+panel shipped with three overlapping regions because there was no way to look
+at it.
+
 Seeing what a view drew, without a person to look — `--screenshot` writes the
 last frame to a PNG the Read tool displays. The `screenshot` skill in
 `.claude/skills/` carries the per-view recipes and how long each needs to
