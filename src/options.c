@@ -43,6 +43,8 @@ void usage(const char *program) {
             "  --calibrate-seconds  give up after this long if it never locks\n"
             "  --survey-watch    keep sweeping this many times, folding each\n"
             "                    into the site's history and saying what changed\n"
+            "  --survey-save     write the sweep to surveys/ and fold it into\n"
+            "                    what the site has heard, as Save does\n"
             "  --survey-confirm  after a --survey-range sweep, ask again about\n"
             "                    every signal it called new or missing\n"
             "  --antenna         name the antenna in use; saved, and reported\n"
@@ -411,6 +413,8 @@ int parse_options(int argc, char **argv, struct options *options) {
                 strcmp(options->technology, "lte") != 0 &&
                 strcmp(options->technology, "raw") != 0)
                 return -1;
+        } else if (strcmp(option, "--survey-save") == 0) {
+            options->survey_save = 1;
         } else if (strcmp(option, "--survey-confirm") == 0) {
             options->survey_confirm = 1;
         } else if (strcmp(option, "--lte-chain") == 0) {
@@ -548,6 +552,10 @@ int parse_options(int argc, char **argv, struct options *options) {
        sweep or a decode. */
     if (options->calibrate && (options->survey_seen || options->decode ||
                                options->lte_scan_band))
+        return -1;
+
+    /* Saving is saving a sweep, so there has to be one. */
+    if (options->survey_save && !options->survey_report)
         return -1;
 
     /* And a watch is a sweep repeated, so likewise. */
