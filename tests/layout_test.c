@@ -126,7 +126,7 @@ static void check(float width, float height, const char *name,
 
 struct chrome_case {
     float width, height;
-    struct expected settings, calibration, tab0, tab1;
+    struct expected settings, calibration, tab0, tab1, tab2;
     float status_left;
 };
 
@@ -137,32 +137,37 @@ static const struct chrome_case chrome_cases[] = {
     { 1100.0f, 720.0f,
       { "settings_button", 970.00f, 16.00f, 108.00f, 34.00f },
       { "calibration_button", 970.00f, 58.00f, 108.00f, 34.00f },
-      { "tab[0]", 588.00f, 14.00f, 118.00f, 36.00f },
-      { "tab[1]", 716.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[0]", 460.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 588.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[2]", 716.00f, 14.00f, 118.00f, 36.00f },
       958.00f },
     { 1280.0f, 800.0f,
       { "settings_button", 1150.00f, 16.00f, 108.00f, 34.00f },
       { "calibration_button", 1150.00f, 58.00f, 108.00f, 34.00f },
-      { "tab[0]", 768.00f, 14.00f, 118.00f, 36.00f },
-      { "tab[1]", 896.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[0]", 640.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 768.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[2]", 896.00f, 14.00f, 118.00f, 36.00f },
       1138.00f },
     { 1920.0f, 1080.0f,
       { "settings_button", 1790.00f, 16.00f, 108.00f, 34.00f },
       { "calibration_button", 1790.00f, 58.00f, 108.00f, 34.00f },
-      { "tab[0]", 1408.00f, 14.00f, 118.00f, 36.00f },
-      { "tab[1]", 1536.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[0]", 1280.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 1408.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[2]", 1536.00f, 14.00f, 118.00f, 36.00f },
       1778.00f },
     { 2560.0f, 1440.0f,
       { "settings_button", 2430.00f, 16.00f, 108.00f, 34.00f },
       { "calibration_button", 2430.00f, 58.00f, 108.00f, 34.00f },
-      { "tab[0]", 2048.00f, 14.00f, 118.00f, 36.00f },
-      { "tab[1]", 2176.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[0]", 1920.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 2048.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[2]", 2176.00f, 14.00f, 118.00f, 36.00f },
       2418.00f },
     { 1000.0f, 540.0f,
       { "settings_button", 870.00f, 16.00f, 108.00f, 34.00f },
       { "calibration_button", 870.00f, 58.00f, 108.00f, 34.00f },
-      { "tab[0]", 488.00f, 14.00f, 118.00f, 36.00f },
-      { "tab[1]", 616.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[0]", 360.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[1]", 488.00f, 14.00f, 118.00f, 36.00f },
+      { "tab[2]", 616.00f, 14.00f, 118.00f, 36.00f },
       858.00f },
 };
 
@@ -309,36 +314,49 @@ static void check_chrome(void) {
               &w->calibration);
         check(w->width, w->height, "tab[0]", l.tab[0], &w->tab0);
         check(w->width, w->height, "tab[1]", l.tab[1], &w->tab1);
+        check(w->width, w->height, "tab[2]", l.tab[2], &w->tab2);
         check_msg(fabsf(l.status_left - w->status_left) <= 0.01f,
                   "%.0fx%.0f status_left: got %.2f, expected %.2f\n", w->width,
                   w->height, l.status_left, w->status_left);
-        /*
-         * Survey sits at the left, where the numbered options used to begin,
-         * so the options have to begin after it. The same window that has to
-         * hold both at 1000 px holds the tabs and the right-hand buttons too.
-         */
         {
-            struct expected survey = { "survey_button", 22.00f, 44.00f,
-                                       104.00f, 28.00f };
-            check(w->width, w->height, "survey_button", l.survey_button,
-                  &survey);
-            check_msg(l.option_row_left >=
-                          l.survey_button.x + l.survey_button.width,
-                      "%.0fx%.0f the numbered options start on the Survey "
-                      "button\n", w->width, w->height);
-            /* And the button's own line clears the title above it. */
-            check_msg(l.survey_button.y >= 38.0f,
-                      "%.0fx%.0f the Survey button lands on the title\n",
+            /*
+             * The tabs, all three of them, in order and not overlapping.
+             * Survey leads because it is where a session starts, and it is a
+             * tab rather than a button under Scope because the four Scope
+             * views draw whatever the receiver is pointed at while this one
+             * walks the receiver across a band.
+             */
+            int tab;
+            /*
+             * Each index gives its own rectangle. Obvious, and it was wrong:
+             * the lookup masked the index with 1, which is a bounds check for
+             * exactly two tabs, so the third drew on top of the first. Every
+             * rectangle was correct and distinct and the check above passed.
+             */
+            for (tab = 0; tab < TAB_COUNT; tab++) {
+                Rectangle got = chrome_tab_rect(&l, tab);
+                check_msg(got.x == l.tab[tab].x && got.width == l.tab[tab].width,
+                          "%.0fx%.0f tab %d is looked up as another one\n",
+                          w->width, w->height, tab);
+            }
+            check_msg(chrome_tab_rect(&l, TAB_COUNT).width == 0.0f,
+                      "%.0fx%.0f an index past the end names a tab\n",
                       w->width, w->height);
-            check_msg(l.option_row_y >= l.survey_button.y &&
-                      l.option_row_y <=
-                          l.survey_button.y + l.survey_button.height,
-                      "%.0fx%.0f the options and the Survey button are not on "
-                      "the same line\n", w->width, w->height);
-            /* It must not run under the tabs on the narrowest window. */
-            check_msg(l.survey_button.x + l.survey_button.width < l.tab[0].x,
-                      "%.0fx%.0f the Survey button reaches the tab bar\n",
+            check_msg(chrome_tab_rect(&l, -1).width == 0.0f,
+                      "%.0fx%.0f a negative index names a tab\n",
                       w->width, w->height);
+            for (tab = 0; tab + 1 < TAB_COUNT; tab++)
+                check_msg(l.tab[tab].x + l.tab[tab].width <= l.tab[tab + 1].x,
+                          "%.0fx%.0f tab %d overlaps the next\n", w->width,
+                          w->height, tab);
+            check_msg(l.tab[TAB_COUNT - 1].x + l.tab[TAB_COUNT - 1].width <=
+                          l.settings_button.x,
+                      "%.0fx%.0f the tabs reach the Settings button\n",
+                      w->width, w->height);
+            /* And the option row clears them, on the narrowest window. */
+            check_msg(l.option_row_left < l.tab[0].x,
+                      "%.0fx%.0f the options reach the tab bar\n", w->width,
+                      w->height);
         }
         /*
          * The two calibration circles. One per reference, and two widgets each

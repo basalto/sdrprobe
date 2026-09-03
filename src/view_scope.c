@@ -297,8 +297,6 @@ void update_scatter(struct app *app, double now, int insert) {
 }
 
 static const char *view_name(enum view_kind view) {
-    if (view == VIEW_SURVEY)
-        return "band survey";
     if (view == VIEW_SPECTRUM)
         return "spectrum";
     if (view == VIEW_SCATTER)

@@ -261,11 +261,12 @@ enum view_kind {
     VIEW_MAGNITUDE,
     VIEW_SPECTRUM,
     VIEW_SCATTER,
-    VIEW_WATERFALL,
-    VIEW_SURVEY
+    VIEW_WATERFALL
 };
-/* Top-level tabs. TAB_SCOPE must be 0 (zero-initialised default). See
-   docs/adr/0008-top-level-tab-navigation.md. */
+/* Top-level tabs, in input_route.h so a check can reach the precedence
+   without app.h. TAB_SURVEY is 0 and so is the zero-initialised default,
+   which is deliberate: it is the screen a session starts on.
+   See docs/adr/0008-top-level-tab-navigation.md. */
 /* The tabs, and the precedence chain that decides which control a key press
    reaches, are in a header the checks can reach. */
 #include "input_route.h"

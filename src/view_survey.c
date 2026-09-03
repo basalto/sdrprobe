@@ -28,7 +28,7 @@
  */
 
 int survey_editing(const struct app *app) {
-    return app->tab == TAB_SCOPE && app->view == VIEW_SURVEY &&
+    return app->tab == TAB_SURVEY &&
            app->survey.focus >= 0;
 }
 

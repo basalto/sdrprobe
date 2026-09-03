@@ -26,10 +26,8 @@
 #include "view.h"
 #include "debug_log.h"
 
-/* input_route.h mirrors these two so it can stay standalone; if either enum
-   is reordered this stops the build rather than misrouting a key. */
-typedef char input_route_survey_matches[
-    (VIEW_KIND_SURVEY == (int)VIEW_SURVEY) ? 1 : -1];
+/* input_route.h mirrors this so it can stay standalone; if that enum is
+   reordered this stops the build rather than misrouting a key. */
 typedef char input_route_adsb_matches[
     (DECODE_KIND_ADSB == (int)DECODE_ADSB) ? 1 : -1];
 #include "raygui.h"
@@ -734,10 +732,12 @@ void draw_button(Rectangle rectangle, const char *label, int primary) {
 
 /* --- Top-level tabs (Scope / Decode) --- */
 
-static const char *tab_labels[TAB_COUNT] = { "Scope", "Decode" };
+static const char *tab_labels[TAB_COUNT] = { "Survey", "Scope",
+                                             "Decode" };
 
 static Rectangle tab_rect(int index) {
-    return chrome_layout_now().tab[index & 1];
+    struct chrome_layout chrome = chrome_layout_now();
+    return chrome_tab_rect(&chrome, index);
 }
 
 /* A tab button with bright, prominent text and a clear active state. */
@@ -773,8 +773,14 @@ void set_tab(struct app *app, int new_tab) {
         leave_gsm(app);
     if (app->tab == TAB_DECODE && app->decode == DECODE_LTE)
         leave_lte(app);
+    /* Leaving the survey puts the receiver back where it was before a sweep
+       walked it away. */
+    if (app->tab == TAB_SURVEY)
+        view_survey_leave(app);
     app->settings_open = 0;
     app->tab = new_tab;
+    if (new_tab == TAB_SURVEY)
+        view_survey_enter(app);
     if (new_tab == TAB_DECODE && app->decode == DECODE_GSM)
         enter_gsm(app);
     if (new_tab == TAB_DECODE && app->decode == DECODE_FM)
@@ -870,13 +876,20 @@ static void draw_header(const struct app *app) {
 
     DrawText("sdrprobe signal visualizer", 22, 14, 24,
              (Color){ 225, 236, 245, 255 });
-    if (app->tab == TAB_SCOPE) {
+    if (app->tab == TAB_SURVEY) {
+        /*
+         * No numbered options. The survey has one screen, and the four the
+         * Scope tab numbers are not alternatives to it -- listing them here
+         * offered a reader four keys that would take them somewhere else
+         * entirely.
+         */
+        struct chrome_layout chrome = chrome_layout_now();
+        DrawText("+/- zoom   Left/Right pan   Up/Down candidate   h help"
+                 "   Esc quit", (int)chrome.option_row_left,
+                 (int)chrome.option_row_y, 16, (Color){ 143, 167, 182, 255 });
+    } else if (app->tab == TAB_SCOPE) {
         draw_option_row((int)app->view, scope_opts, 4,
-                        app->view == VIEW_SURVEY
-                            ? "Up/Down candidate   h help   Esc quit"
-                            : "Up/Down scale   h help   Esc quit");
-        draw_button(chrome_layout_now().survey_button, "Survey",
-                    app->view == VIEW_SURVEY);
+                        "Up/Down scale   h help   Esc quit");
     } else {
         draw_option_row((int)app->decode, decode_opts, 4,
                         app->decode == DECODE_ADSB
@@ -1029,9 +1042,11 @@ static int run_gui(struct app *app) {
 
     sdr_dsp_init(&app->dsp);
     /* The survey is where a session starts: "what is out there" comes before
-       "what does this one look like", and the other four views need somebody
-       to have tuned the receiver first. */
-    app->view = VIEW_SURVEY;
+       "what does this one look like", and the Scope views need somebody to
+       have tuned the receiver first. TAB_SURVEY is 0, so this is also what
+       zero-initialising gives -- said out loud rather than relied on. */
+    app->tab = TAB_SURVEY;
+    app->view = VIEW_MAGNITUDE;
 
     sigset_t worker_signals;
     sigset_t original_mask;
@@ -1076,12 +1091,15 @@ static int run_gui(struct app *app) {
        to GSM, so switching to the Decode tab first would enter the GSM view
        and immediately leave it again, retuning twice on the way to ADS-B. */
     switch (app->options.view) {
-    case START_VIEW_MAGNITUDE: app->view = VIEW_MAGNITUDE; break;
-    case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM; break;
-    case START_VIEW_SCATTER:   app->view = VIEW_SCATTER; break;
-    case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL; break;
-    case START_VIEW_SURVEY:    app->view = VIEW_SURVEY;
-                               view_survey_enter(app); break;
+    case START_VIEW_MAGNITUDE: app->view = VIEW_MAGNITUDE;
+                               set_tab(app, TAB_SCOPE); break;
+    case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM;
+                               set_tab(app, TAB_SCOPE); break;
+    case START_VIEW_SCATTER:   app->view = VIEW_SCATTER;
+                               set_tab(app, TAB_SCOPE); break;
+    case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL;
+                               set_tab(app, TAB_SCOPE); break;
+    case START_VIEW_SURVEY:    set_tab(app, TAB_SURVEY); break;
     case START_VIEW_GSM:       set_decode(app, DECODE_GSM);
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB);
@@ -1194,6 +1212,19 @@ static int run_gui(struct app *app) {
         case INPUT_TARGET_CALIBRATION:
             handle_calibration_input(app);
             break;
+        case INPUT_TARGET_SURVEY:
+            if (handle_tab_input(app)) {
+                /* Tab switched this frame. */
+            } else if (clicked(settings_button()) ||
+                       (shortcuts && IsKeyPressed(KEY_S))) {
+                open_settings(app);
+            } else if (clicked(calibration_button()) ||
+                       (shortcuts && IsKeyPressed(KEY_C))) {
+                open_calibration(app);
+            } else {
+                handle_survey_input(app);
+            }
+            break;
         case INPUT_TARGET_DECODE:
         case INPUT_TARGET_SCOPE:
             /* A click on a button is unambiguous whatever has focus; only the
@@ -1299,25 +1330,14 @@ static int run_gui(struct app *app) {
                     selected = VIEW_SCATTER;
                 if (IsKeyPressed(KEY_FOUR))
                     selected = VIEW_WATERFALL;
-                if (app->tab == TAB_SCOPE &&
-                    clicked(chrome_layout_now().survey_button))
-                    selected = VIEW_SURVEY;
                 if (selected != app->view) {
-                    /* Leaving the survey puts the receiver back where it was
-                       before the sweep walked it away. */
-                    if (app->view == VIEW_SURVEY)
-                        view_survey_leave(app);
                     app->view = selected;
                     if (selected == VIEW_SCATTER)
                         clear_scatter(app);
-                    if (selected == VIEW_SURVEY)
-                        view_survey_enter(app);
                 }
                 /* The scale keys are applied once, below, for every screen
                    that has a scale -- not here, and not per view. */
             }
-            if (app->view == VIEW_SURVEY)
-                handle_survey_input(app);
         }
 
         decay_spectrum_peak(app, now);
@@ -1327,8 +1347,7 @@ static int run_gui(struct app *app) {
             update_waterfall(app);
             update_scan(app);
             update_calibration_measurement(app);
-            if (app->tab == TAB_SCOPE && app->view == VIEW_SURVEY &&
-                !app->calibration_open)
+            if (app->tab == TAB_SURVEY && !app->calibration_open)
                 update_survey(app, now, spectrum_updated);
         }
         if (have_new && app->tab == TAB_DECODE &&
@@ -1383,20 +1402,18 @@ static int run_gui(struct app *app) {
                     draw_fm(app);
                 else
                     draw_lte(app);
+            } else if (app->tab == TAB_SURVEY) {
+                draw_survey(app);
             } else {
-                if (app->view == VIEW_SURVEY) {
-                    draw_survey(app);
-                } else {
-                    draw_base_hud(app, &snapshot);
-                    if (app->view == VIEW_MAGNITUDE)
-                        draw_magnitude(app);
-                    else if (app->view == VIEW_SPECTRUM)
-                        draw_spectrum(app);
-                    else if (app->view == VIEW_SCATTER)
-                        draw_scatter(app);
-                    else
-                        draw_waterfall(app);
-                }
+                draw_base_hud(app, &snapshot);
+                if (app->view == VIEW_MAGNITUDE)
+                    draw_magnitude(app);
+                else if (app->view == VIEW_SPECTRUM)
+                    draw_spectrum(app);
+                else if (app->view == VIEW_SCATTER)
+                    draw_scatter(app);
+                else
+                    draw_waterfall(app);
             }
             draw_header(app);
             if (app->settings_open)

@@ -57,6 +57,7 @@ static void test_target_names_match_the_enum(void) {
     check_str("help", debug_target_name(INPUT_TARGET_HELP), "help");
     check_str("settings", debug_target_name(INPUT_TARGET_SETTINGS),
               "settings");
+    check_str("survey", debug_target_name(INPUT_TARGET_SURVEY), "survey");
     check_str("scan", debug_target_name(INPUT_TARGET_SCAN), "scan");
     check_str("calibration", debug_target_name(INPUT_TARGET_CALIBRATION),
               "calibration");
@@ -67,6 +68,9 @@ static void test_target_names_match_the_enum(void) {
     check_str("nor a negative", debug_target_name(-1), "?");
 }
 
+/* Tabs by name, not by number: this table lines up with an enum in
+   input_route.h, and when Survey became a tab of its own every literal 0 and
+   1 here meant something different. */
 static struct debug_screen screen_of(int tab, int view, int decode) {
     struct debug_screen s;
     memset(&s, 0, sizeof(s));
@@ -80,20 +84,20 @@ static void test_describing_a_screen(void) {
     char text[64];
     struct debug_screen s;
 
-    s = screen_of(0, 4, 0);   /* Scope tab, survey */
+    s = screen_of(TAB_SURVEY, 0, 0);
     debug_screen_describe(&s, text, sizeof(text));
-    check_str("the survey", text, "scope/survey");
+    check_str("the survey is a tab of its own", text, "survey");
 
-    s = screen_of(0, 1, 0);
+    s = screen_of(TAB_SCOPE, 1, 0);
     debug_screen_describe(&s, text, sizeof(text));
     check_str("the spectrum", text, "scope/spectrum");
 
     /* The Decode tab names its technology, in the order the enum has them --
        FM first, which is what the header draws. */
-    s = screen_of(1, 0, 0);
+    s = screen_of(TAB_DECODE, 0, 0);
     debug_screen_describe(&s, text, sizeof(text));
     check_str("FM", text, "decode/fm");
-    s = screen_of(1, 0, 3);
+    s = screen_of(TAB_DECODE, 0, 3);
     debug_screen_describe(&s, text, sizeof(text));
     check_str("LTE", text, "decode/lte");
 
@@ -103,13 +107,12 @@ static void test_describing_a_screen(void) {
      * survey and calibration over the GSM view leave the receiver in
      * different places.
      */
-    s = screen_of(0, 4, 0);
+    s = screen_of(TAB_SURVEY, 0, 0);
     s.calibration_open = 1;
     debug_screen_describe(&s, text, sizeof(text));
-    check_str("calibration over the survey", text,
-              "scope/survey +calibration");
+    check_str("calibration over the survey", text, "survey +calibration");
 
-    s = screen_of(1, 0, 2);
+    s = screen_of(TAB_DECODE, 0, 2);
     s.help_open = 1;
     s.analysis = 1;
     debug_screen_describe(&s, text, sizeof(text));
@@ -117,17 +120,17 @@ static void test_describing_a_screen(void) {
 
     /* Nonsense indices are reported as unknown rather than read off the end
        of the table. */
-    s = screen_of(0, 99, 0);
+    s = screen_of(TAB_SCOPE, 99, 0);
     debug_screen_describe(&s, text, sizeof(text));
     check_str("a view that does not exist", text, "scope/?");
-    s = screen_of(1, 0, 99);
+    s = screen_of(TAB_DECODE, 0, 99);
     debug_screen_describe(&s, text, sizeof(text));
     check_str("nor a technology", text, "decode/?");
 
     /* A buffer too small truncates rather than overruns. */
     {
         char small[8];
-        s = screen_of(0, 4, 0);
+        s = screen_of(TAB_SCOPE, 3, 0);
         s.calibration_open = 1;
         debug_screen_describe(&s, small, sizeof(small));
         check_true("a short buffer is still terminated",
@@ -142,8 +145,8 @@ static void test_describing_a_screen(void) {
  * frame is sixty lines a second and nobody reads it.
  */
 static void test_noticing_a_change(void) {
-    struct debug_screen a = screen_of(0, 4, 0);
-    struct debug_screen b = screen_of(0, 4, 0);
+    struct debug_screen a = screen_of(TAB_SCOPE, 3, 0);
+    struct debug_screen b = screen_of(TAB_SCOPE, 3, 0);
 
     check_true("the same screen is not a change", !debug_screen_differs(&a, &b));
     b.view = 1;

@@ -773,7 +773,7 @@ static int help_topic_for_screen(const struct app *app) {
             return HELP_BURST;
         return HELP_SCAN;
     }
-    if (app->view == VIEW_SURVEY)
+    if (app->tab == TAB_SURVEY)
         return HELP_SURVEY;
     if (app->view == VIEW_SPECTRUM)
         return HELP_SPECTRUM;

@@ -240,9 +240,12 @@ signal, how many of a site's sweeps in each hour heard it, so a signal whose
 absence follows the clock is `by hour` rather than merely `on/off` --
 a distinction no single sweep and no count of sweeps can reach.
 
-**The survey is the view the application opens on**, reached from a Survey
-button at the left of the Scope tab rather than a fifth number: the other four
-draw whatever the receiver is pointed at and this one walks it across a band.
+**The survey is a tab of its own, first, and the screen the application opens
+on.** It was a fifth Scope view reached by a button, and that put it inside
+the wrong thing: the four Scope views draw whatever the receiver is pointed at
+and this one walks the receiver across a band. Under Scope it also inherited
+Scope's numbered options — 1 magnitude, 2 spectrum — which name screens it has
+nothing to do with. `enum active_tab` is Survey, Scope, Decode.
 Its candidate list carries each maximum's width and shape (`src/survey_carrier.h`)
 and what the site has heard of it -- new, steady, on/off, gone
 (`site_history_seen()`).

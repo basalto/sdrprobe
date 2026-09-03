@@ -67,7 +67,7 @@ int debug_screen_differs(const struct debug_screen *a,
 }
 
 static const char *SCOPE_VIEWS[] = {
-    "magnitude", "spectrum", "scatter", "waterfall", "survey"
+    "magnitude", "spectrum", "scatter", "waterfall"
 };
 static const char *DECODES[] = { "fm", "adsb", "gsm", "lte" };
 
@@ -82,11 +82,14 @@ void debug_screen_describe(const struct debug_screen *screen, char *out,
     if (!screen)
         return;
 
-    if (screen->tab == 1) {
+    if (screen->tab == 2) {
         where = (screen->decode >= 0 &&
                  screen->decode < (int)(sizeof(DECODES) / sizeof(DECODES[0])))
                     ? DECODES[screen->decode] : "?";
         snprintf(out, capacity, "decode/%s", where);
+    } else if (screen->tab == 0) {
+        snprintf(out, capacity, "survey");
+        where = NULL;
     } else {
         where = (screen->view >= 0 &&
                  screen->view <
@@ -94,6 +97,7 @@ void debug_screen_describe(const struct debug_screen *screen, char *out,
                     ? SCOPE_VIEWS[screen->view] : "?";
         snprintf(out, capacity, "scope/%s", where);
     }
+    (void)where;
 
     /*
      * The overlays are appended rather than replacing the view, because they
@@ -170,7 +174,8 @@ const char *debug_key_name(int key) {
 
 const char *debug_target_name(int target) {
     static const char *NAMES[] = {
-        "help", "settings", "scan", "calibration", "decode", "scope"
+        "help", "survey", "settings", "scan", "calibration", "decode",
+        "scope"
     };
 
     if (target < 0 || target >= (int)(sizeof(NAMES) / sizeof(NAMES[0])))
