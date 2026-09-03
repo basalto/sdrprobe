@@ -360,6 +360,17 @@ probe-periodicity: scripts/signal_periodicity.c
 		scripts/signal_periodicity.c -lm
 	$(Q)./$(BUILD)/signal_periodicity $(FILE_PERIODICITY) $(RATE_PERIODICITY)
 
+# Every screen the program has, rendered to look at. A change that draws is not
+# finished until somebody has seen it: check-layout compares rectangles and
+# cannot see two panels drawing into the same one, a band button offering a
+# band the receiver cannot reach, or a field that says N/A. All three shipped.
+SCREEN_DIR?=$(BUILD)/screens
+SCREEN_W?=1500
+SCREEN_H?=950
+screens: sdrprobe
+	@mkdir -p $(SCREEN_DIR)
+	$(Q)sh scripts/screens.sh $(SCREEN_DIR) $(SCREEN_W) $(SCREEN_H)
+
 bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(BENCH_ARCH) -I$(SRC) -o $(BUILD)/dsp_bench \
@@ -377,4 +388,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp clean
+.PHONY: all check hooks check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp screens clean

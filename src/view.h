@@ -102,7 +102,7 @@ void update_waterfall(struct app *app);
 void update_scatter(struct app *app, double now, int insert);
 void draw_waterfall_rect(const struct app *app, int calibration_mode,
                          Rectangle rect, double zoom_center_hz);
-void draw_waterfall(const struct app *app, int calibration_mode);
+void draw_waterfall(const struct app *app);
 void draw_base_hud(const struct app *app, const struct slot_snapshot *snapshot);
 void draw_magnitude(const struct app *app);
 void draw_spectrum(const struct app *app);

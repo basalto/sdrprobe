@@ -8,6 +8,39 @@ description: Capture what the sdrprobe window draws as a PNG and read it back. U
 `sdrprobe` draws to a window and its output says nothing about what appeared.
 `--screenshot` writes the last frame to a PNG, which the Read tool displays.
 
+## Every screen, in one command
+
+```sh
+make screens          # build/screens/*.png, from captures, about a minute
+```
+
+Twelve screens: the four Scope views, the survey, the three decode views, the
+calibration overlay in both arrangements, settings and help. All from captures,
+so none of it needs a receiver and all of it draws the same picture twice.
+
+**Look at the ones your change touched, and at their neighbours.** A change to
+one panel moves the ones below it.
+
+## What a screenshot catches that a check cannot
+
+`check-layout` compares rectangles. These all shipped in this program and all
+were plain in a picture:
+
+- **Two things drawing into the same rectangle.** They agree about where they
+  are, so comparing rectangles cannot see it. A cell picker and a waterfall
+  were both drawing into the calibration overlay's chart.
+- **A control offering values that cannot work.** The LTE calibration's band
+  buttons offered bands 1, 3 and 7 -- correct geometry, and an R820T cannot
+  tune any of them.
+- **Text that is wrong rather than misplaced.** A field reading "N/A" under an
+  EARFCN caption; a status line saying "Select GSM 900 ARFCN" under the 4G
+  arrangement.
+- **A frame that never drew.** The help overlay exported pure black while the
+  compositor could be photographed drawing it perfectly.
+
+So: geometry checks for where things are, a screenshot for whether the screen
+is right. Neither substitutes for the other.
+
 ## Screenshot to see it, headless to read it
 
 A screenshot answers **did it draw, and does it look right**: layout, charts,
@@ -69,11 +102,11 @@ captured is the last one.
 
 A tiling compositor gives the window whatever the layout has spare, so a plain
 run is not the same size twice and panel text truncates when the tile is
-narrow. `shot.sh` floats the window and asks for a size before the frame is
+narrow. `scripts/screenshot.sh` floats the window and asks for a size before the frame is
 captured:
 
 ```sh
-.claude/skills/screenshot/shot.sh 1500 950 /tmp/shot.png \
+./scripts/screenshot.sh 1500 950 /tmp/shot.png \
     --file testfiles/gsm_arfcn_69.bin --view gsm --arfcn 69 --duration 8
 ```
 

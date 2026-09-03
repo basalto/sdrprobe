@@ -5,6 +5,7 @@
 #include <math.h>
 #include <pthread.h>
 #include <raylib.h>
+#include <rlgl.h>        /* rlDrawRenderBatchActive, for --screenshot */
 #include <rtl-sdr.h>
 #include <signal.h>
 #include <stdint.h>
@@ -992,6 +993,8 @@ static int run_gui(struct app *app) {
         if (app->options.calibrate == 2)
             calibration_select_technology(app, 1);
         break;
+    case START_VIEW_SETTINGS:  open_settings(app); break;
+    case START_VIEW_HELP:      open_help(app); break;
     default: break;
     }
 
@@ -1194,7 +1197,7 @@ static int run_gui(struct app *app) {
                     else if (app->view == VIEW_SCATTER)
                         draw_scatter(app);
                     else
-                        draw_waterfall(app, 0);
+                        draw_waterfall(app);
                 }
             }
             draw_header(app);
@@ -1203,16 +1206,34 @@ static int run_gui(struct app *app) {
         }
         if (app->help.open)
             draw_help(app);
-        EndDrawing();
 
         if (last_frame) {
             /*
-             * The framebuffer is read after the frame is finished and
-             * presented, and exported rather than handed to TakeScreenshot,
-             * which prefixes the working directory to whatever it is given --
-             * so an absolute path silently becomes nonsense and no file
-             * appears. Here the path is used as written.
+             * Flush the batch, then read, then swap.
+             *
+             * All three parts matter and the order is the whole of it. raylib
+             * accumulates geometry in a render batch and does not touch the
+             * framebuffer until something flushes it, which EndDrawing does on
+             * its way to swapping the buffers. So a read placed after
+             * EndDrawing sees a swapped back buffer -- undefined, in practice
+             * usually the frame just presented, which is why it appeared to
+             * work for months -- and a read placed before it sees a
+             * framebuffer holding the cleared background and nothing else.
+             *
+             * Both failures look identical from the outside: a PNG of a screen
+             * the compositor can be photographed drawing perfectly well. The
+             * second was the more honest of the two, because it failed for
+             * every view at once instead of only for the one whose overlay
+             * happened to overrun the batch and flush it by accident.
+             *
+             * rlDrawRenderBatchActive is the flush on its own, without the
+             * swap.
+             *
+             * Exported rather than handed to TakeScreenshot, which prefixes
+             * the working directory to whatever it is given, so an absolute
+             * path silently becomes nonsense and no file appears.
              */
+            rlDrawRenderBatchActive();
             Image frame = LoadImageFromScreen();
             if (ExportImage(frame, app->options.screenshot_path))
                 fprintf(stderr, "Wrote %s (%dx%d)\n",
@@ -1222,8 +1243,10 @@ static int run_gui(struct app *app) {
                 fprintf(stderr, "Could not write %s\n",
                         app->options.screenshot_path);
             UnloadImage(frame);
+            EndDrawing();
             break;
         }
+        EndDrawing();
         if (snapshot.worker_failed) {
             result = -1;
             break;
