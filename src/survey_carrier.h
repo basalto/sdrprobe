@@ -100,9 +100,23 @@ static inline const char *survey_shape_name(enum survey_shape shape) {
  */
 #define SURVEY_CARRIER_SPLIT_DB 6.0f
 
-/* How many bins either side a dip must hold to count as a gap rather than a
-   notch in the modulation. */
-#define SURVEY_CARRIER_NOTCH 2
+/*
+ * How wide a dip must be to count as a gap rather than a notch in the
+ * modulation -- in hertz, not in bins.
+ *
+ * Bins were the bug. Two bins either side is 4 kHz when a single tuning is
+ * binned at 977 Hz and 850 kHz when the whole tuner is binned at 213 kHz, so
+ * the same constant smoothed almost nothing in one case and most of a band in
+ * the other. At the fine end it left a GSM carrier's own modulation looking
+ * like three carriers with troughs between them, which is what
+ * check-pipelines' ARFCN 69 capture showed: six maxima, one measured centre,
+ * and three "signals".
+ *
+ * Ten kilohertz is below the narrowest thing worth separating -- two
+ * transmissions closer than that are not resolved by a survey anyway -- and
+ * comfortably wider than the ripple inside any carrier.
+ */
+#define SURVEY_CARRIER_NOTCH_HZ 10000.0
 
 struct survey_carrier {
     /*
@@ -139,13 +153,21 @@ struct survey_carrier {
  *
  * Returns how many carriers were filled in.
  */
-/* The strongest bin within SURVEY_CARRIER_NOTCH of `at`: a single-bin notch in
-   the modulation cannot pull this down, a band edge can. */
+/* How many bins SURVEY_CARRIER_NOTCH_HZ comes to at this resolution, at least
+   one so a coarse sweep still looks at its neighbours. */
+static inline int survey_carrier_notch_bins(double bin_hz) {
+    int bins = bin_hz > 0.0 ? (int)(SURVEY_CARRIER_NOTCH_HZ / bin_hz) : 1;
+    return bins < 1 ? 1 : bins;
+}
+
+/* The strongest bin within a notch width of `at`: a dip narrower than the
+   modulation's own ripple cannot pull this down, a band edge can. */
 static inline float survey_carrier_smoothed(const float *power, int bins,
-                                            float sentinel, int at) {
+                                            float sentinel, int at,
+                                            int notch) {
     float best = sentinel;
     int w;
-    for (w = at - SURVEY_CARRIER_NOTCH; w <= at + SURVEY_CARRIER_NOTCH; w++) {
+    for (w = at - notch; w <= at + notch; w++) {
         if (w < 0 || w >= bins || power[w] <= sentinel)
             continue;
         if (power[w] > best)
@@ -172,16 +194,26 @@ static inline float survey_carrier_smoothed(const float *power, int bins,
 static inline int survey_carrier_edge(const float *power, int bins,
                                       float sentinel, int from,
                                       float peak_dbfs, float edge_db,
-                                      int direction) {
-    float lowest = peak_dbfs;
+                                      int notch, int direction) {
+    /*
+     * Seeded with the smoothed level at the peak, not the peak's own bin.
+     * Everything along the walk is compared smoothed, and a maximum that
+     * happens to sit in a dip of its own modulation reads several decibels
+     * below its neighbours -- so a raw seed makes the very first step look
+     * like a climb out of a trough and the carrier ends where it began.
+     */
+    float lowest = survey_carrier_smoothed(power, bins, sentinel, from, notch);
     int edge = from, b = from;
+
+    if (lowest <= sentinel)
+        lowest = peak_dbfs;
 
     for (;;) {
         float value;
         b += direction;
         if (b < 0 || b >= bins)
             break;
-        value = survey_carrier_smoothed(power, bins, sentinel, b);
+        value = survey_carrier_smoothed(power, bins, sentinel, b, notch);
         if (value <= sentinel)
             break;
         if (value < lowest) {
@@ -217,11 +249,12 @@ static inline int survey_carriers_from(const float *power, int bins,
                                        const struct sdr_peak *peaks,
                                        int peak_count,
                                        struct survey_carrier *out, int max) {
-    int i, count = 0;
+    int i, count = 0, notch;
     int low_bin[SURVEY_CARRIER_MAX], high_bin[SURVEY_CARRIER_MAX];
 
     if (!power || !peaks || !out || bins <= 0 || max <= 0)
         return 0;
+    notch = survey_carrier_notch_bins(bin_hz);
     if (max > SURVEY_CARRIER_MAX)
         max = SURVEY_CARRIER_MAX;
 
@@ -242,10 +275,10 @@ static inline int survey_carriers_from(const float *power, int bins,
             joined = count++;
             low_bin[joined] = survey_carrier_edge(power, bins, sentinel,
                                                   p->index, p->power_dbfs,
-                                                  edge_db, -1);
+                                                  edge_db, notch, -1);
             high_bin[joined] = survey_carrier_edge(power, bins, sentinel,
                                                    p->index, p->power_dbfs,
-                                                   edge_db, +1);
+                                                   edge_db, notch, +1);
             out[joined].peak_dbfs = p->power_dbfs;
             out[joined].floor_dbfs = p->floor_dbfs;
             out[joined].strongest = i;

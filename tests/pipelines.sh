@@ -244,7 +244,7 @@ survey_gsm() {
 checked
 survey=$(survey_gsm)
 candidates=$(printf '%s\n' "$survey" | grep -c "^candidate ")
-carriers=$(printf '%s\n' "$survey" | sed -n 's/^survey candidates .* carriers \([0-9]*\)$/\1/p')
+carriers=$(printf '%s\n' "$survey" | sed -n 's/^survey carriers \([0-9]*\)$/\1/p')
 centre=$(printf '%s\n' "$survey" | grep "^candidate " | head -1 | cut -d' ' -f5)
 
 if [ "$candidates" -lt 1 ]; then
