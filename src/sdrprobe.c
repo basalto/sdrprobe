@@ -25,6 +25,13 @@
 #include "sdrgui.h"
 #include "view.h"
 #include "debug_log.h"
+
+/* input_route.h mirrors these two so it can stay standalone; if either enum
+   is reordered this stops the build rather than misrouting a key. */
+typedef char input_route_survey_matches[
+    (VIEW_KIND_SURVEY == (int)VIEW_SURVEY) ? 1 : -1];
+typedef char input_route_adsb_matches[
+    (DECODE_KIND_ADSB == (int)DECODE_ADSB) ? 1 : -1];
 #include "raygui.h"
 
 
@@ -868,7 +875,9 @@ static void draw_header(const struct app *app) {
                     app->view == VIEW_SURVEY);
     } else {
         draw_option_row((int)app->decode, decode_opts, 4,
-                        "h help   Esc scope");
+                        app->decode == DECODE_ADSB
+                            ? "h help   Esc scope"
+                            : "Up/Down scale   h help   Esc scope");
     }
 
     draw_tab_bar(app);
@@ -886,6 +895,8 @@ static struct input_state input_state_now(const struct app *app) {
     state.calibration_open = app->calibration_open;
     state.scan_open = app->scan_open;
     state.tab = app->tab;
+    state.view = (int)app->view;
+    state.decode = (int)app->decode;
     /* Text focus outside the settings panel: the survey's range and dwell
        fields, and the FM view's frequency. Both take digits, and a digit that
        reaches the view switcher instead of the field it was typed into is a
@@ -1197,6 +1208,27 @@ static int run_gui(struct app *app) {
             break;
 
         /*
+         * The scale keys, in one place for every screen that draws something
+         * they mean anything for.
+         *
+         * They used to live in each view, and two views that draw a waterfall
+         * never got them -- a key binding that is missing is invisible until
+         * somebody presses the key, and nothing in a test can see a handler
+         * that was not written. input_scale_keys() is the table now, and
+         * check-input walks every screen against it.
+         */
+        {
+            int scale = input_scale_keys(&input);
+            int up = IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP);
+            int down = IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN);
+
+            if (scale == INPUT_SCALE_ACTIVE_CHART && (up || down))
+                adjust_active_scale(app, up);
+            else if (scale == INPUT_SCALE_WATERFALL && (up || down))
+                adjust_waterfall_scale(app, up);
+        }
+
+        /*
          * The screen, when it changes. After the input phase rather than
          * before, so the line that follows a key is the screen that key
          * produced -- which is the whole question when a key is reported as
@@ -1253,12 +1285,8 @@ static int run_gui(struct app *app) {
                     if (selected == VIEW_SURVEY)
                         view_survey_enter(app);
                 }
-                if (app->view != VIEW_SURVEY) {
-                    if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP))
-                        adjust_active_scale(app, 1);
-                    if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))
-                        adjust_active_scale(app, 0);
-                }
+                /* The scale keys are applied once, below, for every screen
+                   that has a scale -- not here, and not per view. */
             }
             if (app->view == VIEW_SURVEY)
                 handle_survey_input(app);
