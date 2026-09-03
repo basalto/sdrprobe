@@ -74,6 +74,9 @@ struct options {
        --view, which a windowed run usually gives; a headless run has no view,
        so it says so here instead. */
     const char *technology;
+    /* Where to record what the window was told and what it showed.
+       NULL for nothing, "-" for stderr. */
+    const char *debug_log;
 
     /*
      * What describes the installation rather than this run. Both persist:

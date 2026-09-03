@@ -24,13 +24,13 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/config.c $(SRC)/site_histor
 	$(SRC)/band_plan.c \
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
-	$(SRC)/survey_report.c $(SRC)/survey_store.c
+	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/debug_log.c
 APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
-	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/app.h $(SRC)/view.h
+	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h $(SRC)/app.h $(SRC)/view.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
 	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h $(SRC)/lte_scan.h \
 	$(SRC)/fm_dsp.h $(SRC)/rds.h
@@ -225,6 +225,16 @@ check-survey-list: $(TESTS)/survey_list_test.c $(TESTS)/check.h \
 		-o $(BUILD)/survey_list_test $(TESTS)/survey_list_test.c -lm
 	$(Q)./$(BUILD)/survey_list_test
 
+# The debug log's decisions: what a key is called, what a screen is called,
+# and whether a screen changed. It is believed when nothing else can be, so a
+# mislabelled line is worse than no line.
+check-debug-log: $(TESTS)/debug_log_test.c $(TESTS)/check.h \
+		$(SRC)/debug_log.c $(SRC)/debug_log.h $(SRC)/input_route.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/debug_log_test \
+		$(TESTS)/debug_log_test.c $(SRC)/debug_log.c -lm
+	$(Q)./$(BUILD)/debug_log_test
+
 check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h \
 		$(SRC)/calibration_nav.h
 	@mkdir -p $(BUILD)
@@ -334,7 +344,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
-	check-fm-dsp check-rds \
+	check-fm-dsp check-rds check-debug-log \
 	check-survey-list \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally
