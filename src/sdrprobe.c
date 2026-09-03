@@ -848,7 +848,8 @@ static void draw_header(const struct app *app) {
     static const char *scope_opts[4] = {
         "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall"
     };
-    static const char *decode_opts[3] = { "1 ADS-B", "2 GSM", "3 LTE" };
+    static const char *decode_opts[4] = { "1 FM", "2 ADS-B", "3 GSM",
+                                          "4 LTE" };
 
     DrawText("sdrprobe signal visualizer", 22, 14, 24,
              (Color){ 225, 236, 245, 255 });
@@ -860,7 +861,7 @@ static void draw_header(const struct app *app) {
         draw_button(chrome_layout_now().survey_button, "Survey",
                     app->view == VIEW_SURVEY);
     } else {
-        draw_option_row((int)app->decode, decode_opts, 3,
+        draw_option_row((int)app->decode, decode_opts, 4,
                         "h help   Esc scope");
     }
 
@@ -1015,6 +1016,8 @@ static int run_gui(struct app *app) {
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB);
                                set_tab(app, TAB_DECODE); break;
+    case START_VIEW_FM:        set_decode(app, DECODE_FM);
+                               set_tab(app, TAB_DECODE); break;
     case START_VIEW_LTE:       set_decode(app, DECODE_LTE);
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_CALIBRATION:
@@ -1103,15 +1106,19 @@ static int run_gui(struct app *app) {
                 open_calibration(app);
             } else if (input.tab == TAB_DECODE) {
                 if (IsKeyPressed(KEY_ONE))
-                    set_decode(app, DECODE_ADSB);
+                    set_decode(app, DECODE_FM);
                 else if (IsKeyPressed(KEY_TWO))
-                    set_decode(app, DECODE_GSM);
+                    set_decode(app, DECODE_ADSB);
                 else if (IsKeyPressed(KEY_THREE))
+                    set_decode(app, DECODE_GSM);
+                else if (IsKeyPressed(KEY_FOUR))
                     set_decode(app, DECODE_LTE);
                 if (app->decode == DECODE_GSM)
                     handle_gsm_input(app);
                 else if (app->decode == DECODE_ADSB)
                     handle_adsb_input(app);
+                else if (app->decode == DECODE_FM)
+                    handle_fm_input(app);
                 else
                     handle_lte_input(app);
             } else if (IsKeyPressed(KEY_ESCAPE) && !input.text_focus) {
@@ -1193,6 +1200,13 @@ static int run_gui(struct app *app) {
             if (have_new && !app->lte.scan.running)
                 update_lte(app, now);
         }
+        if (app->tab == TAB_DECODE && app->decode == DECODE_FM) {
+            /* Every block, and only when one arrived: the pilot loop is a
+               continuous thing and a block skipped is a quarter second of
+               its lock thrown away. */
+            if (have_new)
+                update_fm(app, now);
+        }
         update_drift_check(app, spectrum_updated);
         update_scatter(app, now,
                        have_new && app->tab == TAB_SCOPE &&
@@ -1214,6 +1228,8 @@ static int run_gui(struct app *app) {
                     draw_gsm(app);
                 else if (app->decode == DECODE_ADSB)
                     draw_adsb(app);
+                else if (app->decode == DECODE_FM)
+                    draw_fm(app);
                 else
                     draw_lte(app);
             } else {
@@ -1417,6 +1433,36 @@ static void print_new_decodes(struct app *app, double now,
 {
     if (decoder == DECODE_LTE) {
         print_lte(app, now);
+        fflush(stdout);
+        return;
+    }
+    if (decoder == DECODE_FM) {
+        /*
+         * One line whenever the station's account of itself changes, rather
+         * than one per block: FM is continuous and a block adds a couple of
+         * groups, so per-block output would be four hundred lines saying the
+         * same thing. What changes is worth printing; what repeats is not.
+         */
+        static uint16_t announced_pi;
+        static int announced_valid;
+        static char announced_ps[9];
+        const struct rds_station *s = &app->fm.station;
+
+        update_fm(app, now);
+        if (s->pi_valid && (!announced_valid || s->pi != announced_pi)) {
+            printf("FM   station 0x%04X  %.3f MHz\n", s->pi,
+                   app->applied_frequency / 1e6);
+            announced_pi = s->pi;
+            announced_valid = 1;
+            announced_ps[0] = '\0';
+        }
+        if (s->ps_valid && strcmp(s->ps, announced_ps) != 0) {
+            printf("RDS  \"%s\"  %s%s  identification 0x%04X (%d agreeing)\n",
+                   s->ps,
+                   rds_pty_name(s->pty) ? rds_pty_name(s->pty) : "?",
+                   s->tp ? ", traffic programme" : "", s->pi, s->pi_repeats);
+            snprintf(announced_ps, sizeof(announced_ps), "%s", s->ps);
+        }
         fflush(stdout);
         return;
     }
@@ -1894,6 +1940,9 @@ static int run_headless(struct app *app) {
     else if (app->options.technology &&
              strcmp(app->options.technology, "lte") == 0)
         decoder = DECODE_LTE;
+    else if (app->options.technology &&
+             strcmp(app->options.technology, "fm") == 0)
+        decoder = DECODE_FM;
     if (app->options.decode)
         sdr_dsp_init(&app->dsp);
 
@@ -2048,6 +2097,7 @@ int main(int argc, char **argv) {
     app->remove_dc = options.remove_dc;
     view_gsm_defaults(app);
     view_lte_defaults(app);
+    view_fm_defaults(app);
     view_scope_defaults(app);
     view_survey_defaults(app);
     if (options.gsm_features_seen) {

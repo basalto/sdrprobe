@@ -62,7 +62,17 @@
  * default, which is the one that agrees with the receiver: nothing has been
  * tuned yet at startup, and the default tuning is 1090 MHz.
  */
+/*
+ * The Decode tab's screens, in the order they are offered.
+ *
+ * The order is load-bearing: the header draws the row from this enum's values,
+ * so the numbers a reader presses are these positions. FM leads because it is
+ * the one that always has something to show here -- broadcast is on the air
+ * every hour of every day, where a GSM capture needs a cell that has not been
+ * refarmed and ADS-B needs an aircraft overhead.
+ */
 enum decode_kind {
+    DECODE_FM,
     DECODE_ADSB,
     DECODE_GSM,
     DECODE_LTE
@@ -70,6 +80,62 @@ enum decode_kind {
 /* What the ADS-B view decides -- the log row, which frame the charts are
    drawn from, and the funnel -- is in a header the checks can reach. */
 #include "adsb_analysis.h"
+#include "fm_dsp.h"
+#include "rds.h"
+
+/*
+ * FM broadcast, and what a station's RDS says about it.
+ *
+ * The one decode view here that cannot work a block at a time. The pilot loop
+ * needs a quarter of a second before it may be believed -- four blocks at the
+ * house rate -- and the symbol clock, the subcarrier phase and the bitstream
+ * all run continuously through a block boundary. So the front end is kept
+ * across blocks rather than rebuilt from each, which is the whole reason this
+ * state lives here instead of on a stack somewhere in the draw call.
+ *
+ * What is kept across blocks is the *baseband*, not the bits, and that
+ * distinction cost an afternoon. Soft bits are only meaningful relative to a
+ * symbol grid and a subcarrier axis, and both are worked out from whatever
+ * span they are worked out over: a block's worth of baseband is 77 symbols
+ * that do not begin on the previous block's grid, and the axis carries a 180
+ * degree ambiguity that the differential decode absorbs happily within one
+ * run and not at all across a join. Bits decoded per block and then
+ * concatenated look perfect and synchronise to nothing -- 2020 of them gave
+ * zero groups where the same capture decoded offline gives eighteen.
+ *
+ * So the window holds complex baseband, one timing search and one axis are
+ * done over the whole of it, and the result is bit-for-bit what the offline
+ * decode of the same span produces. The view and a script cannot disagree
+ * about what a station said, because they are running the same function over
+ * the same samples.
+ */
+#define FM_VIEW_BASEBAND 65536      /* about 3.4 s at the pilot rate */
+#define FM_VIEW_SOFT_BITS (FM_VIEW_BASEBAND / FM_RDS_SAMPLES_PER_SYMBOL + 8)
+
+struct fm_view {
+    char frequency[16];             /* megahertz, as typed */
+    int frequency_length;
+    int typing;
+
+    struct fm_rds_front front;
+    int front_rate;                 /* the rate it was built for */
+
+    float bb_i[FM_VIEW_BASEBAND];
+    float bb_q[FM_VIEW_BASEBAND];
+    size_t bb_count;
+    float soft[FM_VIEW_SOFT_BITS];
+    size_t soft_count;
+
+    struct rds_station station;
+    int timing_offset;
+    double axis_radians;
+
+    /* Cumulative across the session, where the station is a window: these are
+       what say whether reception is getting better or worse. */
+    long blocks_seen;
+    long groups_total;
+    double last_group_at;
+};
 struct scatter_block {
     float i[SCATTER_SAMPLES];
     float q[SCATTER_SAMPLES];
@@ -570,6 +636,7 @@ struct app {
     struct gsm_view gsm;
     struct adsb_view adsb;
     struct lte_view lte;
+    struct fm_view fm;
     struct settings_panel set;
     struct help_overlay help;
     struct calibration cal;

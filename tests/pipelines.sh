@@ -90,6 +90,41 @@ check_gsm testfiles/gsm_arfcn_69.bin 69 59
 # channel off the frame they locate. The identity and the frame number are
 # both asserted, and both are numbers this code has had wrong while every
 # synthetic check passed.
+# FM broadcast and RDS. The whole chain in one command: discriminator, pilot,
+# subcarrier, block code, group parser. Two facts are asserted rather than one,
+# because a name alone could come from a decoder with its differential the
+# wrong way round -- the programme type lives in a different block of every
+# group and has nothing to do with the name, and TSF is a news station.
+printf '  FM RDS decode\n'
+checked
+fm=$(run --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
+         --frequency 89.6M --headless --technology fm --decode --once)
+if ! printf '%s\n' "$fm" | grep -q "^FM   station 0x8343"; then
+    fail "fm_rds_tsf did not identify TSF; got: $(printf '%s\n' "$fm" |
+         grep '^FM ' | head -1)"
+fi
+checked
+if ! printf '%s\n' "$fm" | grep -q '^RDS  " TSF    "'; then
+    fail "fm_rds_tsf did not name the station; got: $(printf '%s\n' "$fm" |
+         grep '^RDS ' | head -1)"
+fi
+checked
+if ! printf '%s\n' "$fm" | grep -q "news, traffic programme"; then
+    fail "fm_rds_tsf did not read the programme type; got: $(
+         printf '%s\n' "$fm" | grep '^RDS ' | head -1)"
+fi
+report "fm_rds_tsf.bin" "station 0x8343, TSF, news"
+
+# And the same capture twice gives the same answer, which a chain carrying
+# state across blocks is the natural place to lose.
+checked
+fm2=$(run --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
+          --frequency 89.6M --headless --technology fm --decode --once)
+if [ "$fm" != "$fm2" ]; then
+    fail "fm_rds_tsf decoded differently the second time"
+fi
+report "run twice" "identical output"
+
 printf '  LTE decode\n'
 checked
 lte=$(run --file testfiles/lte_b20_pci28.bin --headless --earfcn 6200 \

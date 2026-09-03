@@ -19,9 +19,9 @@ void usage(const char *program) {
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
-            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte|\n"
+            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte|fm|\n"
             "                  calibration|settings|help]\n"
-            "          [--record-seconds n] [--technology gsm|adsb|lte|raw]\n"
+            "          [--record-seconds n] [--technology gsm|adsb|lte|fm|raw]\n"
             "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
@@ -213,6 +213,7 @@ int parse_view(const char *text, enum start_view *view) {
         { "gsm", START_VIEW_GSM },
         { "adsb", START_VIEW_ADSB },
         { "lte", START_VIEW_LTE },
+        { "fm", START_VIEW_FM },
         { "calibration", START_VIEW_CALIBRATION },
         { "settings", START_VIEW_SETTINGS },
         { "help", START_VIEW_HELP }
@@ -415,6 +416,7 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (strcmp(options->technology, "gsm") != 0 &&
                 strcmp(options->technology, "adsb") != 0 &&
                 strcmp(options->technology, "lte") != 0 &&
+                strcmp(options->technology, "fm") != 0 &&
                 strcmp(options->technology, "raw") != 0)
                 return -1;
         } else if (strcmp(option, "--survey-save") == 0) {

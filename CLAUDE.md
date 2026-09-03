@@ -164,6 +164,8 @@ way to see whether a change to the DSP helped or hurt:
 ```sh
 ./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode --once
 ./sdrprobe --file testfiles/adsb_cpr_pair.bin --headless --technology adsb --decode --once
+./sdrprobe --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
+    --frequency 89.6M --headless --technology fm --decode --once
 ./sdrprobe --headless --record-seconds 2 --technology adsb   # live capture + sidecar
 ```
 
@@ -314,6 +316,21 @@ Tabs are presentation only, not the boundary (ADR-0010).
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →
   CRC-16 masked by the antenna-port count → a Master Information Block.
   `src/lte_gold.h` holds the length-31 Gold sequence both sides need.
+- `src/fm_dsp.{c,h}` (`fm_`) — FM broadcast: discriminator, a coherent 19 kHz
+  pilot, and the RDS subcarrier down to soft symbols. **Every rate in the
+  multiplex is a whole multiple of the pilot** — the subcarrier is three times
+  it and the symbol rate is it over sixteen — so a station transmits the pilot
+  precisely to spare a receiver any blind loop, and there is none here.
+  Lock is *coherence*, not amplitude: the pilot's size against the multiplex
+  ranks a 48 dB station below a 29 dB one, because the loud one has more audio
+  in the denominator.
+- `src/rds.{c,h}` — one layer further, Decoder side: the (26,16) block code,
+  the five offset words, groups, and a station's identification, programme
+  type and name. **RDS has no preamble**, so synchronisation is a search: a
+  syndrome matches by chance about once in two hundred tries, which is why
+  four in the offset order is the gate and `rds_sync_odds_per_million()` is
+  the number behind it. On `testfiles/fm_rds_tsf.bin` it reads 0x8343, `TSF`,
+  news.
 
 A plugin supplies a channel map and a reference-tone detector and reuses the core
 for everything else (ADR-0001); a decode stage sits behind the same seam even when
@@ -455,6 +472,10 @@ about a ppm -- GSM ARFCN 113 gave -31.3 and LTE EARFCN 6200 gave -32.5.
   numbers that increase and track the burst timeline. The three BCCs are the
   point of having three: the BCC picks the training sequence every normal
   burst is found by, so hardcoding one passes ARFCN 69 and fails 113.
+  `fm_rds_tsf.bin` is at **2.048 MS/s** and must keep reading identification
+  0x8343 and the name `TSF`; the name alone would pass with the differential
+  sense backwards, so `check-pipelines` asserts the programme type as well,
+  which lives in a different block of every group.
   `gsm_arfcn_113.bin` is the only one whose cell is still on air — 69 and 73
   went off the air with the operator's refarming, so they are historical and
   cannot be re-recorded. Those real-signal

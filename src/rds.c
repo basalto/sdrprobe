@@ -324,6 +324,7 @@ size_t rds_decode(const float *soft, size_t count, struct rds_station *station,
     if (!soft || !station)
         return 0;
     rds_station_init(station);
+    station->funnel.bits = (long)count;
     if (count < RDS_GROUP_BITS)
         return 0;
 
@@ -378,6 +379,7 @@ size_t rds_decode(const float *soft, size_t count, struct rds_station *station,
                         g.version_b = 1;
                 }
             }
+            station->funnel.blocks_matched += good;
             if (good == 0) {
                 /* Nothing here at all. A few of these is fading; a run of
                    them means the alignment is stale and searching again beats
@@ -389,7 +391,16 @@ size_t rds_decode(const float *soft, size_t count, struct rds_station *station,
                 }
             } else {
                 barren = 0;
-                rds_station_apply(station, &g);
+                station->funnel.groups++;
+                if (g.present[0] || (g.present[2] && g.present[1] &&
+                                     ((g.data[1] >> 11) & 1)))
+                    station->funnel.identified++;
+                {
+                    int was_named = station->ps_valid;
+                    rds_station_apply(station, &g);
+                    if (!was_named && station->ps_valid)
+                        station->funnel.named++;
+                }
                 if (groups && made < capacity)
                     groups[made] = g;
                 made++;
