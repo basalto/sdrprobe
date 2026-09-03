@@ -101,4 +101,14 @@ static inline int input_view_keys_live(const struct input_state *s) {
     return input_route(s) == INPUT_TARGET_SCOPE && !s->text_focus;
 }
 
+/*
+ * And whether the Decode tab's numbered keys reach it. The same rule for the
+ * same reason, and it did not exist until there was a text field in that tab
+ * to take the digits instead: typing 100.3 into the FM view's frequency field
+ * read the 3 as "switch to GSM" and did.
+ */
+static inline int input_decode_keys_live(const struct input_state *s) {
+    return input_route(s) == INPUT_TARGET_DECODE && !s->text_focus;
+}
+
 #endif

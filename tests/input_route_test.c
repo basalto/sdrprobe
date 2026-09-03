@@ -270,6 +270,46 @@ static void test_where_back_goes(void) {
     }
 }
 
+
+/*
+ * The Decode tab's numbered keys, and the field that takes them instead.
+ *
+ * This gate did not exist until the FM view put a text field in that tab.
+ * Typing 100.3 into its frequency field read the 3 as "switch to GSM" and
+ * did, which is a screen change nobody asked for and a frequency thrown away
+ * with it. The Scope tab has had the same rule since it grew survey fields.
+ */
+static void test_decode_keys_yield_to_a_field(void) {
+    struct input_state typing = state_of(0, 0, 0, 0, TAB_DECODE, 0);
+    struct input_state idle = state_of(0, 0, 0, 0, TAB_DECODE, 0);
+
+    typing.text_focus = 1;
+    idle.text_focus = 0;
+
+    check_true("the numbered keys reach the Decode tab normally",
+               input_decode_keys_live(&idle));
+    check_true("and not while a field has focus",
+               !input_decode_keys_live(&typing));
+
+    /* The two tabs' gates are separate questions and must not answer for each
+       other: a digit typed in one tab has nothing to do with the other. */
+    {
+        struct input_state scope = state_of(0, 0, 0, 0, TAB_SCOPE, 0);
+        check_true("the Decode gate is shut on the Scope tab",
+                   !input_decode_keys_live(&scope));
+        check_true("where the Scope gate is open",
+                   input_view_keys_live(&scope));
+        check_true("and the Scope gate is shut on the Decode tab",
+                   !input_view_keys_live(&idle));
+    }
+
+    /* An overlay closes it too, the same as everything else in the chain. */
+    {
+        struct input_state overlaid = state_of(1, 0, 0, 0, TAB_DECODE, 0);
+        check_true("an overlay shuts it", !input_decode_keys_live(&overlaid));
+    }
+}
+
 int main(void) {
     test_the_tabs();
     test_the_precedence();
@@ -280,6 +320,7 @@ int main(void) {
     test_every_combination_routes_somewhere_sensible();
     test_a_stale_scan_flag();
     test_where_back_goes();
+    test_decode_keys_yield_to_a_field();
 
     return check_report("input precedence");
 }
