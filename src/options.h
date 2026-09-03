@@ -111,6 +111,17 @@ struct options {
     /* Give up after this long even if the gate never opens; a calibration
        that cannot lock is a result worth reporting, not a hang. */
     double calibrate_seconds;
+    /*
+     * Walk the LTE chain over a live receiver and print what each stage
+     * produced, block by block.
+     *
+     * probe-lte-chain does this for a capture. A capture is two seconds of one
+     * afternoon; what a decode chain does over a live cell for a minute is a
+     * different question, and the one that matters when it is not working.
+     */
+    int lte_chain;
+    int lte_chain_band;            /* scan this band and take the best cell */
+    double lte_chain_seconds;
     /* headless: walk an LTE band's channels and print the cells found, for
        the same reason -- the scan is otherwise a button. 0 = not asked for,
        otherwise the band number. */
