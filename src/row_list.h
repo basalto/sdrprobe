@@ -1,11 +1,17 @@
-#ifndef SURVEY_LIST_H
-#define SURVEY_LIST_H
+#ifndef ROW_LIST_H
+#define ROW_LIST_H
 
 #include <raylib.h>
 
 /*
- * The candidate list's rows: how many fit, which one the pointer is over, and
- * how far down the list is scrolled.
+ * A list of rows in a panel: how many fit, which one the pointer is over, and
+ * how far down it is scrolled.
+ *
+ * Written for the survey's candidate list and generalised the moment the FM
+ * scan grew a list of its own, because it had arrived at the same bug by the
+ * same route. Two copies of this arithmetic would be two chances to get the
+ * hit test and the draw disagreeing, which is the exact failure it exists to
+ * prevent.
  *
  * It did not scroll at all. The panel drew the first however-many candidates
  * that fitted -- about seventeen -- and stopped, so a full-tuner sweep that
@@ -24,20 +30,28 @@
  * scroll arithmetic that has to agree with it.
  */
 
-#define SURVEY_LIST_ROW_H 22.0f
-/* Rows per wheel notch. Three, because one is tedious over sixty candidates
-   and a whole page loses your place. */
-#define SURVEY_LIST_WHEEL_ROWS 3
-#define SURVEY_LIST_HEADER_H 44.0f   /* caption and column titles */
-/* The strip along the bottom, where the list says where in itself it is.
-   Reserved rather than drawn over the last row, which is what a footer
-   placed at height - 20 did when the rows filled the panel. */
-#define SURVEY_LIST_FOOTER_H 24.0f
+/* Rows per wheel notch. Three, because one is tedious over sixty rows and a
+   whole page loses your place. */
+#define ROW_LIST_WHEEL_ROWS 3
+
+/*
+ * What a particular list's rows look like. Passed rather than fixed, because
+ * the survey's list has a caption and a column header where the scan's also
+ * carries a line of status, and a shared header that assumed one of them
+ * would put the other's hit test a row out.
+ */
+struct row_list_metrics {
+    float header_h;   /* caption, column titles, whatever precedes the rows */
+    float row_h;
+    float footer_h;   /* the strip that says where in the list this is */
+};
+
 
 /* How many rows the panel can draw. */
-static inline int survey_list_rows(Rectangle rect) {
-    float room = rect.height - SURVEY_LIST_HEADER_H - SURVEY_LIST_FOOTER_H;
-    int rows = (int)(room / SURVEY_LIST_ROW_H);
+static inline int row_list_rows(Rectangle rect,
+                                struct row_list_metrics m) {
+    float room = rect.height - m.header_h - m.footer_h;
+    int rows = m.row_h > 0.0f ? (int)(room / m.row_h) : 0;
 
     return rows > 0 ? rows : 0;
 }
@@ -45,7 +59,7 @@ static inline int survey_list_rows(Rectangle rect) {
 /* The furthest down the list can be scrolled: enough to bring the last
    candidate onto the last row, and no further. A list that fits entirely
    never scrolls. */
-static inline int survey_list_max_scroll(int count, int rows) {
+static inline int row_list_max_scroll(int count, int rows) {
     int max;
 
     /* A panel with no room for a row has nothing to scroll through. Without
@@ -57,8 +71,8 @@ static inline int survey_list_max_scroll(int count, int rows) {
     return max > 0 ? max : 0;
 }
 
-static inline int survey_list_clamp_scroll(int scroll, int count, int rows) {
-    int max = survey_list_max_scroll(count, rows);
+static inline int row_list_clamp_scroll(int scroll, int count, int rows) {
+    int max = row_list_max_scroll(count, rows);
 
     if (scroll > max)
         scroll = max;
@@ -74,22 +88,23 @@ static inline int survey_list_clamp_scroll(int scroll, int count, int rows) {
  * against whichever edge it came from, which is the same rule applied to a
  * bigger distance.
  */
-static inline int survey_list_scroll_to(int scroll, int rank, int count,
+static inline int row_list_scroll_to(int scroll, int rank, int count,
                                         int rows) {
     if (rank < 0 || rows <= 0)
-        return survey_list_clamp_scroll(scroll, count, rows);
+        return row_list_clamp_scroll(scroll, count, rows);
     if (rank < scroll)
         scroll = rank;
     else if (rank > scroll + rows - 1)
         scroll = rank - rows + 1;
-    return survey_list_clamp_scroll(scroll, count, rows);
+    return row_list_clamp_scroll(scroll, count, rows);
 }
 
 /* The rank under the pointer, or -1. Rows are counted from the scroll offset,
    so this and the draw cannot disagree about which candidate a row is. */
-static inline int survey_list_rank_at(Rectangle rect, int scroll, int count,
-                                      int rows, Vector2 point) {
-    float top = rect.y + SURVEY_LIST_HEADER_H;
+static inline int row_list_rank_at(Rectangle rect, struct row_list_metrics m,
+                                   int scroll, int count, int rows,
+                                   Vector2 point) {
+    float top = rect.y + m.header_h;
     int row;
 
     /* Written out rather than CheckCollisionPointRec, which is in the raylib
@@ -98,7 +113,7 @@ static inline int survey_list_rank_at(Rectangle rect, int scroll, int count,
     if (point.x < rect.x || point.x > rect.x + rect.width ||
         point.y < top || point.y > rect.y + rect.height)
         return -1;
-    row = (int)((point.y - top) / SURVEY_LIST_ROW_H);
+    row = (int)((point.y - top) / m.row_h);
     if (row < 0 || row >= rows)
         return -1;
     if (scroll + row >= count)
@@ -107,8 +122,17 @@ static inline int survey_list_rank_at(Rectangle rect, int scroll, int count,
 }
 
 /* Where a row is drawn. */
-static inline float survey_list_row_y(Rectangle rect, int row) {
-    return rect.y + SURVEY_LIST_HEADER_H + (float)row * SURVEY_LIST_ROW_H;
+static inline float row_list_row_y(Rectangle rect, struct row_list_metrics m,
+                                   int row) {
+    return rect.y + m.header_h + (float)row * m.row_h;
 }
+
+/*
+ * The two lists that use this. Their metrics live here rather than beside
+ * each drawing call so the hit test and the draw cannot be given different
+ * ones -- which is the whole bug this header exists to make unwritable.
+ */
+#define SURVEY_LIST_METRICS ((struct row_list_metrics){ 44.0f, 22.0f, 24.0f })
+#define FM_SCAN_LIST_METRICS ((struct row_list_metrics){ 80.0f, 20.0f, 24.0f })
 
 #endif

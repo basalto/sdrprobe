@@ -114,6 +114,7 @@ struct fm_scan {
     float power[206];           /* one per channel of the raster */
     struct fm_found_station found[FM_SCAN_MAX_FOUND];
     int found_count;
+    int list_scroll;            /* row_list.h holds the arithmetic */
     int visiting;               /* pass two: which candidate */
     uint32_t return_frequency;
     int return_valid;
