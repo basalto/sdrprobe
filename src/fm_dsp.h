@@ -239,8 +239,68 @@ size_t fm_rds_front_feed(struct fm_rds_front *front, const float *mpx,
  *     perfectly. Only a real capture reading a programme identification that
  *     matches its station can, and that belongs to the ticket after this one.
  */
+/*
+ * The timing search's own scores, one per offset.
+ *
+ * fm_rds_soft_bits picks the best and moves on, which is all a decode needs.
+ * A reader wants to know *how* it won: an offset whose matched filter barely
+ * beats its neighbours is a symbol clock about to slip, and that looks
+ * identical on every panel to one that won by a mile. Normalised so the best
+ * is 1.
+ */
+/*
+ * The matched filter's complex output, one per symbol, normalised so the
+ * strongest is 1.
+ *
+ * What fm_rds_soft_bits projects onto an axis and throws the other half of.
+ * A constellation wants both halves: two lobes either side of the origin is a
+ * decode, one blob around it is a subcarrier arriving and not resolving, and
+ * a ring is a carrier the axis estimator has not settled on. The soft bits
+ * alone report all three as small numbers.
+ */
+size_t fm_rds_symbols(const float *bb_i, const float *bb_q, size_t samples,
+                      int timing_offset, float *out_i, float *out_q,
+                      size_t capacity);
+
+void fm_rds_timing_scores(const float *bb_i, const float *bb_q, size_t samples,
+                          float scores[FM_RDS_SAMPLES_PER_SYMBOL]);
+
 size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
                         float *soft, size_t capacity, int *timing_offset,
                         double *axis_radians);
+
+/*
+ * The multiplex's own spectrum: the pilot at 19 kHz, the stereo subcarrier at
+ * 38, and the RDS band at 57.
+ *
+ * The one picture that answers "is there RDS on this station at all" before
+ * any decode is attempted, and it answers it in a way no panel of numbers
+ * does -- a station with a pilot and no 57 kHz hump is simply not carrying
+ * RDS, which is common and is not a fault.
+ *
+ * A chart rather than a measurement, and the difference is worth stating: the
+ * input is decimated with a boxcar, which is a poor anti-alias filter, so the
+ * noise floor above 60 kHz is higher than the signal's own. The three humps
+ * are where they are and their heights are comparable to each other; a
+ * reading off the floor is not something to quote. fm_rds_front_feed is what
+ * measures.
+ *
+ * Returns how many bins were filled and, through `bin_hz`, what one is worth.
+ */
+#define FM_MPX_SPECTRUM_BINS 1024
+#define FM_MPX_SPECTRUM_TARGET_RATE 250000.0
+/*
+ * How much of it is worth drawing.
+ *
+ * A broadcast multiplex ends at 57 kHz plus its sidebands; above that a
+ * discriminator's own noise rises steeply with frequency, which is real and
+ * uninteresting and, drawn, is most of the chart. Showing to 76 kHz keeps the
+ * three subcarriers and a clear stretch above the highest of them, which is
+ * what makes the RDS hump readable as a hump rather than as part of a ramp.
+ */
+#define FM_MPX_SPECTRUM_TOP_HZ 76000.0
+
+size_t fm_multiplex_spectrum(const float *mpx, size_t n, double sample_rate,
+                             float *dbfs, size_t bins, double *bin_hz);
 
 #endif

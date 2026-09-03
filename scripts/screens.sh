@@ -39,8 +39,11 @@ set -- \
     "survey:--file $gsm --frequency 948.4M --view survey --duration 6" \
     "gsm:--file $gsm --view gsm --arfcn 69 --duration 8" \
     "adsb:--file $adsb --view adsb --duration 8" \
+    "adsb-charts:--file $adsb --view adsb --analysis --duration 8" \
     "lte:--file $lte --view lte --earfcn 6200 --duration 8" \
+    "lte-charts:--file $lte --view lte --earfcn 6200 --analysis --duration 8" \
     "fm:--file $fm --sample-rate 2048000 --frequency 89.6M --view fm --duration 10" \
+    "fm-charts:--file $fm --sample-rate 2048000 --frequency 89.6M --view fm --analysis --duration 10" \
     "calibration-2g:--file $gsm --view calibration --duration 5" \
     "calibration-4g:--file $gsm --view calibration --calibrate lte --duration 5" \
     "settings:--file $gsm --view settings --duration 5" \

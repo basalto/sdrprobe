@@ -77,6 +77,10 @@ struct options {
     /* Where to record what the window was told and what it showed.
        NULL for nothing, "-" for stderr. */
     const char *debug_log;
+    /* Open the decode view on its charts rather than its data. One flag for
+       all of them: every decode view has the same two arrangements, and
+       three flags would be three things to forget. */
+    int analysis;
 
     /*
      * What describes the installation rather than this run. Both persist:
