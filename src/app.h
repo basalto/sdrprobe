@@ -647,6 +647,8 @@ struct app {
     /* And the same for LTE. Two references measuring one crystal: when they
        agree the correction is worth trusting, and when they do not that is
        the most useful thing either of them has said. */
+    int cal_lte_band;              /* which band the 4G scan will walk */
+    int cal_lte_scanning;          /* a calibration-driven band scan is up */
     int lte_cal_valid;
     int lte_cal_earfcn;
     int lte_cal_ppm;               /* what the LTE reference suggested */

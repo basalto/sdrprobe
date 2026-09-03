@@ -1,5 +1,6 @@
 #include "adsb_layout.h"
 #include "lte_layout.h"
+#include "calibration_layout.h"
 #include "chrome_layout.h"
 #include "gsm_layout.h"
 #include "survey_layout.h"
@@ -162,6 +163,73 @@ static const struct chrome_case chrome_cases[] = {
       { "tab[1]", 616.00f, 14.00f, 118.00f, 36.00f },
       858.00f },
 };
+
+/*
+ * The LTE calibration's found-cell list.
+ *
+ * One property carries it: the point in the middle of where a row is drawn
+ * must select that row. This mapping has been wrong twice in this program --
+ * a bar chart and a site picker -- and both times it quietly selected the
+ * neighbour of what was pointed at. Here that would calibrate the receiver
+ * against a different cell than the operator chose, and the number would look
+ * perfectly reasonable.
+ */
+static void check_calibration_cells(void) {
+    const float sizes[][2] = { { 1100.0f, 720.0f }, { 1280.0f, 800.0f },
+                               { 1000.0f, 540.0f }, { 1920.0f, 1080.0f } };
+    unsigned c;
+
+    for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++) {
+        struct calibration_layout l =
+            calibration_layout_for(sizes[c][0], sizes[c][1]);
+        int n, r, b;
+
+        for (b = 0; b + 1 < CALIBRATION_LTE_BANDS; b++)
+            check_msg(l.band[b].x + l.band[b].width <= l.band[b + 1].x,
+                      "%.0fx%.0f band buttons %d and %d overlap\n",
+                      sizes[c][0], sizes[c][1], b, b + 1);
+        check_msg(l.band[CALIBRATION_LTE_BANDS - 1].x +
+                      l.band[CALIBRATION_LTE_BANDS - 1].width <=
+                      l.scan_button.x,
+                  "%.0fx%.0f the Scan button lands on a band button\n",
+                  sizes[c][0], sizes[c][1]);
+        check_msg(l.cell_list.y >= l.band[0].y + l.band[0].height,
+                  "%.0fx%.0f the cell list covers the band buttons\n",
+                  sizes[c][0], sizes[c][1]);
+        check_msg(l.cell_list.y + l.cell_list.height <= sizes[c][1],
+                  "%.0fx%.0f the cell list runs off the bottom\n",
+                  sizes[c][0], sizes[c][1]);
+
+        for (n = 1; n <= CALIBRATION_CELL_ROWS; n++)
+            for (r = 0; r < n; r++) {
+                Vector2 mid;
+                mid.x = l.cell_list.x + l.cell_list.width / 2.0f;
+                mid.y = l.cell_list.y + 30.0f +
+                        CALIBRATION_CELL_ROW_H * ((float)r + 0.5f);
+                if (mid.y > l.cell_list.y + l.cell_list.height)
+                    continue;   /* a short window shows fewer rows */
+                check_msg(calibration_cell_row_at(l.cell_list, n, mid) == r,
+                          "%.0fx%.0f cell row %d of %d does not map back to "
+                          "itself\n", sizes[c][0], sizes[c][1], r, n);
+            }
+        /* And nothing outside it picks a cell to calibrate against. */
+        check_msg(calibration_cell_row_at(l.cell_list, 4,
+                      (Vector2){ l.cell_list.x - 4.0f,
+                                 l.cell_list.y + 40.0f }) == -1,
+                  "%.0fx%.0f a point left of the cell list selects a row\n",
+                  sizes[c][0], sizes[c][1]);
+        check_msg(calibration_cell_row_at(l.cell_list, 4,
+                      (Vector2){ l.cell_list.x + 10.0f,
+                                 l.cell_list.y + 10.0f }) == -1,
+                  "%.0fx%.0f the caption strip selects a row\n",
+                  sizes[c][0], sizes[c][1]);
+        check_msg(calibration_cell_row_at(l.cell_list, 0,
+                      (Vector2){ l.cell_list.x + 10.0f,
+                                 l.cell_list.y + 40.0f }) == -1,
+                  "%.0fx%.0f an empty list selects a row\n",
+                  sizes[c][0], sizes[c][1]);
+    }
+}
 
 static void check_chrome(void) {
     for (unsigned c = 0; c < sizeof(chrome_cases) / sizeof(chrome_cases[0]); c++) {
@@ -688,6 +756,7 @@ static void check_lte(void) {
 
 int main(void) {
     check_chrome();
+    check_calibration_cells();
     check_adsb();
     check_lte();
     check_survey();
