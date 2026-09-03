@@ -156,6 +156,19 @@ int rds_station_apply(struct rds_station *station, const struct rds_group *g);
    is not the North American one -- the same number means something else
    there, and nothing in the signal says which table is in use. */
 const char *rds_pty_name(int pty);
+/*
+ * What the two traffic flags mean together, which is not what either means
+ * alone.
+ *
+ * TP says this programme carries traffic announcements; TA says one is on
+ * now. The fourth combination is the one that catches a reader out: TP clear
+ * with TA set is not a contradiction and not an announcement -- it is a
+ * station saying it carries no traffic itself but is pointing at another one
+ * that does (IEC 62106, Enhanced Other Networks). Rendering the two flags as
+ * separate phrases produced "no traffic, announcement now", which reads as a
+ * bug in the decoder and is not.
+ */
+const char *rds_traffic_name(int tp, int ta);
 
 /*
  * Find where the groups are and read them.
