@@ -3,6 +3,7 @@
 #include "fm_dsp.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -301,6 +302,376 @@ static void test_it_refuses_nonsense(void) {
                !fm_pilot_locked(NULL));
 }
 
+
+/*
+ * The RDS front end, end to end on a synthesised multiplex.
+ *
+ * What this can and cannot show, stated plainly because the register in
+ * .claude/skills/dsp-validation asks for it. It checks the machinery: that
+ * the timing search finds the offset the symbols are actually on, that the
+ * axis estimator finds the phase the channel left them at, that the
+ * differential arithmetic is right, and that all of it survives audio and
+ * noise. It cannot check whether "no change means zero" is the right way
+ * round, because the encoder below and the decoder under test would both have
+ * it backwards and agree. That one is settled by a real capture reading a
+ * programme identification that matches its station, in the ticket after this.
+ */
+
+#define RDS_BITS 900
+static unsigned char data_bits[RDS_BITS];
+
+/* Build a multiplex carrying a known RDS bitstream, and put it on a carrier.
+   `axis` rotates the subcarrier away from the pilot's third harmonic, which
+   a real channel does and the estimator has to undo. */
+static void build_rds(double audio_level, double noise_level, double axis) {
+    double phase = 0.0;
+    unsigned char encoded[RDS_BITS + 1];
+
+    /* Differential encoding: the channel bit changes when the data bit is 1,
+       which is what makes the product of consecutive symbols the data. */
+    encoded[0] = 0;
+    for (int k = 0; k < RDS_BITS; k++) {
+        data_bits[k] = (unsigned char)(noise() > 0.0 ? 1 : 0);
+        encoded[k + 1] = (unsigned char)(encoded[k] ^ data_bits[k]);
+    }
+
+    for (int n = 0; n < SAMPLES; n++) {
+        double t = (double)n / RATE;
+        double m = 0.10 * cos(2.0 * M_PI * FM_PILOT_HZ * t);
+        double symbol_pos = t * FM_RDS_SYMBOL_RATE_HZ;
+        int index = (int)symbol_pos;
+        double frac = symbol_pos - index;
+        double level, biphase;
+
+        m += audio_level * sin(2.0 * M_PI * 997.0 * t);
+        m += audio_level * 0.5 * sin(2.0 * M_PI * 5000.0 * t);
+        m += audio_level * 0.3 * cos(2.0 * M_PI * 38000.0 * t + 0.4);
+
+        /* Biphase: half a symbol at the level, half at its negative. */
+        level = encoded[(index + 1) % (RDS_BITS + 1)] ? -1.0 : 1.0;
+        biphase = frac < 0.5 ? level : -level;
+        /* Suppressed carrier: the data multiplies the subcarrier, which is
+           exactly three times the pilot, turned by `axis`. */
+        m += 0.03 * biphase * cos(2.0 * M_PI * FM_RDS_SUBCARRIER_HZ * t + axis);
+
+        m += noise_level * noise();
+        mpx[n] = (float)m;
+        phase += 2.0 * M_PI * 75000.0 * m / RATE;
+        iq_i[n] = (float)cos(phase);
+        iq_q[n] = (float)sin(phase);
+    }
+}
+
+/* Run a built signal all the way to soft bits. Returns how many, and where
+   the decoder thinks the timing and the axis are. */
+static size_t run_chain(float *soft, size_t capacity, int *offset,
+                        double *axis) {
+    static float bb_i[32768], bb_q[32768];
+    struct fm_rds_front front;
+    size_t n, bb;
+
+    n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+    if (fm_rds_front_init(&front, RATE) < 0)
+        return 0;
+    bb = fm_rds_front_feed(&front, out, n, bb_i, bb_q, 32768);
+    return fm_rds_soft_bits(bb_i, bb_q, bb, soft, capacity, offset, axis);
+}
+
+/*
+ * How many of the decoded bits match what was sent, once the two streams are
+ * aligned. The chain drops whatever arrives before the pilot locks and one
+ * symbol to the differential, so the offset into the sent stream is not
+ * known in advance and is found by sliding.
+ */
+static double best_agreement(const float *soft, size_t count) {
+    double best = 0.0;
+
+    if (count < 100)
+        return 0.0;
+    for (int shift = 0; shift + (int)count <= RDS_BITS; shift++) {
+        size_t agree = 0;
+        for (size_t k = 0; k < count; k++) {
+            int decoded = soft[k] < 0.0f ? 1 : 0;
+            if (decoded == data_bits[shift + (int)k])
+                agree++;
+        }
+        if ((double)agree / count > best)
+            best = (double)agree / count;
+    }
+    return best;
+}
+
+static float soft_bits[4096];
+
+static void test_the_subcarrier_comes_down(void) {
+    struct fm_rds_front front;
+    size_t n, bb;
+    static float bb_i[32768], bb_q[32768];
+
+    build_rds(0.30, 0.0, 0.0);
+    n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+    check_int("the front end takes the capture rate",
+              fm_rds_front_init(&front, RATE), 0);
+    bb = fm_rds_front_feed(&front, out, n, bb_i, bb_q, 32768);
+
+    /* One sample per pilot cycle, from wherever the pilot locked. The signal
+       is 0.655 s and the lock gate opens at 0.25, so what is left is about
+       0.4 s of 19 kHz. */
+    check_true("baseband came out", bb > 5000);
+    check_true("at about the pilot rate, not the capture rate",
+               bb < (size_t)(0.7 * FM_PILOT_HZ));
+    check_true("and nothing came out before the pilot locked",
+               bb < (size_t)(0.42 * FM_PILOT_HZ));
+
+    /* A rate that cannot hold the subcarrier is refused rather than decoded
+       into nonsense. */
+    check_true("a rate too low for the multiplex is refused",
+               fm_rds_front_init(&front, 100000.0) < 0);
+}
+
+static void test_the_bits_come_back(void) {
+    int offset = -1;
+    double axis = 99.0;
+    size_t count;
+
+    build_rds(0.30, 0.0, 0.0);
+    count = run_chain(soft_bits, 4096, &offset, &axis);
+    check_true("soft bits came out", count > 300);
+    check_true("the timing landed inside a symbol",
+               offset >= 0 && offset < FM_RDS_SAMPLES_PER_SYMBOL);
+    {
+        double agreement = best_agreement(soft_bits, count);
+        check_msg(agreement > 0.99,
+                  "a clean multiplex decoded %.1f%% of its bits\n",
+                  agreement * 100.0);
+    }
+}
+
+/*
+ * The axis, which is the part a suppressed carrier makes necessary.
+ *
+ * A channel turns the subcarrier by whatever it likes and nothing transmits
+ * the angle, so the decoder works it out by squaring. Every angle has to come
+ * back -- including the two that would work by accident if the estimator did
+ * nothing at all.
+ */
+static void test_any_axis_works(void) {
+    static const double angles[] = { 0.0, 0.4, 1.0, M_PI / 2.0, 2.2, 3.0 };
+
+    for (unsigned a = 0; a < sizeof(angles) / sizeof(angles[0]); a++) {
+        int offset;
+        double axis;
+        size_t count;
+        double agreement;
+
+        build_rds(0.30, 0.0, angles[a]);
+        count = run_chain(soft_bits, 4096, &offset, &axis);
+        agreement = best_agreement(soft_bits, count);
+        check_msg(agreement > 0.99,
+                  "at axis %.2f rad, %.1f%% of bits decoded\n", angles[a],
+                  agreement * 100.0);
+    }
+}
+
+static void test_it_survives_noise(void) {
+    int offset;
+    double axis;
+    size_t count;
+    double agreement;
+
+    build_rds(0.30, 0.05, 0.7);
+    count = run_chain(soft_bits, 4096, &offset, &axis);
+    agreement = best_agreement(soft_bits, count);
+    check_msg(agreement > 0.95, "under noise, %.1f%% of bits decoded\n",
+              agreement * 100.0);
+
+    /* And with nothing on the subcarrier at all, the answer must not look
+       like a decode: a chain that reports confident bits from an empty band
+       is worse than one that reports none. */
+    build(FM_PILOT_HZ, 0.10, 0.30, 0.05);
+    count = run_chain(soft_bits, 4096, &offset, &axis);
+    if (count > 100) {
+        double none = best_agreement(soft_bits, count);
+        check_msg(none < 0.75,
+                  "an empty subcarrier agreed with the data %.1f%% of the "
+                  "time\n", none * 100.0);
+    }
+}
+
+static void test_soft_bits_refuse_nonsense(void) {
+    int offset;
+    double axis;
+
+    check_size("no baseband, no bits",
+               fm_rds_soft_bits(NULL, NULL, 1000, soft_bits, 4096, &offset,
+                                &axis), 0);
+    check_size("nor too little of it",
+               fm_rds_soft_bits(soft_bits, soft_bits, 8, soft_bits, 4096,
+                                &offset, &axis), 0);
+    check_size("nor no front end at all",
+               fm_rds_front_feed(NULL, out, 100, soft_bits, soft_bits, 4096),
+               0);
+}
+
+
+/*
+ * The real capture, which is the only check here that is worth anything about
+ * the *conventions*.
+ *
+ * Everything above is a round trip: an encoder I wrote feeding a decoder I
+ * wrote, and the two would agree just as happily if both had the differential
+ * sense backwards. What settles it is the published block code -- a (26,16)
+ * shortened cyclic code with five offset words, IEC 62106 -- run over bits
+ * that came off the air. The syndrome routine below is deliberately a second
+ * implementation living in the check rather than a call into the source: an
+ * oracle that shares code with the thing it is checking is not an oracle.
+ *
+ * If the chain is right, syndromes land far above chance AND they land on one
+ * 26-bit alignment, which is a much harder thing to do by accident than
+ * simply being above chance.
+ *
+ * Measured on this capture: 94 hits, 78 of them on residue 11, out of the 91
+ * blocks two seconds can hold -- so 86% of blocks decode cleanly, and chance
+ * across all 26 residues together would give about 11.
+ */
+
+#define RDS_GENERATOR 0x5B9u   /* x^10 + x^8 + x^7 + x^5 + x^4 + x^3 + 1 */
+
+static unsigned rds_syndrome(unsigned long block) {
+    unsigned long reg = 0;
+    int i;
+
+    for (i = 25; i >= 0; i--) {
+        reg = (reg << 1) | ((block >> i) & 1ul);
+        if (reg & 0x400ul)
+            reg ^= (0x400ul | RDS_GENERATOR);
+    }
+    return (unsigned)(reg & 0x3FFul);
+}
+
+static int rds_is_offset(unsigned syndrome_value) {
+    static const unsigned words[] = { 0x0FC, 0x198, 0x168, 0x350, 0x1B4 };
+    unsigned i;
+
+    for (i = 0; i < sizeof(words) / sizeof(words[0]); i++)
+        if (words[i] == syndrome_value)
+            return 1;
+    return 0;
+}
+
+/* Hits at every 26-bit alignment, for one polarity of the soft bits. */
+static long rds_scan(const float *soft, size_t count, int invert,
+                     long residues[26]) {
+    long total = 0;
+    size_t i;
+    int r;
+
+    for (r = 0; r < 26; r++)
+        residues[r] = 0;
+    for (i = 0; i + 26 <= count; i++) {
+        unsigned long block = 0;
+        int k;
+        for (k = 0; k < 26; k++) {
+            int bit = (soft[i + (size_t)k] < 0.0f) ^ invert;
+            block = (block << 1) | (unsigned long)bit;
+        }
+        if (rds_is_offset(rds_syndrome(block))) {
+            residues[i % 26]++;
+            total++;
+        }
+    }
+    return total;
+}
+
+static void test_a_real_capture_decodes(void) {
+    const char *path = "testfiles/fm_rds_89600.bin";
+    FILE *f = fopen(path, "rb");
+    static uint8_t raw[8192000];
+    /*
+     * Its own multiplex buffer, and it has to hold the whole capture.
+     *
+     * The synthetic tests share `out`, which is 262144 samples -- 0.65 s at
+     * the rate they run and 0.128 s at the capture's 2.048 MS/s, which is
+     * less than the quarter second the pilot needs before it may declare a
+     * lock. Truncating here produced no bits at all and looked like a broken
+     * chain rather than a small buffer.
+     */
+    static float capture_mpx[4096000];
+    static float bb_i[64000], bb_q[64000];
+    static float soft[8192];
+    struct fm_rds_front front;
+    size_t bytes, n, bb, bits;
+    long residues[26], total, best = 0, spread = 0;
+    int offset, r, at = 0;
+    double axis;
+
+    if (!f) {
+        check_msg(0, "cannot open %s -- run from the repository root\n", path);
+        return;
+    }
+    bytes = fread(raw, 1, sizeof(raw), f);
+    fclose(f);
+    check_true("the capture is the size its sidecar says", bytes == 8192000);
+
+    n = fm_discriminate(raw, bytes / 2, capture_mpx,
+                        sizeof(capture_mpx) / sizeof(capture_mpx[0]));
+    check_true("the whole two seconds came back", n > 4000000);
+
+    check_int("the front end takes 2.048 MS/s",
+              fm_rds_front_init(&front, 2048000.0), 0);
+    bb = fm_rds_front_feed(&front, capture_mpx, n, bb_i, bb_q, 64000);
+
+    /* The pilot, against a fact rather than against my own encoder: a
+       broadcast pilot is 19 kHz and this receiver's own error is what the
+       difference measures. An independent spectrum of the same capture puts
+       it at 19000.00 Hz. */
+    check_true("the pilot locks on a real station", fm_pilot_locked(&front.pilot));
+    check_close("at 19 kHz", fm_pilot_hz(&front.pilot), FM_PILOT_HZ, 1.0);
+    check_true("and baseband came out of it", bb > 20000);
+
+    bits = fm_rds_soft_bits(bb_i, bb_q, bb, soft, 8192, &offset, &axis);
+    check_true("so did soft bits", bits > 1500);
+    /* The axis is whatever the channel left it at and is not predictable;
+       what matters is that it is not the zero a broken estimator returns. */
+    check_true("on an axis the estimator actually found", fabs(axis) > 0.01);
+
+    total = rds_scan(soft, bits, 0, residues);
+    for (r = 0; r < 26; r++) {
+        if (residues[r] > best) { best = residues[r]; at = r; }
+        spread += residues[r];
+    }
+    /*
+     * 78 measured of the 91 a two-second capture can hold. Sixty leaves room
+     * for a worse day without letting a broken chain through, and is still
+     * seven times what chance gives across every residue at once.
+     */
+    check_msg(best >= 60,
+              "only %ld blocks passed their syndrome on one alignment "
+              "(residue %d of 26, %ld hits in total)\n", best, at, spread);
+    check_msg((double)best / (double)spread >= 0.6,
+              "the hits did not concentrate on one alignment: %ld of %ld "
+              "(%.0f%%)\n", best, spread, 100.0 * best / spread);
+
+    /*
+     * And the polarity, which is the convention no round trip can settle.
+     * Reading the differential the other way round -- "no change means one" --
+     * must give chance and nothing more.
+     */
+    {
+        long wrong = rds_scan(soft, bits, 1, residues);
+        long wrong_best = 0;
+        for (r = 0; r < 26; r++)
+            if (residues[r] > wrong_best) wrong_best = residues[r];
+        check_msg(wrong < total / 3,
+                  "reading the differential backwards gave %ld hits against "
+                  "%ld the right way round; the sense is not being tested\n",
+                  wrong, total);
+        check_msg(wrong_best < best / 3,
+                  "and it found an alignment too: %ld against %ld\n",
+                  wrong_best, best);
+    }
+}
+
 int main(void) {
     test_the_discriminator();
     test_the_byte_path_matches();
@@ -309,6 +680,12 @@ int main(void) {
     test_it_does_not_lock_to_nothing();
     test_the_phase_tracks();
     test_it_refuses_nonsense();
+    test_the_subcarrier_comes_down();
+    test_the_bits_come_back();
+    test_any_axis_works();
+    test_it_survives_noise();
+    test_soft_bits_refuse_nonsense();
+    test_a_real_capture_decodes();
 
-    return check_report("FM multiplex: discriminator and pilot");
+    return check_report("FM multiplex: pilot, subcarrier and soft bits");
 }

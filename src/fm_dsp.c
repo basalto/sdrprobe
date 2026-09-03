@@ -226,3 +226,213 @@ double fm_pilot_ppm(const struct fm_pilot *pilot) {
     measured = fm_pilot_hz(pilot);
     return (measured - FM_PILOT_HZ) / FM_PILOT_HZ * 1e6;
 }
+
+int fm_rds_front_init(struct fm_rds_front *front, double sample_rate) {
+    if (!front)
+        return -1;
+    if (sample_rate < FM_MIN_SAMPLE_RATE)
+        return -1;
+    memset(front, 0, sizeof(*front));
+    fm_pilot_init(&front->pilot, sample_rate);
+    front->sample_rate = sample_rate;
+    front->previous_phase = 0.0;
+    front->turned = 0.0;
+    /* One emission per pilot cycle. */
+    front->next_emit = 2.0 * M_PI;
+    front->lowpass_k = 1.0 - exp(-2.0 * M_PI * FM_RDS_LOWPASS_HZ /
+                                 sample_rate);
+    return 0;
+}
+
+size_t fm_rds_front_feed(struct fm_rds_front *front, const float *mpx,
+                         size_t n, float *out_i, float *out_q,
+                         size_t capacity) {
+    size_t made = 0;
+
+    if (!front || !mpx || !out_i || !out_q)
+        return 0;
+
+    for (size_t s = 0; s < n && made < capacity; s++) {
+        double phase = fm_pilot_feed(&front->pilot, mpx[s]);
+        double step = phase - front->previous_phase;
+        double sub, ci, cq;
+
+        /* Unwrap. The loop keeps its phase in [0, 2*pi) and a step back of
+           nearly a whole turn is a wrap forward, not the pilot reversing. */
+        if (step < -M_PI)
+            step += 2.0 * M_PI;
+        else if (step > M_PI)
+            step -= 2.0 * M_PI;
+        front->previous_phase = phase;
+        front->turned += step;
+
+        /*
+         * Mix by three times the pilot phase, which *is* the subcarrier --
+         * the station transmits the pilot so that this multiplication needs
+         * no search. Down to DC, in one step, with the phase already right up
+         * to whatever constant the channel added.
+         */
+        sub = 3.0 * phase;
+        ci = mpx[s] * cos(sub);
+        cq = -mpx[s] * sin(sub);
+
+        /*
+         * Low-pass before decimating, because the integrate-and-dump is not
+         * an anti-alias filter and pretending it is costs real bits.
+         *
+         * Averaging over one pilot cycle is a boxcar whose first null is at
+         * 19 kHz, so at the fold edge -- half of that -- it manages 3.9 dB.
+         * Everything from 9.5 to 28.5 kHz of baseband folds in on top of the
+         * data, and that range is multiplex 28.5 to 47.5 kHz, which is where
+         * the stereo subcarrier and its sidebands live. Folding the loudest
+         * thing in the multiplex onto a subcarrier 40 dB below it is not a
+         * detail.
+         *
+         * Three one-pole sections rather than anything cleverer: the data is
+         * +-2.4 kHz and the fold edge is 9.5, which is two octaves, so 6 dB
+         * an octave three times over is 36 dB and the passband droop at
+         * 2.4 kHz is under a decibel. A designed filter would buy a decibel
+         * and cost a coefficient table.
+         */
+        {
+            double k = front->lowpass_k;
+            front->lp_i[0] += k * (ci - front->lp_i[0]);
+            front->lp_i[1] += k * (front->lp_i[0] - front->lp_i[1]);
+            front->lp_i[2] += k * (front->lp_i[1] - front->lp_i[2]);
+            front->lp_q[0] += k * (cq - front->lp_q[0]);
+            front->lp_q[1] += k * (front->lp_q[0] - front->lp_q[1]);
+            front->lp_q[2] += k * (front->lp_q[1] - front->lp_q[2]);
+            ci = front->lp_i[2];
+            cq = front->lp_q[2];
+        }
+
+        front->acc_i += ci;
+        front->acc_q += cq;
+        front->acc_n++;
+
+        if (front->turned >= front->next_emit) {
+            if (front->acc_n > 0 && fm_pilot_locked(&front->pilot)) {
+                out_i[made] = (float)(front->acc_i / (double)front->acc_n);
+                out_q[made] = (float)(front->acc_q / (double)front->acc_n);
+                made++;
+            }
+            front->acc_i = 0.0;
+            front->acc_q = 0.0;
+            front->acc_n = 0;
+            front->next_emit += 2.0 * M_PI;
+        }
+    }
+    return made;
+}
+
+/*
+ * The biphase matched filter at one timing offset: eight samples of +1 then
+ * eight of -1, which is the shape of the symbol itself.
+ */
+static void fm_rds_correlate(const float *bb_i, const float *bb_q,
+                             size_t samples, int offset, size_t index,
+                             double *ri, double *rq) {
+    const int half = FM_RDS_SAMPLES_PER_SYMBOL / 2;
+    size_t base = (size_t)offset + index * FM_RDS_SAMPLES_PER_SYMBOL;
+    double ai = 0.0, aq = 0.0;
+
+    (void)samples;
+    for (int k = 0; k < FM_RDS_SAMPLES_PER_SYMBOL; k++) {
+        double sign = k < half ? 1.0 : -1.0;
+        ai += sign * bb_i[base + (size_t)k];
+        aq += sign * bb_q[base + (size_t)k];
+    }
+    *ri = ai;
+    *rq = aq;
+}
+
+size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
+                        float *soft, size_t capacity, int *timing_offset,
+                        double *axis_radians) {
+    const int span = FM_RDS_SAMPLES_PER_SYMBOL;
+    int best_offset = 0;
+    double best_energy = -1.0;
+    size_t symbols, made = 0;
+    double sum_i = 0.0, sum_q = 0.0, axis;
+
+    if (timing_offset)
+        *timing_offset = 0;
+    if (axis_radians)
+        *axis_radians = 0.0;
+    if (!bb_i || !bb_q || !soft || samples < (size_t)(4 * span))
+        return 0;
+
+    /*
+     * Timing. Every offset is tried and the strongest wins -- a search with a
+     * right answer rather than a loop, which is what having the clock from
+     * the pilot buys. The measure is mean square rather than mean, because a
+     * BPSK symbol is as often negative as positive and the mean of the right
+     * offset is zero, the same as the mean of the wrong one.
+     */
+    for (int offset = 0; offset < span; offset++) {
+        size_t count = (samples - (size_t)offset) / (size_t)span;
+        double energy = 0.0;
+
+        if (count < 4)
+            continue;
+        for (size_t k = 0; k < count; k++) {
+            double ri, rq;
+            fm_rds_correlate(bb_i, bb_q, samples, offset, k, &ri, &rq);
+            energy += ri * ri + rq * rq;
+        }
+        energy /= (double)count;
+        if (energy > best_energy) {
+            best_energy = energy;
+            best_offset = offset;
+        }
+    }
+    if (best_energy < 0.0)
+        return 0;
+    if (timing_offset)
+        *timing_offset = best_offset;
+
+    symbols = (samples - (size_t)best_offset) / (size_t)span;
+
+    /*
+     * The axis. Squaring collapses the two BPSK points onto one, so the sum
+     * of the squares points along twice the axis and half its angle is the
+     * axis -- modulo 180 degrees, which the differential decoding below is
+     * indifferent to.
+     */
+    for (size_t k = 0; k < symbols; k++) {
+        double ri, rq;
+        fm_rds_correlate(bb_i, bb_q, samples, best_offset, k, &ri, &rq);
+        sum_i += ri * ri - rq * rq;
+        sum_q += 2.0 * ri * rq;
+    }
+    axis = 0.5 * atan2(sum_q, sum_i);
+    if (axis_radians)
+        *axis_radians = axis;
+
+    /*
+     * Project onto that axis, then differentially decode: the data bit is
+     * whether the channel bit changed, so the product of consecutive symbols
+     * carries it, positive for no change. Positive means more likely zero,
+     * the convention gsm_bcch.h and lte_mib.h both use.
+     *
+     * One symbol goes in and does not come out: the first has nothing before
+     * it to have changed from.
+     */
+    {
+        double previous = 0.0;
+        int have_previous = 0;
+        double ca = cos(axis), sa = sin(axis);
+
+        for (size_t k = 0; k < symbols && made < capacity; k++) {
+            double ri, rq, projected;
+
+            fm_rds_correlate(bb_i, bb_q, samples, best_offset, k, &ri, &rq);
+            projected = ri * ca + rq * sa;
+            if (have_previous)
+                soft[made++] = (float)(projected * previous);
+            previous = projected;
+            have_previous = 1;
+        }
+    }
+    return made;
+}

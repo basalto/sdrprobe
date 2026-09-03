@@ -160,4 +160,87 @@ double fm_pilot_hz(const struct fm_pilot *pilot);
    in one respect and worse in another -- see the note in fm_dsp.c. */
 double fm_pilot_ppm(const struct fm_pilot *pilot);
 
+/*
+ * Stage three and four: the subcarrier, brought down to baseband at exactly
+ * sixteen samples a symbol.
+ *
+ * Sixteen because that is the pilot rate: a symbol is sixteen pilot cycles,
+ * so emitting one sample per pilot cycle needs no resampler, no fractional
+ * accumulator and no rate that has to divide anything. The samples are the
+ * average of the mixed input since the last emission -- an integrate-and-dump,
+ * which is both the decimator and its own anti-alias filter, and cheap enough
+ * that the alternative was not worth the arithmetic.
+ *
+ * Complex, because a suppressed-carrier subcarrier lands on an axis nobody
+ * has told us yet. Which axis is worked out from the symbols themselves in
+ * the stage after this.
+ */
+#define FM_RDS_SAMPLES_PER_SYMBOL 16
+/* Where the anti-alias filter turns over: above the data's 2.4 kHz so the
+   passband is flat, and far enough below the 9.5 kHz fold edge that three
+   one-pole sections have room to work. */
+#define FM_RDS_LOWPASS_HZ 4000.0
+
+struct fm_rds_front {
+    struct fm_pilot pilot;
+    double sample_rate;
+    double previous_phase;     /* to spot the wrap */
+    double turned;             /* pilot radians since the start, unwrapped */
+    double next_emit;          /* the value of `turned` the next sample is due */
+    double lp_i[3], lp_q[3];   /* the anti-alias sections */
+    double lowpass_k;
+    double acc_i, acc_q;
+    long acc_n;
+};
+
+int fm_rds_front_init(struct fm_rds_front *front, double sample_rate);
+/*
+ * Multiplex in, complex baseband out at FM_RDS_SAMPLES_PER_SYMBOL a symbol.
+ * Returns how many came out, which is roughly n * 19000 / sample_rate.
+ * Nothing comes out before the pilot locks: without the pilot there is no
+ * carrier to mix by and no clock to emit on, and inventing either would
+ * produce a confident stream of noise.
+ */
+size_t fm_rds_front_feed(struct fm_rds_front *front, const float *mpx,
+                         size_t n, float *out_i, float *out_q,
+                         size_t capacity);
+
+/*
+ * Stage five: baseband to soft bits.
+ *
+ * Three things happen here and each is a decision with a right answer rather
+ * than a loop with a convergence question.
+ *
+ * **Timing.** The pilot gives the symbol *rate* but not which of the sixteen
+ * samples begins a symbol. A biphase symbol is half a cycle positive and half
+ * negative, so its matched filter is eight samples of +1 followed by eight of
+ * -1; the offset whose filter output has the largest mean square is the one
+ * the symbols are actually on. Sixteen candidates, and the answer is whichever
+ * is biggest.
+ *
+ * **The axis.** The subcarrier is suppressed, so the data comes back on
+ * whatever phase the channel left it at. Squaring a BPSK constellation
+ * collapses its two points onto one, so half the angle of the sum of the
+ * squares is the axis -- with a 180 degree ambiguity that squaring cannot
+ * resolve and does not need to, for the reason below.
+ *
+ * **The differential.** RDS encodes each data bit as whether the channel bit
+ * changed, so the decoder multiplies consecutive symbols. Two conventions
+ * fall out of that multiplication and are worth naming, because one of them
+ * is a trap this repository has been caught by twice and the other is not:
+ *
+ *   - Biphase polarity -- whether positive-then-negative means one or zero --
+ *     flips the sign of *every* symbol, and a product of two symbols is
+ *     unchanged by that. It cannot be got wrong here. That is not luck; it is
+ *     what differential encoding is for.
+ *   - Whether "no change" means zero is a real convention with a real answer
+ *     (it does, IEC 62106) and nothing in a round trip can check it, because
+ *     an encoder and a decoder that both had it backwards would agree
+ *     perfectly. Only a real capture reading a programme identification that
+ *     matches its station can, and that belongs to the ticket after this one.
+ */
+size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
+                        float *soft, size_t capacity, int *timing_offset,
+                        double *axis_radians);
+
 #endif
