@@ -1098,6 +1098,20 @@ static int run_gui(struct app *app) {
     default: break;
     }
 
+    /*
+     * The charts rather than the data, for whichever decode view was opened.
+     * Every screen has to be reachable from the command line for the same
+     * reason every decision does -- the LTE calibration panel shipped with
+     * three overlapping regions because there was no way to look at it, and
+     * three analysis screens had no way either.
+     */
+    if (app->options.analysis) {
+        app->fm.analysis_mode = 1;
+        app->adsb.analysis_mode = 1;
+        app->lte.analysis_mode = 1;
+        app->gsm_analysis_mode = 1;
+    }
+
     /* A recording asked for on the command line starts as soon as the worker
        is up, exactly as the button's does. */
     if (app->options.record_seconds > 0.0) {
@@ -1321,8 +1335,10 @@ static int run_gui(struct app *app) {
         if (app->tab == TAB_DECODE && app->decode == DECODE_FM) {
             /* Every block, and only when one arrived: the pilot loop is a
                continuous thing and a block skipped is a quarter second of
-               its lock thrown away. */
-            if (have_new)
+               its lock thrown away. While the scan is walking the band it
+               owns the receiver and feeds the chain itself. */
+            update_fm_scan(app, now, have_new);
+            if (have_new && !app->fm.scan.running)
                 update_fm(app, now);
         }
         update_drift_check(app, spectrum_updated);

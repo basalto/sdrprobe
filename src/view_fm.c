@@ -5,9 +5,12 @@
 #include <raylib.h>
 
 #include "app.h"
+#include "fm_scan.h"
 #include "fm_layout.h"
 #include "sdrgui.h"
 #include "view.h"
+#include "debug_log.h"
+#include "sdr_dsp.h"
 
 #include "raygui.h"
 
@@ -105,11 +108,38 @@ void update_fm(struct app *app, double now) {
     fm->bb_count += bb;
     fm->blocks_seen++;
 
+    /*
+     * The multiplex spectrum for the charts, a few times a second. It
+     * averages thirty-two windows of a 2048-point transform, which is far
+     * more work than a frame needs and produces a picture that does not
+     * change at frame rate anyway.
+     */
+    if (fm->analysis_mode && now - fm->spectrum_at > 0.25) {
+        double rate = (double)app->applied_sample_rate;
+        size_t want;
+
+        /* Ask for the whole transform, then keep the part of it a multiplex
+           actually occupies -- the bin width is only known afterwards. */
+        fm->spectrum_bins = fm_multiplex_spectrum(multiplex, n, rate,
+                                                  fm->spectrum,
+                                                  FM_MPX_SPECTRUM_BINS,
+                                                  &fm->spectrum_bin_hz);
+        if (fm->spectrum_bin_hz > 0.0) {
+            want = (size_t)(FM_MPX_SPECTRUM_TOP_HZ / fm->spectrum_bin_hz);
+            if (want > 0 && want < fm->spectrum_bins)
+                fm->spectrum_bins = want;
+        }
+        fm->spectrum_at = now;
+    }
+
     /* One timing search and one axis over the whole window, which is what
        makes this the same answer the offline decode gives. */
     fm->soft_count = fm_rds_soft_bits(fm->bb_i, fm->bb_q, fm->bb_count,
                                       fm->soft, FM_VIEW_SOFT_BITS,
                                       &fm->timing_offset, &fm->axis_radians);
+    if (fm->analysis_mode)
+        fm_rds_timing_scores(fm->bb_i, fm->bb_q, fm->bb_count,
+                             fm->timing_energy);
     if (fm->soft_count == 0)
         return;
 
@@ -139,6 +169,63 @@ static void draw_row(Rectangle rect, int y, const char *label,
 
     DrawText(label, label_x, y, 15, row_label);
     sdrgui_text_fit(value, value_x, y, 15, room, colour);
+}
+
+/*
+ * What the band walk found: one row per carrier, with what it managed to read
+ * in the three quarters of a second it stopped there.
+ *
+ * A row with a pilot and no identification is a station carrying no RDS,
+ * which is worth listing rather than hiding -- it is still a station, and a
+ * list that quietly dropped it would read as the band being emptier than it
+ * is.
+ */
+static void draw_scan_list(const struct app *app, Rectangle rect) {
+    const struct fm_scan *scan = &app->fm.scan;
+    int y = draw_panel(rect, scan->running ? "Scanning band II"
+                                           : "Band II");
+    char row[160];
+    int i, rows;
+
+    sdrgui_text_fit(scan->status, (int)rect.x + 12, y, 15,
+                    rect.width - 24.0f, row_label);
+    y += 24;
+    if (scan->found_count == 0) {
+        sdrgui_text_fit(scan->running ? "looking..."
+                                      : "press Scan band",
+                        (int)rect.x + 12, y, 15, rect.width - 24.0f,
+                        row_label);
+        return;
+    }
+    DrawText("   MHz        LEVEL     PILOT   RDS   STATION",
+             (int)rect.x + 12, y, 15, row_label);
+    y += 20;
+
+    rows = (int)((rect.y + rect.height - 10.0f - (float)y) / 20.0f);
+    if (rows > scan->found_count)
+        rows = scan->found_count;
+    for (i = 0; i < rows; i++) {
+        const struct fm_found_station *f = &scan->found[i];
+        char name[32];
+
+        if (f->ps[0])
+            snprintf(name, sizeof(name), "%s", f->ps);
+        else if (f->pi_valid)
+            snprintf(name, sizeof(name), "0x%04X", f->pi);
+        else
+            snprintf(name, sizeof(name), "--");
+        snprintf(row, sizeof(row), "%9.1f  %7.1f dBFS   %-5s  %-4s  %s",
+                 f->frequency_hz / 1e6, (double)f->power_dbfs,
+                 f->pilot ? "yes" : "no", f->rds ? "yes" : "no", name);
+        sdrgui_text_fit(row, (int)rect.x + 12, y + i * 20, 15,
+                        rect.width - 24.0f,
+                        f->ps[0] ? row_good : f->pilot ? row_value : row_label);
+    }
+    if (rows < scan->found_count) {
+        snprintf(row, sizeof(row), "... %d more",
+                 scan->found_count - rows);
+        DrawText(row, (int)rect.x + 12, y + rows * 20, 15, row_label);
+    }
 }
 
 static void draw_signal_panel(const struct app *app, Rectangle rect) {
@@ -272,6 +359,125 @@ static void draw_funnel_panel(const struct app *app, Rectangle rect) {
                         rect.width - 24.0f, row_good);
 }
 
+/*
+ * The multiplex, as a spectrum.
+ *
+ * The chart that answers the question none of the panels can: whether this
+ * station is carrying RDS at all. Three humps -- the pilot at 19 kHz, the
+ * stereo subcarrier at 38, the RDS band at 57 -- and a station with the first
+ * two and not the third is a perfectly ordinary station that simply is not
+ * sending any. Every number on the signal panel reads the same for that as
+ * for a station sending it too weakly to read.
+ */
+static void draw_multiplex_chart(const struct app *app, Rectangle rect) {
+    const struct fm_view *fm = &app->fm;
+    struct sdrgui_burst_chart_params params;
+    char title[128];
+    double top_khz = fm->spectrum_bins > 0
+                         ? fm->spectrum_bin_hz * (double)fm->spectrum_bins /
+                               1000.0
+                         : 0.0;
+
+    memset(&params, 0, sizeof(params));
+    snprintf(title, sizeof(title),
+             "multiplex 0-%.0f kHz: pilot 19, stereo 38, RDS 57", top_khz);
+    params.plot = rect;
+    params.data = fm->spectrum;
+    params.count = (int)fm->spectrum_bins;
+    params.type = SDRGUI_BURST_LINE;
+    params.y_min = -70.0f;
+    params.y_max = 2.0f;
+    params.title = title;
+    params.empty_notice = "no multiplex yet";
+    sdrgui_burst_chart(&params);
+}
+
+/*
+ * The symbols, as a constellation.
+ *
+ * Two lobes either side of the origin is a decode. One blob around it is a
+ * subcarrier arriving and not resolving. A ring is an axis the estimator has
+ * not settled on. All three read as small numbers on the panels, and only
+ * this tells them apart.
+ */
+static void draw_constellation_chart(const struct app *app, Rectangle rect) {
+    const struct fm_view *fm = &app->fm;
+    static float points_i[512];
+    static float points_q[512];
+    struct sdrgui_constellation_params params;
+    size_t count;
+
+    count = fm_rds_symbols(fm->bb_i, fm->bb_q, fm->bb_count,
+                           fm->timing_offset, points_i, points_q, 512);
+    memset(&params, 0, sizeof(params));
+    params.plot = rect;
+    params.x = points_i;
+    params.y = points_q;
+    params.count = (int)count;
+    params.caption = "RDS symbols, before the axis is chosen";
+    params.empty_notice = "no symbols yet";
+    sdrgui_constellation(&params);
+}
+
+/*
+ * The timing search, all sixteen offsets.
+ *
+ * fm_rds_soft_bits takes the best and moves on. This shows how it won: a
+ * clear peak is a symbol clock nobody need think about, and a winner barely
+ * over its neighbours is one about to slip -- which every panel reports
+ * identically right up until it does.
+ */
+static void draw_timing_chart(const struct app *app, Rectangle rect) {
+    const struct fm_view *fm = &app->fm;
+    struct sdrgui_burst_chart_params params;
+    char title[96];
+
+    memset(&params, 0, sizeof(params));
+    snprintf(title, sizeof(title), "symbol timing: offset %d of %d wins",
+             fm->timing_offset, FM_RDS_SAMPLES_PER_SYMBOL);
+    params.plot = rect;
+    params.data = fm->timing_energy;
+    params.count = FM_RDS_SAMPLES_PER_SYMBOL;
+    params.type = SDRGUI_BURST_BAR;
+    params.y_min = 0.0f;
+    params.y_max = 1.05f;
+    params.title = title;
+    params.empty_notice = "no symbols yet";
+    sdrgui_burst_chart(&params);
+}
+
+/*
+ * Which groups the station is sending.
+ *
+ * A station sending only type 0 has a name and no radio text, and that is a
+ * fact about the station rather than a fault in the receiver -- which is
+ * exactly what an empty radio-text line does not say.
+ */
+static void draw_groups_chart(const struct app *app, Rectangle rect) {
+    const struct rds_station *s = &app->fm.station;
+    static float counts[16];
+    struct sdrgui_burst_chart_params params;
+    int i;
+    float top = 1.0f;
+
+    for (i = 0; i < 16; i++) {
+        counts[i] = (float)(s->groups_by_type[i * 2] +
+                            s->groups_by_type[i * 2 + 1]);
+        if (counts[i] > top)
+            top = counts[i];
+    }
+    memset(&params, 0, sizeof(params));
+    params.plot = rect;
+    params.data = counts;
+    params.count = 16;
+    params.type = SDRGUI_BURST_BAR;
+    params.y_min = 0.0f;
+    params.y_max = top * 1.15f;
+    params.title = "groups by type: 0 carries the name, 2 the radio text";
+    params.empty_notice = "no groups yet";
+    sdrgui_burst_chart(&params);
+}
+
 void draw_fm(struct app *app) {
     struct fm_layout l = fm_layout_now();
     char text[64];
@@ -288,7 +494,26 @@ void draw_fm(struct app *app) {
                         50000.0);
     }
 
-    draw_waterfall_rect(app, 0, l.waterfall, 0.0);
+    draw_button(l.scan_button,
+                app->fm.scan.running ? "Stop" : "Scan band",
+                app->fm.scan.running);
+    draw_button(l.view_toggle,
+                app->fm.analysis_mode ? "View: Signal" : "View: Charts", 0);
+
+    if (app->fm.analysis_mode) {
+        draw_multiplex_chart(app, l.chart[0]);
+        draw_constellation_chart(app, l.chart[1]);
+        draw_timing_chart(app, l.chart[2]);
+        draw_groups_chart(app, l.chart[3]);
+        return;
+    }
+
+    /* The scan takes the waterfall's place rather than covering it -- the
+       rule calibration_layout.h had to learn. */
+    if (app->fm.scan.running || app->fm.scan.found_count > 0)
+        draw_scan_list(app, l.scan_list);
+    else
+        draw_waterfall_rect(app, 0, l.waterfall, 0.0);
     draw_signal_panel(app, l.signal_panel);
     draw_station_panel(app, l.station_panel);
     draw_funnel_panel(app, l.funnel_panel);
@@ -336,6 +561,20 @@ void handle_fm_input(struct app *app) {
     else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         app->fm.typing = 0;
 
+    if (clicked(l.view_toggle)) {
+        app->fm.analysis_mode = !app->fm.analysis_mode;
+        return;
+    }
+    if (clicked(l.scan_button)) {
+        if (app->fm.scan.running)
+            fm_scan_stop(app);
+        else
+            fm_scan_begin(app);
+        return;
+    }
+    if (app->fm.scan.running)
+        return;   /* the receiver is walking the band; leave it there */
+
     for (i = 0; i < FM_LAYOUT_STATIONS; i++)
         if (clicked(l.station_button[i])) {
             snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
@@ -369,4 +608,231 @@ void fm_tune(struct app *app, double hz) {
     app->fm.blocks_seen = 0;
     app->fm.groups_total = 0;
     rds_station_init(&app->fm.station);
+}
+
+/*
+ * Walking band II.
+ *
+ * Two passes, and fm_scan.h has the arithmetic and the argument. The first
+ * sweeps the band as a spectrum -- thirteen tunings, under three seconds --
+ * and marks every channel standing over the local floor. The second visits
+ * only those, for the three quarters of a second a pilot needs plus enough
+ * for an identification.
+ *
+ * It does not try to read a *name* while scanning. Four segments arriving and
+ * repeating is a second or two of groups on a good signal and never on a
+ * marginal one, so a scan that waited for names would spend most of its time
+ * on the stations it was never going to read. The scan says where to stop;
+ * stopping is what reads the name.
+ */
+void fm_scan_begin(struct app *app) {
+    struct fm_scan *scan = &app->fm.scan;
+    int i;
+
+    if (!app->receiver_mode) {
+        snprintf(scan->status, sizeof(scan->status),
+                 "A band scan needs a live receiver.");
+        return;
+    }
+    if (fm_scan_plan_for((double)app->applied_sample_rate, &scan->plan) !=
+        FM_SCAN_OK) {
+        snprintf(scan->status, sizeof(scan->status),
+                 "The sample rate is too low to sweep the band.");
+        return;
+    }
+    for (i = 0; i < (int)(sizeof(scan->power) / sizeof(scan->power[0])); i++)
+        scan->power[i] = FM_SCAN_SENTINEL_DBFS;
+    scan->found_count = 0;
+    scan->visiting = 0;
+    scan->step = 0;
+    scan->sweeping = 1;
+    scan->return_frequency = app->applied_frequency;
+    scan->return_valid = 1;
+    if (retune_receiver(app, (uint32_t)llround(scan->plan.first_center_hz),
+                        app->applied_ppm) < 0) {
+        scan->sweeping = 0;
+        return;
+    }
+    scan->step_started_at = GetTime();
+    scan->running = 1;
+    snprintf(scan->status, sizeof(scan->status),
+             "Sweeping %d steps, about %.0f s, then the carriers it finds",
+             scan->plan.step_count, fm_scan_sweep_seconds(&scan->plan));
+    debug_log_write("fm-scan", "begin, %d steps", scan->plan.step_count);
+}
+
+void fm_scan_stop(struct app *app) {
+    struct fm_scan *scan = &app->fm.scan;
+
+    if (!scan->running)
+        return;
+    scan->running = 0;
+    scan->sweeping = 0;
+    if (app->receiver_mode && scan->return_valid)
+        retune_receiver(app, scan->return_frequency, app->applied_ppm);
+    snprintf(scan->status, sizeof(scan->status),
+             "Stopped; %d carrier%s found.", scan->found_count,
+             scan->found_count == 1 ? "" : "s");
+    debug_log_write("fm-scan", "stopped, %d found", scan->found_count);
+}
+
+/* Turn the swept powers into the list of channels worth visiting. */
+static void fm_scan_choose(struct app *app) {
+    struct fm_scan *scan = &app->fm.scan;
+    int count = fm_scan_channel_count();
+    double floor_dbfs;
+    int i, measured = 0;
+
+    /* The floor is the median of what was measured, so a band with a dozen
+       strong stations in it does not raise its own threshold out of reach of
+       the weak ones -- which a mean would. */
+    {
+        static float sorted[206];
+        for (i = 0; i < count; i++)
+            if (scan->power[i] > FM_SCAN_SENTINEL_DBFS)
+                sorted[measured++] = scan->power[i];
+        if (measured == 0) {
+            snprintf(scan->status, sizeof(scan->status),
+                     "The sweep measured nothing.");
+            return;
+        }
+        {
+            int a, b;
+            for (a = 1; a < measured; a++) {
+                float key = sorted[a];
+                for (b = a - 1; b >= 0 && sorted[b] > key; b--)
+                    sorted[b + 1] = sorted[b];
+                sorted[b + 1] = key;
+            }
+        }
+        floor_dbfs = sorted[measured / 2];
+    }
+
+    for (i = 0; i < count && scan->found_count < FM_SCAN_MAX_FOUND; i++) {
+        struct fm_found_station *f;
+
+        if (!fm_scan_is_carrier(scan->power[i], floor_dbfs))
+            continue;
+        /*
+         * One entry per carrier, not per channel over the threshold. An FM
+         * carrier is 200 kHz wide on a 100 kHz raster, so a strong station
+         * puts its neighbours over the floor too and a list built channel by
+         * channel reports every station two or three times.
+         */
+        if (scan->found_count > 0) {
+            f = &scan->found[scan->found_count - 1];
+            if (i - f->channel <= 2) {
+                if (scan->power[i] > f->power_dbfs) {
+                    f->channel = i;
+                    f->frequency_hz = fm_scan_channel_hz(i);
+                    f->power_dbfs = scan->power[i];
+                }
+                continue;
+            }
+        }
+        f = &scan->found[scan->found_count++];
+        memset(f, 0, sizeof(*f));
+        f->channel = i;
+        f->frequency_hz = fm_scan_channel_hz(i);
+        f->power_dbfs = scan->power[i];
+    }
+    snprintf(scan->status, sizeof(scan->status),
+             "%d carrier%s over the floor; visiting each for %.1f s",
+             scan->found_count, scan->found_count == 1 ? "" : "s",
+             FM_SCAN_VISIT_SECONDS);
+    debug_log_write("fm-scan", "swept, %d carriers, floor %.1f dBFS",
+                    scan->found_count, floor_dbfs);
+}
+
+void update_fm_scan(struct app *app, double now, int have_block) {
+    struct fm_scan *scan = &app->fm.scan;
+    double elapsed;
+
+    if (!scan->running)
+        return;
+    elapsed = now - scan->step_started_at;
+
+    if (scan->sweeping) {
+        if (elapsed < FM_SCAN_STEP_SETTLE_SECONDS || !have_block)
+            return;
+        if (elapsed < FM_SCAN_STEP_SETTLE_SECONDS +
+                      FM_SCAN_STEP_MEASURE_SECONDS) {
+            /* Measure into the channel grid while the step is still open, so
+               a step contributes every block it saw rather than only its
+               last. */
+            double centre = (double)app->applied_frequency;
+            sdr_dsp_channel_powers(app->spectrum_average, SDR_DSP_FFT_SIZE,
+                                   centre - app->applied_sample_rate / 2.0,
+                                   centre + app->applied_sample_rate / 2.0,
+                                   centre - scan->plan.accept_half_hz,
+                                   centre + scan->plan.accept_half_hz,
+                                   FM_BAND_LOWER_HZ, FM_CHANNEL_SPACING_HZ,
+                                   0, fm_scan_channel_count() - 1,
+                                   scan->power);
+            return;
+        }
+        scan->step++;
+        if (scan->step >= scan->plan.step_count) {
+            scan->sweeping = 0;
+            fm_scan_choose(app);
+            if (scan->found_count == 0) {
+                fm_scan_stop(app);
+                return;
+            }
+            scan->visiting = 0;
+            fm_tune(app, scan->found[0].frequency_hz);
+            scan->step_started_at = now;
+            return;
+        }
+        retune_receiver(app,
+                        (uint32_t)llround(scan->plan.first_center_hz +
+                                          (double)scan->step *
+                                              scan->plan.step_hz),
+                        app->applied_ppm);
+        scan->step_started_at = now;
+        return;
+    }
+
+    /* Pass two: one carrier at a time, reading whatever arrives. */
+    if (elapsed < FM_SCAN_VISIT_SETTLE_SECONDS)
+        return;
+    if (elapsed < FM_SCAN_VISIT_SETTLE_SECONDS + FM_SCAN_VISIT_SECONDS) {
+        if (have_block)
+            update_fm(app, now);
+        return;
+    }
+    {
+        struct fm_found_station *f = &scan->found[scan->visiting];
+        const struct rds_station *s = &app->fm.station;
+
+        f->pilot = fm_pilot_locked(&app->fm.front.pilot);
+        f->rds = s->funnel.groups > 0;
+        f->pi_valid = s->pi_valid;
+        f->pi = s->pi;
+        if (s->ps_valid)
+            snprintf(f->ps, sizeof(f->ps), "%s", s->ps);
+        debug_log_write("fm-scan", "%.1f MHz pilot %d rds %d pi 0x%04X",
+                        f->frequency_hz / 1e6, f->pilot, f->rds, f->pi);
+
+        scan->visiting++;
+        if (scan->visiting >= scan->found_count) {
+            int with_rds = 0, i;
+            for (i = 0; i < scan->found_count; i++)
+                if (scan->found[i].rds)
+                    with_rds++;
+            scan->running = 0;
+            if (app->receiver_mode && scan->return_valid)
+                retune_receiver(app, scan->return_frequency, app->applied_ppm);
+            snprintf(scan->status, sizeof(scan->status),
+                     "%d carrier%s, %d carrying RDS.", scan->found_count,
+                     scan->found_count == 1 ? "" : "s", with_rds);
+            return;
+        }
+        fm_tune(app, scan->found[scan->visiting].frequency_hz);
+        scan->step_started_at = now;
+        snprintf(scan->status, sizeof(scan->status),
+                 "Visiting %d of %d: %.1f MHz", scan->visiting + 1,
+                 scan->found_count,
+                 scan->found[scan->visiting].frequency_hz / 1e6);
+    }
 }

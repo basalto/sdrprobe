@@ -436,3 +436,191 @@ size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
     }
     return made;
 }
+
+/*
+ * A radix-2 FFT, in place, self-contained.
+ *
+ * Hand-written like the rest of the DSP here (ADR-0003). sdr_dsp.c has one
+ * too, and this does not call it: that one is built around the receiver's
+ * complex I/Q and a two-sided spectrum with a peak hold, and borrowing it
+ * would mean matching its bin layout for a chart that wants neither.
+ */
+static void fm_fft(double *re, double *im, int n) {
+    int i, j, len;
+
+    for (i = 1, j = 0; i < n; i++) {
+        int bit = n >> 1;
+        for (; j & bit; bit >>= 1)
+            j ^= bit;
+        j ^= bit;
+        if (i < j) {
+            double t = re[i]; re[i] = re[j]; re[j] = t;
+            t = im[i]; im[i] = im[j]; im[j] = t;
+        }
+    }
+    for (len = 2; len <= n; len <<= 1) {
+        double angle = -2.0 * M_PI / len;
+        double wr = cos(angle), wi = sin(angle);
+        for (i = 0; i < n; i += len) {
+            double cr = 1.0, ci = 0.0;
+            for (j = 0; j < len / 2; j++) {
+                double ur = re[i + j], ui = im[i + j];
+                double vr = re[i + j + len / 2] * cr -
+                            im[i + j + len / 2] * ci;
+                double vi = re[i + j + len / 2] * ci +
+                            im[i + j + len / 2] * cr;
+                double nr;
+                re[i + j] = ur + vr;
+                im[i + j] = ui + vi;
+                re[i + j + len / 2] = ur - vr;
+                im[i + j + len / 2] = ui - vi;
+                nr = cr * wr - ci * wi;
+                ci = cr * wi + ci * wr;
+                cr = nr;
+            }
+        }
+    }
+}
+
+size_t fm_multiplex_spectrum(const float *mpx, size_t n, double sample_rate,
+                             float *dbfs, size_t bins, double *bin_hz) {
+    const int size = 2 * FM_MPX_SPECTRUM_BINS;
+    static double re[2 * FM_MPX_SPECTRUM_BINS];
+    static double im[2 * FM_MPX_SPECTRUM_BINS];
+    static double power[FM_MPX_SPECTRUM_BINS];
+    int decimate, k;
+    size_t used = 0, windows = 0, at = 0;
+    double rate;
+
+    if (bin_hz)
+        *bin_hz = 0.0;
+    if (!mpx || !dbfs || bins == 0 || sample_rate <= 0.0)
+        return 0;
+    if (bins > FM_MPX_SPECTRUM_BINS)
+        bins = FM_MPX_SPECTRUM_BINS;
+
+    decimate = (int)(sample_rate / FM_MPX_SPECTRUM_TARGET_RATE + 0.5);
+    if (decimate < 1)
+        decimate = 1;
+    rate = sample_rate / decimate;
+    if (bin_hz)
+        *bin_hz = rate / size;
+    if (n < (size_t)(size * decimate))
+        return 0;
+
+    for (k = 0; k < FM_MPX_SPECTRUM_BINS; k++)
+        power[k] = 0.0;
+
+    /* As many windows as the input holds, averaged. One window of a
+       broadcast multiplex is mostly audio and the subcarriers only stand out
+       once the audio has been averaged across a few of them. */
+    while (at + (size_t)(size * decimate) <= n && windows < 32) {
+        for (k = 0; k < size; k++) {
+            double sum = 0.0;
+            int d;
+            double window = 0.5 - 0.5 * cos(2.0 * M_PI * k / (size - 1));
+
+            for (d = 0; d < decimate; d++)
+                sum += mpx[at + (size_t)(k * decimate + d)];
+            re[k] = window * sum / decimate;
+            im[k] = 0.0;
+        }
+        fm_fft(re, im, size);
+        for (k = 0; k < FM_MPX_SPECTRUM_BINS; k++)
+            power[k] += re[k] * re[k] + im[k] * im[k];
+        windows++;
+        at += (size_t)(size * decimate);
+    }
+    if (windows == 0)
+        return 0;
+
+    for (used = 0; used < bins; used++) {
+        double p = power[used] / (double)windows;
+        /* Referenced to the strongest bin, since a discriminator's output is
+           radians a sample and an absolute dBFS would mean nothing. */
+        dbfs[used] = (float)(10.0 * log10(p > 1e-30 ? p : 1e-30));
+    }
+    {
+        float top = dbfs[0];
+        size_t i;
+        for (i = 1; i < used; i++)
+            if (dbfs[i] > top)
+                top = dbfs[i];
+        for (i = 0; i < used; i++)
+            dbfs[i] -= top;
+    }
+    return used;
+}
+
+void fm_rds_timing_scores(const float *bb_i, const float *bb_q, size_t samples,
+                          float scores[FM_RDS_SAMPLES_PER_SYMBOL]) {
+    const int span = FM_RDS_SAMPLES_PER_SYMBOL;
+    double best = 0.0;
+    int offset;
+
+    if (!scores)
+        return;
+    for (offset = 0; offset < span; offset++)
+        scores[offset] = 0.0f;
+    if (!bb_i || !bb_q || samples < (size_t)(4 * span))
+        return;
+
+    for (offset = 0; offset < span; offset++) {
+        size_t count = (samples - (size_t)offset) / (size_t)span;
+        double energy = 0.0;
+        size_t k;
+
+        if (count < 4)
+            continue;
+        for (k = 0; k < count; k++) {
+            double ri, rq;
+            fm_rds_correlate(bb_i, bb_q, samples, offset, k, &ri, &rq);
+            energy += ri * ri + rq * rq;
+        }
+        energy /= (double)count;
+        scores[offset] = (float)energy;
+        if (energy > best)
+            best = energy;
+    }
+    if (best <= 0.0)
+        return;
+    for (offset = 0; offset < span; offset++)
+        scores[offset] = (float)(scores[offset] / best);
+}
+
+size_t fm_rds_symbols(const float *bb_i, const float *bb_q, size_t samples,
+                      int timing_offset, float *out_i, float *out_q,
+                      size_t capacity) {
+    const int span = FM_RDS_SAMPLES_PER_SYMBOL;
+    size_t count, k, made = 0;
+    double scale = 0.0;
+
+    if (!bb_i || !bb_q || !out_i || !out_q || capacity == 0)
+        return 0;
+    if (timing_offset < 0 || timing_offset >= span)
+        return 0;
+    if (samples < (size_t)(4 * span))
+        return 0;
+
+    count = (samples - (size_t)timing_offset) / (size_t)span;
+    if (count > capacity)
+        count = capacity;
+
+    for (k = 0; k < count; k++) {
+        double ri, rq, magnitude;
+
+        fm_rds_correlate(bb_i, bb_q, samples, timing_offset, k, &ri, &rq);
+        out_i[made] = (float)ri;
+        out_q[made] = (float)rq;
+        magnitude = sqrt(ri * ri + rq * rq);
+        if (magnitude > scale)
+            scale = magnitude;
+        made++;
+    }
+    if (scale > 0.0)
+        for (k = 0; k < made; k++) {
+            out_i[k] = (float)(out_i[k] / scale);
+            out_q[k] = (float)(out_q[k] / scale);
+        }
+    return made;
+}

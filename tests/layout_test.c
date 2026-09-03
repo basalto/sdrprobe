@@ -828,8 +828,8 @@ static void check_fm_view(void) {
 
     for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++) {
         struct fm_layout l = fm_layout_for(sizes[c][0], sizes[c][1]);
-        Rectangle all[12];
-        const char *names[12];
+        Rectangle all[16];
+        const char *names[16];
         int n = 0, a, b, i;
 
         all[n] = l.frequency_field; names[n++] = "frequency";
@@ -837,6 +837,8 @@ static void check_fm_view(void) {
         for (i = 0; i < FM_LAYOUT_STATIONS; i++) {
             all[n] = l.station_button[i]; names[n++] = "preset";
         }
+        all[n] = l.scan_button;     names[n++] = "scan";
+        all[n] = l.view_toggle;     names[n++] = "view toggle";
         all[n] = l.waterfall;       names[n++] = "waterfall";
         all[n] = l.signal_panel;    names[n++] = "signal";
         all[n] = l.station_panel;   names[n++] = "station";
@@ -879,6 +881,54 @@ static void check_fm_view(void) {
         check_msg(l.frequency_field.y >= 92.0f,
                   "%.0fx%.0f: the controls are under the header chrome\n",
                   sizes[c][0], sizes[c][1]);
+
+        /*
+         * The analysis arrangement: four charts that tile the same space,
+         * checked against each other and against the controls above them.
+         * Not against the signal arrangement's panels -- the two are never
+         * drawn together, and asserting that would forbid the one thing this
+         * layout is supposed to do.
+         */
+        {
+            Rectangle charts[6];
+            const char *chart_names[6];
+            int cn = 0, x, y2;
+
+            for (i = 0; i < FM_LAYOUT_CHARTS; i++) {
+                charts[cn] = l.chart[i];
+                chart_names[cn++] = "chart";
+            }
+            charts[cn] = l.frequency_field; chart_names[cn++] = "frequency";
+            charts[cn] = l.view_toggle;     chart_names[cn++] = "view toggle";
+
+            for (x = 0; x < cn; x++)
+                for (y2 = x + 1; y2 < cn; y2++)
+                    check_msg(!overlaps(charts[x], charts[y2]),
+                              "%.0fx%.0f analysis: '%s' overlaps '%s'\n",
+                              sizes[c][0], sizes[c][1], chart_names[x],
+                              chart_names[y2]);
+            for (x = 0; x < FM_LAYOUT_CHARTS; x++) {
+                check_msg(l.chart[x].width > 0.0f && l.chart[x].height > 0.0f,
+                          "%.0fx%.0f: chart %d has no area\n", sizes[c][0],
+                          sizes[c][1], x);
+                check_msg(l.chart[x].x + l.chart[x].width <=
+                              sizes[c][0] + 0.01f,
+                          "%.0fx%.0f: chart %d runs off the side\n",
+                          sizes[c][0], sizes[c][1], x);
+                check_msg(l.chart[x].y + l.chart[x].height <=
+                              sizes[c][1] + 0.01f,
+                          "%.0fx%.0f: chart %d runs off the bottom\n",
+                          sizes[c][0], sizes[c][1], x);
+            }
+            /* And the scan list is exactly where the waterfall was, which is
+               the point of it taking that place rather than covering it. */
+            check_msg(l.scan_list.x == l.waterfall.x &&
+                      l.scan_list.y == l.waterfall.y &&
+                      l.scan_list.width == l.waterfall.width &&
+                      l.scan_list.height == l.waterfall.height,
+                      "%.0fx%.0f: the scan list is not where the waterfall "
+                      "is\n", sizes[c][0], sizes[c][1]);
+        }
     }
 }
 

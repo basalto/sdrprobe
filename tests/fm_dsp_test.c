@@ -672,6 +672,104 @@ static void test_a_real_capture_decodes(void) {
     }
 }
 
+
+/*
+ * The multiplex spectrum, which is the chart that answers "is there RDS on
+ * this station at all" before anything tries to decode it.
+ *
+ * Checked by where the humps land, not by their height: the decimation is a
+ * boxcar and the header says so. Three peaks at 19, 38 and 57 kHz, and the
+ * gaps between them lower than any of the three.
+ */
+static void test_the_multiplex_spectrum(void) {
+    static float bins[FM_MPX_SPECTRUM_BINS];
+    double bin_hz = 0.0;
+    size_t n, got;
+
+    build_rds(0.30, 0.0, 0.0);
+    n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+    got = fm_multiplex_spectrum(out, n, RATE, bins, FM_MPX_SPECTRUM_BINS,
+                                &bin_hz);
+    check_true("a spectrum came back", got > 500);
+    check_true("with bins fine enough to tell 19 from 38 kHz",
+               bin_hz > 0.0 && bin_hz < 1000.0);
+
+    /* Where each subcarrier should be, and the strongest bin near it. */
+    {
+        struct { const char *name; double hz; } humps[] = {
+            { "the pilot", FM_PILOT_HZ },
+            { "the stereo subcarrier", 2.0 * FM_PILOT_HZ },
+            { "the RDS band", FM_RDS_SUBCARRIER_HZ }
+        };
+        double heights[3];
+        unsigned h;
+
+        for (h = 0; h < 3; h++) {
+            int centre = (int)(humps[h].hz / bin_hz + 0.5);
+            int k, lo = centre - 40, hi = centre + 40;
+            double best = -1e9;
+
+            if (lo < 0) lo = 0;
+            if (hi >= (int)got) hi = (int)got - 1;
+            for (k = lo; k <= hi; k++)
+                if (bins[k] > best)
+                    best = bins[k];
+            heights[h] = best;
+        }
+
+        /* The gaps: halfway between the humps, where a multiplex carries
+           nothing. Each must sit below all three. */
+        {
+            double gaps[2];
+            int g;
+            for (g = 0; g < 2; g++) {
+                double hz = g == 0 ? 28000.0 : 47000.0;
+                int centre = (int)(hz / bin_hz + 0.5);
+                int k, lo = centre - 20, hi = centre + 20;
+                double worst = -1e9;
+                if (hi >= (int)got) hi = (int)got - 1;
+                for (k = lo; k <= hi; k++)
+                    if (bins[k] > worst)
+                        worst = bins[k];
+                gaps[g] = worst;
+            }
+            for (h = 0; h < 3; h++) {
+                check_msg(heights[h] > gaps[0] + 3.0 &&
+                          heights[h] > gaps[1] + 3.0,
+                          "%s (%.1f dB) does not stand over the gaps "
+                          "(%.1f, %.1f)\n", humps[h].name, heights[h],
+                          gaps[0], gaps[1]);
+            }
+        }
+    }
+
+    /* A station with no RDS: the 57 kHz region must not stand out, or the
+       chart would say every station carries it. */
+    build(FM_PILOT_HZ, 0.10, 0.30, 0.0);
+    n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+    got = fm_multiplex_spectrum(out, n, RATE, bins, FM_MPX_SPECTRUM_BINS,
+                                &bin_hz);
+    {
+        int rds = (int)(FM_RDS_SUBCARRIER_HZ / bin_hz + 0.5);
+        int gap = (int)(47000.0 / bin_hz + 0.5);
+        double at_rds = -1e9, at_gap = -1e9;
+        int k;
+
+        for (k = rds - 30; k <= rds + 30 && k < (int)got; k++)
+            if (bins[k] > at_rds) at_rds = bins[k];
+        for (k = gap - 30; k <= gap + 30 && k < (int)got; k++)
+            if (bins[k] > at_gap) at_gap = bins[k];
+        check_msg(at_rds < at_gap + 6.0,
+                  "a station with no RDS shows %.1f dB at 57 kHz against "
+                  "%.1f in the gap\n", at_rds, at_gap);
+    }
+
+    check_size("no input, no spectrum",
+               fm_multiplex_spectrum(NULL, 1000, RATE, bins, 64, &bin_hz), 0);
+    check_size("nor too little of it",
+               fm_multiplex_spectrum(out, 100, RATE, bins, 64, &bin_hz), 0);
+}
+
 int main(void) {
     test_the_discriminator();
     test_the_byte_path_matches();
@@ -685,6 +783,7 @@ int main(void) {
     test_any_axis_works();
     test_it_survives_noise();
     test_soft_bits_refuse_nonsense();
+    test_the_multiplex_spectrum();
     test_a_real_capture_decodes();
 
     return check_report("FM multiplex: pilot, subcarrier and soft bits");

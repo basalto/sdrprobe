@@ -75,6 +75,10 @@ void view_fm_defaults(struct app *app);
 void fm_tune(struct app *app, double hz);
 /* Whether the FM view's frequency field has focus. */
 int fm_editing(const struct app *app);
+/* Walking band II: a coarse sweep, then the carriers it found. */
+void fm_scan_begin(struct app *app);
+void fm_scan_stop(struct app *app);
+void update_fm_scan(struct app *app, double now, int have_block);
 
 void draw_lte(struct app *app);
 void handle_lte_input(struct app *app);

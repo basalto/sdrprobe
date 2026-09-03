@@ -153,6 +153,8 @@ which the view makes up to three.
 See `docs/liquid-dsp-sdrprobe-assessment.md` for the numbers and for where the
 time would come from if it were ever needed.
 
+`--analysis` opens a decode view on its charts rather than its data — one flag
+for all of them, since every decode view has the same two arrangements.
 `--view calibration` opens the calibration overlay, and `--calibrate lte`
 alongside it opens on the 4G arrangement. Every screen has to be reachable from
 the command line for the same reason every decision does: the LTE calibration
@@ -345,6 +347,14 @@ Tabs are presentation only, not the boundary (ADR-0010).
   Lock is *coherence*, not amplitude: the pilot's size against the multiplex
   ranks a 48 dB station below a 29 dB one, because the loud one has more audio
   in the denominator.
+- `src/fm_scan.h` — walking band II, in two passes and for an arithmetic
+  reason: 205 channels on a 100 kHz raster, and deciding whether one carries
+  RDS means demodulating it for a quarter of a second, so visiting all of them
+  is a minute to find the fifteen that exist. A receiver at 2 MS/s sees
+  1.6 MHz at once, so thirteen tunings say where the carriers *are* and only
+  those get the quarter second — eleven seconds against sixty. That asymmetry
+  is what makes FM the cheap band to scan and does not hold for the cellular
+  ones.
 - `src/rds.{c,h}` — one layer further, Decoder side: the (26,16) block code,
   the five offset words, groups, and a station's identification, programme
   type and name. **RDS has no preamble**, so synchronisation is a search: a
