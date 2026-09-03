@@ -530,6 +530,31 @@ static void test_every_screen_is_reachable(void) {
     }
     check_true("and a screen that does not exist is refused",
                parse_view("nonsense", &(enum start_view){ 0 }) < 0);
+
+    /*
+     * Every one of them names a different screen.
+     *
+     * They stopped doing so when the survey became a tab: the four Scope
+     * views set app->view and nothing set the tab, so with the survey as the
+     * default tab all four of them opened the survey. Nothing failed -- the
+     * flags parsed, the program ran, and four screenshots came out identical,
+     * which is how it was noticed.
+     */
+    {
+        enum start_view seen[16];
+        unsigned a, b, count = 0;
+
+        for (i = 0; i < (int)(sizeof(screens) / sizeof(screens[0])); i++) {
+            enum start_view view = START_VIEW_DEFAULT;
+            if (parse_view(screens[i], &view) == 0)
+                seen[count++] = view;
+        }
+        for (a = 0; a < count; a++)
+            for (b = a + 1; b < count; b++)
+                check_msg(seen[a] != seen[b],
+                          "--view %s and --view %s name the same screen\n",
+                          screens[a], screens[b]);
+    }
 }
 
 int main(void) {

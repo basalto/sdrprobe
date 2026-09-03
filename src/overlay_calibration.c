@@ -717,7 +717,7 @@ void handle_calibration_input(struct app *app) {
                program opens and the only view that says what is on air
                rather than what one tuning looks like. */
             if (!app->calibration_open)
-                app->view = VIEW_SURVEY;
+                app->tab = TAB_SURVEY;
         }
     }
 }

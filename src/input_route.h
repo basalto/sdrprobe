@@ -16,20 +16,30 @@
  * who gets them.
  */
 
-#define TAB_COUNT 2
+#define TAB_COUNT 3
 
+/*
+ * Survey first, and a tab rather than a view inside Scope.
+ *
+ * It was a fifth Scope view reached by a button, and that put it inside the
+ * wrong thing: the four Scope views all draw whatever the receiver is pointed
+ * at, and the survey walks the receiver across a band. Sitting under Scope it
+ * inherited Scope's numbered options -- 1 magnitude, 2 spectrum -- which name
+ * screens it has nothing to do with. It leads because it is where a session
+ * starts: what is out there comes before what one tuning looks like.
+ */
 enum active_tab {
+    TAB_SURVEY,
     TAB_SCOPE,
     TAB_DECODE
 };
 
 /*
- * Two values from app.h's enums, mirrored so this header stays standalone --
- * a check links it against libm and nothing else. sdrprobe.c asserts at
- * compile time that they still agree, so reordering either enum is a build
- * error rather than a routing rule that quietly means something else.
+ * One value from app.h's enum, mirrored so this header stays standalone -- a
+ * check links it against libm and nothing else. sdrprobe.c asserts at compile
+ * time that it still agrees, so reordering that enum is a build error rather
+ * than a routing rule that quietly means something else.
  */
-#define VIEW_KIND_SURVEY 4
 #define DECODE_KIND_ADSB 1
 
 /* Everything the routing depends on, and nothing else. */
@@ -62,6 +72,7 @@ struct input_state {
 
 enum input_target {
     INPUT_TARGET_HELP,
+    INPUT_TARGET_SURVEY,
     INPUT_TARGET_SETTINGS,
     INPUT_TARGET_SCAN,
     INPUT_TARGET_CALIBRATION,
@@ -85,6 +96,8 @@ static inline enum input_target input_route(const struct input_state *s) {
         return INPUT_TARGET_SETTINGS;
     if (s->calibration_open)
         return s->scan_open ? INPUT_TARGET_SCAN : INPUT_TARGET_CALIBRATION;
+    if (s->tab == TAB_SURVEY)
+        return INPUT_TARGET_SURVEY;
     if (s->tab == TAB_DECODE)
         return INPUT_TARGET_DECODE;
     return INPUT_TARGET_SCOPE;
@@ -139,7 +152,7 @@ static inline int input_scale_keys(const struct input_state *s) {
                                              : INPUT_SCALE_WATERFALL;
     }
     /* The survey's Up and Down walk its candidates; it has no scale. */
-    if (s->view == VIEW_KIND_SURVEY)
+    if (s->tab == TAB_SURVEY)
         return INPUT_SCALE_NONE;
     return INPUT_SCALE_ACTIVE_CHART;
 }

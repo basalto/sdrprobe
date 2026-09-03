@@ -40,6 +40,13 @@ static void test_the_tabs(void) {
     check_int("the Scope tab", input_route(&s), INPUT_TARGET_SCOPE);
     s.tab = TAB_DECODE;
     check_int("the Decode tab", input_route(&s), INPUT_TARGET_DECODE);
+    s.tab = TAB_SURVEY;
+    check_int("and the Survey tab, which is one now",
+              input_route(&s), INPUT_TARGET_SURVEY);
+    /* It leads, and it is the zero the app zero-initialises to -- which is
+       what makes the survey the screen a session opens on. */
+    check_int("Survey is the first tab", (int)TAB_SURVEY, 0);
+    check_int("and there are three", TAB_COUNT, 3);
 }
 
 /*
@@ -153,12 +160,12 @@ static void test_the_view_keys(void) {
 static void test_every_combination_routes_somewhere_sensible(void) {
     int bad = 0;
 
-    for (int bits = 0; bits < 64; bits++) {
+    /* Every overlay combination against every tab, which is 3 * 32 now that
+       the survey is a tab rather than a view inside Scope. */
+    for (int bits = 0; bits < 32 * TAB_COUNT; bits++) {
         struct input_state s = state_of(bits & 1, (bits >> 1) & 1,
                                         (bits >> 2) & 1, (bits >> 3) & 1,
-                                        (bits >> 4) & 1 ? TAB_DECODE
-                                                        : TAB_SCOPE,
-                                        (bits >> 5) & 1);
+                                        bits / 32, (bits >> 4) & 1);
         enum input_target target = input_route(&s);
 
         switch (target) {
@@ -176,6 +183,11 @@ static void test_every_combination_routes_somewhere_sensible(void) {
             break;
         case INPUT_TARGET_CALIBRATION:
             if (!s.calibration_open || s.scan_open)
+                bad++;
+            break;
+        case INPUT_TARGET_SURVEY:
+            if (s.tab != TAB_SURVEY || s.help_open || s.settings_open ||
+                s.calibration_open)
                 bad++;
             break;
         case INPUT_TARGET_DECODE:
@@ -336,7 +348,7 @@ static void test_the_scale_keys_reach_every_chart(void) {
 
     /* The survey has no scale: Up and Down walk its candidates instead, and
        a scale change stealing them would be worse than not having one. */
-    s.view = VIEW_KIND_SURVEY;
+    s = state_of(0, 0, 0, 0, TAB_SURVEY, 0);
     check_int("the survey has no scale", input_scale_keys(&s),
               INPUT_SCALE_NONE);
 
@@ -383,7 +395,7 @@ static void test_the_scale_keys_reach_every_chart(void) {
     {
         int tab, view, decode;
         for (tab = 0; tab < TAB_COUNT; tab++)
-        for (view = 0; view < 5; view++)
+        for (view = 0; view < 4; view++)
         for (decode = 0; decode < 4; decode++) {
             struct input_state screen = state_of(0, 0, 0, 0, tab, 0);
             int draws_waterfall;
@@ -392,7 +404,8 @@ static void test_the_scale_keys_reach_every_chart(void) {
             screen.decode = decode;
             draws_waterfall = tab == TAB_DECODE
                                   ? decode != DECODE_KIND_ADSB
-                                  : view == 3 /* the Scope waterfall */;
+                                  : tab == TAB_SCOPE &&
+                                        view == 3 /* the Scope waterfall */;
             if (!draws_waterfall)
                 continue;
             check_msg(input_scale_keys(&screen) != INPUT_SCALE_NONE,
