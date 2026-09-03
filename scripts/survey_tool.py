@@ -92,11 +92,13 @@ def parse(text):
             out["site"]["label"] = " ".join(f[2:])
         elif f[:2] == ["survey", "gain"]:
             out["receiver"]["gain_db"] = float(f[2])
+        elif f[:2] == ["survey", "carriers"]:
+            out["totals"]["carriers"] = int(f[2])
         elif f[:2] == ["survey", "blocks"]:
             out["sweep"]["blocks"] = int(f[2])
         elif f[:2] == ["survey", "candidates"]:
             pairs = dict(zip(f[1::2], f[2::2]))
-            for key in ("candidates", "suspicious", "carriers"):
+            for key in ("candidates", "suspicious"):
                 if key in pairs:
                     out["totals"][key] = int(pairs[key])
         else:

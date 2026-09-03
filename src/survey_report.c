@@ -114,8 +114,6 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
                               const struct sdr_peak *peaks, int count,
                               const float *spectrum) {
     struct survey_candidate candidates[SURVEY_MAX_PEAKS];
-    double centres[SURVEY_MAX_PEAKS];
-    int centre_count = 0;
     int suspicious = 0;
     int i, found;
 
@@ -130,15 +128,8 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
         if (survey_suspect_warns(c->suspect))
             suspicious++;
         if (c->measured) {
-            int seen = 0, k;
             snprintf(centre, sizeof(centre), "%.0f", c->centre_hz);
             snprintf(width, sizeof(width), "%.0f", c->width_hz);
-            for (k = 0; k < centre_count; k++)
-                if (fabs(centres[k] - c->centre_hz) <=
-                    (double)app->applied_sample_rate / SDR_DSP_FFT_SIZE)
-                    seen = 1;
-            if (!seen && centre_count < SURVEY_MAX_PEAKS)
-                centres[centre_count++] = c->centre_hz;
         } else {
             snprintf(centre, sizeof(centre), "-");
             snprintf(width, sizeof(width), "-");
@@ -180,13 +171,16 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
         }
         printf("survey carriers %d\n", carrier_count);
     }
-    printf("survey candidates %d suspicious %d", found, suspicious);
-    if (spectrum)
-        printf(" carriers %d", centre_count);
-    printf("\n");
-    if (spectrum && centre_count < found)
-        printf("# several candidates measured to the same centre: a wide "
-               "carrier has more than one local maximum\n");
+    /*
+     * The old count of distinct measured centres is gone. It answered the same
+     * question the `survey carriers` line above answers -- how many signals
+     * these maxima are -- and answered it only when the whole survey came from
+     * one tuning. Two lines calling different numbers "carriers" is how a
+     * reader ends up trusting the wrong one, and it is how a real defect hid:
+     * the aggregation split ARFCN 69's single carrier into three while this
+     * line went on correctly saying one.
+     */
+    printf("survey candidates %d suspicious %d\n", found, suspicious);
     if (suspicious)
         printf("# suspicious candidates resemble the receiver rather than the "
                "band; nothing has been removed\n");

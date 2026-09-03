@@ -77,11 +77,11 @@ static void test_one_carrier_many_maxima(void) {
     /* The extent runs out to the trough on each side, so it covers the
        carrier's skirts and not just the part within 20 dB of the top. */
     check_close("its extent reaches the trough below it", carriers[0].lower_hz,
-                FIRST_HZ + 83.0 * BIN_HZ, 1.0);
+                FIRST_HZ + 84.0 * BIN_HZ, 1.0);
     check_close("and the one above", carriers[0].upper_hz,
-                FIRST_HZ + 117.0 * BIN_HZ, 1.0);
+                FIRST_HZ + 116.0 * BIN_HZ, 1.0);
     check_close("which is a width, not a bin", carriers[0].width_hz,
-                35.0 * BIN_HZ, 1.0);
+                33.0 * BIN_HZ, 1.0);
     /* The centre identifies the signal, so it is the middle of the extent --
        stable from sweep to sweep, where a power-weighted one would wander with
        whatever the transmitter happened to be carrying. */
@@ -288,12 +288,57 @@ static void test_shape_from_width(void) {
               survey_shape_name(SURVEY_SHAPE_TONE), "tone");
 }
 
+/*
+ * The bug that shipped: the notch was a fixed two bins, so how much smoothing
+ * a dip had to survive depended on how finely the sweep happened to be binned.
+ * A single tuning bins at about 977 Hz, where two bins is four kilohertz --
+ * less than a GSM carrier's own ripple -- and one 200 kHz carrier came back as
+ * three signals with troughs between them.
+ */
+static void test_a_carrier_at_fine_resolution(void) {
+    enum { FINE_BINS = 1638 };
+    static float power[FINE_BINS];
+    const double fine_bin = 976.8;        /* what one tuning of 1.6 MHz gives */
+    const double first = 948000000.0;
+    struct sdr_peak peaks[6];
+    struct survey_carrier carriers[8];
+    int i, count, centre = 800, half = 102;   /* ~200 kHz of carrier */
+    unsigned seed = 12345u;
+
+    for (i = 0; i < FINE_BINS; i++)
+        power[i] = -80.0f;
+    /* A carrier with the several decibels of bin-to-bin swing that any
+       modulated signal has. Deterministic, so the check is too. */
+    for (i = centre - half; i <= centre + half; i++) {
+        seed = seed * 1103515245u + 12345u;
+        power[i] = -32.0f - (float)((seed >> 16) % 900u) / 100.0f;
+    }
+    memset(peaks, 0, sizeof(peaks));
+    for (i = 0; i < 6; i++) {
+        peaks[i].index = centre - 90 + i * 36;
+        peaks[i].power_dbfs = power[peaks[i].index];
+        peaks[i].floor_dbfs = -80.0f;
+    }
+
+    count = survey_carriers_from(power, FINE_BINS, SENTINEL, first, fine_bin,
+                                 20.0f, peaks, 6, carriers, 8);
+    check_int("one carrier, however finely it is binned", count, 1);
+    check_int("holding every maximum in it", carriers[0].peaks, 6);
+    /* And the smoothing scales, rather than being a bin count that means
+       four kilohertz here and most of a band on a full sweep. */
+    check_int("the notch is ten kilohertz of bins here",
+              survey_carrier_notch_bins(fine_bin), 10);
+    check_int("and one bin when a bin is already wider than that",
+              survey_carrier_notch_bins(213000.0), 1);
+}
+
 int main(void) {
     test_one_carrier_many_maxima();
     test_two_carriers_stay_two();
     test_a_trough_is_what_separates();
     test_a_weak_peak_is_still_bounded();
     test_a_lopsided_carrier();
+    test_a_carrier_at_fine_resolution();
     test_prominence_uses_the_quietest_floor();
     test_refuses_nonsense();
 
