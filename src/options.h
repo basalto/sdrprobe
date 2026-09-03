@@ -97,6 +97,17 @@ struct options {
        not something that can run overnight from a script (ADR-0012). */
     int survey_watch;
     /*
+     * Record the sweep: write it to surveys/ and fold it into what the site
+     * has heard, exactly as the window's Save button does.
+     *
+     * Save was the last decision in the survey view that needed a person, and
+     * it is the one that makes a sweep worth anything later. It also means a
+     * scripted sweep no longer has to be piped through the ingest script to be
+     * kept, so the C writer -- which only the window exercised -- is now on the
+     * path a check can reach.
+     */
+    int survey_save;
+    /*
      * Run a calibration with no window and print what it measures.
      *
      * 0 none, 1 GSM, 2 LTE. The lock gate is a decision -- it decides whether

@@ -351,6 +351,10 @@ Its shape:
   Calibration and settings are full-screen overlays orthogonal to the tabs
   (ADR-0008); `enum active_tab` (Scope/Decode) and `enum decode_kind` replaced the
   old ad-hoc mode flags — don't add a new one, extend those enums.
+`--survey-save` writes a scripted sweep to `surveys/` and folds it into the
+site's history, which is what the window's Save button does -- the last
+decision in that view that needed a person.
+
 Walking the LTE chain over a live cell, which `probe-lte-chain` only does for
 a capture:
 
