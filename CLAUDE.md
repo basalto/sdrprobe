@@ -59,6 +59,27 @@ part comes out into a unit with a name. Logic not yet reachable is listed in
 `.scratch/testability/`, one ticket per area — add to it rather than leaving a
 gap implicit.
 
+**What the window was told, and what it showed** — `--debug-log FILE` (or `-`
+for stderr) records one line per event: every key raylib received with the
+handler the router sent it to and the screen it landed on, every click with
+its coordinates, every retune, and the screen whenever it changes. Off by
+default and free when off.
+
+```sh
+./sdrprobe --view fm --duration 20 --debug-log /tmp/run.log
+```
+
+It answers the question a report of "the key did nothing" cannot: whether the
+program never received the key, received it and routed it elsewhere, or routed
+it correctly to a handler with nothing bound. Those are three different bugs
+that look identical from outside, and this repository has spent an hour
+telling them apart by bisection. **Keys cannot be injected here** — `wtype`
+synthesises a keysym on a scratch keycode while raylib reads physical ones, so
+a requested `h` arrives as something else entirely, and `/dev/uinput` is
+root-only. The log is what is left, which is why `check-debug-log` pins the
+key names and the target names against `input_route.h`'s enum: a log that
+mislabels what it saw turns an unanswered question into a wrong answer.
+
 **A change that draws is not finished until somebody has looked at it.**
 `make screens NAMES="gsm lte"` renders those screens from captures -- no
 receiver, about six seconds each -- into `build/screens/`, and the Read tool

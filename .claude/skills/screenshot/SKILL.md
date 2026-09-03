@@ -42,6 +42,18 @@ So: geometry checks for where things are, a screenshot for whether the screen
 is right. Neither substitutes for the other.
 
 
+## The debug log says what actually arrived
+
+```sh
+./sdrprobe --view fm --duration 20 --debug-log /tmp/run.log
+```
+
+One line per key, click, retune, and screen change -- and for a key, the
+handler the router sent it to and the screen it landed on. Since keys cannot
+be injected (below), this is the only way to tell "the key never arrived" from
+"it arrived and nothing was bound to it". Ask the operator for it before
+guessing.
+
 ## Keys cannot be injected here
 
 `wtype` does not work for this. It synthesises a keysym on a scratch keycode
