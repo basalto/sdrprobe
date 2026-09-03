@@ -12,6 +12,10 @@ set -e
 out=${1:-build/screens}
 width=${2:-1500}
 height=${3:-950}
+# Which screens to render. Empty means all of them; NAMES="gsm lte" renders
+# two. A change touches a screen or two, and rendering the other ten costs a
+# minute to learn nothing.
+names=${NAMES:-}
 here=$(dirname "$0")
 mkdir -p "$out"
 
@@ -43,6 +47,13 @@ set -- \
 for entry in "$@"; do
     name=${entry%%:*}
     args=${entry#*:}
+    if [ -n "$names" ]; then
+        wanted=0
+        for want in $names; do
+            [ "$want" = "$name" ] && wanted=1
+        done
+        [ "$wanted" = 1 ] || continue
+    fi
     # shellcheck disable=SC2086
     if "$here/screenshot.sh" "$width" "$height" "$out/$name.png" $args \
         >/dev/null 2>&1 && [ -f "$out/$name.png" ]; then
