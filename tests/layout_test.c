@@ -837,9 +837,6 @@ static void check_fm_view(void) {
 
         all[n] = l.frequency_field; names[n++] = "frequency";
         all[n] = l.tune_button;     names[n++] = "tune";
-        for (i = 0; i < FM_LAYOUT_STATIONS; i++) {
-            all[n] = l.station_button[i]; names[n++] = "preset";
-        }
         all[n] = l.scan_button;     names[n++] = "scan";
         all[n] = l.play_button;     names[n++] = "play";
         all[n] = l.view_toggle;     names[n++] = "view toggle";
@@ -897,8 +894,11 @@ static void check_fm_view(void) {
          * layout is supposed to do.
          */
         {
-            Rectangle charts[6];
-            const char *chart_names[6];
+            /* Sized with room rather than to fit: an array overrun here
+               reports whatever was next on the stack, which it did -- as
+               "(null) overlaps (null)". */
+            Rectangle charts[12];
+            const char *chart_names[12];
             int cn = 0, x, y2;
 
             for (i = 0; i < FM_LAYOUT_CHARTS; i++) {

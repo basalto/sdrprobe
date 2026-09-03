@@ -154,6 +154,10 @@ struct fm_scan {
 #define FM_AUDIO_RING 32768
 /* What is handed to the sound card at once. */
 #define FM_AUDIO_CHUNK 2048
+/* How much of it the charts keep: enough for two windows of the transform,
+   which at 50 kHz is about a tenth of a second -- long enough to average and
+   short enough to still be what is happening now. */
+#define FM_AUDIO_TRACE 4096
 #define FM_VIEW_SOFT_BITS (FM_VIEW_BASEBAND / FM_RDS_SAMPLES_PER_SYMBOL + 8)
 
 struct fm_view {
@@ -195,6 +199,18 @@ struct fm_view {
     AudioStream audio_stream;
     int16_t audio_ring[FM_AUDIO_RING];
     size_t audio_head, audio_tail;  /* tail writes, head reads */
+
+    /*
+     * The most recent audio, as floats, for the two charts that draw it. Kept
+     * whether or not anything is playing: the charts say what *would* be
+     * heard, and a chart that only works once a button has been pressed is a
+     * chart that answers the question after it stops being asked.
+     */
+    float audio_trace[FM_AUDIO_TRACE];
+    size_t audio_trace_count;
+    float audio_spectrum[FM_MPX_SPECTRUM_BINS];
+    size_t audio_spectrum_bins;
+    double audio_spectrum_bin_hz;
 
     int analysis_mode;              /* charts instead of the waterfall */
     /* The multiplex spectrum the charts draw, refreshed a few times a second
