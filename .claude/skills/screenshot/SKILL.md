@@ -41,6 +41,24 @@ were plain in a picture:
 So: geometry checks for where things are, a screenshot for whether the screen
 is right. Neither substitutes for the other.
 
+
+## Keys cannot be injected here
+
+`wtype` does not work for this. It synthesises a keysym on a scratch keycode
+of its own, and raylib reads *physical* keycodes -- so whatever key is asked
+for, the program sees something else. Measured: `-k h`, `-k 3` and `-k 2` all
+produced the behaviour of Escape or nothing at all, in three different views,
+including views this repository has not touched. `-P key -s 200 -p key`, which
+holds the key long enough to cross a 60 Hz poll, changes nothing about that.
+
+`/dev/uinput` is root-only on this machine, so the honest alternative is not
+available either.
+
+So a keyboard interaction is verified by its unit check and by reading the
+handler, not by driving it -- and a screenshot after a synthetic keypress is
+evidence about which key raylib decided it received, not about which key was
+sent. Say which of those you have.
+
 ## Screenshot to see it, headless to read it
 
 A screenshot answers **did it draw, and does it look right**: layout, charts,

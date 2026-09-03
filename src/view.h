@@ -73,6 +73,8 @@ void update_fm(struct app *app, double now);
 void view_fm_defaults(struct app *app);
 /* Retune and start over: everything in the view belongs to one carrier. */
 void fm_tune(struct app *app, double hz);
+/* Whether the FM view's frequency field has focus. */
+int fm_editing(const struct app *app);
 
 void draw_lte(struct app *app);
 void handle_lte_input(struct app *app);

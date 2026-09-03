@@ -880,9 +880,11 @@ static struct input_state input_state_now(const struct app *app) {
     state.calibration_open = app->calibration_open;
     state.scan_open = app->scan_open;
     state.tab = app->tab;
-    /* survey_editing() is the only text focus outside the settings panel:
-       the survey's range and dwell fields. */
-    state.text_focus = survey_editing(app);
+    /* Text focus outside the settings panel: the survey's range and dwell
+       fields, and the FM view's frequency. Both take digits, and a digit that
+       reaches the view switcher instead of the field it was typed into is a
+       screen change nobody asked for. */
+    state.text_focus = survey_editing(app) || fm_editing(app);
     return state;
 }
 
@@ -1105,14 +1107,16 @@ static int run_gui(struct app *app) {
                     leave_gsm(app);
                 open_calibration(app);
             } else if (input.tab == TAB_DECODE) {
-                if (IsKeyPressed(KEY_ONE))
-                    set_decode(app, DECODE_FM);
-                else if (IsKeyPressed(KEY_TWO))
-                    set_decode(app, DECODE_ADSB);
-                else if (IsKeyPressed(KEY_THREE))
-                    set_decode(app, DECODE_GSM);
-                else if (IsKeyPressed(KEY_FOUR))
-                    set_decode(app, DECODE_LTE);
+                if (input_decode_keys_live(&input)) {
+                    if (IsKeyPressed(KEY_ONE))
+                        set_decode(app, DECODE_FM);
+                    else if (IsKeyPressed(KEY_TWO))
+                        set_decode(app, DECODE_ADSB);
+                    else if (IsKeyPressed(KEY_THREE))
+                        set_decode(app, DECODE_GSM);
+                    else if (IsKeyPressed(KEY_FOUR))
+                        set_decode(app, DECODE_LTE);
+                }
                 if (app->decode == DECODE_GSM)
                     handle_gsm_input(app);
                 else if (app->decode == DECODE_ADSB)

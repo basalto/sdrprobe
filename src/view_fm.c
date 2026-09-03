@@ -294,10 +294,31 @@ void draw_fm(struct app *app) {
     draw_funnel_panel(app, l.funnel_panel);
 }
 
+/* Whether the frequency field is taking keystrokes. The frame loop asks so
+   the digits do not also reach the view switcher. */
+int fm_editing(const struct app *app) {
+    return app->fm.typing;
+}
+
 void handle_fm_input(struct app *app) {
     struct fm_layout l = fm_layout_now();
     int character;
     int i;
+
+    /*
+     * Escape is one step out, not two: out of the field if one has focus,
+     * and out of the tab otherwise. Every other decode view leaves for the
+     * Scope tab and this one did nothing at all, which reads as a stuck
+     * screen -- and leaving the tab straight from a half-typed frequency
+     * would throw the frequency away as well.
+     */
+    if (IsKeyPressed(KEY_ESCAPE)) {
+        if (app->fm.typing)
+            app->fm.typing = 0;
+        else
+            set_tab(app, TAB_SCOPE);
+        return;
+    }
 
     while (app->fm.typing && (character = GetCharPressed()) != 0) {
         if (((character >= '0' && character <= '9') || character == '.') &&
