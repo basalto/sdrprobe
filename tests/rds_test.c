@@ -127,6 +127,11 @@ static void test_the_search_has_a_floor(void) {
               groups);
     check_true("and no identification came out of it", !station.pi_valid);
     check_true("nor a name", !station.ps_valid);
+    /* The funnel says where it stopped, which on noise is at the first
+       rung: bits offered, nothing assembled from them. */
+    check_int("the funnel counted the bits", (int)station.funnel.bits, 40000);
+    check_int("and no groups", (int)station.funnel.groups, 0);
+    check_int("and nothing identified", (int)station.funnel.identified, 0);
 }
 
 /* Build a bitstream of groups: `type` and `version` in block 2, and whatever
@@ -194,6 +199,14 @@ static void test_a_name_arrives(void) {
     check_str("and the station's name", station.ps, name);
     check_true("which is complete", station.ps_segments == 0xF);
     check_true("and confirmed", station.ps_valid);
+
+    /* The funnel, all the way down. */
+    check_int("the funnel counted the groups", (int)station.funnel.groups, 8);
+    check_int("every one of them identified",
+              (int)station.funnel.identified, 8);
+    check_int("all four blocks of each matched",
+              (int)station.funnel.blocks_matched, 32);
+    check_int("and the name was confirmed once", (int)station.funnel.named, 1);
 }
 
 /*

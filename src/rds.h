@@ -104,7 +104,27 @@ struct rds_group {
  * a time reads as "BB", then "BBC ", and each of those is a station that does
  * not exist. `ps_valid` is what says it may be shown.
  */
+/*
+ * Where a decode stopped, which is the only thing that tells two empty panels
+ * apart.
+ *
+ * Nothing transmitting and every block failing its syndrome look identical on
+ * screen -- the LTE view had to learn the same lesson -- and the difference is
+ * the whole diagnosis. No blocks is tuning, or no RDS on this station. Blocks
+ * without groups is the offset sequence not lining up, which is a
+ * synchroniser problem. Groups without a name is a station that has one and
+ * has not finished spelling it yet.
+ */
+struct rds_funnel {
+    long bits;              /* soft bits offered */
+    long blocks_matched;    /* blocks whose syndrome named their position */
+    long groups;            /* groups with at least one good block */
+    long identified;        /* groups that carried a programme identification */
+    long named;             /* times a complete name was confirmed */
+};
+
 struct rds_station {
+    struct rds_funnel funnel;
     int pi_valid;
     uint16_t pi;                /* programme identification */
     int pi_repeats;             /* how many groups agreed on it */

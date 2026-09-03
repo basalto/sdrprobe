@@ -27,6 +27,7 @@ fi
 gsm=testfiles/gsm_arfcn_69.bin
 adsb=testfiles/adsb_cpr_pair.bin
 lte=testfiles/lte_b20_pci28.bin
+fm=testfiles/fm_rds_tsf.bin
 
 # name:arguments. The duration is the settle time as well as the clock, since
 # the frame captured is the last one.
@@ -39,6 +40,7 @@ set -- \
     "gsm:--file $gsm --view gsm --arfcn 69 --duration 8" \
     "adsb:--file $adsb --view adsb --duration 8" \
     "lte:--file $lte --view lte --earfcn 6200 --duration 8" \
+    "fm:--file $fm --sample-rate 2048000 --frequency 89.6M --view fm --duration 10" \
     "calibration-2g:--file $gsm --view calibration --duration 5" \
     "calibration-4g:--file $gsm --view calibration --calibrate lte --duration 5" \
     "settings:--file $gsm --view settings --duration 5" \

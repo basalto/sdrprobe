@@ -35,6 +35,7 @@ enum start_view {
     START_VIEW_GSM,
     START_VIEW_ADSB,
     START_VIEW_LTE,
+    START_VIEW_FM,
     /* The calibration overlay. Not a view in the tab sense -- it is reachable
        only by clicking Calibration, which meant it could not be screenshotted
        and I shipped a screen with three overlapping panels because I never saw

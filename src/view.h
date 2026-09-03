@@ -67,6 +67,13 @@ Rectangle gsm_waterfall_rect(void);
 Rectangle gsm_burst_rect(void);
 
 /* LTE cell-search and broadcast view. */
+void draw_fm(struct app *app);
+void handle_fm_input(struct app *app);
+void update_fm(struct app *app, double now);
+void view_fm_defaults(struct app *app);
+/* Retune and start over: everything in the view belongs to one carrier. */
+void fm_tune(struct app *app, double hz);
+
 void draw_lte(struct app *app);
 void handle_lte_input(struct app *app);
 void update_lte(struct app *app, double now);

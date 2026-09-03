@@ -36,6 +36,7 @@ enum help_topic {
     HELP_ADSB,
     HELP_ADSB_ANALYSIS,
     HELP_LTE,
+    HELP_FM,
     HELP_CALIBRATION,
     HELP_TOPIC_COUNT
 };
@@ -624,6 +625,43 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "feature."
 },
 {
+    "FM / RDS",
+    "FM broadcast, and what a station says about itself",
+    "Where: the Decode tab, 1.\n"
+    "\n"
+    "Every rate in an FM multiplex is a whole multiple of the 19 kHz pilot, "
+    "and a station transmits that pilot precisely so a receiver need not "
+    "guess any of the others: the stereo subcarrier is twice it, the RDS "
+    "subcarrier three times it, and the RDS symbol rate is the pilot divided "
+    "by sixteen exactly. So there is no blind carrier loop here and no "
+    "separate symbol-timing recovery -- lock the pilot and the rest follows.\n"
+    "\n"
+    "The Signal panel is that chain reporting on itself. 'Coherence' is how "
+    "much of what the correlator saw was actually a tone at the loop's own "
+    "frequency: one for a pure pilot, zero for noise, and it does not care "
+    "how loud the audio is. An empty channel reads about 0.2 and a station "
+    "above 0.8.\n"
+    "\n"
+    "The Station panel is what the RDS carries. The name arrives two "
+    "characters at a time in four segments, and is shown only once all four "
+    "have arrived and the whole has repeated -- a half-filled name is a wrong "
+    "name, not a partial one, and there is no way for a reader to tell "
+    "'RADIO 1' half-arrived from a station actually called 'RADI'.\n"
+    "\n"
+    "The third panel is where the decode stopped, and it exists because two "
+    "empty panels look identical whether nothing is transmitting or every "
+    "block is failing its syndrome. No pilot is tuning. A pilot with no "
+    "blocks is a station carrying no RDS, which is common. Blocks without "
+    "groups is a signal too weak to hold synchronisation, because RDS has no "
+    "preamble anywhere -- the block boundary is found by sliding a cyclic "
+    "code along the bitstream until the syndrome matches one of five offset "
+    "words, and one match in two hundred happens by chance, so four in the "
+    "right order is what makes a lock mean anything.\n"
+    "\n"
+    "Headless: --technology fm --decode. One line when a station identifies "
+    "itself and one when it names itself."
+},
+{
     "Calibration",
     "Calibration and drift",
     "Where: the Calibration button, or c, from any view.\n"
@@ -729,6 +767,8 @@ static int help_topic_for_screen(const struct app *app) {
             return app->adsb.analysis_mode ? HELP_ADSB_ANALYSIS : HELP_ADSB;
         if (app->decode == DECODE_LTE)
             return HELP_LTE;
+        if (app->decode == DECODE_FM)
+            return HELP_FM;
         if (app->scan_selected_arfcn > 0 && app->gsm_analysis_mode)
             return HELP_BURST;
         return HELP_SCAN;

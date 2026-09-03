@@ -303,8 +303,24 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
     char text[256];
     int channel_axis = params->channel_axis;
     Rectangle outer = params->plot;
-    Rectangle plot = sdrgui_chart_area(outer, (float)(MeasureText("-10.0 s", 16) + 11.0f),
-                                    25.0f);
+    /*
+     * The footer goes 36 px under the plot and chart_area reserves 8, so the
+     * plot has to give back the difference or the caption lands outside the
+     * rectangle the caller handed over -- which it did, under the FM view's
+     * panel row, where it read as a stray "dB" on top of a panel. Every other
+     * waterfall in the program had empty space beneath it and never noticed.
+     *
+     * Taking it off the plot rather than asking callers to leave room is what
+     * the rule in CLAUDE.md requires: a chart draws inside its rectangle, and
+     * a caller cannot compute this clearance because it depends on a font.
+     */
+    Rectangle plot = sdrgui_chart_area(outer,
+                                       (float)(MeasureText("-10.0 s", 16) +
+                                               11.0f),
+                                       25.0f);
+    plot.height -= SDRGUI_WATERFALL_FOOTER_H;
+    if (plot.height < 1.0f)
+        plot.height = 1.0f;
     Rectangle source = { 0.0f, 0.0f, (float)params->texture.width,
                          (float)params->texture.height };
     double full_lower = params->center_hz - params->sample_rate / 2.0;
