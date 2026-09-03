@@ -70,6 +70,15 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/
 
 # The band plan is a table, not DSP: its own check, and the only one here that
 # links nothing at all.
+# FM broadcast: the discriminator and the 19 kHz pilot every other rate in the
+# multiplex is derived from. Probe side, links libm only.
+check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
+		$(SRC)/fm_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_dsp_test \
+		$(TESTS)/fm_dsp_test.c $(SRC)/fm_dsp.c -lm
+	$(Q)./$(BUILD)/fm_dsp_test
+
 check-band-plan: $(TESTS)/band_plan_test.c $(TESTS)/check.h $(SRC)/band_plan.c $(SRC)/band_plan.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/band_plan_test \
@@ -312,6 +321,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
+	check-fm-dsp \
 	check-survey-list \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally
