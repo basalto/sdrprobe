@@ -536,6 +536,11 @@ struct survey_view {
     struct sdr_peak peaks[SURVEY_MAX_PEAKS];
     int peak_count;
     int selected;               /* index into peaks, -1 for none */
+    /* How far down the candidate list is scrolled, in rows. The list used to
+       draw the first seventeen and stop, which put the rest of a full-tuner
+       sweep somewhere no pointer or key could reach. survey_list.h holds the
+       arithmetic. */
+    int list_scroll;
     int hover;
 
     /* Dragging a rectangle across the chart to zoom into it. A press only
