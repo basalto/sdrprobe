@@ -81,7 +81,44 @@ enum decode_kind {
    drawn from, and the funnel -- is in a header the checks can reach. */
 #include "adsb_analysis.h"
 #include "fm_dsp.h"
+#include "fm_scan.h"
 #include "rds.h"
+
+/*
+ * Walking band II.
+ *
+ * Two passes, for the reason fm_scan.h sets out: a coarse sweep says where
+ * the carriers are and only those get the quarter second a pilot needs. The
+ * state is one struct because it is one activity -- which pass, how far
+ * through it, and what has been found.
+ */
+#define FM_SCAN_MAX_FOUND 48
+
+struct fm_found_station {
+    int channel;                /* index into the 100 kHz raster */
+    double frequency_hz;
+    float power_dbfs;
+    int pilot;                  /* the pilot locked while visiting */
+    int rds;                    /* groups arrived */
+    int pi_valid;
+    uint16_t pi;
+    char ps[9];                 /* empty unless a whole name repeated */
+};
+
+struct fm_scan {
+    int running;
+    int sweeping;               /* pass one: the coarse spectrum sweep */
+    int step;
+    struct fm_scan_plan plan;
+    double step_started_at;
+    float power[206];           /* one per channel of the raster */
+    struct fm_found_station found[FM_SCAN_MAX_FOUND];
+    int found_count;
+    int visiting;               /* pass two: which candidate */
+    uint32_t return_frequency;
+    int return_valid;
+    char status[160];
+};
 
 /*
  * FM broadcast, and what a station's RDS says about it.
@@ -135,6 +172,22 @@ struct fm_view {
     long blocks_seen;
     long groups_total;
     double last_group_at;
+
+    int analysis_mode;              /* charts instead of the waterfall */
+    /* The multiplex spectrum the charts draw, refreshed a few times a second
+       rather than per block: it averages 32 windows and nobody reads a chart
+       at sixty frames a second. */
+    float spectrum[FM_MPX_SPECTRUM_BINS];
+    size_t spectrum_bins;
+    double spectrum_bin_hz;
+    double spectrum_at;
+
+    /* The timing search's own answer, kept so the chart can show how clearly
+       the winning offset won -- a peak barely above its neighbours is a
+       symbol clock about to slip. */
+    float timing_energy[FM_RDS_SAMPLES_PER_SYMBOL];
+
+    struct fm_scan scan;
 };
 struct scatter_block {
     float i[SCATTER_SAMPLES];

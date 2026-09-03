@@ -84,6 +84,14 @@ check-rds: $(TESTS)/rds_test.c $(TESTS)/check.h $(SRC)/rds.c $(SRC)/rds.h \
 		$(TESTS)/rds_test.c $(SRC)/rds.c $(SRC)/fm_dsp.c -lm
 	$(Q)./$(BUILD)/rds_test
 
+# Band II's scan: the 100 kHz raster, that the coarse sweep covers the band
+# with no gap, and what the two passes cost.
+check-fm-scan: $(TESTS)/fm_scan_test.c $(TESTS)/check.h $(SRC)/fm_scan.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_scan_test \
+		$(TESTS)/fm_scan_test.c -lm
+	$(Q)./$(BUILD)/fm_scan_test
+
 check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
 		$(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin
 	@mkdir -p $(BUILD)
@@ -344,7 +352,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
-	check-fm-dsp check-rds check-debug-log \
+	check-fm-dsp check-fm-scan check-rds check-debug-log \
 	check-survey-list \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally
