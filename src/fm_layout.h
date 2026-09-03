@@ -29,9 +29,12 @@
  * station that simply is not sending any, and every number on the signal
  * panel looks identical to a station that is sending it badly.
  *
- * The scan takes the waterfall's place rather than covering it, which is the
- * rule calibration_layout.h had to learn: a panel over a chart is the overlap
- * a layout header exists to prevent.
+ * The scan list sits *beside* the waterfall rather than instead of it. The
+ * two answer different halves of the same question -- the list says which
+ * carriers the band holds, the waterfall says what the one being listened to
+ * looks like right now -- and a scan that hid the waterfall made choosing a
+ * station from the list a thing done blind. It is a state-dependent layout,
+ * the way calibration_layout.h is: `scanning` widens the row into two.
  */
 
 #define FM_LAYOUT_STATIONS 3
@@ -53,7 +56,8 @@ struct fm_layout {
     float header_right;
 };
 
-static inline struct fm_layout fm_layout_for(float width, float height) {
+static inline struct fm_layout fm_layout_for(float width, float height,
+                                             int scanning) {
     struct fm_layout l;
     const float left = 22.0f;
     const float right_margin = 22.0f;
@@ -92,7 +96,17 @@ static inline struct fm_layout fm_layout_for(float width, float height) {
     if (panel_h < 90.0f)
         panel_h = 90.0f;
 
-    l.waterfall = (Rectangle){ left, top, usable, waterfall_h };
+    if (scanning) {
+        /* The list takes the wider half: it carries a frequency, a level, two
+           flags and a name, where the waterfall only has to be recognisable. */
+        float list_w = (usable - gap) * 0.55f;
+        l.scan_list = (Rectangle){ left, top, list_w, waterfall_h };
+        l.waterfall = (Rectangle){ left + list_w + gap, top,
+                                   usable - list_w - gap, waterfall_h };
+    } else {
+        l.waterfall = (Rectangle){ left, top, usable, waterfall_h };
+        l.scan_list = (Rectangle){ left, top, 0.0f, 0.0f };
+    }
 
     third = (usable - 2.0f * gap) / 3.0f;
     l.signal_panel = (Rectangle){ left, panel_y, third, panel_h };
@@ -100,8 +114,6 @@ static inline struct fm_layout fm_layout_for(float width, float height) {
                                    panel_h };
     l.funnel_panel = (Rectangle){ left + 2.0f * (third + gap), panel_y, third,
                                   panel_h };
-
-    l.scan_list = l.waterfall;
 
     /*
      * Analysis: two rows of two, over the whole of the space the waterfall
@@ -128,8 +140,9 @@ static inline struct fm_layout fm_layout_for(float width, float height) {
     return l;
 }
 
-static inline struct fm_layout fm_layout_now(void) {
-    return fm_layout_for((float)GetScreenWidth(), (float)GetScreenHeight());
+static inline struct fm_layout fm_layout_now(int scanning) {
+    return fm_layout_for((float)GetScreenWidth(), (float)GetScreenHeight(),
+                         scanning);
 }
 
 #endif

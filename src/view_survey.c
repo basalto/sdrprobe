@@ -8,7 +8,7 @@
 
 #include "view.h"
 #include "survey_layout.h"
-#include "survey_list.h"
+#include "row_list.h"
 #include "survey_window.h"
 #include "survey_suspect.h"
 #include "survey_store.h"
@@ -1003,8 +1003,8 @@ static void survey_follow_selection(struct app *app, Rectangle list) {
        visible and so what a rank means. */
     count = survey_visible_count(s);
     rank = survey_visible_rank(s, s->selected);
-    s->list_scroll = survey_list_scroll_to(s->list_scroll, rank, count,
-                                           survey_list_rows(list));
+    s->list_scroll = row_list_scroll_to(s->list_scroll, rank, count,
+                                           row_list_rows(list, SURVEY_LIST_METRICS));
 }
 
 static void survey_walk_to(struct app *app, int rank, Rectangle list) {
@@ -1198,9 +1198,9 @@ void handle_survey_input(struct app *app) {
      * last page while the hit test still counted rows from the old offset,
      * and a click would select a different candidate from the one under it.
      */
-    s->list_scroll = survey_list_clamp_scroll(
+    s->list_scroll = row_list_clamp_scroll(
         s->list_scroll, survey_visible_count(s),
-        survey_list_rows(l.peak_list));
+        row_list_rows(l.peak_list, SURVEY_LIST_METRICS));
 
     /* Typing into whichever range field has focus. The same spellings the
        Settings panel takes, because parse_frequency is the same parser. */
@@ -1438,9 +1438,9 @@ void handle_survey_input(struct app *app) {
     if (wheel != 0.0f &&
         CheckCollisionPointRec(GetMousePosition(), l.peak_list)) {
         int count = survey_visible_count(s);
-        s->list_scroll = survey_list_clamp_scroll(
-            s->list_scroll - (int)wheel * SURVEY_LIST_WHEEL_ROWS, count,
-            survey_list_rows(l.peak_list));
+        s->list_scroll = row_list_clamp_scroll(
+            s->list_scroll - (int)wheel * ROW_LIST_WHEEL_ROWS, count,
+            row_list_rows(l.peak_list, SURVEY_LIST_METRICS));
         return;
     }
     if (wheel != 0.0f &&
@@ -1584,9 +1584,9 @@ void handle_survey_input(struct app *app) {
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
         CheckCollisionPointRec(mouse, l.peak_list)) {
         int count = survey_visible_count(s);
-        int fits = survey_list_rows(l.peak_list);
-        int rank = survey_list_rank_at(l.peak_list, s->list_scroll, count,
-                                       fits, mouse);
+        int fits = row_list_rows(l.peak_list, SURVEY_LIST_METRICS);
+        int rank = row_list_rank_at(l.peak_list, SURVEY_LIST_METRICS, s->list_scroll,
+                                      count, fits, mouse);
         int index = rank >= 0 ? survey_nth_visible(s, rank) : -1;
         if (index >= 0)
             survey_select(app, index);
@@ -1703,14 +1703,14 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
                  (Color){ 150, 172, 188, 255 });
         return;
     }
-    int fits = survey_list_rows(rect);
-    int scroll = survey_list_clamp_scroll(s->list_scroll, visible, fits);
+    int fits = row_list_rows(rect, SURVEY_LIST_METRICS);
+    int scroll = row_list_clamp_scroll(s->list_scroll, visible, fits);
     int rows = visible - scroll;
     if (rows > fits)
         rows = fits;
     for (int row = 0; row < rows; row++) {
         int i = survey_nth_visible(s, scroll + row);
-        float y = survey_list_row_y(rect, row);
+        float y = row_list_row_y(rect, SURVEY_LIST_METRICS, row);
         Color color = (Color){ 213, 226, 234, 255 };
         if (i < 0)
             break;
@@ -1772,8 +1772,8 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
      */
     if (visible > fits) {
         float track_x = rect.x + rect.width - 7.0f;
-        float track_y = rect.y + SURVEY_LIST_HEADER_H;
-        float track_h = (float)fits * SURVEY_LIST_ROW_H;
+        float track_y = rect.y + SURVEY_LIST_METRICS.header_h;
+        float track_h = (float)fits * SURVEY_LIST_METRICS.row_h;
         float thumb_h = track_h * (float)fits / (float)visible;
         float thumb_y = track_y + track_h * (float)scroll / (float)visible;
 

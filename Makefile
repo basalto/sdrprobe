@@ -149,7 +149,7 @@ check-lte-scan: $(TESTS)/lte_scan_test.c $(TESTS)/check.h $(SRC)/lte_scan.h \
 check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 		$(SRC)/adsb_layout.h $(SRC)/chrome_layout.h $(SRC)/lte_layout.h \
 		$(SRC)/survey_layout.h $(SRC)/calibration_layout.h \
-		$(SRC)/fm_layout.h
+		$(SRC)/fm_layout.h $(SRC)/row_list.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
@@ -226,12 +226,12 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 # The candidate list: how many rows fit, which one the pointer is over, and
 # how far the list is scrolled. Needs raylib's headers for Rectangle, not the
 # library.
-check-survey-list: $(TESTS)/survey_list_test.c $(TESTS)/check.h \
-		$(SRC)/survey_list.h
+check-row-list: $(TESTS)/row_list_test.c $(TESTS)/check.h \
+		$(SRC)/row_list.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
-		-o $(BUILD)/survey_list_test $(TESTS)/survey_list_test.c -lm
-	$(Q)./$(BUILD)/survey_list_test
+		-o $(BUILD)/row_list_test $(TESTS)/row_list_test.c -lm
+	$(Q)./$(BUILD)/row_list_test
 
 # The debug log's decisions: what a key is called, what a screen is called,
 # and whether a screen changed. It is believed when nothing else can be, so a
@@ -353,7 +353,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
-	check-survey-list \
+	check-row-list \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally
 

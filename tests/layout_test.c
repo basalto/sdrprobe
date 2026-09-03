@@ -2,6 +2,7 @@
 #include "lte_layout.h"
 #include "calibration_layout.h"
 #include "fm_layout.h"
+#include "row_list.h"
 #include "chrome_layout.h"
 #include "gsm_layout.h"
 #include "survey_layout.h"
@@ -825,9 +826,11 @@ static void check_fm_view(void) {
     const float sizes[][2] = { { 1100.0f, 720.0f }, { 1280.0f, 800.0f },
                                { 1000.0f, 540.0f }, { 1920.0f, 1080.0f } };
     unsigned c;
+    int scanning;
 
-    for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++) {
-        struct fm_layout l = fm_layout_for(sizes[c][0], sizes[c][1]);
+    for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++)
+    for (scanning = 0; scanning <= 1; scanning++) {
+        struct fm_layout l = fm_layout_for(sizes[c][0], sizes[c][1], scanning);
         Rectangle all[16];
         const char *names[16];
         int n = 0, a, b, i;
@@ -840,6 +843,9 @@ static void check_fm_view(void) {
         all[n] = l.scan_button;     names[n++] = "scan";
         all[n] = l.view_toggle;     names[n++] = "view toggle";
         all[n] = l.waterfall;       names[n++] = "waterfall";
+        if (scanning) {
+            all[n] = l.scan_list;   names[n++] = "scan list";
+        }
         all[n] = l.signal_panel;    names[n++] = "signal";
         all[n] = l.station_panel;   names[n++] = "station";
         all[n] = l.funnel_panel;    names[n++] = "funnel";
@@ -920,14 +926,43 @@ static void check_fm_view(void) {
                           "%.0fx%.0f: chart %d runs off the bottom\n",
                           sizes[c][0], sizes[c][1], x);
             }
-            /* And the scan list is exactly where the waterfall was, which is
-               the point of it taking that place rather than covering it. */
-            check_msg(l.scan_list.x == l.waterfall.x &&
-                      l.scan_list.y == l.waterfall.y &&
-                      l.scan_list.width == l.waterfall.width &&
-                      l.scan_list.height == l.waterfall.height,
-                      "%.0fx%.0f: the scan list is not where the waterfall "
-                      "is\n", sizes[c][0], sizes[c][1]);
+            /*
+             * The scan list sits beside the waterfall, not over it and not
+             * instead of it: the list says which carriers the band holds and
+             * the waterfall says what the one being listened to looks like,
+             * and choosing from the list without the second is choosing
+             * blind.
+             */
+            if (scanning) {
+                check_msg(!overlaps(l.scan_list, l.waterfall),
+                          "%.0fx%.0f: the scan list is over the waterfall\n",
+                          sizes[c][0], sizes[c][1]);
+                check_msg(l.scan_list.y == l.waterfall.y &&
+                          l.scan_list.height == l.waterfall.height,
+                          "%.0fx%.0f: the list and the waterfall are not on "
+                          "one row\n", sizes[c][0], sizes[c][1]);
+                check_msg(l.scan_list.width > 0.0f && l.waterfall.width > 0.0f,
+                          "%.0fx%.0f: one of them has no width\n",
+                          sizes[c][0], sizes[c][1]);
+                check_msg(l.scan_list.width + l.waterfall.width <
+                              sizes[c][0],
+                          "%.0fx%.0f: together they are wider than the "
+                          "window\n", sizes[c][0], sizes[c][1]);
+            } else {
+                /* With no scan, the waterfall has the row to itself. */
+                check_msg(l.scan_list.width == 0.0f,
+                          "%.0fx%.0f: a scan list with no scan\n",
+                          sizes[c][0], sizes[c][1]);
+            }
+
+            /* The list must hold rows at every size, or a scan finds
+               stations nobody can click. */
+            if (scanning) {
+                int fits = row_list_rows(l.scan_list, FM_SCAN_LIST_METRICS);
+                check_msg(fits >= 3,
+                          "%.0fx%.0f: the scan list holds only %d rows\n",
+                          sizes[c][0], sizes[c][1], fits);
+            }
         }
     }
 }

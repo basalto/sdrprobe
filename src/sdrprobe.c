@@ -777,6 +777,8 @@ void set_tab(struct app *app, int new_tab) {
     app->tab = new_tab;
     if (new_tab == TAB_DECODE && app->decode == DECODE_GSM)
         enter_gsm(app);
+    if (new_tab == TAB_DECODE && app->decode == DECODE_FM)
+        enter_fm(app);
     if (new_tab == TAB_DECODE && app->decode == DECODE_LTE)
         enter_lte(app);
 }
@@ -802,6 +804,8 @@ void set_decode(struct app *app, int kind) {
         enter_gsm(app);
     if (showing && kind == DECODE_LTE)
         enter_lte(app);
+    if (showing && kind == DECODE_FM)
+        enter_fm(app);
 }
 
 /* One row of numbered mode options, the active one highlighted. */
@@ -1105,6 +1109,11 @@ static int run_gui(struct app *app) {
      * three overlapping regions because there was no way to look at it, and
      * three analysis screens had no way either.
      */
+    if (app->options.fm_scan) {
+        set_decode(app, DECODE_FM);
+        set_tab(app, TAB_DECODE);
+        fm_scan_begin(app);
+    }
     if (app->options.analysis) {
         app->fm.analysis_mode = 1;
         app->adsb.analysis_mode = 1;
