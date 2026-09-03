@@ -11,7 +11,8 @@ need the detail.
 
 ```sh
 make                  # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
-make check            # everything below, ~18 s, no window and no receiver
+make check            # everything below, ~55 s, no window and no receiver
+make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
 make check-sdr-dsp    # one check in isolation — generic core
 make check-gsm-dsp    # GSM plugin (+ the core it reuses)
@@ -35,10 +36,20 @@ make hooks            # run `make check` on every git push (once, per clone)
 make clean
 ```
 
-`make check` is the one to run before claiming a change is sound, and
-`make hooks` makes git run it for you: it points `core.hooksPath` at
-`scripts/hooks/`, whose `pre-push` refuses a push whose tree does not pass.
-`git push --no-verify` is the escape hatch. **ADR-0012
+**Run the suite that covers the change, not all of them.** One suite is under
+a second and the full set is the better part of a minute, so `make check` after
+every edit turns a fast loop into a slow one. The loop is three sizes:
+`make check-<one>` while iterating, `make check-touched` before committing --
+it reads each check rule's own prerequisites to pick, and prints how many
+suites it skipped -- and `make check` as the gate, which `make hooks` makes git
+run for you: it points `core.hooksPath` at `scripts/hooks/`, whose `pre-push`
+refuses a push whose tree does not pass. `git push --no-verify` is the escape
+hatch. Nobody should have to type `make check`; the hook is what remembers it,
+and it is the only gate this repository has -- there is no CI behind it.
+
+A picked run is worth what it says and no more: three of twenty-eight suites
+green is three suites green. That is enough while working and is not a claim
+that a change is sound. **ADR-0012
 governs what belongs in it: every decision the program makes must be reachable
 by a check that needs no window, no receiver, and no person — drawing is
 exempt, deciding is not.** The rule that keeps that true is that a function
@@ -49,9 +60,11 @@ part comes out into a unit with a name. Logic not yet reachable is listed in
 gap implicit.
 
 **A change that draws is not finished until somebody has looked at it.**
-`make screens` renders every screen from captures -- no receiver, about a
-minute -- into `build/screens/`, and the Read tool displays a PNG. Look at the
-ones your change touched, and at their neighbours.
+`make screens NAMES="gsm lte"` renders those screens from captures -- no
+receiver, about six seconds each -- into `build/screens/`, and the Read tool
+displays a PNG. Look at the ones your change touched, and at their
+neighbours; bare `make screens` renders all twelve and takes a minute, which
+is the wrong tool for a change that moved one panel.
 
 `check-layout` is necessary and nowhere near sufficient. It compares
 rectangles, so it cannot see two panels drawing into the *same* rectangle, a

@@ -330,6 +330,13 @@ check: sdrprobe
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-band-plan
 
+# The checks that cover what changed, and a count of what was skipped. The
+# full suite is the gate on push; this is what to run while working, because
+# a suite takes under a second and all of them take the better part of a
+# minute. FILES overrides what git thinks changed.
+check-touched:
+	$(Q)python3 scripts/check_touched.py $(FILES)
+
 # White-box diagnostic walk through the GSM SCH chain (not a unit test). It
 # compiles gsm_dsp.c in (to reach its statics), so it links only sdr_dsp.c.
 FILE ?= testfiles/gsm_arfcn_69.bin
@@ -379,9 +386,12 @@ probe-periodicity: scripts/signal_periodicity.c
 SCREEN_DIR?=$(BUILD)/screens
 SCREEN_W?=1500
 SCREEN_H?=950
+# Every screen, or the ones named: make screens NAMES="calibration-2g gsm".
+# A change touches a screen or two; rendering the other ten costs a minute to
+# learn nothing.
 screens: sdrprobe
 	@mkdir -p $(SCREEN_DIR)
-	$(Q)sh scripts/screens.sh $(SCREEN_DIR) $(SCREEN_W) $(SCREEN_H)
+	$(Q)NAMES="$(NAMES)" sh scripts/screens.sh $(SCREEN_DIR) $(SCREEN_W) $(SCREEN_H)
 
 bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 	@mkdir -p $(BUILD)
