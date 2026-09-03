@@ -37,13 +37,18 @@
  * the way calibration_layout.h is: `scanning` widens the row into two.
  */
 
-#define FM_LAYOUT_STATIONS 3
-#define FM_LAYOUT_CHARTS 4
+/*
+ * Six charts, in three columns of two. Four of them are the RDS chain and two
+ * are the sound, and the sound earns its place for the same reason the
+ * multiplex spectrum does: a station can be received perfectly and be silent,
+ * or be modulating and unreadable, and the RDS charts report those two the
+ * same way.
+ */
+#define FM_LAYOUT_CHARTS 6
 
 struct fm_layout {
     Rectangle frequency_field;
     Rectangle tune_button;
-    Rectangle station_button[FM_LAYOUT_STATIONS];
     Rectangle play_button;
     Rectangle scan_button;
     Rectangle view_toggle;         /* View: Charts / View: Signal */
@@ -76,12 +81,13 @@ static inline struct fm_layout fm_layout_for(float width, float height,
        Calibration button chrome_layout.h anchors to the right down to y = 92. */
     l.frequency_field = (Rectangle){ left, 100.0f, 130.0f, 26.0f };
     l.tune_button = (Rectangle){ left + 140.0f, 100.0f, 78.0f, 26.0f };
-    for (i = 0; i < FM_LAYOUT_STATIONS; i++)
-        l.station_button[i] = (Rectangle){ left + 232.0f + (float)i * 96.0f,
-                                          100.0f, 88.0f, 26.0f };
-    l.scan_button = (Rectangle){ left + 232.0f +
-                                     (float)FM_LAYOUT_STATIONS * 96.0f,
-                                 100.0f, 100.0f, 26.0f };
+    /*
+     * No frequency presets. They were three of this site's stations wired
+     * into the source, and the scan lists every one of them with what it is
+     * called -- a button saying 94.4 is strictly less than a row saying 94.4
+     * carries RDS and is named Antena 1.
+     */
+    l.scan_button = (Rectangle){ left + 232.0f, 100.0f, 100.0f, 26.0f };
     l.play_button = (Rectangle){ l.scan_button.x + l.scan_button.width + 10.0f,
                                  100.0f, 78.0f, 26.0f };
     /* Clear of the Calibration button, which chrome_layout.h anchors to the
@@ -125,15 +131,15 @@ static inline struct fm_layout fm_layout_for(float width, float height,
      * is failing.
      */
     {
-        float chart_w = (usable - gap) / 2.0f;
+        float chart_w = (usable - 2.0f * gap) / 3.0f;
         float chart_h = (span - gap) / 2.0f;
 
         if (chart_h < 80.0f)
             chart_h = 80.0f;
         for (i = 0; i < FM_LAYOUT_CHARTS; i++)
             l.chart[i] = (Rectangle){
-                left + (float)(i % 2) * (chart_w + gap),
-                top + (float)(i / 2) * (chart_h + gap),
+                left + (float)(i % 3) * (chart_w + gap),
+                top + (float)(i / 3) * (chart_h + gap),
                 chart_w, chart_h
             };
     }
