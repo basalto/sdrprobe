@@ -98,7 +98,9 @@ struct fm_found_station {
     int channel;                /* index into the 100 kHz raster */
     double frequency_hz;
     float power_dbfs;
-    int pilot;                  /* the pilot locked while visiting */
+    int stereo;                 /* a pilot: the station is broadcasting in
+                                   stereo, since one is sent for no other
+                                   reason */
     int rds;                    /* groups arrived */
     int pi_valid;
     uint16_t pi;

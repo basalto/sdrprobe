@@ -109,7 +109,7 @@ if ! printf '%s\n' "$fm" | grep -q '^RDS  " TSF    "'; then
          grep '^RDS ' | head -1)"
 fi
 checked
-if ! printf '%s\n' "$fm" | grep -q "news, traffic programme"; then
+if ! printf '%s\n' "$fm" | grep -q "news, carries traffic announcements"; then
     fail "fm_rds_tsf did not read the programme type; got: $(
          printf '%s\n' "$fm" | grep '^RDS ' | head -1)"
 fi

@@ -410,3 +410,13 @@ size_t rds_decode(const float *soft, size_t count, struct rds_station *station,
     }
     return made;
 }
+
+const char *rds_traffic_name(int tp, int ta) {
+    if (tp && ta)
+        return "traffic announcement now";
+    if (tp)
+        return "carries traffic announcements";
+    if (ta)
+        return "points to traffic on another station";
+    return "no traffic information";
+}
