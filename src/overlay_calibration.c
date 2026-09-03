@@ -644,10 +644,6 @@ void handle_calibration_input(struct app *app) {
                      sizeof(app->calibration_status),
                      "Editing target ARFCN; press Start to retune");
     }
-    if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP))
-        adjust_waterfall_scale(app, 1);
-    if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))
-        adjust_waterfall_scale(app, 0);
     if ((clicked(start) || IsKeyPressed(KEY_ENTER)) &&
         app->calibration_technology == 0)
         start_calibration(app);

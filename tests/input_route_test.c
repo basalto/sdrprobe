@@ -310,6 +310,98 @@ static void test_decode_keys_yield_to_a_field(void) {
     }
 }
 
+
+/*
+ * The scale keys, against every screen there is.
+ *
+ * This is the check the bug wanted. Up and Down adjusted the waterfall in the
+ * GSM view and the calibration overlay and nowhere else, so the LTE and FM
+ * decode views drew a waterfall nobody could rescale -- and a missing key
+ * binding is invisible: no test fails, nothing is drawn wrong, and the only
+ * symptom is a person pressing a key and nothing happening.
+ *
+ * So the rule is a table now, and this walks every screen past it. The part
+ * that matters is the last loop: every screen that draws a waterfall must
+ * take the keys, and the list of which screens those are is written out here
+ * rather than derived from the thing under test.
+ */
+static void test_the_scale_keys_reach_every_chart(void) {
+    struct input_state s;
+
+    /* The Scope tab's four views each have a scale of their own. */
+    s = state_of(0, 0, 0, 0, TAB_SCOPE, 0);
+    for (s.view = 0; s.view < 4; s.view++)
+        check_msg(input_scale_keys(&s) == INPUT_SCALE_ACTIVE_CHART,
+                  "Scope view %d does not take the scale keys\n", s.view);
+
+    /* The survey has no scale: Up and Down walk its candidates instead, and
+       a scale change stealing them would be worse than not having one. */
+    s.view = VIEW_KIND_SURVEY;
+    check_int("the survey has no scale", input_scale_keys(&s),
+              INPUT_SCALE_NONE);
+
+    /* The Decode tab: every technology that draws a waterfall. */
+    s = state_of(0, 0, 0, 0, TAB_DECODE, 0);
+    s.decode = 0;   /* FM */
+    check_int("FM takes them", input_scale_keys(&s), INPUT_SCALE_WATERFALL);
+    s.decode = 2;   /* GSM */
+    check_int("GSM takes them", input_scale_keys(&s), INPUT_SCALE_WATERFALL);
+    s.decode = 3;   /* LTE */
+    check_int("LTE takes them", input_scale_keys(&s), INPUT_SCALE_WATERFALL);
+    s.decode = DECODE_KIND_ADSB;
+    check_int("ADS-B has no waterfall", input_scale_keys(&s),
+              INPUT_SCALE_NONE);
+
+    /* The calibration overlay draws one over whatever is underneath. */
+    s = state_of(0, 0, 1, 0, TAB_SCOPE, 0);
+    check_int("the calibration overlay takes them", input_scale_keys(&s),
+              INPUT_SCALE_WATERFALL);
+    /* The scan overlay inside it draws a channel chart, not a waterfall. */
+    s = state_of(0, 0, 1, 1, TAB_SCOPE, 0);
+    check_int("the scan overlay does not", input_scale_keys(&s),
+              INPUT_SCALE_NONE);
+
+    /* Nothing reaches a screen that is taking typed input, or one with an
+       overlay over it that has no chart at all. */
+    s = state_of(0, 0, 0, 0, TAB_SCOPE, 0);
+    s.text_focus = 1;
+    check_int("a focused field keeps them", input_scale_keys(&s),
+              INPUT_SCALE_NONE);
+    s = state_of(1, 0, 0, 0, TAB_SCOPE, 0);
+    check_int("help keeps them", input_scale_keys(&s), INPUT_SCALE_NONE);
+    s = state_of(0, 1, 0, 0, TAB_SCOPE, 0);
+    check_int("so does the settings panel", input_scale_keys(&s),
+              INPUT_SCALE_NONE);
+    check_int("and no state at all is not a screen",
+              input_scale_keys(NULL), INPUT_SCALE_NONE);
+
+    /*
+     * The property, over every screen: one that draws a waterfall takes the
+     * keys. The list is spelled out here so it is an independent claim rather
+     * than a restatement of the function.
+     */
+    {
+        int tab, view, decode;
+        for (tab = 0; tab < TAB_COUNT; tab++)
+        for (view = 0; view < 5; view++)
+        for (decode = 0; decode < 4; decode++) {
+            struct input_state screen = state_of(0, 0, 0, 0, tab, 0);
+            int draws_waterfall;
+
+            screen.view = view;
+            screen.decode = decode;
+            draws_waterfall = tab == TAB_DECODE
+                                  ? decode != DECODE_KIND_ADSB
+                                  : view == 3 /* the Scope waterfall */;
+            if (!draws_waterfall)
+                continue;
+            check_msg(input_scale_keys(&screen) != INPUT_SCALE_NONE,
+                      "tab %d view %d decode %d draws a waterfall and takes "
+                      "no scale keys\n", tab, view, decode);
+        }
+    }
+}
+
 int main(void) {
     test_the_tabs();
     test_the_precedence();
@@ -321,6 +413,7 @@ int main(void) {
     test_a_stale_scan_flag();
     test_where_back_goes();
     test_decode_keys_yield_to_a_field();
+    test_the_scale_keys_reach_every_chart();
 
     return check_report("input precedence");
 }

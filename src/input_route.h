@@ -23,6 +23,15 @@ enum active_tab {
     TAB_DECODE
 };
 
+/*
+ * Two values from app.h's enums, mirrored so this header stays standalone --
+ * a check links it against libm and nothing else. sdrprobe.c asserts at
+ * compile time that they still agree, so reordering either enum is a build
+ * error rather than a routing rule that quietly means something else.
+ */
+#define VIEW_KIND_SURVEY 4
+#define DECODE_KIND_ADSB 1
+
 /* Everything the routing depends on, and nothing else. */
 struct input_state {
     int help_open;
@@ -30,8 +39,26 @@ struct input_state {
     int calibration_open;
     int scan_open;      /* the scan overlay sits inside calibration */
     int tab;            /* enum active_tab */
+    int view;           /* enum view_kind, when the Scope tab is up */
+    int decode;         /* enum decode_kind, when the Decode tab is up */
     int text_focus;     /* a text field outside the settings panel has focus */
 };
+
+/*
+ * The screens that draw a chart the Up and Down keys mean something for.
+ *
+ * Kept as one table rather than as a handler in each view, because as
+ * handlers it was wrong twice: the LTE and FM decode views both draw a
+ * waterfall and neither took the keys, and nothing said so -- a missing key
+ * binding is invisible until somebody presses the key.
+ *
+ * The Scope tab's four views each have a scale of their own. The survey has a
+ * chart and no scale, and Up and Down walk its candidate list instead. ADS-B
+ * has no waterfall. Everything else that draws one is here.
+ */
+#define INPUT_SCALE_NONE 0
+#define INPUT_SCALE_ACTIVE_CHART 1   /* the Scope view's own scale */
+#define INPUT_SCALE_WATERFALL 2      /* a waterfall drawn inside another view */
 
 enum input_target {
     INPUT_TARGET_HELP,
@@ -90,6 +117,31 @@ static inline int input_shortcuts_live(const struct input_state *s) {
    calibration -- that is where it is most wanted. */
 static inline int input_help_opens(const struct input_state *s) {
     return !s->help_open && input_shortcuts_live(s);
+}
+
+/*
+ * Which scale, if any, the Up and Down keys adjust on the screen now showing.
+ *
+ * Returns one of the INPUT_SCALE_ constants. A screen that draws a waterfall
+ * and returns NONE is the bug this exists to make impossible to write.
+ */
+static inline int input_scale_keys(const struct input_state *s) {
+    if (!s || s->help_open || s->settings_open || s->text_focus)
+        return INPUT_SCALE_NONE;
+    /* The scan overlay draws a channel chart of its own, not a waterfall. */
+    if (s->scan_open)
+        return INPUT_SCALE_NONE;
+    if (s->calibration_open)
+        return INPUT_SCALE_WATERFALL;
+    if (s->tab == TAB_DECODE) {
+        /* ADS-B draws a log and its charts, and no waterfall. */
+        return s->decode == DECODE_KIND_ADSB ? INPUT_SCALE_NONE
+                                             : INPUT_SCALE_WATERFALL;
+    }
+    /* The survey's Up and Down walk its candidates; it has no scale. */
+    if (s->view == VIEW_KIND_SURVEY)
+        return INPUT_SCALE_NONE;
+    return INPUT_SCALE_ACTIVE_CHART;
 }
 
 /*

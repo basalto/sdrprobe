@@ -531,10 +531,6 @@ void handle_gsm_input(struct app *app) {
         set_tab(app, TAB_SCOPE);
         return;
     }
-    if (IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP))
-        adjust_waterfall_scale(app, 1);
-    if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))
-        adjust_waterfall_scale(app, 0);
     if (app->scan_running)
         return;
     if (clicked(gsm_scan_button())) {
