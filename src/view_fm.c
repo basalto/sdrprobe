@@ -255,7 +255,13 @@ static void draw_scan_list(const struct app *app, Rectangle rect) {
                         row_label);
         return;
     }
-    DrawText("   MHz       LEVEL    PILOT  RDS  STATION",
+    /*
+     * "Broadcast" rather than "pilot", and they are the same measurement: a
+     * 19 kHz pilot is transmitted for one reason, which is to tell a receiver
+     * that a difference signal is there. A column headed PILOT asks the
+     * reader to know that; one headed BROADCAST tells them what it means.
+     */
+    DrawText("   MHz       LEVEL   BROADCAST  RDS  STATION",
              (int)rect.x + 12, y, 15, row_label);
 
     {
@@ -292,10 +298,11 @@ static void draw_scan_list(const struct app *app, Rectangle rect) {
                 snprintf(name, sizeof(name), "0x%04X", f->pi);
             else
                 snprintf(name, sizeof(name), "--");
-            snprintf(row, sizeof(row), "%8.1f  %6.1f dBFS  %-5s %-4s %s",
+            snprintf(row, sizeof(row), "%8.1f  %6.1f dBFS  %-9s %-4s %s",
                      f->frequency_hz / 1e6, (double)f->power_dbfs,
-                     f->pilot ? "yes" : "no", f->rds ? "yes" : "no", name);
-            colour = f->ps[0] ? row_good : f->pilot ? row_value : row_label;
+                     f->stereo ? "stereo" : "mono",
+                     f->rds ? "yes" : "no", name);
+            colour = f->ps[0] ? row_good : f->stereo ? row_value : row_label;
             sdrgui_text_fit(row, (int)rect.x + 12, (int)row_y, 15,
                             rect.width - 24.0f, colour);
         }
@@ -419,10 +426,8 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
         snprintf(text, sizeof(text), "%s", name ? name : "?");
         draw_row(rect, y, "programme type", text, row_value);
         y += 20;
-        snprintf(text, sizeof(text), "%s%s",
-                 s->tp ? "traffic programme" : "no traffic",
-                 s->ta ? ", announcement now" : "");
-        draw_row(rect, y, "", text, s->ta ? row_weak : row_label);
+        draw_row(rect, y, "", rds_traffic_name(s->tp, s->ta),
+                 s->tp && s->ta ? row_weak : row_label);
         y += 20;
     }
     if (s->rt_valid)
@@ -940,10 +945,21 @@ void fm_tune(struct app *app, double hz) {
     if (retune_receiver(app, (uint32_t)llround(hz), app->applied_ppm) < 0)
         return;
     app->fm.soft_count = 0;
+    app->fm.bb_count = 0;
     app->fm.front_rate = 0;
     app->fm.blocks_seen = 0;
     app->fm.groups_total = 0;
     rds_station_init(&app->fm.station);
+    /*
+     * The audio path too, and its pilot with it.
+     *
+     * It was left running across a retune because its rate had not changed,
+     * so the loop arrived at each new station already locked to the last
+     * one's pilot -- which during a band scan means every carrier inherits
+     * its predecessor's verdict, and the first stereo station makes the rest
+     * of the band look stereo.
+     */
+    fm_audio_init(&app->fm.audio, (double)app->applied_sample_rate);
 }
 
 /*
@@ -1141,22 +1157,25 @@ void update_fm_scan(struct app *app, double now, int have_block) {
         struct fm_found_station *f = &scan->found[scan->visiting];
         const struct rds_station *s = &app->fm.station;
 
-        f->pilot = fm_pilot_locked(&app->fm.front.pilot);
+        f->stereo = fm_audio_is_stereo(&app->fm.audio);
         f->rds = s->funnel.groups > 0;
         f->pi_valid = s->pi_valid;
         f->pi = s->pi;
         if (s->ps_valid)
             snprintf(f->ps, sizeof(f->ps), "%s", s->ps);
-        debug_log_write("fm-scan", "%.1f MHz pilot %d rds %d pi 0x%04X",
-                        f->frequency_hz / 1e6, f->pilot, f->rds, f->pi);
+        debug_log_write("fm-scan", "%.1f MHz %s rds %d pi 0x%04X",
+                        f->frequency_hz / 1e6,
+                        f->stereo ? "stereo" : "mono", f->rds, f->pi);
 
         scan->visiting++;
         if (scan->visiting >= scan->found_count) {
-            int with_rds = 0, i, best = 0;
+            int with_rds = 0, with_stereo = 0, i, best = 0;
 
             for (i = 0; i < scan->found_count; i++) {
                 if (scan->found[i].rds)
                     with_rds++;
+                if (scan->found[i].stereo)
+                    with_stereo++;
                 if (scan->found[i].power_dbfs >
                     scan->found[best].power_dbfs)
                     best = i;
@@ -1176,9 +1195,10 @@ void update_fm_scan(struct app *app, double now, int have_block) {
                      scan->found[best].frequency_hz / 1e6);
             app->fm.frequency_length = (int)strlen(app->fm.frequency);
             snprintf(scan->status, sizeof(scan->status),
-                     "%d carrier%s, %d carrying RDS. Listening to the "
-                     "strongest.", scan->found_count,
-                     scan->found_count == 1 ? "" : "s", with_rds);
+                     "%d carrier%s, %d in stereo, %d carrying RDS. "
+                     "Listening to the strongest.", scan->found_count,
+                     scan->found_count == 1 ? "" : "s", with_stereo,
+                     with_rds);
             debug_log_write("fm-scan", "done, %d found, tuned %.1f MHz",
                             scan->found_count,
                             scan->found[best].frequency_hz / 1e6);

@@ -1608,10 +1608,10 @@ static void print_new_decodes(struct app *app, double now,
             announced_ps[0] = '\0';
         }
         if (s->ps_valid && strcmp(s->ps, announced_ps) != 0) {
-            printf("RDS  \"%s\"  %s%s  identification 0x%04X (%d agreeing)\n",
-                   s->ps,
+            printf("RDS  \"%s\"  %s, %s  identification 0x%04X "
+                   "(%d agreeing)\n", s->ps,
                    rds_pty_name(s->pty) ? rds_pty_name(s->pty) : "?",
-                   s->tp ? ", traffic programme" : "", s->pi, s->pi_repeats);
+                   rds_traffic_name(s->tp, s->ta), s->pi, s->pi_repeats);
             snprintf(announced_ps, sizeof(announced_ps), "%s", s->ps);
         }
         fflush(stdout);

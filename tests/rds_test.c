@@ -308,6 +308,22 @@ static void test_it_refuses_nonsense(void) {
     check_true("an unknown programme type has no name", !rds_pty_name(99));
     check_true("nor a negative one", !rds_pty_name(-1));
     check_str("and a known one does", rds_pty_name(1), "news");
+
+    /*
+     * The traffic flags, whose fourth combination is the one that catches a
+     * reader out: no traffic programme but a traffic announcement is neither
+     * a contradiction nor an announcement -- it is a station pointing at
+     * another one. Rendered as two separate phrases it came out as "no
+     * traffic, announcement now", which reads as a broken decoder.
+     */
+    check_str("an announcement in progress", rds_traffic_name(1, 1),
+              "traffic announcement now");
+    check_str("a station that carries them", rds_traffic_name(1, 0),
+              "carries traffic announcements");
+    check_str("one pointing at another station", rds_traffic_name(0, 1),
+              "points to traffic on another station");
+    check_str("and one that carries none", rds_traffic_name(0, 0),
+              "no traffic information");
 }
 
 /*
