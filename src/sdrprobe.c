@@ -653,11 +653,40 @@ static void configure_gui_style(void) {
                 ColorToInt((Color){ 255, 255, 255, 255 }));
     GuiSetStyle(DEFAULT, TEXT_COLOR_PRESSED,
                 ColorToInt((Color){ 255, 255, 255, 255 }));
+    /*
+     * Disabled has to read as *quieter* than normal, and raygui's stock
+     * disabled is a pale fill -- which on this dark theme made a dead button
+     * the loudest thing on the row. These are the normal colours dimmed
+     * rather than a separate grey, so a dim control still looks like the
+     * control it is.
+     */
+    GuiSetStyle(DEFAULT, BASE_COLOR_DISABLED,
+                ColorToInt((Color){ 22, 32, 40, 255 }));
+    GuiSetStyle(DEFAULT, BORDER_COLOR_DISABLED,
+                ColorToInt((Color){ 55, 72, 84, 255 }));
+    GuiSetStyle(DEFAULT, TEXT_COLOR_DISABLED,
+                ColorToInt((Color){ 92, 111, 124, 255 }));
     GuiSetStyle(BUTTON, TEXT_ALIGNMENT, TEXT_ALIGN_CENTER);
 }
 
 /* Render-only button: raygui draws it (themed); the click action is dispatched
    from the input phase via clicked(), so heavy actions never run mid-frame. */
+/*
+ * A button that says whether it can be pressed.
+ *
+ * Calibration's Back is dim at the top of its own stack, which is the only
+ * honest way to draw a control that will do nothing: the alternative is a
+ * button that looks live and swallows the click, and an operator who concludes
+ * the screen is stuck.
+ */
+void draw_button_enabled(Rectangle rectangle, const char *label, int enabled) {
+    if (!enabled)
+        GuiSetState(STATE_DISABLED);
+    GuiButton(rectangle, label);
+    if (!enabled)
+        GuiSetState(STATE_NORMAL);
+}
+
 void draw_button(Rectangle rectangle, const char *label, int primary) {
     if (primary) {
         GuiSetStyle(BUTTON, BASE_COLOR_NORMAL,

@@ -1,4 +1,5 @@
 #include "input_route.h"
+#include "calibration_nav.h"
 #include "check.h"
 
 #include <stdio.h>
@@ -206,6 +207,69 @@ static void test_a_stale_scan_flag(void) {
               INPUT_TARGET_SCOPE);
 }
 
+
+/*
+ * Where Back goes in the calibration overlay.
+ *
+ * Back used to close the whole overlay from anywhere in it, so an operator who
+ * had scanned a band, picked a cell and wanted a different one had to leave
+ * calibration and scan again. It is one step up now, and what "up" means
+ * depends on where the channel came from -- which is a decision, and so is
+ * checkable without a window (ADR-0012).
+ */
+static void test_where_back_goes(void) {
+    /* Measuring a 4G cell: back to the list it was picked from. The list is
+       drawn by the overlay itself, so stopping is all it takes. */
+    check_int("4G measuring goes back to the cell list",
+              calibration_back_target(1, 1, 0), CALIBRATION_BACK_STOP);
+    check_int("and a stale 2G scan does not change that",
+              calibration_back_target(1, 1, 1), CALIBRATION_BACK_STOP);
+
+    /* Measuring a 2G channel that came from a scan: reopen the scan. */
+    check_int("2G measuring a scanned channel reopens the scan",
+              calibration_back_target(0, 1, 1), CALIBRATION_BACK_SCAN);
+    /* A typed ARFCN never opened a scan, and running one uninvited would
+       retune the receiver for half a minute. Stopping is the step back. */
+    check_int("2G measuring a typed channel just stops",
+              calibration_back_target(0, 1, 0), CALIBRATION_BACK_STOP);
+
+    /* Not measuring is the top of the stack, whatever the technology: the
+       list, or the empty screen offering to fill it, is already on show. */
+    check_int("2G idle has nowhere above it",
+              calibration_back_target(0, 0, 1), CALIBRATION_BACK_NONE);
+    check_int("nor 4G idle", calibration_back_target(1, 0, 0),
+              CALIBRATION_BACK_NONE);
+    check_int("nor 4G idle after a scan", calibration_back_target(1, 0, 1),
+              CALIBRATION_BACK_NONE);
+    check_int("nor 5G, which measures nothing yet",
+              calibration_back_target(2, 0, 0), CALIBRATION_BACK_NONE);
+    check_int("5G measuring would stop like the rest",
+              calibration_back_target(2, 1, 0), CALIBRATION_BACK_STOP);
+
+    /*
+     * The property that matters over any single row: Back is offered exactly
+     * when there is a measurement to step out of. A dim Back on a screen with
+     * somewhere to go is a dead end; a live one with nowhere to go swallows
+     * the click and reads as a stuck screen.
+     */
+    {
+        int tech, running, scanned;
+        for (tech = 0; tech <= 2; tech++)
+        for (running = 0; running <= 1; running++)
+        for (scanned = 0; scanned <= 1; scanned++) {
+            enum calibration_back target =
+                calibration_back_target(tech, running, scanned);
+            check_msg((target != CALIBRATION_BACK_NONE) == (running != 0),
+                      "tech %d running %d scanned %d: Back is %s\n",
+                      tech, running, scanned,
+                      target == CALIBRATION_BACK_NONE ? "dim with a step to"
+                                                        " take"
+                                                      : "live with nowhere"
+                                                        " to go");
+        }
+    }
+}
+
 int main(void) {
     test_the_tabs();
     test_the_precedence();
@@ -215,6 +279,7 @@ int main(void) {
     test_the_view_keys();
     test_every_combination_routes_somewhere_sensible();
     test_a_stale_scan_flag();
+    test_where_back_goes();
 
     return check_report("input precedence");
 }

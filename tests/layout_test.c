@@ -204,6 +204,7 @@ static void check_calibration_overlay(void) {
         int n = 0, a, b, i;
 
         all[n] = l.back;        names[n++] = "back";
+        all[n] = l.exit;        names[n++] = "exit";
         for (i = 0; i < 3; i++) {
             all[n] = l.tech[i]; names[n++] = "tech";
         }

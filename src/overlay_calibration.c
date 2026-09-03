@@ -10,6 +10,7 @@
 #include "lte_dsp.h"
 #include "chrome_layout.h"
 #include "calibration_layout.h"
+#include "calibration_nav.h"
 #include "lte_scan.h"
 
 /*
@@ -470,28 +471,51 @@ void update_drift_check(struct app *app, int have_block) {
     }
 }
 
-void close_calibration(struct app *app) {
-    /*
-     * An LTE calibration borrowed the sample rate as well as the tuning
-     * (ADR-0014), so both go back. Leaving the receiver on 1.92 MS/s would
-     * strand every Scope view at a rate they do not expect, which is the same
-     * trap the LTE decode view has to avoid on the way out.
-     */
+/*
+ * Stop measuring and give the receiver back, without leaving calibration.
+ *
+ * An LTE calibration borrowed the sample rate as well as the tuning
+ * (ADR-0014), so both go back. Leaving the receiver on 1.92 MS/s would strand
+ * every Scope view at a rate they do not expect, which is the same trap the
+ * LTE decode view has to avoid on the way out.
+ *
+ * This is the whole of what closing used to do apart from the last line, and
+ * it is separate now because Back stops a measurement while staying on the
+ * screen -- which is the step that did not exist before.
+ */
+int calibration_stop_measuring(struct app *app) {
     if (app->cal_return_sample_rate &&
         app->cal_return_sample_rate != app->applied_sample_rate) {
         if (retune_receiver_at_rate(app, app->cal.return_frequency,
                                     app->cal_return_sample_rate,
                                     app->applied_ppm) < 0)
-            return;
+            return -1;
         app->cal_return_sample_rate = 0;
     } else if (app->cal.running) {
         if (retune_receiver(app, app->cal.return_frequency,
                             app->applied_ppm) < 0)
-            return;
+            return -1;
     }
     app->cal_return_sample_rate = 0;
     app->cal.running = 0;
+    return 0;
+}
+
+void close_calibration(struct app *app) {
+    if (calibration_stop_measuring(app) < 0)
+        return;
     app->calibration_open = 0;
+}
+
+/* Whether the 2G scan left results worth returning to. Its powers survive the
+   overlay closing -- only a fresh scan clears them -- so reopening the list
+   costs nothing and shows what was actually measured. */
+static int calibration_scan_has_results(const struct app *app) {
+    int arfcn;
+    for (arfcn = 1; arfcn <= 124; arfcn++)
+        if (app->scan_power[arfcn] > SCAN_SENTINEL_DBFS)
+            return 1;
+    return 0;
 }
 
 void adjust_waterfall_scale(struct app *app, int zoom_in) {
@@ -673,8 +697,33 @@ void handle_calibration_input(struct app *app) {
             }
         }
     }
-    if (clicked(back) || IsKeyPressed(KEY_ESCAPE))
-        close_calibration(app);
+    /*
+     * Back is one step up, Exit leaves. Escape follows Back while there is a
+     * step to take and Exit once there is not, so it never traps and never
+     * skips the list on the way out.
+     */
+    {
+        enum calibration_back target =
+            calibration_back_target(app->calibration_technology,
+                                    app->cal.running,
+                                    calibration_scan_has_results(app));
+        int escape = IsKeyPressed(KEY_ESCAPE);
+
+        if ((clicked(back) || escape) && target != CALIBRATION_BACK_NONE) {
+            if (calibration_stop_measuring(app) == 0 &&
+                target == CALIBRATION_BACK_SCAN)
+                app->scan_open = 1;
+            return;
+        }
+        if (clicked(cl.exit) || escape) {
+            close_calibration(app);
+            /* Out of calibration is out to the survey: it is where the
+               program opens and the only view that says what is on air
+               rather than what one tuning looks like. */
+            if (!app->calibration_open)
+                app->view = VIEW_SURVEY;
+        }
+    }
 }
 
 void draw_calibration(struct app *app) {
@@ -773,7 +822,12 @@ void draw_calibration(struct app *app) {
                 app->calibration_technology == 0);
     draw_button(apply_ppm, "Apply PPM", app->cal.track.stable);
     draw_button(scan, "Scan", app->calibration_technology == 0);
-    draw_button(back, "Back", 0);
+    draw_button_enabled(back, "Back",
+                        calibration_back_target(app->calibration_technology,
+                                                app->cal.running,
+                                                calibration_scan_has_results(app))
+                            != CALIBRATION_BACK_NONE);
+    draw_button(cl.exit, "Exit", 0);
 
     snprintf(text, sizeof(text),
              "expected: %.6f MHz   tuned center: %.6f MHz   current correction: %+d PPM",

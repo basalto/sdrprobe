@@ -17,6 +17,10 @@
 /* Shared widgets and actions, defined in sdrprobe.c. */
 int clicked(Rectangle rectangle);
 void draw_button(Rectangle rectangle, const char *label, int primary);
+void draw_button_enabled(Rectangle rectangle, const char *label, int enabled);
+/* Stop measuring and hand the receiver back, staying on the screen. Returns
+   negative when the retune failed, in which case nothing changed. */
+int calibration_stop_measuring(struct app *app);
 int retune_receiver(struct app *app, uint32_t frequency, int ppm);
 /* The same, changing the sample rate with the tuning. Only LTE needs it. */
 int retune_receiver_at_rate(struct app *app, uint32_t frequency,

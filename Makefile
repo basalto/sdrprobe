@@ -193,7 +193,8 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 
 # Which control a key press reaches: the frame loop's precedence chain, as a
 # function of flags rather than a chain of IsKeyPressed calls.
-check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h
+check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h \
+		$(SRC)/calibration_nav.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/input_route_test \
 		$(TESTS)/input_route_test.c -lm
