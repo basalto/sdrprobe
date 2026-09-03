@@ -63,8 +63,15 @@ int survey_candidates_from(struct app *app, const struct survey_plan *plan,
  * The two fiddly parts, kept pure so a check can reach them (ADR-0012).
  */
 
-/* `2026-09-02-24M-1766M.json`, matching what the ingest script names its
-   files. Returns the length, or -1 if it did not fit. */
+/*
+ * `2026-09-02-185703-24M-1766M.json`, matching what the ingest script names its
+ * files. Returns the length, or -1 if it did not fit.
+ *
+ * The time is in it because the date was not enough. Four sweeps of the whole
+ * tuner in one day left one file: each overwrote the last, silently, including
+ * one that had a note attached. A directory whose purpose is that sweeps
+ * accumulate cannot lose them for being taken on the same afternoon.
+ */
 int survey_store_filename(double lower_hz, double upper_hz,
                           const struct tm *when, char *out, size_t size);
 

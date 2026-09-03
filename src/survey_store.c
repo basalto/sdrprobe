@@ -92,9 +92,9 @@ int survey_store_filename(double lower_hz, double upper_hz,
     if (mhz_text(lower_hz, low, sizeof(low)) < 0 ||
         mhz_text(upper_hz, high, sizeof(high)) < 0)
         return -1;
-    written = snprintf(out, size, "%04d-%02d-%02d-%s-%s.json",
+    written = snprintf(out, size, "%04d-%02d-%02d-%02d%02d%02d-%s-%s.json",
                        when->tm_year + 1900, when->tm_mon + 1, when->tm_mday,
-                       low, high);
+                       when->tm_hour, when->tm_min, when->tm_sec, low, high);
     return (written < 0 || (size_t)written >= size) ? -1 : written;
 }
 
@@ -172,6 +172,25 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
     if ((size_t)snprintf(path, sizeof(path), "surveys/%s", name) >=
         sizeof(path))
         return -1;
+    /*
+     * Never over one already there. Seconds make a clash unlikely and this
+     * makes it impossible, which is the guarantee the directory needs: a
+     * sweep costs minutes of somebody's time and there is no getting it back.
+     */
+    {
+        int attempt = 2;
+        while (attempt < 100) {
+            FILE *existing = fopen(path, "rb");
+            if (!existing)
+                break;
+            fclose(existing);
+            if ((size_t)snprintf(path, sizeof(path), "surveys/%.*s-%d.json",
+                                 (int)(strlen(name) - 5), name, attempt) >=
+                sizeof(path))
+                return -1;
+            attempt++;
+        }
+    }
     file = fopen(path, "wb");
     if (!file) {
         fprintf(stderr, "Could not write %s: %s\n", path, strerror(errno));

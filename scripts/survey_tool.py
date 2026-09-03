@@ -155,8 +155,16 @@ def overlap(a, b):
 
 
 def name_for(record):
+    """`2026-09-02-185703-24M-1766M.json`.
+
+    The time is in the name because the date was not enough: four sweeps of
+    the whole tuner in one day left one file, each silently overwriting the
+    last. A directory whose whole purpose is that sweeps accumulate must not
+    lose them for being taken on the same afternoon.
+    """
     lo, hi = record.get("range_hz") or [0, 0]
-    day = record["recorded_at"][:10]
+    stamp = record["recorded_at"][:19].replace("-", "").replace(":", "")
+    day = "%s-%s-%s-%s" % (stamp[0:4], stamp[4:6], stamp[6:8], stamp[9:15])
     return "%s-%s-%s.json" % (day, mhz(lo), mhz(hi))
 
 
@@ -191,6 +199,14 @@ def cmd_ingest(args):
             record["site"]["fingerprint"] = marks
     os.makedirs(SURVEYS, exist_ok=True)
     path = args.out or os.path.join(SURVEYS, name_for(record))
+    if not args.out:
+        # Never over one already there. A sweep costs minutes and cannot be
+        # recovered; two in the same second is unlikely and this makes losing
+        # one impossible.
+        stem, attempt = path[:-5], 2
+        while os.path.exists(path) and attempt < 100:
+            path = "%s-%d.json" % (stem, attempt)
+            attempt += 1
     with open(path, "w") as handle:
         json.dump(record, handle, indent=1, sort_keys=True)
         handle.write("\n")
