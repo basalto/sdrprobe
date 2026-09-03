@@ -193,6 +193,16 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 
 # Which control a key press reaches: the frame loop's precedence chain, as a
 # function of flags rather than a chain of IsKeyPressed calls.
+# The candidate list: how many rows fit, which one the pointer is over, and
+# how far the list is scrolled. Needs raylib's headers for Rectangle, not the
+# library.
+check-survey-list: $(TESTS)/survey_list_test.c $(TESTS)/check.h \
+		$(SRC)/survey_list.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
+		-o $(BUILD)/survey_list_test $(TESTS)/survey_list_test.c -lm
+	$(Q)./$(BUILD)/survey_list_test
+
 check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h \
 		$(SRC)/calibration_nav.h
 	@mkdir -p $(BUILD)
@@ -302,6 +312,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
+	check-survey-list \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally
 

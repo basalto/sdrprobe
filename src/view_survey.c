@@ -8,6 +8,7 @@
 
 #include "view.h"
 #include "survey_layout.h"
+#include "survey_list.h"
 #include "survey_window.h"
 #include "survey_suspect.h"
 #include "survey_store.h"
@@ -740,6 +741,7 @@ void view_survey_defaults(struct app *app) {
     s->dwell_length = (int)strlen(s->dwell);
     survey_load_installation(app);
     s->dwell_seconds = SURVEY_DWELL_DEFAULT;
+    s->list_scroll = 0;
     s->selected = -1;
     s->hover = -1;
     /* No field is focused until one is clicked, so the number keys keep
@@ -794,6 +796,7 @@ static void survey_clear(struct survey_view *s) {
     for (int i = 0; i < s->bins; i++)
         s->power[i] = SURVEY_SENTINEL_DBFS;
     s->peak_count = 0;
+    s->list_scroll = 0;
     s->selected = -1;
     s->hover = -1;
     s->report_valid = 0;
@@ -979,6 +982,40 @@ static void survey_select(struct app *app, int index) {
     snprintf(s->status, sizeof(s->status), "Measuring %.4f MHz", hz / 1e6);
 }
 
+/*
+ * Step the list to a rank and bring it into view.
+ *
+ * Selecting and scrolling were one thing that had to happen together and were
+ * not: Up and Down moved the selection perfectly well, and once it passed the
+ * last drawn row nothing on screen changed, which reads exactly like a key
+ * that does nothing. Clicking a peak in the chart is the same move over a
+ * bigger distance -- the loudest carrier in a band can be fortieth in the
+ * list -- so it goes through here too.
+ */
+static void survey_follow_selection(struct app *app, Rectangle list) {
+    struct survey_view *s = &app->survey;
+    int count, rank;
+
+    if (s->selected < 0)
+        return;
+    /* Read after the selection, not before: survey_select moves the window
+       when the new candidate is zoomed past, which changes what counts as
+       visible and so what a rank means. */
+    count = survey_visible_count(s);
+    rank = survey_visible_rank(s, s->selected);
+    s->list_scroll = survey_list_scroll_to(s->list_scroll, rank, count,
+                                           survey_list_rows(list));
+}
+
+static void survey_walk_to(struct app *app, int rank, Rectangle list) {
+    int index = survey_nth_visible(&app->survey, rank);
+
+    if (index < 0)
+        return;
+    survey_select(app, index);
+    survey_follow_selection(app, list);
+}
+
 /* One block's worth of measurement of the selected candidate. */
 static void survey_measure_block(struct app *app) {
     struct survey_view *s = &app->survey;
@@ -1152,6 +1189,18 @@ void handle_survey_input(struct app *app) {
     int character;
 
     survey_refresh_fields(s);
+    /*
+     * Clamp the scroll once, here, where it can be written back.
+     *
+     * The draw is handed a const app and can only clamp its own copy, so a
+     * scroll left too high by a list that shrank -- a zoom that narrowed the
+     * window, a sweep that found fewer -- would have the draw showing the
+     * last page while the hit test still counted rows from the old offset,
+     * and a click would select a different candidate from the one under it.
+     */
+    s->list_scroll = survey_list_clamp_scroll(
+        s->list_scroll, survey_visible_count(s),
+        survey_list_rows(l.peak_list));
 
     /* Typing into whichever range field has focus. The same spellings the
        Settings panel takes, because parse_frequency is the same parser. */
@@ -1384,6 +1433,16 @@ void handle_survey_input(struct app *app) {
     /* The wheel zooms too, about the same anchor, since a hand already on the
        mouse to click a candidate should not have to reach for a key. */
     float wheel = GetMouseWheelMove();
+    /* Over the list the wheel scrolls it; over the chart it zooms. Same hand,
+       same wheel, whichever panel it is over. */
+    if (wheel != 0.0f &&
+        CheckCollisionPointRec(GetMousePosition(), l.peak_list)) {
+        int count = survey_visible_count(s);
+        s->list_scroll = survey_list_clamp_scroll(
+            s->list_scroll - (int)wheel * SURVEY_LIST_WHEEL_ROWS, count,
+            survey_list_rows(l.peak_list));
+        return;
+    }
     if (wheel != 0.0f &&
         CheckCollisionPointRec(GetMousePosition(), l.chart)) {
         survey_zoom(s, wheel > 0.0f ? 1.0 / SURVEY_ZOOM_STEP
@@ -1398,7 +1457,7 @@ void handle_survey_input(struct app *app) {
     if (visible > 0 &&
         (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))) {
         int rank = s->selected >= 0 ? survey_visible_rank(s, s->selected) : -1;
-        survey_select(app, survey_nth_visible(s, (rank + 1) % visible));
+        survey_walk_to(app, (rank + 1) % visible, l.peak_list);
         return;
     }
     if (visible > 0 &&
@@ -1406,7 +1465,7 @@ void handle_survey_input(struct app *app) {
         int rank = s->selected >= 0 ? survey_visible_rank(s, s->selected) : 0;
         if (rank <= 0)
             rank = visible;
-        survey_select(app, survey_nth_visible(s, rank - 1));
+        survey_walk_to(app, rank - 1, l.peak_list);
         return;
     }
 
@@ -1513,16 +1572,23 @@ void handle_survey_input(struct app *app) {
                          "That is narrower than %.0f kHz; nothing to zoom to.",
                          SURVEY_MIN_SPAN_HZ / 1e3);
             } else if (s->hover >= 0) {
+                /* A chart peak can be any rank in the list -- the loudest
+                   carrier in a band is often fortieth -- so the list follows
+                   it rather than highlighting a row it never drew. */
                 survey_select(app, s->hover);
+                survey_follow_selection(app, l.peak_list);
             }
             return;
         }
     }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
         CheckCollisionPointRec(mouse, l.peak_list)) {
-        int row = (int)((mouse.y - (l.peak_list.y + 44.0f)) / 22.0f);
-        int index = survey_nth_visible(s, row);
-        if (row >= 0 && index >= 0)
+        int count = survey_visible_count(s);
+        int fits = survey_list_rows(l.peak_list);
+        int rank = survey_list_rank_at(l.peak_list, s->list_scroll, count,
+                                       fits, mouse);
+        int index = rank >= 0 ? survey_nth_visible(s, rank) : -1;
+        if (index >= 0)
             survey_select(app, index);
         return;
     }
@@ -1637,12 +1703,14 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
                  (Color){ 150, 172, 188, 255 });
         return;
     }
-    int rows = (int)((rect.height - 54.0f) / 22.0f);
-    if (rows > visible)
-        rows = visible;
+    int fits = survey_list_rows(rect);
+    int scroll = survey_list_clamp_scroll(s->list_scroll, visible, fits);
+    int rows = visible - scroll;
+    if (rows > fits)
+        rows = fits;
     for (int row = 0; row < rows; row++) {
-        int i = survey_nth_visible(s, row);
-        float y = rect.y + 44.0f + (float)row * 22.0f;
+        int i = survey_nth_visible(s, scroll + row);
+        float y = survey_list_row_y(rect, row);
         Color color = (Color){ 213, 226, 234, 255 };
         if (i < 0)
             break;
@@ -1698,11 +1766,31 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
         sdrgui_text_fit(text, (int)rect.x + 12, (int)y, 17,
                         rect.width - 24.0f, color);
     }
-    if (rows < visible) {
-        snprintf(text, sizeof(text), "... %d more", visible - rows);
+    /*
+     * Where in the list this is. It used to say "... 43 more" and leave it
+     * there, which named the problem without offering a way out of it.
+     */
+    if (visible > fits) {
+        float track_x = rect.x + rect.width - 7.0f;
+        float track_y = rect.y + SURVEY_LIST_HEADER_H;
+        float track_h = (float)fits * SURVEY_LIST_ROW_H;
+        float thumb_h = track_h * (float)fits / (float)visible;
+        float thumb_y = track_y + track_h * (float)scroll / (float)visible;
+
+        snprintf(text, sizeof(text), "%d-%d of %d   wheel or Up/Down",
+                 scroll + 1, scroll + rows, visible);
         DrawText(text, (int)rect.x + 12,
-                 (int)(rect.y + rect.height - 20.0f), 15,
+                 (int)(rect.y + rect.height - 19.0f), 15,
                  (Color){ 126, 151, 166, 255 });
+
+        if (thumb_h < 12.0f)
+            thumb_h = 12.0f;
+        if (thumb_y + thumb_h > track_y + track_h)
+            thumb_y = track_y + track_h - thumb_h;
+        DrawRectangle((int)track_x, (int)track_y, 4, (int)track_h,
+                      (Color){ 30, 42, 52, 255 });
+        DrawRectangle((int)track_x, (int)thumb_y, 4, (int)thumb_h,
+                      (Color){ 108, 138, 158, 255 });
     }
 }
 
