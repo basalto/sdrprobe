@@ -240,10 +240,23 @@ double fm_pilot_hz(const struct fm_pilot *pilot) {
  * calibration gate: the error is measured at *baseband*, after the
  * discriminator, so it says how wrong the sample clock is and says nothing
  * about the tuner's local oscillator. The GSM FCCH and the LTE cell search
- * both measure an offset at the tuned frequency and so catch both. Two
- * quantities that are usually equal on an RTL-SDR, because one crystal feeds
- * both -- usually, and a calibration gate is not the place for usually
- * (ADR-0004).
+ * both measure an offset at the tuned frequency and so catch both.
+ *
+ * Those two ought to be the same quantity, because one crystal feeds both.
+ * On this receiver they are not, and by a lot. Measured on 2026-09-04 within
+ * a few minutes: GSM says the tuner wants +36 with a residual of -0.63 ppm
+ * over 831 measurements, LTE says +35 with +0.09 over 421, and this reads the
+ * sample clock at -51 ppm with +35 applied and -91 with nothing applied.
+ *
+ * Two things are known and one is not. Applying a correction moves the sample
+ * clock as well as the tuner -- 30 ppm of movement for a 35 ppm change --
+ * because librtlsdr's set_freq_correction writes the RTL2832's resampler
+ * ratio too. And this estimator is the imprecise one, good to about ten ppm
+ * where the other two are good to a tenth. What is not known is why a gap of
+ * fifty-five remains after both of those, which is .scratch/pilot-vs-tuner/.
+ *
+ * So: reported, never fed to the gate (ADR-0004), and not to be trusted
+ * against the other two until that is settled.
  */
 double fm_pilot_ppm(const struct fm_pilot *pilot) {
     double measured;
