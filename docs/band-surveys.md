@@ -148,6 +148,12 @@ number nobody can use as a baseline.
 24-1766 MHz is what an R820T reaches, and at 0.12 s a step it takes about four
 minutes.
 
+Files are named for the second they were taken, `2026-09-03-051319-24M-1766M
+.json`, and neither writer will ever put one over another: if the name is
+taken it picks the next free one. Sweeps are minutes of somebody's time and
+there is no getting one back. The date alone was not enough -- four full
+sweeps in one day once left a single file.
+
 ## Reading them
 
 ```sh

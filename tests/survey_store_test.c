@@ -21,34 +21,36 @@
  * something reasonable.
  */
 
-static struct tm on(int year, int month, int day) {
+static struct tm at(int year, int month, int day, int hour, int minute) {
     struct tm when;
     memset(&when, 0, sizeof(when));
     when.tm_year = year - 1900;
     when.tm_mon = month - 1;
     when.tm_mday = day;
+    when.tm_hour = hour;
+    when.tm_min = minute;
     return when;
 }
 
 static void test_the_name_matches_the_script(void) {
-    struct tm when = on(2026, 9, 2);
+    struct tm when = at(2026, 9, 2, 18, 57);
     char name[64];
 
     check_true("a whole-tuner sweep",
                survey_store_filename(24e6, 1766e6, &when, name, sizeof(name)) > 0);
     check_str("named as the ingest script names it", name,
-              "2026-09-02-24M-1766M.json");
+              "2026-09-02-185700-24M-1766M.json");
 
     check_true("a band", survey_store_filename(791e6, 821e6, &when, name,
                                                sizeof(name)) > 0);
-    check_str("same shape", name, "2026-09-02-791M-821M.json");
+    check_str("same shape", name, "2026-09-02-185700-791M-821M.json");
 
     /* Not every edge is a whole megahertz, and a name has to survive that
        rather than rounding two different sweeps onto one file. */
     check_true("a fractional edge",
                survey_store_filename(88.5e6, 108e6, &when, name,
                                      sizeof(name)) > 0);
-    check_str("keeps its fraction", name, "2026-09-02-88.5M-108M.json");
+    check_str("keeps its fraction", name, "2026-09-02-185700-88.5M-108M.json");
 
     check_int("a buffer too small is refused, not overrun",
               survey_store_filename(24e6, 1766e6, &when, name, 8), -1);
@@ -57,13 +59,32 @@ static void test_the_name_matches_the_script(void) {
               -1);
 }
 
+/* Two sweeps of the same band an hour apart are two files. This is the one
+   the directory exists for: four full sweeps in a day once left one file. */
+static void test_two_sweeps_in_a_day_are_two_files(void) {
+    struct tm morning = at(2026, 9, 3, 0, 6);
+    struct tm evening = at(2026, 9, 3, 5, 13);
+    char first[64], second[64];
+
+    survey_store_filename(24e6, 1766e6, &morning, first, sizeof(first));
+    survey_store_filename(24e6, 1766e6, &evening, second, sizeof(second));
+    check_true("the same band on the same day does not overwrite itself",
+               strcmp(first, second) != 0);
+    check_str("the earlier one", first, "2026-09-03-000600-24M-1766M.json");
+    check_str("and the later", second, "2026-09-03-051300-24M-1766M.json");
+    /* Still sorting into chronological order in a directory listing, which is
+       the order anybody comparing sweeps wants them in. */
+    check_true("and they sort in the order they were taken",
+               strcmp(first, second) < 0);
+}
+
 static void test_the_date_leads(void) {
-    struct tm early = on(2026, 1, 5);
+    struct tm early = at(2026, 1, 5, 7, 3);
     char name[64];
     survey_store_filename(24e6, 1766e6, &early, name, sizeof(name));
     /* Zero-padded, so a directory listing sorts into chronological order --
        which is the order anybody comparing sweeps wants them in. */
-    check_str("single digits are padded", name, "2026-01-05-24M-1766M.json");
+    check_str("single digits are padded", name, "2026-01-05-070300-24M-1766M.json");
 }
 
 static void test_escaping(void) {
@@ -221,6 +242,7 @@ static void test_the_file_it_writes(void) {
 
 int main(void) {
     test_the_name_matches_the_script();
+    test_two_sweeps_in_a_day_are_two_files();
     test_the_date_leads();
     test_escaping();
     test_flag_text();
