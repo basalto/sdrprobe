@@ -39,19 +39,13 @@ static const Color row_value = { 213, 226, 234, 255 };
 static const Color row_good = { 99, 228, 170, 255 };
 static const Color row_weak = { 250, 190, 74, 255 };
 
-/* A few local frequencies, so the common case is one click rather than eight
-   keystrokes. They are the strongest carriers a sweep of band II found here;
-   any frequency can still be typed. */
-static const double FM_PRESETS[FM_LAYOUT_STATIONS] = {
-    89.6e6, 94.4e6, 100.3e6
-};
-
 void view_fm_defaults(struct app *app) {
     memset(&app->fm, 0, sizeof(app->fm));
     rds_station_init(&app->fm.station);
-    snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
-             FM_PRESETS[0] / 1e6);
-    app->fm.frequency_length = (int)strlen(app->fm.frequency);
+    /* Empty until the scan says what is out there. Nothing here knows the
+       band's occupants and guessing one wires this site into the source. */
+    app->fm.frequency[0] = '\0';
+    app->fm.frequency_length = 0;
 }
 
 /*
@@ -131,6 +125,27 @@ void update_fm(struct app *app, double now) {
                 fm->spectrum_bins = want;
         }
         fm->spectrum_at = now;
+
+        /*
+         * And the sound's own spectrum. The multiplex chart shows this band
+         * too, at its left edge, but not as it is heard: de-emphasis has not
+         * been applied there and the pilot has not been taken out, and both
+         * of those are most of the difference between what is transmitted and
+         * what comes out of a speaker.
+         */
+        if (fm->audio_trace_count > 0) {
+            fm->audio_spectrum_bins =
+                fm_multiplex_spectrum(fm->audio_trace, fm->audio_trace_count,
+                                      fm_audio_rate(&fm->audio),
+                                      fm->audio_spectrum,
+                                      FM_MPX_SPECTRUM_BINS,
+                                      &fm->audio_spectrum_bin_hz);
+            if (fm->audio_spectrum_bin_hz > 0.0) {
+                size_t want = (size_t)(16000.0 / fm->audio_spectrum_bin_hz);
+                if (want > 0 && want < fm->audio_spectrum_bins)
+                    fm->audio_spectrum_bins = want;
+            }
+        }
     }
 
     /*
@@ -138,18 +153,35 @@ void update_fm(struct app *app, double now) {
      * one block of audio out, so the ring neither fills nor empties except
      * when a block is dropped.
      */
-    if (fm->playing) {
+    {
         static int16_t pcm[FM_AUDIO_RING];
-        size_t made = fm_audio_mono(&fm->audio, multiplex, n, pcm,
-                                    FM_AUDIO_RING);
-        size_t k;
+        size_t made, k;
 
-        for (k = 0; k < made; k++) {
-            size_t next = (fm->audio_tail + 1) & (FM_AUDIO_RING - 1);
-            if (next == fm->audio_head)
-                break;    /* the card is not keeping up; drop the newest */
-            fm->audio_ring[fm->audio_tail] = pcm[k];
-            fm->audio_tail = next;
+        /* The path is built once and kept, so the charts have something to
+           draw before anything is played and the level follower is already
+           settled when Play is pressed. */
+        if (fm->audio.decimate < 1 ||
+            fm->audio.sample_rate != (double)app->applied_sample_rate)
+            fm_audio_init(&fm->audio, (double)app->applied_sample_rate);
+
+        made = fm_audio_mono(&fm->audio, multiplex, n, pcm, FM_AUDIO_RING);
+
+        if (fm->playing) {
+            for (k = 0; k < made; k++) {
+                size_t next = (fm->audio_tail + 1) & (FM_AUDIO_RING - 1);
+                if (next == fm->audio_head)
+                    break;  /* the card is not keeping up; drop the newest */
+                fm->audio_ring[fm->audio_tail] = pcm[k];
+                fm->audio_tail = next;
+            }
+        }
+
+        /* The tail of it, as floats, for the charts. */
+        if (made > 0) {
+            size_t keep = made > FM_AUDIO_TRACE ? FM_AUDIO_TRACE : made;
+            for (k = 0; k < keep; k++)
+                fm->audio_trace[k] = (float)pcm[made - keep + k] / 32768.0f;
+            fm->audio_trace_count = keep;
         }
     }
 
@@ -651,17 +683,16 @@ void update_fm_audio(struct app *app) {
  * away a station the operator tuned by hand.
  */
 void enter_fm(struct app *app) {
-    double megahertz;
-
     if (!app->receiver_mode)
         return;
-    if ((double)app->applied_frequency >= FM_BAND_LOWER_HZ &&
-        (double)app->applied_frequency <= FM_BAND_UPPER_HZ)
+    /*
+     * Only the first time. Switching tabs away and back would otherwise
+     * throw away both the list and whichever station was being listened to,
+     * and start half a minute of tuning nobody asked for.
+     */
+    if (app->fm.scan.found_count > 0 || app->fm.scan.running)
         return;
-    megahertz = atof(app->fm.frequency);
-    if (megahertz < 76.0 || megahertz > 108.0)
-        return;
-    fm_tune(app, megahertz * 1e6);
+    fm_scan_begin(app);
 }
 
 /* Whether the scan list is on screen, which the layout needs to know before
@@ -670,21 +701,72 @@ int fm_scan_showing(const struct app *app) {
     return app->fm.scan.running || app->fm.scan.found_count > 0;
 }
 
+/*
+ * The sound, as a waveform.
+ *
+ * Whether the station is modulating at all, which nothing else on the screen
+ * says: a carrier can be received perfectly, decode its RDS perfectly, and be
+ * silent, and every other chart here reports that as success. A flat line is
+ * dead air; a trace clipping against the edges is a level follower that has
+ * not caught up with a station much louder than the last one.
+ */
+static void draw_audio_wave_chart(const struct app *app, Rectangle rect) {
+    const struct fm_view *fm = &app->fm;
+    struct sdrgui_burst_chart_params params;
+
+    memset(&params, 0, sizeof(params));
+    params.plot = rect;
+    params.data = fm->audio_trace;
+    params.count = (int)fm->audio_trace_count;
+    params.type = SDRGUI_BURST_LINE;
+    params.y_min = -1.0f;
+    params.y_max = 1.0f;
+    params.title = "audio: the last tenth of a second";
+    params.empty_notice = "no audio yet";
+    sdrgui_burst_chart(&params);
+}
+
+/*
+ * And its spectrum, as it is heard.
+ *
+ * The multiplex chart carries this band at its left edge and not as a
+ * listener gets it: de-emphasis has not been applied there and the pilot has
+ * not been taken out, and those two are most of the difference between what a
+ * transmitter sends and what a speaker produces. Speech rolling off by 4 kHz
+ * and music carrying to 15 are different pictures, and a station that is
+ * modulating but whose audio is all below 300 Hz is a fault this is the only
+ * chart to show.
+ */
+static void draw_audio_spectrum_chart(const struct app *app, Rectangle rect) {
+    const struct fm_view *fm = &app->fm;
+    struct sdrgui_burst_chart_params params;
+    char title[96];
+    double top_khz = fm->audio_spectrum_bins > 0
+                         ? fm->audio_spectrum_bin_hz *
+                               (double)fm->audio_spectrum_bins / 1000.0
+                         : 0.0;
+
+    memset(&params, 0, sizeof(params));
+    snprintf(title, sizeof(title), "audio spectrum, 0-%.0f kHz, de-emphasised",
+             top_khz);
+    params.plot = rect;
+    params.data = fm->audio_spectrum;
+    params.count = (int)fm->audio_spectrum_bins;
+    params.type = SDRGUI_BURST_LINE;
+    params.y_min = -70.0f;
+    params.y_max = 2.0f;
+    params.title = title;
+    params.empty_notice = "no audio yet";
+    sdrgui_burst_chart(&params);
+}
+
 void draw_fm(struct app *app) {
     struct fm_layout l = fm_layout_now(fm_scan_showing(app));
-    char text[64];
-    int i;
 
     GuiLabel((Rectangle){ l.frequency_field.x, l.frequency_field.y - 18.0f,
                           120.0f, 16.0f }, "MHz");
     sdrgui_text_field(l.frequency_field, app->fm.frequency, 1);
     draw_button(l.tune_button, "Tune", 0);
-    for (i = 0; i < FM_LAYOUT_STATIONS; i++) {
-        snprintf(text, sizeof(text), "%.1f", FM_PRESETS[i] / 1e6);
-        draw_button(l.station_button[i], text,
-                    fabs((double)app->applied_frequency - FM_PRESETS[i]) <
-                        50000.0);
-    }
 
     draw_button(l.play_button, app->fm.playing ? "Stop" : "Play",
                 app->fm.playing);
@@ -695,10 +777,14 @@ void draw_fm(struct app *app) {
                 app->fm.analysis_mode ? "View: Signal" : "View: Charts", 0);
 
     if (app->fm.analysis_mode) {
+        /* Top row: the signal, from the air inwards. Bottom row: what came
+           out of it -- the symbols, the groups, and the sound. */
         draw_multiplex_chart(app, l.chart[0]);
-        draw_constellation_chart(app, l.chart[1]);
-        draw_timing_chart(app, l.chart[2]);
-        draw_groups_chart(app, l.chart[3]);
+        draw_audio_wave_chart(app, l.chart[1]);
+        draw_audio_spectrum_chart(app, l.chart[2]);
+        draw_constellation_chart(app, l.chart[3]);
+        draw_timing_chart(app, l.chart[4]);
+        draw_groups_chart(app, l.chart[5]);
         return;
     }
 
@@ -719,7 +805,6 @@ int fm_editing(const struct app *app) {
 void handle_fm_input(struct app *app) {
     struct fm_layout l = fm_layout_now(fm_scan_showing(app));
     int character;
-    int i;
 
     /*
      * Escape is one step out, not two: out of the field if one has focus,
@@ -817,15 +902,6 @@ void handle_fm_input(struct app *app) {
     }
     if (app->fm.scan.running)
         return;   /* the receiver is walking the band; leave it there */
-
-    for (i = 0; i < FM_LAYOUT_STATIONS; i++)
-        if (clicked(l.station_button[i])) {
-            snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
-                     FM_PRESETS[i] / 1e6);
-            app->fm.frequency_length = (int)strlen(app->fm.frequency);
-            fm_tune(app, FM_PRESETS[i]);
-            return;
-        }
 
     if (clicked(l.tune_button) ||
         (app->fm.typing && IsKeyPressed(KEY_ENTER))) {
@@ -1059,16 +1135,36 @@ void update_fm_scan(struct app *app, double now, int have_block) {
 
         scan->visiting++;
         if (scan->visiting >= scan->found_count) {
-            int with_rds = 0, i;
-            for (i = 0; i < scan->found_count; i++)
+            int with_rds = 0, i, best = 0;
+
+            for (i = 0; i < scan->found_count; i++) {
                 if (scan->found[i].rds)
                     with_rds++;
+                if (scan->found[i].power_dbfs >
+                    scan->found[best].power_dbfs)
+                    best = i;
+            }
             scan->running = 0;
-            if (app->receiver_mode && scan->return_valid)
-                retune_receiver(app, scan->return_frequency, app->applied_ppm);
+            /*
+             * It ends on the loudest station rather than back where it
+             * started. Every other scan here restores the tuning it borrowed,
+             * because the operator was listening to something and asked a
+             * question about the band; this one *is* how a station gets
+             * chosen, so returning would put the receiver on whatever the
+             * previous screen happened to be pointed at -- 1090 MHz on a
+             * fresh start, which is not in the band at all.
+             */
+            fm_tune(app, scan->found[best].frequency_hz);
+            snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
+                     scan->found[best].frequency_hz / 1e6);
+            app->fm.frequency_length = (int)strlen(app->fm.frequency);
             snprintf(scan->status, sizeof(scan->status),
-                     "%d carrier%s, %d carrying RDS.", scan->found_count,
+                     "%d carrier%s, %d carrying RDS. Listening to the "
+                     "strongest.", scan->found_count,
                      scan->found_count == 1 ? "" : "s", with_rds);
+            debug_log_write("fm-scan", "done, %d found, tuned %.1f MHz",
+                            scan->found_count,
+                            scan->found[best].frequency_hz / 1e6);
             return;
         }
         fm_tune(app, scan->found[scan->visiting].frequency_hz);
