@@ -33,7 +33,12 @@
 #define CALIBRATION_TEXT_H 22.0f
 
 struct calibration_layout {
+    /* Back is one step up -- a measurement to the list it was chosen from --
+       and Exit leaves calibration for the survey. Two buttons because they
+       became two actions; one button doing both is what sent an operator who
+       wanted the list back to the top of the program. */
     Rectangle back;
+    Rectangle exit;
     Rectangle tech[3];
     Rectangle scan;            /* the GSM channel scan */
     Rectangle channel;         /* ARFCN or EARFCN entry */
@@ -62,7 +67,8 @@ static inline struct calibration_layout calibration_layout_for(float width,
     int i;
 
     l.lte = lte ? 1 : 0;
-    l.back = (Rectangle){ width - 112.0f, 18.0f, 88.0f, 34.0f };
+    l.exit = (Rectangle){ width - 112.0f, 18.0f, 88.0f, 34.0f };
+    l.back = (Rectangle){ width - 206.0f, 18.0f, 88.0f, 34.0f };
 
     /* Row one: the technology, the channel, and the two actions. */
     y = 72.0f;
