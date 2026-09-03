@@ -1,6 +1,6 @@
 # 01 — Name what the table cannot
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: (none)
 
 `src/band_plan.c`, and `make check-band-plan` alongside.
@@ -46,3 +46,56 @@ minutes:
 
 A different location will find different gaps. The table is Portugal's, so
 name what is allocated rather than what one sweep happened to hear.
+
+## Answer
+
+**Every clean candidate in a full-range sweep now has an allocation.** 83 had
+none before; a fresh sweep of 24-1766 MHz gives 189 clean candidates and zero
+without one. The 35 the survey flags as resembling the receiver are not
+expected to have allocations and do not.
+
+Source: ANACOM's Quadro Nacional de Atribuicao de Frequencias, 2010/2011
+edition of 20 June 2012, whose table gives allocated services and principal
+national applications side by side. Cited per range in `band_plan.c`, with the
+band edges spelled as the QNAF spells them.
+
+What was added, and what it answered:
+
+| range | allocation | candidates it named |
+| --- | --- | --- |
+| 30-47 MHz | Land mobile, private networks | part of the low-VHF cluster |
+| 47-68 MHz | VHF band I television, analogue off since 2012 | 5 |
+| 68-74.8, 75.2-76 MHz | Land mobile, 80 MHz plan | the rest of low VHF |
+| 74.8-75.2 MHz | Aeronautical radionavigation, ILS markers | the last one left |
+| 148-156, 162.05-174 MHz | Land mobile, 160 MHz plan | 5 |
+| 240-328.6, 335.4-380 MHz | Fixed and mobile, conditioned band | **40** |
+| 328.6-335.4 MHz | Aeronautical radionavigation, ILS glide path | 2 |
+| 403-406 MHz | Meteorological aids, radiosondes | 1 |
+| 406-406.1 MHz | Emergency beacons, COSPAS-SARSAT | - |
+| 406.1-430 MHz | Fixed links, point to point | 6 |
+| 440-446, 446.2-470 MHz | Land mobile | several |
+| 694-703, 733-758 MHz | 700 MHz guard band and centre gap | 4 |
+| 1610-1660.5 MHz | Mobile-satellite uplink | 3 |
+
+The 240-380 MHz block was the whole of the problem: 40 of the 83 sat there,
+and the QNAF gives it as FIXO and MOVEL in every row, each marked *faixa
+condicionada*.
+
+**One thing deliberately not claimed.** That note marks a great deal of
+230-400 MHz and its legend is not in the edition this was read from, so the
+entries say what the allocation *is* -- fixed and mobile -- and say nothing
+about what the condition is. Naming it "military" would have been the obvious
+guess and is exactly what the ticket forbids.
+
+Two checks were re-blessed rather than worked around. `check-band-plan`
+asserted that 700 MHz had no entry, which was true when a gap there was
+deliberate; the guard band is a real thing the APT700 arrangement leaves
+empty, and a survey saying "nothing is allocated here" beats one saying "the
+table does not know".
+
+## Comments
+
+**2026-09-03.** Worth knowing for next time: an allocation is written into a
+saved survey at ingest, not looked up when it is reported. Extending the table
+does not improve a sweep already on disk -- it has to be swept again, which is
+four minutes.

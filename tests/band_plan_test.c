@@ -36,7 +36,12 @@ static void test_known_frequencies(void) {
        television stops at 694 rather than at the older 790. */
     check_name("UHF television", 650000000.0, "UHF television");
     check_name("cleared 700 MHz", 763000000.0, "LTE band 28 downlink");
-    check_none("the 694-703 guard", 700000000.0);
+    /* The guard between television and the 700 MHz band is named now rather
+       than left blank. It is a real thing -- the APT700 arrangement leaves it
+       deliberately empty -- and a survey saying "nothing is allocated here"
+       is worth more than one saying "the table does not know". */
+    check_name("the 694-703 guard", 700000000.0, "700 MHz guard band");
+    check_name("the 700 MHz centre gap", 745000000.0, "700 MHz centre gap");
     check_name("PMR446", 446100000.0, "PMR446");
 }
 
