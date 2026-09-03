@@ -31,12 +31,6 @@
   station name, radio text -- is the same shape as GSM's BCCH and LTE's Master
   Information Block. It is also the only strong thing in the sweep that fits
   the receiver with room to spare. `.scratch/rds-decoder/`.
-- [ ] Name the frequencies the band plan cannot. 88 of the sweep's candidates
-  fall in gaps in the table, a third of everything heard, including
-  416.652 MHz at -23.9 dBFS -- the loudest thing that is not broadcast radio.
-  A survey's allocation is the only claim it is allowed to make about identity
-  (ADR-0015), so a gap is the survey losing the one thing it can honestly say.
-  `.scratch/band-plan-coverage/`.
 - [ ] Extended-cyclic-prefix LTE. The cell search reports it; the broadcast
   channel declines it, because that prefix puts a third reference symbol
   inside the channel and shortens it to 432 bits. No commercial FDD cell uses
@@ -58,6 +52,12 @@
   coarse-to-fine order, and a headless `--lte-scan` so the results can be read
   without clicking. The LTE view borrows the receiver at 1.92 MS/s and gives
   the rate and the tuning back when it is left.
+- [x] Named the frequencies the band plan could not. A full sweep had 83
+  candidates with no allocation; it now has none. The 240-380 MHz block was 40
+  of them and the QNAF gives all of it as fixed and mobile, *faixa
+  condicionada* -- a note whose legend is not in that edition, so the entries
+  say what the allocation is and do not guess at the condition. Source cited
+  per range in `band_plan.c`.
 - [x] Surveys that accumulate. `surveys/` keeps one JSON per sweep,
   `scripts/survey_tool.py` ingests, reports and diffs them, and the
   `rf-environment` skill reads them for what is known, what is new, and
