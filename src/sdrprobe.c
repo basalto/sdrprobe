@@ -854,7 +854,9 @@ static void draw_header(const struct app *app) {
              (Color){ 225, 236, 245, 255 });
     if (app->tab == TAB_SCOPE) {
         draw_option_row((int)app->view, scope_opts, 4,
-                        "Up/Down scale   h help   Esc quit");
+                        app->view == VIEW_SURVEY
+                            ? "Up/Down candidate   h help   Esc quit"
+                            : "Up/Down scale   h help   Esc quit");
         draw_button(chrome_layout_now().survey_button, "Survey",
                     app->view == VIEW_SURVEY);
     } else {
