@@ -479,6 +479,21 @@ struct survey_view {
      * a tenth of a second each; this revisits them one at a time and gives
      * each a proper look.
      */
+    /*
+     * Watching: sweep, fold what was found into what the site knows, say what
+     * changed, and sweep again. A survey answers "what is out there"; running
+     * it round the clock answers "what changed while nobody was looking",
+     * which is the question a single sweep can never reach -- and it is the
+     * only way a signal's daily pattern becomes visible at all.
+     */
+    int watching;
+    int watch_sweeps;
+    int watch_appeared;      /* what the last sweep of the watch changed */
+    int watch_lost;
+    int watch_total_appeared;
+    int watch_total_lost;
+    double watch_started_at;
+
     struct {
         int running;
         int index;

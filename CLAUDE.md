@@ -174,6 +174,13 @@ comparable to anything. The survey view has both as fields and a **Save
 survey** button beside them, writing the same JSON the script ingests; it
 refuses while the site is empty rather than saving a sweep labelled nothing.
 
+**Watch** keeps the survey sweeping, folding each sweep into the site's history
+and reporting what appeared and what went quiet (`--survey-watch <n>` from a
+script). It is what makes the history worth having: the history counts, per
+signal, how many of a site's sweeps in each hour heard it, so a signal whose
+absence follows the clock is `by hour` rather than merely `on/off` --
+a distinction no single sweep and no count of sweeps can reach.
+
 **The survey is the view the application opens on**, reached from a Survey
 button at the left of the Scope tab rather than a fifth number: the other four
 draw whatever the receiver is pointed at and this one walks it across a band.

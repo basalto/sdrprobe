@@ -92,6 +92,10 @@ struct options {
        line finishes. The pass is otherwise a button, and a decision reachable
        only by clicking is one no check can reach (ADR-0012). */
     int survey_confirm;
+    /* Sweep this many times over, folding each into what the site knows and
+       printing what changed. A watch is otherwise a button, and a button is
+       not something that can run overnight from a script (ADR-0012). */
+    int survey_watch;
     /* headless: walk an LTE band's channels and print the cells found, for
        the same reason -- the scan is otherwise a button. 0 = not asked for,
        otherwise the band number. */

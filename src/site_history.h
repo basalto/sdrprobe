@@ -32,6 +32,17 @@
  */
 
 #define SITE_HISTORY_MAX 512
+/*
+ * Presence kept per hour of the day, so "this comes and goes" can become
+ * "this is on in the evenings".
+ *
+ * Counting sweeps alone cannot tell those apart: a signal heard in half a
+ * site's sweeps looks the same whether it alternates minute to minute or runs
+ * from six until midnight. Twenty-four counters per signal, against
+ * twenty-four for the site, answers it -- and it is the difference between
+ * a transmitter worth investigating and an office that closes.
+ */
+#define SITE_HOURS 24
 #define SITE_NAME_MAX 96
 
 /*
@@ -57,6 +68,8 @@ struct site_entry {
     float prominence_db;
     int sweeps;        /* how many sweeps it has appeared in */
     int last_sweep;    /* the sweep index it last appeared in */
+    /* How many of this site's sweeps in each hour of the day heard it. */
+    unsigned short heard_by_hour[SITE_HOURS];
     /*
      * The bin width of the sweep that last placed it.
      *
@@ -72,6 +85,10 @@ struct site_entry {
 struct site_history {
     char site[SITE_NAME_MAX];
     int sweeps;        /* how many sweeps this site has recorded */
+    /* And how many of them fell in each hour, which is what makes a signal's
+       own hour counts mean anything: three sightings in an hour swept three
+       times is always, in an hour swept thirty it is hardly ever. */
+    unsigned short sweeps_by_hour[SITE_HOURS];
     struct site_entry entries[SITE_HISTORY_MAX];
     int count;
 };
@@ -89,6 +106,19 @@ struct site_history {
 #define SITE_ENOUGH_SWEEPS 3
 
 /*
+ * What it takes to call something diurnal rather than merely intermittent.
+ *
+ * Deliberately demanding. Intermittent is the honest answer when the pattern
+ * is unknown, and claiming a daily rhythm from two sweeps in one hour and one
+ * in another would be reading tea leaves -- so it wants several hours each
+ * swept enough times, and a difference between the busiest and quietest of
+ * them too large to be luck.
+ */
+#define SITE_DIURNAL_MIN_HOURS 4      /* distinct hours with enough sweeps */
+#define SITE_DIURNAL_MIN_SWEEPS 3     /* sweeps before an hour has a rate */
+#define SITE_DIURNAL_SPREAD 60        /* percentage points, busiest to quietest */
+
+/*
  * How a signal has behaved here, for the operator rather than for the code.
  *
  * `site_status` answers the question the marks need -- has this site heard it
@@ -100,6 +130,8 @@ enum site_seen {
     SITE_SEEN_NEW,
     SITE_SEEN_STEADY,
     SITE_SEEN_INTERMITTENT,
+    /* Intermittent, and the intermittency follows the clock. */
+    SITE_SEEN_DIURNAL,
     SITE_SEEN_MISSING
 };
 
@@ -108,6 +140,29 @@ enum site_seen {
 enum site_seen site_history_seen(const struct site_history *history,
                                  const struct site_entry *entry,
                                  int heard_now);
+
+/*
+ * Whether an entry's presence follows the hour, and by how much.
+ *
+ * Returns the spread in percentage points between the hour it is most often
+ * heard in and the hour it is least often heard in, counting only hours the
+ * site has swept enough times to have an opinion about -- or -1 when there is
+ * not enough of the day covered to say anything. `busiest` and `quietest`, if
+ * given, receive those hours.
+ */
+/*
+ * How many signals this site knows were heard in the previous sweep and not
+ * in the one just folded in -- what has just gone quiet.
+ *
+ * Only the previous one: something absent for ten sweeps went quiet once, and
+ * reporting it again every four minutes would make a watch useless. Call it
+ * after merging.
+ */
+int site_history_lost_now(const struct site_history *history);
+
+int site_history_daily_spread(const struct site_history *history,
+                              const struct site_entry *entry, int *busiest,
+                              int *quietest);
 /* Short enough for a column: "new", "steady", "on/off", "gone". */
 const char *site_seen_name(enum site_seen seen);
 
@@ -131,9 +186,14 @@ int site_history_format(const struct site_history *history, char *out,
  * Entries already known have their level and counts updated; frequencies never
  * heard here are added. Returns how many were new.
  */
+/*
+ * `hour` is the hour of the day the sweep finished, 0 to 23, or -1 when it is
+ * not known -- a capture replayed from disk, say. An unknown hour still counts
+ * as a sweep; it simply teaches the clock nothing.
+ */
 int site_history_merge(struct site_history *history, const double *hz,
                        const float *dbfs, const float *prominence, int count,
-                       double bin_hz);
+                       double bin_hz, int hour);
 
 /*
  * Record one signal as heard in the sweep already counted, without counting a
@@ -149,7 +209,8 @@ int site_history_merge(struct site_history *history, const double *hz,
  * Returns 1 when the signal was not already known here.
  */
 int site_history_record_one(struct site_history *history, double hz,
-                            float dbfs, float prominence_db, double bin_hz);
+                            float dbfs, float prominence_db, double bin_hz,
+                            int hour);
 
 /* The entry nearest `hz` within the tolerance, or NULL. */
 const struct site_entry *site_history_find(const struct site_history *history,

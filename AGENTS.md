@@ -492,7 +492,10 @@ checks, and which diagnostic tool answers which question.
 ### The RF environment
 
 The survey is the default view and is reached by the Survey button at the left
-of the Scope tab, not by a number. A sweep's maxima are grouped into signals
+of the Scope tab, not by a number. **Watch** repeats it, folding each sweep into
+the site's history and saying what changed; `--survey-watch <n>` is the scripted
+form. The history counts presence per hour of the day, which is what lets a
+signal that follows the clock be told from one that merely comes and goes. A sweep's maxima are grouped into signals
 first (`src/survey_carrier.h`), and
 everything above the measurement works on those: a station has several maxima
 and counting each is how one carrier becomes five things to remember. The

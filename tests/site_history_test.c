@@ -33,7 +33,7 @@ static void test_first_sweep_then_second(void) {
     int added;
 
     site_history_init(&h, "home-desk");
-    added = site_history_merge(&h, first, level, level, 2, 2000.0);
+    added = site_history_merge(&h, first, level, level, 2, 2000.0, -1);
     check_int("a first sweep is all new", added, 2);
     check_int("one sweep recorded", h.sweeps, 1);
 
@@ -44,7 +44,7 @@ static void test_first_sweep_then_second(void) {
               (int)site_history_status(&h, 100.1e6, 2000.0),
               (int)SITE_STATUS_NEW);
 
-    added = site_history_merge(&h, second, level, level, 2, 2000.0);
+    added = site_history_merge(&h, second, level, level, 2, 2000.0, -1);
     check_int("the second sweep adds only what is new", added, 1);
     check_int("two sweeps now", h.sweeps, 2);
     check_int("three signals known between them", h.count, 3);
@@ -68,8 +68,8 @@ static void test_missing_only_where_we_looked(void) {
     int count;
 
     site_history_init(&h, "home-desk");
-    site_history_merge(&h, first, NULL, NULL, 2, 2000.0);
-    site_history_merge(&h, narrow, NULL, NULL, 1, 2000.0);
+    site_history_merge(&h, first, NULL, NULL, 2, 2000.0, -1);
+    site_history_merge(&h, narrow, NULL, NULL, 1, 2000.0, -1);
 
     /* A sweep of 88-108 MHz says nothing whatever about 300 MHz, and calling
        it missing would be a claim about spectrum nobody looked at. */
@@ -94,7 +94,7 @@ static void test_a_coarse_memory_still_matches_a_fine_sweep(void) {
     const struct site_entry *gone[4];
 
     site_history_init(&h, "home-desk");
-    site_history_merge(&h, coarse, NULL, NULL, 1, 212646.5);
+    site_history_merge(&h, coarse, NULL, NULL, 1, 212646.5, -1);
     check_int("the coarse sweep records where it thinks it heard it",
               h.count, 1);
 
@@ -105,7 +105,7 @@ static void test_a_coarse_memory_still_matches_a_fine_sweep(void) {
               site_history_missing(&h, fine, 1, 88e6, 108e6, 2441.4, gone, 4),
               0);
 
-    site_history_merge(&h, fine, NULL, NULL, 1, 2441.4);
+    site_history_merge(&h, fine, NULL, NULL, 1, 2441.4, -1);
     check_int("merging keeps one entry, not two", h.count, 1);
     check_close("and takes the better placement",
                 site_history_find(&h, fine[0], 2441.4)->hz, 94.395e6, 1.0);
@@ -139,7 +139,7 @@ static void test_one_wide_carrier_counts_once(void) {
     const struct site_entry *e;
 
     site_history_init(&h, "home-desk");
-    site_history_merge(&h, pair, NULL, NULL, 2, 2000.0);
+    site_history_merge(&h, pair, NULL, NULL, 2, 2000.0, -1);
     check_int("two peaks of one carrier make one entry", h.count, 1);
     e = site_history_find(&h, 100.0e6, 2000.0);
     check_int("counted once for the sweep", e->sweeps, 1);
@@ -152,7 +152,7 @@ static void test_round_trip(void) {
     char text[4096];
 
     site_history_init(&written, "home-desk");
-    site_history_merge(&written, hz, level, level, 2, 2000.0);
+    site_history_merge(&written, hz, level, level, 2, 2000.0, -1);
     check_true("formats", site_history_format(&written, text,
                                               sizeof(text)) > 0);
     check_int("reads back the same entries",
@@ -192,12 +192,12 @@ static void test_recording_one_signal(void) {
     const struct site_entry *e;
 
     site_history_init(&h, "home-desk");
-    site_history_merge(&h, sweep, NULL, NULL, 1, 2441.4);
+    site_history_merge(&h, sweep, NULL, NULL, 1, 2441.4, -1);
     check_int("one sweep", h.sweeps, 1);
 
     /* A confirmed new signal joins the sweep that found it. */
     check_int("recording something new says so",
-              site_history_record_one(&h, 96.1e6, -30.0f, 12.0f, 976.6), 1);
+              site_history_record_one(&h, 96.1e6, -30.0f, 12.0f, 976.6, -1), 1);
     check_int("the sweep count does not move", h.sweeps, 1);
     e = site_history_find(&h, 96.1e6, 976.6);
     check_int("and it is credited with this sweep, not a new one",
@@ -207,7 +207,7 @@ static void test_recording_one_signal(void) {
     /* Recording something already heard this sweep updates it and no more:
        counting it twice would make one sweep look like two. */
     check_int("recording a known signal is not new",
-              site_history_record_one(&h, 94.5e6, -10.0f, 20.0f, 976.6), 0);
+              site_history_record_one(&h, 94.5e6, -10.0f, 20.0f, 976.6, -1), 0);
     e = site_history_find(&h, 94.5e6, 976.6);
     check_int("and does not count it twice", e->sweeps, 1);
     check_close("but does take the better measurement",
@@ -244,7 +244,7 @@ static void test_how_it_has_behaved(void) {
 
     /* Five sweeps, all of which heard it. */
     for (i = 0; i < 5; i++)
-        site_history_merge(&h, one, NULL, NULL, 1, 2000.0);
+        site_history_merge(&h, one, NULL, NULL, 1, 2000.0, -1);
     e = site_history_find(&h, 94.5e6, 2000.0);
     check_int("heard every time is steady",
               (int)site_history_seen(&h, e, 1), (int)SITE_SEEN_STEADY);
@@ -256,7 +256,7 @@ static void test_how_it_has_behaved(void) {
     /* Five more that heard nothing at all, so it has been heard in five of
        ten. A sweep that finds nothing still happened. */
     for (i = 0; i < 5; i++)
-        site_history_merge(&h, NULL, NULL, NULL, 0, 2000.0);
+        site_history_merge(&h, NULL, NULL, NULL, 0, 2000.0, -1);
     check_int("a quiet sweep still counts", h.sweeps, 10);
     e = site_history_find(&h, 94.5e6, 2000.0);
     check_int("heard half the time comes and goes",
@@ -277,12 +277,161 @@ static void test_one_sweep_proves_nothing(void) {
        any useful sense, but calling it intermittent would be worse. It reads
        as steady and the threshold waits for enough sweeps to mean it. */
     site_history_init(&h, "home");
-    site_history_merge(&h, one, NULL, NULL, 1, 2000.0);
+    site_history_merge(&h, one, NULL, NULL, 1, 2000.0, -1);
     e = site_history_find(&h, 94.5e6, 2000.0);
     check_int("one sweep is not enough to call anything unreliable",
               (int)site_history_seen(&h, e, 1), (int)SITE_SEEN_STEADY);
     check_true("and the threshold says how many it wants",
                SITE_ENOUGH_SWEEPS >= 3);
+}
+
+/*
+ * Intermittent, and the clock explains it.
+ *
+ * Counting sweeps alone cannot tell "alternates minute to minute" from "runs
+ * from six until midnight": both are heard in half the sweeps. The hour
+ * counters are what separate them, and the separation is the whole point --
+ * one is a transmitter worth investigating and the other is an office that
+ * closes.
+ */
+static void test_a_signal_that_follows_the_clock(void) {
+    struct site_history h;
+    double one[] = { 94.5e6 };
+    const struct site_entry *e;
+    int hour, i, busiest = -1, quietest = -1;
+
+    site_history_init(&h, "home");
+    /* Six hours of the day, five sweeps each. The signal is there for three of
+       those hours and not the other three. */
+    for (hour = 6; hour < 12; hour++)
+        for (i = 0; i < 5; i++)
+            site_history_merge(&h, one, NULL, NULL, hour < 9 ? 1 : 0, 2000.0,
+                               hour);
+    e = site_history_find(&h, 94.5e6, 2000.0);
+    check_true("it was heard", e != NULL);
+    check_int("in half the sweeps", e->sweeps, 15);
+    check_int("of thirty", h.sweeps, 30);
+
+    check_int("the spread between its busiest and quietest hour is total",
+              site_history_daily_spread(&h, e, &busiest, &quietest), 100);
+    check_true("the busiest is one it was heard in",
+               busiest >= 6 && busiest < 9);
+    check_true("and the quietest one it was not",
+               quietest >= 9 && quietest < 12);
+    check_int("so it follows the clock rather than merely coming and going",
+              (int)site_history_seen(&h, e, 1), (int)SITE_SEEN_DIURNAL);
+    check_str("and says so", site_seen_name(SITE_SEEN_DIURNAL), "by hour");
+}
+
+static void test_intermittent_without_a_pattern_stays_intermittent(void) {
+    struct site_history h;
+    double one[] = { 94.5e6 };
+    const struct site_entry *e;
+    int hour, i;
+
+    site_history_init(&h, "home");
+    /* Heard in half the sweeps of every hour, so there is no hour that
+       explains it. Claiming a daily rhythm here would be reading tea leaves. */
+    for (hour = 6; hour < 12; hour++)
+        for (i = 0; i < 6; i++)
+            site_history_merge(&h, one, NULL, NULL, i % 2, 2000.0, hour);
+    e = site_history_find(&h, 94.5e6, 2000.0);
+    check_int("half of every hour is not a pattern",
+              (int)site_history_seen(&h, e, 1), (int)SITE_SEEN_INTERMITTENT);
+}
+
+static void test_too_little_of_the_day_to_say(void) {
+    struct site_history h;
+    double one[] = { 94.5e6 };
+    const struct site_entry *e;
+    int i;
+
+    site_history_init(&h, "home");
+    /* One hour, swept plenty, and a signal in half of it. That is a signal
+       that comes and goes; it says nothing about the day. */
+    for (i = 0; i < 20; i++)
+        site_history_merge(&h, one, NULL, NULL, i % 2, 2000.0, 9);
+    e = site_history_find(&h, 94.5e6, 2000.0);
+    check_int("one hour is not a day",
+              site_history_daily_spread(&h, e, NULL, NULL), -1);
+    check_int("so it is only intermittent",
+              (int)site_history_seen(&h, e, 1), (int)SITE_SEEN_INTERMITTENT);
+    check_true("and the threshold says how much of the day it wants",
+               SITE_DIURNAL_MIN_HOURS >= 4);
+}
+
+static void test_an_unknown_hour_still_counts_as_a_sweep(void) {
+    struct site_history h;
+    double one[] = { 94.5e6 };
+    int i;
+
+    /* A capture replayed from disk has no meaningful hour. It is still a
+       sweep -- dropping it would distort every ratio -- it simply teaches the
+       clock nothing. */
+    site_history_init(&h, "home");
+    for (i = 0; i < 5; i++)
+        site_history_merge(&h, one, NULL, NULL, 1, 2000.0, -1);
+    check_int("the sweeps count", h.sweeps, 5);
+    check_int("but no hour learned anything",
+              site_history_daily_spread(&h, site_history_find(&h, 94.5e6,
+                                                              2000.0),
+                                        NULL, NULL), -1);
+}
+
+static void test_the_hours_survive_the_file(void) {
+    struct site_history written, read;
+    double one[] = { 94.5e6 };
+    char text[8192];
+    int hour, i;
+
+    site_history_init(&written, "home");
+    for (hour = 6; hour < 12; hour++)
+        for (i = 0; i < 5; i++)
+            site_history_merge(&written, one, NULL, NULL, hour < 9 ? 1 : 0,
+                               2000.0, hour);
+    check_true("formats", site_history_format(&written, text,
+                                              sizeof(text)) > 0);
+    site_history_parse(text, &read);
+    check_int("the sweeps come back", read.sweeps, written.sweeps);
+    for (hour = 0; hour < SITE_HOURS; hour++)
+        check_msg(read.sweeps_by_hour[hour] == written.sweeps_by_hour[hour],
+                  "hour %d: %u sweeps read, %u written\n", hour,
+                  read.sweeps_by_hour[hour], written.sweeps_by_hour[hour]);
+    check_int("and the pattern with them",
+              (int)site_history_seen(&read,
+                                     site_history_find(&read, 94.5e6, 2000.0),
+                                     1),
+              (int)SITE_SEEN_DIURNAL);
+}
+
+/*
+ * What a watch reports after each sweep: what has just gone quiet.
+ *
+ * Only what went quiet *this* sweep. Something absent for ten sweeps went
+ * quiet once, and a watch that announced it again every four minutes would be
+ * ignored within the hour, which is the same as not having one.
+ */
+static void test_what_just_went_quiet(void) {
+    struct site_history h;
+    double both[] = { 94.5e6, 97.5e6 };
+    double one[] = { 94.5e6 };
+
+    site_history_init(&h, "home");
+    check_int("nothing has gone quiet before the first sweep",
+              site_history_lost_now(&h), 0);
+    site_history_merge(&h, both, NULL, NULL, 2, 2000.0, -1);
+    check_int("nor after it", site_history_lost_now(&h), 0);
+
+    site_history_merge(&h, one, NULL, NULL, 1, 2000.0, -1);
+    check_int("one has now", site_history_lost_now(&h), 1);
+
+    /* And it is not reported a second time. */
+    site_history_merge(&h, one, NULL, NULL, 1, 2000.0, -1);
+    check_int("but only once", site_history_lost_now(&h), 0);
+
+    /* It coming back is not a loss either. */
+    site_history_merge(&h, both, NULL, NULL, 2, 2000.0, -1);
+    check_int("and its return is not a loss", site_history_lost_now(&h), 0);
 }
 
 int main(void) {
@@ -298,6 +447,14 @@ int main(void) {
 
     test_how_it_has_behaved();
     test_one_sweep_proves_nothing();
+
+    test_a_signal_that_follows_the_clock();
+    test_intermittent_without_a_pattern_stays_intermittent();
+    test_too_little_of_the_day_to_say();
+    test_an_unknown_hour_still_counts_as_a_sweep();
+    test_the_hours_survive_the_file();
+
+    test_what_just_went_quiet();
 
     return check_report("what a site remembers");
 }

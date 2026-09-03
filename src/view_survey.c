@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "view.h"
 #include "survey_layout.h"
@@ -33,6 +34,15 @@ int survey_editing(const struct app *app) {
 static int survey_start(struct app *app);
 static void survey_keep_current(struct survey_view *s);
 static void survey_sweep_span(struct app *app, double from, double to);
+
+/* Start the same range again, for a watch. Returns 0 when it began. */
+static int survey_start_sweep_again(struct app *app) {
+    struct survey_view *s = &app->survey;
+    if (!app->receiver_mode || s->lower_hz >= s->upper_hz)
+        return -1;
+    survey_sweep_span(app, s->lower_hz, s->upper_hz);
+    return s->sweeping ? 0 : -1;
+}
 static int survey_sweep_target(const struct survey_view *s, double *from,
                                double *to);
 
@@ -144,6 +154,14 @@ static void survey_reset_view(struct survey_view *s) {
 
 /* Keep the field range current, and before the first sweep keep the window on
    it: editing the range should move the chart it is about to sweep. */
+/* The hour of the day, for the clock the history keeps. */
+static int survey_hour_now(void) {
+    time_t now = time(NULL);
+    struct tm local;
+    localtime_r(&now, &local);
+    return local.tm_hour;
+}
+
 static void survey_history_refresh(struct app *app);
 
 /*
@@ -236,7 +254,7 @@ static void survey_save_sweep(struct app *app) {
         site_history_init(&s->history, app->config.site);
         site_history_load(app->config.site, &s->history);
         site_history_merge(&s->history, hz, level, prom, s->carrier_count,
-                           s->plan.bin_hz);
+                           s->plan.bin_hz, survey_hour_now());
         site_history_save(&s->history);
     }
     if (survey_store_write(app, &s->plan, candidates, count, s->carriers,
@@ -409,7 +427,8 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
                                     measured ? report.centre_hz : target->hz,
                                     report.peak_dbfs, report.prominence_db,
                                     (double)app->applied_sample_rate /
-                                        SDR_DSP_FFT_SIZE);
+                                        SDR_DSP_FFT_SIZE,
+                                    survey_hour_now());
             site_history_save(&s->history);
         }
     }
@@ -429,6 +448,41 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
     s->confirm.settled = 0;
     s->confirm.looks = 0;
     s->confirm.started_at = now;
+}
+
+/*
+ * One sweep of a watch: fold what was found into what the site knows, and
+ * count what changed.
+ *
+ * The folding is the point. A watch that only looked would learn nothing --
+ * every sweep would find the same signals "new", because new means "this site
+ * has not heard it" and nothing would ever have been written down. It is also
+ * the only way an hour accumulates enough sweeps for a daily pattern to be
+ * visible at all.
+ */
+static void survey_watch_fold(struct app *app) {
+    struct survey_view *s = &app->survey;
+    double hz[SURVEY_CARRIER_MAX];
+    float level[SURVEY_CARRIER_MAX], prom[SURVEY_CARRIER_MAX];
+    int i;
+
+    if (!app->config.site[0])
+        return;
+    if (!s->history_loaded)
+        site_history_load(app->config.site, &s->history);
+    for (i = 0; i < s->carrier_count; i++) {
+        hz[i] = s->carriers[i].centre_hz;
+        level[i] = s->carriers[i].peak_dbfs;
+        prom[i] = s->carriers[i].prominence_db;
+    }
+    s->watch_appeared = site_history_merge(&s->history, hz, level, prom,
+                                           s->carrier_count, s->plan.bin_hz,
+                                           survey_hour_now());
+    s->watch_lost = site_history_lost_now(&s->history);
+    s->watch_total_appeared += s->watch_appeared;
+    s->watch_total_lost += s->watch_lost;
+    s->watch_sweeps++;
+    site_history_save(&s->history);
 }
 
 /*
@@ -869,6 +923,11 @@ static void survey_find_peaks(struct app *app) {
      * the only way the pass is reachable without somebody to click it
      * (ADR-0012). Once: a second sweep is a new question, not a repeat.
      */
+    if (app->options.survey_watch > 0 && !app->survey.watching &&
+        app->survey.watch_sweeps == 0 && app->config.site[0]) {
+        app->survey.watching = 1;
+        app->survey.watch_started_at = GetTime();
+    }
     if (app->options.survey_confirm && !app->survey.confirm.running) {
         app->options.survey_confirm = 0;
         /* The caller writes its own "swept N steps" line after this returns,
@@ -980,6 +1039,38 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
                      s->peak_count >= SURVEY_MAX_PEAKS
                          ? " (as many as this view holds)"
                          : " found");
+            /*
+             * A watch folds the sweep in, says what changed, and goes round
+             * again. It does not park the receiver back where it started --
+             * it is about to move it anyway.
+             */
+            if (s->watching) {
+                survey_watch_fold(app);
+                if (app->options.survey_watch > 0) {
+                    /* A watch started from the command line has nobody
+                       reading the status line. */
+                    printf("watch sweep %d carriers %d appeared %d quiet %d\n",
+                           s->watch_sweeps, s->carrier_count,
+                           s->watch_appeared, s->watch_lost);
+                    fflush(stdout);
+                    if (s->watch_sweeps >= app->options.survey_watch) {
+                        printf("watch-summary sweeps %d appeared %d quiet %d\n",
+                               s->watch_sweeps, s->watch_total_appeared,
+                               s->watch_total_lost);
+                        fflush(stdout);
+                        s->watching = 0;
+                    }
+                }
+                snprintf(s->status, sizeof(s->status),
+                         "Watching %s: sweep %d, %d appeared, %d went quiet"
+                         "  (%d and %d since the watch began)",
+                         app->config.site[0] ? app->config.site : "nowhere",
+                         s->watch_sweeps, s->watch_appeared, s->watch_lost,
+                         s->watch_total_appeared, s->watch_total_lost);
+                if (survey_start_sweep_again(app) == 0)
+                    return;
+                s->watching = 0;
+            }
             /* Back where the operator was, until they pick a candidate. */
             if (app->receiver_mode && s->return_valid)
                 retune_receiver(app, s->return_frequency, app->applied_ppm);
@@ -1152,6 +1243,35 @@ void handle_survey_input(struct app *app) {
             s->site_menu_open = 0;
             return;
         }
+    }
+    if (clicked(l.watch_button)) {
+        s->watching = !s->watching;
+        if (s->watching) {
+            s->watch_sweeps = 0;
+            s->watch_appeared = s->watch_lost = 0;
+            s->watch_total_appeared = s->watch_total_lost = 0;
+            s->watch_started_at = GetTime();
+            if (!app->config.site[0]) {
+                /* Without a site there is nothing to fold into, so a watch
+                   would sweep for hours and learn nothing. */
+                s->watching = 0;
+                snprintf(s->status, sizeof(s->status),
+                         "Name the site first -- a watch has nowhere to put "
+                         "what it learns.");
+                s->focus = 3;
+            } else if (!s->sweeping && survey_start_sweep_again(app) < 0) {
+                s->watching = 0;
+                snprintf(s->status, sizeof(s->status),
+                         "Watching needs a live receiver and a range swept "
+                         "once.");
+            }
+        } else {
+            snprintf(s->status, sizeof(s->status),
+                     "Watch stopped after %d sweeps: %d appeared, %d went "
+                     "quiet.", s->watch_sweeps, s->watch_total_appeared,
+                     s->watch_total_lost);
+        }
+        return;
     }
     if ((clicked(l.confirm_button) ||
          (s->focus < 0 && IsKeyPressed(KEY_A))) &&
@@ -1997,6 +2117,11 @@ void draw_survey(struct app *app) {
             snprintf(text, sizeof(text), "Ask again");
         draw_button(l.confirm_button, text,
                     s->confirm.running || (changes > 0 && app->receiver_mode));
+        if (s->watching)
+            snprintf(text, sizeof(text), "Watching %d", s->watch_sweeps);
+        else
+            snprintf(text, sizeof(text), "Watch");
+        draw_button(l.watch_button, text, s->watching);
     }
     draw_button(l.sweep_button, s->sweeping ? "Sweeping" : "Sweep",
                 !s->sweeping);

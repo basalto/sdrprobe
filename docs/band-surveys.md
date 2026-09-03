@@ -62,7 +62,8 @@ the same carrier new every sweep.
 
 The candidate list shows each maximum with the **width** and **shape** of the
 signal it belongs to, and what this site has heard of it: `new`, `steady`,
-`on/off` for something that comes and goes, or `gone`. The shape is a
+`on/off` for something that comes and goes, `by hour` when the coming and going
+follows the clock, or `gone`. The shape is a
 description of the measurement -- `tone`, `narrow`, `medium`, `wide`, `very
 wide` -- and never an identification; read it against the allocation, which is
 the other half. Medium inside the FM allocation is a station; medium inside a
@@ -72,6 +73,37 @@ gap in the table is worth a closer look.
 headless sweep prints a `carrier` line per signal alongside the `candidate`
 lines -- the candidates are what was measured, the carriers what it was
 concluded to mean.
+
+## Watching
+
+**Watch** sweeps, folds what it found into what the site knows, says what
+changed, and sweeps again. From a script, `--survey-watch <n>` does the same
+for a fixed number of sweeps and prints a line each:
+
+```
+watch sweep 3 carriers 10 appeared 0 quiet 1
+watch-summary sweeps 6 appeared 16 quiet 13
+```
+
+The folding is the point. A watch that only looked would learn nothing --
+every sweep would call the same signals new, because "new" means this site has
+not heard it and nothing would ever have been written down.
+
+It needs a site, and refuses without one: there would be nowhere to put what it
+learns.
+
+**It is also the only way a daily pattern becomes visible.** The history keeps,
+per signal, how many of the site's sweeps in each hour of the day heard it --
+against how many sweeps that hour has had. Counting sweeps alone cannot tell
+"alternates minute to minute" from "runs from six until midnight", because both
+are heard in half of them. So a signal whose presence follows the clock is
+reported as **`by hour`** rather than `on/off`, which is the difference between
+a transmitter worth investigating and an office that closes.
+
+That classification is demanding on purpose: four distinct hours each swept at
+least three times, and sixty percentage points between the busiest hour and the
+quietest. Intermittent is the honest answer while the pattern is unknown, and
+a daily rhythm claimed from two sightings would be reading tea leaves.
 
 ## Asking again about what changed
 

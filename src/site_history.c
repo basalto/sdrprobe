@@ -54,6 +54,15 @@ int site_history_parse(const char *text, struct site_history *history) {
                      (int)sizeof(history->site) - 1, buffer + 5);
         } else if (!strncmp(buffer, "sweeps ", 7)) {
             history->sweeps = atoi(buffer + 7);
+        } else if (!strncmp(buffer, "sweep_hours ", 12)) {
+            const char *from = buffer + 12;
+            int hour;
+            for (hour = 0; hour < SITE_HOURS && *from; hour++) {
+                history->sweeps_by_hour[hour] =
+                    (unsigned short)strtol(from, (char **)&from, 10);
+                while (*from == ' ')
+                    from++;
+            }
         } else if ((bin_hz = 0.0,
                     fields = sscanf(buffer, "seen %lf %f %f %d %d %lf", &hz,
                                     &dbfs, &prominence, &sweeps, &last,
@@ -69,6 +78,25 @@ int site_history_parse(const char *text, struct site_history *history) {
                    how precisely it measured. Nothing is a safer answer than a
                    guess: it falls back to the current sweep's own width. */
                 e->bin_hz = fields >= 6 ? bin_hz : 0.0;
+                /* The hour counts follow the six fixed fields, when they are
+                   there at all: a file from before the clock was kept simply
+                   has none, and reads as a signal with no daily pattern. */
+                {
+                    const char *from = buffer;
+                    int field = 0, hour = 0;
+                    while (*from && field < 7) {
+                        while (*from == ' ') from++;
+                        if (!*from) break;
+                        while (*from && *from != ' ') from++;
+                        field++;
+                    }
+                    while (*from && hour < SITE_HOURS) {
+                        while (*from == ' ') from++;
+                        if (!*from) break;
+                        e->heard_by_hour[hour++] =
+                            (unsigned short)strtol(from, (char **)&from, 10);
+                    }
+                }
             }
         }
     }
@@ -82,19 +110,52 @@ int site_history_format(const struct site_history *history, char *out,
     if (!history || !out)
         return -1;
     written = snprintf(out, size,
-                       "# sdrprobe: what this site has heard. Derived from the\n"
-                       "# saved sweeps; delete it and it rebuilds from the next.\n"
-                       "site %s\nsweeps %d\n"
-                       "# seen <hz> <dbfs> <prominence> <sweeps> <last_sweep> <bin_hz>\n",
+                       "# sdrprobe: what this site has heard, from the sweeps\n"
+                       "# saved and watched here. Delete it and it rebuilds.\n"
+                       "site %s\nsweeps %d\n",
                        history->site, history->sweeps);
+    if (written > 0 && (size_t)written < size) {
+        int hour, more;
+        more = snprintf(out + written, size - (size_t)written, "sweep_hours");
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+        for (hour = 0; hour < SITE_HOURS; hour++) {
+            more = snprintf(out + written, size - (size_t)written, " %u",
+                            history->sweeps_by_hour[hour]);
+            if (more < 0 || (size_t)(written + more) >= size)
+                return -1;
+            written += more;
+        }
+        more = snprintf(out + written, size - (size_t)written,
+                        "\n# seen <hz> <dbfs> <prominence> <sweeps> "
+                        "<last_sweep> <bin_hz> <heard in each hour>\n");
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+    }
     if (written < 0 || (size_t)written >= size)
         return -1;
     for (i = 0; i < history->count; i++) {
         const struct site_entry *e = &history->entries[i];
         int more = snprintf(out + written, size - (size_t)written,
-                            "seen %.0f %.1f %.1f %d %d %.1f\n", e->hz,
+                            "seen %.0f %.1f %.1f %d %d %.1f", e->hz,
                             (double)e->dbfs, (double)e->prominence_db,
                             e->sweeps, e->last_sweep, e->bin_hz);
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+        {
+            int hour;
+            for (hour = 0; hour < SITE_HOURS; hour++) {
+                more = snprintf(out + written, size - (size_t)written, " %u",
+                                e->heard_by_hour[hour]);
+                if (more < 0 || (size_t)(written + more) >= size)
+                    return -1;
+                written += more;
+            }
+        }
+        more = snprintf(out + written, size - (size_t)written, "\n");
         if (more < 0 || (size_t)(written + more) >= size)
             return -1;
         written += more;
@@ -130,6 +191,47 @@ enum site_status site_history_status(const struct site_history *history,
                                                   : SITE_STATUS_NEW;
 }
 
+int site_history_lost_now(const struct site_history *history) {
+    int i, lost = 0;
+    if (!history || history->sweeps < 2)
+        return 0;
+    for (i = 0; i < history->count; i++)
+        if (history->entries[i].last_sweep == history->sweeps - 1)
+            lost++;
+    return lost;
+}
+
+int site_history_daily_spread(const struct site_history *history,
+                              const struct site_entry *entry, int *busiest,
+                              int *quietest) {
+    int hour, covered = 0, high = -1, low = -1;
+    int high_rate = -1, low_rate = 101;
+
+    if (busiest)
+        *busiest = -1;
+    if (quietest)
+        *quietest = -1;
+    if (!history || !entry)
+        return -1;
+    for (hour = 0; hour < SITE_HOURS; hour++) {
+        int swept = history->sweeps_by_hour[hour];
+        int rate;
+        if (swept < SITE_DIURNAL_MIN_SWEEPS)
+            continue;              /* not enough of this hour to have a view */
+        covered++;
+        rate = (int)((100 * (long)entry->heard_by_hour[hour]) / swept);
+        if (rate > high_rate) { high_rate = rate; high = hour; }
+        if (rate < low_rate)   { low_rate = rate;  low = hour; }
+    }
+    if (covered < SITE_DIURNAL_MIN_HOURS)
+        return -1;                 /* too little of the day to say anything */
+    if (busiest)
+        *busiest = high;
+    if (quietest)
+        *quietest = low;
+    return high_rate - low_rate;
+}
+
 enum site_seen site_history_seen(const struct site_history *history,
                                  const struct site_entry *entry,
                                  int heard_now) {
@@ -145,8 +247,14 @@ enum site_seen site_history_seen(const struct site_history *history,
     if (history->sweeps < SITE_ENOUGH_SWEEPS)
         return SITE_SEEN_STEADY;
     if (entry->sweeps * SITE_STEADY_DENOMINATOR <
-        history->sweeps * SITE_STEADY_NUMERATOR)
+        history->sweeps * SITE_STEADY_NUMERATOR) {
+        /* Intermittent is the honest answer when the pattern is unknown; when
+           the clock explains it, saying so is strictly more useful. */
+        if (site_history_daily_spread(history, entry, NULL, NULL) >=
+            SITE_DIURNAL_SPREAD)
+            return SITE_SEEN_DIURNAL;
         return SITE_SEEN_INTERMITTENT;
+    }
     return SITE_SEEN_STEADY;
 }
 
@@ -155,6 +263,7 @@ const char *site_seen_name(enum site_seen seen) {
     case SITE_SEEN_NEW:          return "new";
     case SITE_SEEN_STEADY:       return "steady";
     case SITE_SEEN_INTERMITTENT: return "on/off";
+    case SITE_SEEN_DIURNAL:      return "by hour";
     case SITE_SEEN_MISSING:      return "gone";
     case SITE_SEEN_UNKNOWN:      break;
     }
@@ -163,7 +272,7 @@ const char *site_seen_name(enum site_seen seen) {
 
 int site_history_merge(struct site_history *history, const double *hz,
                        const float *dbfs, const float *prominence, int count,
-                       double bin_hz) {
+                       double bin_hz, int hour) {
     int i, added = 0;
 
     if (!history)
@@ -177,6 +286,9 @@ int site_history_merge(struct site_history *history, const double *hz,
     if (!hz)
         count = 0;
     history->sweeps++;
+    if (hour >= 0 && hour < SITE_HOURS &&
+        history->sweeps_by_hour[hour] < 0xffffu)
+        history->sweeps_by_hour[hour]++;
     for (i = 0; i < count; i++) {
         struct site_entry *match = NULL;
         double nearest = -1.0;
@@ -216,12 +328,16 @@ int site_history_merge(struct site_history *history, const double *hz,
             match->prominence_db = prominence[i];
         match->sweeps++;
         match->last_sweep = history->sweeps;
+        if (hour >= 0 && hour < SITE_HOURS &&
+            match->heard_by_hour[hour] < 0xffffu)
+            match->heard_by_hour[hour]++;
     }
     return added;
 }
 
 int site_history_record_one(struct site_history *history, double hz,
-                            float dbfs, float prominence_db, double bin_hz) {
+                            float dbfs, float prominence_db, double bin_hz,
+                            int hour) {
     struct site_entry *match = NULL;
     double nearest = -1.0;
     int i, added = 0;
@@ -258,6 +374,9 @@ int site_history_record_one(struct site_history *history, double hz,
     if (match->last_sweep < history->sweeps) {
         match->sweeps++;
         match->last_sweep = history->sweeps;
+        if (hour >= 0 && hour < SITE_HOURS &&
+            match->heard_by_hour[hour] < 0xffffu)
+            match->heard_by_hour[hour]++;
     }
     return added;
 }

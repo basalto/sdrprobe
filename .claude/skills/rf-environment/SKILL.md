@@ -134,6 +134,13 @@ mark where something it knows is absent, and the history under the cursor. That
 answers "what is new here" at a glance, which is the same question `diff`
 answers between two saved sweeps.
 
+**Watch, when the question is what changes rather than what is there.** `Watch`
+in the window, or `--survey-watch <n>` from a script, sweeps repeatedly and
+folds each sweep into the site's history, reporting what appeared and what went
+quiet. Left running it is the only thing that answers "does this come on in the
+evenings" -- the history counts presence per hour of the day, and a signal whose
+absence follows the clock is reported `by hour` rather than `on/off`.
+
 **Do not report those marks as findings.** A sweep step is a tenth of a second,
 enough to notice a carrier and not enough to be sure of one. `Ask again` in the
 window, or `--survey-confirm` on a `--survey-range` run, revisits each claim
