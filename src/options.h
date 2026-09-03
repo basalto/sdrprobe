@@ -84,6 +84,7 @@ struct options {
     /* Start walking band II as soon as the view opens. A scan reachable only
        by a button is a scan no script can start and no check can watch. */
     int fm_scan;
+    int fm_play;   /* start the sound as soon as the view opens */
 
     /*
      * What describes the installation rather than this run. Both persist:

@@ -133,6 +133,26 @@ void update_fm(struct app *app, double now) {
         fm->spectrum_at = now;
     }
 
+    /*
+     * The sound, from the same multiplex the decode reads. One block in is
+     * one block of audio out, so the ring neither fills nor empties except
+     * when a block is dropped.
+     */
+    if (fm->playing) {
+        static int16_t pcm[FM_AUDIO_RING];
+        size_t made = fm_audio_mono(&fm->audio, multiplex, n, pcm,
+                                    FM_AUDIO_RING);
+        size_t k;
+
+        for (k = 0; k < made; k++) {
+            size_t next = (fm->audio_tail + 1) & (FM_AUDIO_RING - 1);
+            if (next == fm->audio_head)
+                break;    /* the card is not keeping up; drop the newest */
+            fm->audio_ring[fm->audio_tail] = pcm[k];
+            fm->audio_tail = next;
+        }
+    }
+
     /* One timing search and one axis over the whole window, which is what
        makes this the same answer the offline decode gives. */
     fm->soft_count = fm_rds_soft_bits(fm->bb_i, fm->bb_q, fm->bb_count,
@@ -283,6 +303,15 @@ static void draw_signal_panel(const struct app *app, Rectangle rect) {
     draw_row(rect, y, "pilot", locked ? "locked" : "no lock",
              locked ? row_good : row_weak);
     y += 20;
+    if (fm->audio_error[0]) {
+        draw_row(rect, y, "audio", fm->audio_error, row_weak);
+        y += 20;
+    } else if (fm->playing) {
+        snprintf(text, sizeof(text), "%.0f Hz mono",
+                 fm_audio_rate(&fm->audio));
+        draw_row(rect, y, "audio", text, row_good);
+        y += 20;
+    }
     if (locked) {
         snprintf(text, sizeof(text), "%.2f Hz", fm_pilot_hz(&fm->front.pilot));
         draw_row(rect, y, "at", text, row_value);
@@ -525,6 +554,90 @@ static void draw_groups_chart(const struct app *app, Rectangle rect) {
 }
 
 /*
+ * The sound.
+ *
+ * The device is opened on the first press rather than at startup: a machine
+ * with no sound card should not have every run of this program complain about
+ * it, and most runs of this program never ask for audio.
+ */
+static size_t audio_pending(const struct fm_view *fm) {
+    return (fm->audio_tail - fm->audio_head) & (FM_AUDIO_RING - 1);
+}
+
+void fm_play(struct app *app) {
+    struct fm_view *fm = &app->fm;
+
+    if (fm->playing) {
+        fm->playing = 0;
+        if (fm->audio_ready)
+            StopAudioStream(fm->audio_stream);
+        fm->audio_head = fm->audio_tail = 0;
+        debug_log_write("fm-audio", "stopped");
+        return;
+    }
+    if (fm_audio_init(&fm->audio, (double)app->applied_sample_rate) < 0) {
+        snprintf(app->fm.audio_error, sizeof(app->fm.audio_error),
+                 "The sample rate is too low to carry audio.");
+        return;
+    }
+    if (!fm->audio_ready) {
+        InitAudioDevice();
+        if (!IsAudioDeviceReady()) {
+            snprintf(app->fm.audio_error, sizeof(app->fm.audio_error),
+                     "No audio device.");
+            debug_log_write("fm-audio", "no device");
+            return;
+        }
+        SetAudioStreamBufferSizeDefault(FM_AUDIO_CHUNK);
+        fm->audio_stream = LoadAudioStream((unsigned)fm_audio_rate(&fm->audio),
+                                           16, 1);
+        fm->audio_ready = 1;
+    }
+    fm->audio_error[0] = '\0';
+    fm->audio_head = fm->audio_tail = 0;
+    fm->playing = 1;
+    PlayAudioStream(fm->audio_stream);
+    debug_log_write("fm-audio", "playing at %.0f Hz",
+                    fm_audio_rate(&fm->audio));
+}
+
+void fm_audio_close(struct app *app) {
+    if (!app->fm.audio_ready)
+        return;
+    StopAudioStream(app->fm.audio_stream);
+    UnloadAudioStream(app->fm.audio_stream);
+    CloseAudioDevice();
+    app->fm.audio_ready = 0;
+    app->fm.playing = 0;
+}
+
+/*
+ * Hand the sound card whatever has arrived.
+ *
+ * Called every frame rather than every block, because the card asks on its own
+ * schedule and a block is four of its buffers. Nothing is pushed unless a
+ * whole chunk is ready: a partial one played now is a click, and the sound is
+ * already going to click whenever the acquisition slot drops a block.
+ */
+void update_fm_audio(struct app *app) {
+    struct fm_view *fm = &app->fm;
+
+    if (!fm->playing || !fm->audio_ready)
+        return;
+    while (IsAudioStreamProcessed(fm->audio_stream) &&
+           audio_pending(fm) >= FM_AUDIO_CHUNK) {
+        static int16_t chunk[FM_AUDIO_CHUNK];
+        size_t k;
+
+        for (k = 0; k < FM_AUDIO_CHUNK; k++) {
+            chunk[k] = fm->audio_ring[fm->audio_head];
+            fm->audio_head = (fm->audio_head + 1) & (FM_AUDIO_RING - 1);
+        }
+        UpdateAudioStream(fm->audio_stream, chunk, FM_AUDIO_CHUNK);
+    }
+}
+
+/*
  * Entering the view puts the receiver in the band.
  *
  * Without this the FM view opens on whatever the last screen was pointed at
@@ -573,6 +686,8 @@ void draw_fm(struct app *app) {
                         50000.0);
     }
 
+    draw_button(l.play_button, app->fm.playing ? "Stop" : "Play",
+                app->fm.playing);
     draw_button(l.scan_button,
                 app->fm.scan.running ? "Stop" : "Scan band",
                 app->fm.scan.running);
@@ -637,6 +752,10 @@ void handle_fm_input(struct app *app) {
     else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         app->fm.typing = 0;
 
+    if (clicked(l.play_button)) {
+        fm_play(app);
+        return;
+    }
     if (clicked(l.view_toggle)) {
         app->fm.analysis_mode = !app->fm.analysis_mode;
         return;
