@@ -9,6 +9,8 @@
 #include "calibration_gate.h"
 #include "lte_dsp.h"
 #include "chrome_layout.h"
+#include "calibration_layout.h"
+#include "lte_scan.h"
 #include "sdrgui.h"
 
 /*
@@ -198,8 +200,43 @@ static void update_lte_calibration(struct app *app) {
              (double)cell.pss_correlation, app->cal.suggested_ppm);
 }
 
+/*
+ * The 4G scan: the same walk the LTE decode view does, driven from here.
+ *
+ * Reusing it rather than writing a second one is the point -- the coarse-to-
+ * fine order, the repeated looks, the confirmation pass and the ghost
+ * suppression were all earned against real signals, and a calibration scan
+ * that quietly did something simpler would find different cells than the
+ * decode view does on the same band.
+ */
+static void update_lte_calibration_scan(struct app *app) {
+    if (!app->cal_lte_scanning)
+        return;
+    update_lte_scan(app, GetTime(), 1);
+    if (lte_scan_running(app)) {
+        const struct lte_band *band = lte_band_at(app->cal_lte_band);
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "Scanning band %d: %d of %d channels, %d cells so far",
+                 band ? band->band : 0, app->lte.scan.candidate + 1,
+                 app->lte.scan.total, app->lte.scan.found_count);
+        return;
+    }
+    app->cal_lte_scanning = 0;
+    snprintf(app->calibration_status, sizeof(app->calibration_status),
+             app->lte.scan.found_count > 0
+                 ? "%d cells found -- pick one to calibrate against"
+                 : "No cells found in that band",
+             app->lte.scan.found_count);
+}
+
 void update_calibration_measurement(struct app *app) {
-    if (!app->calibration_open || !app->cal.running || app->scan_open)
+    if (!app->calibration_open || app->scan_open)
+        return;
+    if (app->cal_lte_scanning) {
+        update_lte_calibration_scan(app);
+        return;
+    }
+    if (!app->cal.running)
         return;
     if (app->calibration_technology == 1) {
         double waited = GetTime() - app->cal.started_at;
@@ -430,7 +467,69 @@ void handle_calibration_input(struct app *app) {
     Rectangle apply_ppm = { right - 148.0f, 72, 126, 34 };
     Rectangle back = { (float)GetScreenWidth() - 112.0f, 18, 88, 34 };
 
+    struct calibration_layout cl = calibration_layout_now();
     int inputs_changed = 0;
+
+    /*
+     * The 4G controls: pick a band, scan it, pick a cell. Typing an EARFCN
+     * still works and is faster when you know one, but nobody knows one for a
+     * band they have not looked at -- which is the whole reason GSM has a scan
+     * and this needed one.
+     */
+    if (app->calibration_technology == 1 && !app->cal.running) {
+        int b;
+        for (b = 0; b < CALIBRATION_LTE_BANDS && b < lte_band_count(); b++)
+            if (clicked(cl.band[b])) {
+                app->cal_lte_band = b;
+                app->lte.scan.found_count = 0;
+                inputs_changed = 1;
+            }
+        if (clicked(cl.scan_button) && !app->cal_lte_scanning) {
+            const struct lte_band *band = lte_band_at(app->cal_lte_band);
+            if (!app->receiver_mode) {
+                snprintf(app->calibration_status,
+                         sizeof(app->calibration_status),
+                         "A band scan needs a live receiver");
+            } else {
+                /* The scan runs on LTE's own grid, like everything else that
+                   looks for a cell (ADR-0014). */
+                if (!app->cal_return_sample_rate)
+                    app->cal_return_sample_rate = app->applied_sample_rate;
+                if (retune_receiver_at_rate(app, app->applied_frequency,
+                                            app->applied_ppm,
+                                            LTE_SAMPLE_RATE_HZ) == 0 &&
+                    band &&
+                    lte_scan_begin(app, band->band, GetTime()) == 0) {
+                    app->cal_lte_scanning = 1;
+                    snprintf(app->calibration_status,
+                             sizeof(app->calibration_status),
+                             "Scanning band %d, about %.0f s for the first "
+                             "pass", band->band,
+                             lte_scan_first_pass_seconds(band));
+                } else {
+                    snprintf(app->calibration_status,
+                             sizeof(app->calibration_status),
+                             "Could not start the band scan");
+                }
+            }
+            return;
+        }
+        if (!app->cal_lte_scanning && app->lte.scan.found_count > 0) {
+            int row = calibration_cell_row_at(cl.cell_list,
+                                              app->lte.scan.found_count,
+                                              GetMousePosition());
+            if (row >= 0 && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                /* Picking a cell is choosing the EARFCN and starting on it,
+                   which is what the operator meant by clicking it. */
+                snprintf(app->cal.channel, sizeof(app->cal.channel), "%u",
+                         app->lte.scan.found[row].earfcn);
+                app->cal.channel_length = (int)strlen(app->cal.channel);
+                start_calibration(app);
+                return;
+            }
+        }
+    }
+
     if (!app->cal.running && clicked(tech_2g)) {
         app->calibration_technology = 0;
         inputs_changed = 1;
@@ -569,6 +668,58 @@ void draw_calibration(struct app *app) {
              (Color){ 209, 221, 228, 255 });
     DrawText(app->calibration_technology == 1 ? "EARFCN" : "ARFCN",
              (int)channel.x, 50, 16, (Color){ 157, 180, 194, 255 });
+    if (app->calibration_technology == 1) {
+        struct calibration_layout cl = calibration_layout_now();
+        char row[128];
+        int b, i, rows;
+
+        for (b = 0; b < CALIBRATION_LTE_BANDS && b < lte_band_count(); b++) {
+            const struct lte_band *band = lte_band_at(b);
+            snprintf(row, sizeof(row), "Band %d", band ? band->band : 0);
+            draw_button(cl.band[b], row, b == app->cal_lte_band);
+        }
+        draw_button(cl.scan_button,
+                    app->cal_lte_scanning ? "Scanning" : "Scan band",
+                    app->cal_lte_scanning);
+
+        DrawRectangleRec(cl.cell_list, (Color){ 6, 10, 17, 255 });
+        DrawRectangleLinesEx(cl.cell_list, 1.0f, (Color){ 82, 109, 126, 255 });
+        snprintf(row, sizeof(row), "Cells found (%d)",
+                 app->lte.scan.found_count);
+        DrawText(row, (int)cl.cell_list.x + 10, (int)cl.cell_list.y + 8, 16,
+                 (Color){ 151, 174, 188, 255 });
+        rows = app->lte.scan.found_count;
+        if (rows > CALIBRATION_CELL_ROWS)
+            rows = CALIBRATION_CELL_ROWS;
+        if (rows == 0) {
+            DrawText(app->cal_lte_scanning ? "scanning..."
+                                           : "pick a band and press Scan",
+                     (int)cl.cell_list.x + 10, (int)cl.cell_list.y + 34, 16,
+                     (Color){ 126, 151, 166, 255 });
+        }
+        for (i = 0; i < rows; i++) {
+            const struct lte_found_cell *found = &app->lte.scan.found[i];
+            float y = cl.cell_list.y + 30.0f +
+                      CALIBRATION_CELL_ROW_H * (float)i;
+            int hovered = calibration_cell_row_at(cl.cell_list, rows,
+                                                  GetMousePosition()) == i;
+            if (hovered)
+                DrawRectangle((int)cl.cell_list.x + 1, (int)y,
+                              (int)cl.cell_list.width - 2,
+                              (int)CALIBRATION_CELL_ROW_H,
+                              (Color){ 255, 174, 62, 40 });
+            /* The correlation is on the row because it is what decides
+               whether the offset this cell yields is worth believing. */
+            snprintf(row, sizeof(row),
+                     "EARFCN %-6u %9.3f MHz   cell %-4d PSS %.2f",
+                     found->earfcn, found->frequency_hz / 1e6, found->pci,
+                     (double)found->pss);
+            DrawText(row, (int)cl.cell_list.x + 10, (int)y + 5, 16,
+                     found->pss >= CALIBRATION_MIN_PSS
+                         ? (Color){ 213, 226, 234, 255 }
+                         : (Color){ 150, 140, 120, 255 });
+        }
+    }
     sdrgui_text_field(channel,
                       app->calibration_technology == 0
                           ? app->cal.channel
