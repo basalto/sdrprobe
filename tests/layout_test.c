@@ -315,7 +315,7 @@ static int overlaps(Rectangle a, Rectangle b) {
            a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
-#define SURVEY_RECTS 18
+#define SURVEY_RECTS 19
 
 struct survey_case {
     float width, height;
@@ -334,10 +334,11 @@ static const struct survey_case survey_cases[] = {
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
-        { "antenna_field", 288.00f, 180.00f, 204.00f, 30.00f },
-        { "antenna_menu_button", 494.00f, 180.00f, 26.00f, 30.00f },
-        { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
-        { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
+        { "antenna_menu_button", 470.00f, 180.00f, 26.00f, 30.00f },
+        { "save_button", 510.00f, 180.00f, 120.00f, 30.00f },
+        { "confirm_button", 646.00f, 180.00f, 150.00f, 30.00f },
+        { "watch_button", 812.00f, 180.00f, 110.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 988.00f, 198.90f },
         { "peak_list", 82.00f, 472.90f, 414.96f, 217.10f },
         { "detail", 516.96f, 472.90f, 553.04f, 217.10f },
@@ -354,10 +355,11 @@ static const struct survey_case survey_cases[] = {
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
-        { "antenna_field", 288.00f, 180.00f, 204.00f, 30.00f },
-        { "antenna_menu_button", 494.00f, 180.00f, 26.00f, 30.00f },
-        { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
-        { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
+        { "antenna_menu_button", 470.00f, 180.00f, 26.00f, 30.00f },
+        { "save_button", 510.00f, 180.00f, 120.00f, 30.00f },
+        { "confirm_button", 646.00f, 180.00f, 150.00f, 30.00f },
+        { "watch_button", 812.00f, 180.00f, 110.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 1168.00f, 234.90f },
         { "peak_list", 82.00f, 508.90f, 490.56f, 261.10f },
         { "detail", 592.56f, 508.90f, 657.44f, 261.10f },
@@ -374,10 +376,11 @@ static const struct survey_case survey_cases[] = {
         { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
-        { "antenna_field", 288.00f, 180.00f, 204.00f, 30.00f },
-        { "antenna_menu_button", 494.00f, 180.00f, 26.00f, 30.00f },
-        { "save_button", 534.00f, 180.00f, 150.00f, 30.00f },
-        { "confirm_button", 700.00f, 180.00f, 176.00f, 30.00f },
+        { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
+        { "antenna_menu_button", 470.00f, 180.00f, 26.00f, 30.00f },
+        { "save_button", 510.00f, 180.00f, 120.00f, 30.00f },
+        { "confirm_button", 646.00f, 180.00f, 150.00f, 30.00f },
+        { "watch_button", 812.00f, 180.00f, 110.00f, 30.00f },
         { "chart", 82.00f, 248.00f, 888.00f, 117.90f },
         { "peak_list", 82.00f, 391.90f, 372.96f, 118.10f },
         { "detail", 474.96f, 391.90f, 495.04f, 118.10f },
@@ -397,7 +400,7 @@ static void check_survey(void) {
             l.reset_button, l.stop_button,
             l.site_field, l.site_menu_button, l.antenna_field,
             l.antenna_menu_button, l.save_button,
-            l.confirm_button,
+            l.confirm_button, l.watch_button,
             l.chart, l.peak_list, l.detail,
             l.scan_button, l.waterfall_button, l.inspect_button
         };
@@ -457,10 +460,11 @@ static void check_survey(void) {
         }
         /* The second row: where the sweep will be recorded, and the button
            that records it. */
-        Rectangle second[6] = { l.site_field, l.site_menu_button,
+        Rectangle second[7] = { l.site_field, l.site_menu_button,
                                 l.antenna_field, l.antenna_menu_button,
-                                l.save_button, l.confirm_button };
-        for (int i = 0; i < 6; i++) {
+                                l.save_button, l.confirm_button,
+                                l.watch_button };
+        for (int i = 0; i < 7; i++) {
             check_msg(i == 0 ||
                       second[i].x >= second[i - 1].x + second[i - 1].width,
                       "%.0fx%.0f second-row control %d overlaps\n",
@@ -530,11 +534,11 @@ static void check_survey(void) {
          * baselines and they are compared here like anything else.
          */
         {
-            Rectangle controls[11] = {
+            Rectangle controls[13] = {
                 l.from_field, l.to_field, l.dwell_field, l.sweep_button,
                 l.reset_button, l.stop_button, l.site_field,
                 l.site_menu_button, l.antenna_field, l.antenna_menu_button,
-                l.save_button
+                l.save_button, l.confirm_button, l.watch_button
             };
             /* Each caption, as the box it actually occupies. */
             Rectangle captioned[5] = { l.from_field, l.to_field, l.dwell_field,
@@ -546,7 +550,7 @@ static void check_survey(void) {
                 caption.y = captioned[a].y - l.label_offset;
                 caption.width = captioned[a].width;
                 caption.height = l.label_height;
-                for (b = 0; b < 11; b++) {
+                for (b = 0; b < 13; b++) {
                     if (overlaps(caption, controls[b]))
                         check_msg(0, "%.0fx%.0f a caption lands on control %d\n",
                                   w->width, w->height, b);
@@ -560,7 +564,7 @@ static void check_survey(void) {
                 status.y = l.status_y;
                 status.width = l.header_right - l.header_left;
                 status.height = 17.0f;
-                for (b = 0; b < 11; b++)
+                for (b = 0; b < 13; b++)
                     if (overlaps(status, controls[b]))
                         check_msg(0, "%.0fx%.0f the status line lands on "
                                   "control %d\n", w->width, w->height, b);

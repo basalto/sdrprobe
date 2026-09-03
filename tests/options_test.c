@@ -361,6 +361,36 @@ static void test_asking_again_needs_a_sweep(void) {
     check_int("a sweep alone does not ask again", options.survey_confirm, 0);
 }
 
+static void test_watching_needs_a_sweep(void) {
+    struct options options;
+    const char *alone[] = { "sdrprobe", "--survey-watch", "5" };
+    const char *ok[] = { "sdrprobe", "--survey-range", "88M:108M",
+                         "--survey-watch", "5" };
+    const char *both[] = { "sdrprobe", "--survey-range", "88M:108M",
+                           "--survey-watch", "5", "--survey-confirm" };
+    const char *zero[] = { "sdrprobe", "--survey-range", "88M:108M",
+                           "--survey-watch", "0" };
+    const char *words[] = { "sdrprobe", "--survey-range", "88M:108M",
+                            "--survey-watch", "lots" };
+
+    check_true("a watch with nothing to repeat is refused",
+               parse_options(3, (char **)alone, &options) < 0);
+    check_int("with a range it is accepted",
+              parse_options(5, (char **)ok, &options), 0);
+    check_int("and remembers how many", options.survey_watch, 5);
+    /* Asking again retunes the receiver away from a sweep that is about to
+       restart, so the two cannot both run. */
+    check_true("watching and asking again together are refused",
+               parse_options(6, (char **)both, &options) < 0);
+    check_true("no sweeps is not a watch",
+               parse_options(5, (char **)zero, &options) < 0);
+    check_true("nor is a word",
+               parse_options(5, (char **)words, &options) < 0);
+    check_int("and it is off unless asked for",
+              parse_options(3, (char **)ok, &options) == 0
+                  ? options.survey_watch : -1, 0);
+}
+
 int main(void) {
     test_defaults();
     test_frequency_spellings();
@@ -372,6 +402,8 @@ int main(void) {
     test_installation_flags();
 
     test_asking_again_needs_a_sweep();
+
+    test_watching_needs_a_sweep();
 
     return check_report("command line");
 }

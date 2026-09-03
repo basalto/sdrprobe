@@ -29,6 +29,7 @@ struct survey_layout {
     Rectangle antenna_menu_button;  /* and of antennas already used */
     Rectangle confirm_button;    /* asks again about what the sweep called new
                                     or missing */
+    Rectangle watch_button;      /* keep sweeping, and say what changes */
     Rectangle chart;           /* power across the swept range */
     Rectangle peak_list;       /* lower left: the candidates found */
     Rectangle detail;          /* lower right: the selected one */
@@ -115,10 +116,11 @@ static inline struct survey_layout survey_layout_for(float width,
        configuration file they have never opened. */
     l.site_field = (Rectangle){ 82.0f, 180.0f, 164.0f, 30.0f };
     l.site_menu_button = (Rectangle){ 248.0f, 180.0f, 26.0f, 30.0f };
-    l.antenna_field = (Rectangle){ 288.0f, 180.0f, 204.0f, 30.0f };
-    l.antenna_menu_button = (Rectangle){ 494.0f, 180.0f, 26.0f, 30.0f };
-    l.save_button = (Rectangle){ 534.0f, 180.0f, 150.0f, 30.0f };
-    l.confirm_button = (Rectangle){ 700.0f, 180.0f, 176.0f, 30.0f };
+    l.antenna_field = (Rectangle){ 288.0f, 180.0f, 180.0f, 30.0f };
+    l.antenna_menu_button = (Rectangle){ 470.0f, 180.0f, 26.0f, 30.0f };
+    l.save_button = (Rectangle){ 510.0f, 180.0f, 120.0f, 30.0f };
+    l.confirm_button = (Rectangle){ 646.0f, 180.0f, 150.0f, 30.0f };
+    l.watch_button = (Rectangle){ 812.0f, 180.0f, 110.0f, 30.0f };
     l.status_y = 220.0f;
     l.label_offset = 20.0f;
     l.label_height = 16.0f;

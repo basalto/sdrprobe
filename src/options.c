@@ -33,6 +33,8 @@ void usage(const char *program) {
             "  --view            screen to open on\n"
             "  --record-seconds  record raw I/Q to captures/ from startup,\n"
             "                    with a .json sidecar describing the tuning\n"
+            "  --survey-watch    keep sweeping this many times, folding each\n"
+            "                    into the site's history and saying what changed\n"
             "  --survey-confirm  after a --survey-range sweep, ask again about\n"
             "                    every signal it called new or missing\n"
             "  --antenna         name the antenna in use; saved, and reported\n"
@@ -403,6 +405,15 @@ int parse_options(int argc, char **argv, struct options *options) {
                 return -1;
         } else if (strcmp(option, "--survey-confirm") == 0) {
             options->survey_confirm = 1;
+        } else if (strcmp(option, "--survey-watch") == 0) {
+            long sweeps;
+            char *end;
+            if (options->survey_watch || i + 1 >= argc)
+                return -1;
+            sweeps = strtol(argv[++i], &end, 10);
+            if (*end || sweeps < 1 || sweeps > 100000)
+                return -1;
+            options->survey_watch = (int)sweeps;
         } else if (strcmp(option, "--antenna") == 0) {
             if (options->antenna || i + 1 >= argc || !*argv[i + 1])
                 return -1;
@@ -457,6 +468,13 @@ int parse_options(int argc, char **argv, struct options *options) {
         return -1;
     /* Asking again is about what a sweep found, so there has to be one. */
     if (options->survey_confirm && !options->survey_seen)
+        return -1;
+    /* And a watch is a sweep repeated, so likewise. */
+    if (options->survey_watch && !options->survey_seen)
+        return -1;
+    /* Both at once would ask again in the middle of a watch, retuning the
+       receiver away from a sweep that is about to restart. */
+    if (options->survey_watch && options->survey_confirm)
         return -1;
     /* An ARFCN is a frequency; naming both leaves no way to say which wins. */
     if (options->arfcn && frequency_seen)
