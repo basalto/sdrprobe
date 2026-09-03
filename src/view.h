@@ -82,6 +82,10 @@ void update_fm_scan(struct app *app, double now, int have_block);
 int fm_scan_showing(const struct app *app);
 /* Put the receiver in band II when the view is opened. */
 void enter_fm(struct app *app);
+/* Start or stop the sound. The device opens on the first press. */
+void fm_play(struct app *app);
+void update_fm_audio(struct app *app);
+void fm_audio_close(struct app *app);
 
 void draw_lte(struct app *app);
 void handle_lte_input(struct app *app);

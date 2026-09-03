@@ -148,6 +148,12 @@ struct fm_scan {
  * the same samples.
  */
 #define FM_VIEW_BASEBAND 65536      /* about 3.4 s at the pilot rate */
+/* Half a second of sound. Enough to ride out the jitter between a block
+   arriving and a frame being drawn, and short enough that what is heard is
+   what the receiver is on rather than where it was. */
+#define FM_AUDIO_RING 32768
+/* What is handed to the sound card at once. */
+#define FM_AUDIO_CHUNK 2048
 #define FM_VIEW_SOFT_BITS (FM_VIEW_BASEBAND / FM_RDS_SAMPLES_PER_SYMBOL + 8)
 
 struct fm_view {
@@ -173,6 +179,22 @@ struct fm_view {
     long blocks_seen;
     long groups_total;
     double last_group_at;
+
+    /*
+     * The audio, and the ring between the two rates that produce and consume
+     * it. A block arrives every 65 ms carrying 65 ms of sound, so production
+     * and consumption match exactly and the ring only has to absorb jitter --
+     * except when the renderer falls behind and the acquisition slot drops a
+     * block (ADR-0002), which is a gap in the sound and cannot be anything
+     * else.
+     */
+    struct fm_audio audio;
+    int audio_ready;                /* the device opened */
+    char audio_error[80];
+    int playing;
+    AudioStream audio_stream;
+    int16_t audio_ring[FM_AUDIO_RING];
+    size_t audio_head, audio_tail;  /* tail writes, head reads */
 
     int analysis_mode;              /* charts instead of the waterfall */
     /* The multiplex spectrum the charts draw, refreshed a few times a second

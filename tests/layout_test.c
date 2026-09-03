@@ -831,8 +831,8 @@ static void check_fm_view(void) {
     for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++)
     for (scanning = 0; scanning <= 1; scanning++) {
         struct fm_layout l = fm_layout_for(sizes[c][0], sizes[c][1], scanning);
-        Rectangle all[16];
-        const char *names[16];
+        Rectangle all[18];
+        const char *names[18];
         int n = 0, a, b, i;
 
         all[n] = l.frequency_field; names[n++] = "frequency";
@@ -841,6 +841,7 @@ static void check_fm_view(void) {
             all[n] = l.station_button[i]; names[n++] = "preset";
         }
         all[n] = l.scan_button;     names[n++] = "scan";
+        all[n] = l.play_button;     names[n++] = "play";
         all[n] = l.view_toggle;     names[n++] = "view toggle";
         all[n] = l.waterfall;       names[n++] = "waterfall";
         if (scanning) {

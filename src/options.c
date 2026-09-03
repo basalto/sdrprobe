@@ -22,7 +22,7 @@ void usage(const char *program) {
             "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte|fm|\n"
             "                  calibration|settings|help]\n"
             "          [--record-seconds n] [--technology gsm|adsb|lte|fm|raw]\n"
-            "          [--debug-log FILE|-] [--analysis] [--fm-scan]\n"
+            "          [--debug-log FILE|-] [--analysis] [--fm-scan] [--fm-play]\n"
             "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
@@ -410,6 +410,8 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->play_once)
                 return -1;
             options->play_once = 1;
+        } else if (strcmp(option, "--fm-play") == 0) {
+            options->fm_play = 1;
         } else if (strcmp(option, "--fm-scan") == 0) {
             options->fm_scan = 1;
         } else if (strcmp(option, "--analysis") == 0) {

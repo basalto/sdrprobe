@@ -624,3 +624,86 @@ size_t fm_rds_symbols(const float *bb_i, const float *bb_q, size_t samples,
         }
     return made;
 }
+
+int fm_audio_init(struct fm_audio *audio, double sample_rate) {
+    if (!audio || sample_rate < FM_MIN_SAMPLE_RATE)
+        return -1;
+    memset(audio, 0, sizeof(*audio));
+    audio->sample_rate = sample_rate;
+    audio->decimate = (int)(sample_rate / FM_AUDIO_TARGET_RATE + 0.5);
+    if (audio->decimate < 1)
+        audio->decimate = 1;
+    audio->audio_rate = sample_rate / audio->decimate;
+    audio->lowpass_k = 1.0 - exp(-2.0 * M_PI * FM_AUDIO_TOP_HZ / sample_rate);
+    /* De-emphasis runs after the decimation, so its corner is relative to the
+       audio rate rather than the capture rate. */
+    audio->deemphasis_k = 1.0 - exp(-1.0 / (FM_DEEMPHASIS_SECONDS *
+                                            audio->audio_rate));
+    audio->level = 0.0;
+    return 0;
+}
+
+double fm_audio_rate(const struct fm_audio *audio) {
+    return audio ? audio->audio_rate : 0.0;
+}
+
+size_t fm_audio_mono(struct fm_audio *audio, const float *mpx, size_t n,
+                     int16_t *out, size_t capacity) {
+    size_t made = 0, s;
+    double decay;
+
+    if (!audio || !mpx || !out || audio->decimate < 1)
+        return 0;
+    decay = 1.0 - exp(-(double)audio->decimate /
+                      (FM_AUDIO_AGC_SECONDS * audio->sample_rate));
+
+    for (s = 0; s < n && made < capacity; s++) {
+        double value = mpx[s];
+
+        /*
+         * Low-pass to 14 kHz before decimating. Three sections, which puts
+         * the 19 kHz pilot about 17 dB down -- audible to nobody and, once
+         * decimated, folded to 31 kHz where it is audible to nothing.
+         */
+        audio->lowpass[0] += audio->lowpass_k * (value - audio->lowpass[0]);
+        audio->lowpass[1] += audio->lowpass_k * (audio->lowpass[0] -
+                                                 audio->lowpass[1]);
+        audio->lowpass[2] += audio->lowpass_k * (audio->lowpass[1] -
+                                                 audio->lowpass[2]);
+        audio->accumulator += audio->lowpass[2];
+        audio->accumulated++;
+
+        if (audio->accumulated < audio->decimate)
+            continue;
+        {
+            double sample = audio->accumulator / audio->accumulated;
+            double gain;
+
+            audio->accumulator = 0.0;
+            audio->accumulated = 0;
+
+            /* De-emphasis: a broadcaster lifts the treble before
+               transmitting and this puts it back, which is most of the
+               difference between "harsh" and "a radio". */
+            audio->deemphasis += audio->deemphasis_k * (sample -
+                                                        audio->deemphasis);
+            sample = audio->deemphasis;
+
+            /* A slow peak follower, so a weak station is audible at the same
+               setting as a strong one. */
+            if (fabs(sample) > audio->level)
+                audio->level = fabs(sample);
+            else
+                audio->level += decay * (fabs(sample) - audio->level);
+
+            gain = audio->level > 1e-6 ? 0.7 / audio->level : 0.0;
+            sample *= gain;
+            if (sample > 1.0)
+                sample = 1.0;
+            if (sample < -1.0)
+                sample = -1.0;
+            out[made++] = (int16_t)(sample * 32000.0);
+        }
+    }
+    return made;
+}

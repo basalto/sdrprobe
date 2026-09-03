@@ -44,6 +44,7 @@ struct fm_layout {
     Rectangle frequency_field;
     Rectangle tune_button;
     Rectangle station_button[FM_LAYOUT_STATIONS];
+    Rectangle play_button;
     Rectangle scan_button;
     Rectangle view_toggle;         /* View: Charts / View: Signal */
     Rectangle waterfall;
@@ -81,6 +82,8 @@ static inline struct fm_layout fm_layout_for(float width, float height,
     l.scan_button = (Rectangle){ left + 232.0f +
                                      (float)FM_LAYOUT_STATIONS * 96.0f,
                                  100.0f, 100.0f, 26.0f };
+    l.play_button = (Rectangle){ l.scan_button.x + l.scan_button.width + 10.0f,
+                                 100.0f, 78.0f, 26.0f };
     /* Clear of the Calibration button, which chrome_layout.h anchors to the
        right edge down to y = 92 -- the same clearance lte_layout.h takes. */
     l.view_toggle = (Rectangle){ width - 150.0f, 100.0f, 130.0f, 26.0f };
