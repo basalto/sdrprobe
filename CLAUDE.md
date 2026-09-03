@@ -48,6 +48,21 @@ part comes out into a unit with a name. Logic not yet reachable is listed in
 `.scratch/testability/`, one ticket per area — add to it rather than leaving a
 gap implicit.
 
+**A change that draws is not finished until somebody has looked at it.**
+`make screens` renders every screen from captures -- no receiver, about a
+minute -- into `build/screens/`, and the Read tool displays a PNG. Look at the
+ones your change touched, and at their neighbours.
+
+`check-layout` is necessary and nowhere near sufficient. It compares
+rectangles, so it cannot see two panels drawing into the *same* rectangle, a
+picker offering bands the receiver cannot tune, a field reading "N/A" under a
+caption that promises a number, a message naming the wrong technology, or a
+frame that came out blank. Every one of those shipped in this program, and all
+five were obvious in a screenshot. If a change adds geometry it goes in the
+view's layout header -- **all of it, not some of it**: a header holding half a
+screen puts a green tick over the half it does not model, which is worse than
+having none.
+
 **`make check` passing is not the same as being right.** A round trip cannot
 check a convention both directions share, and this repository has lost months
 to that twice — a conjugated LTE primary sequence and a scattered GSM SCH field

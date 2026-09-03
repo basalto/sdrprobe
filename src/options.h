@@ -40,7 +40,9 @@ enum start_view {
        and I shipped a screen with three overlapping panels because I never saw
        it. Every screen has to be reachable from the command line for the same
        reason every decision has to be (ADR-0012). */
-    START_VIEW_CALIBRATION
+    START_VIEW_CALIBRATION,
+    START_VIEW_SETTINGS,
+    START_VIEW_HELP
 };
 
 enum gain_request_kind {
