@@ -938,6 +938,99 @@ static void test_the_pilot_does_not_reach_the_speaker(void) {
               at_19k, at_1k);
 }
 
+
+/*
+ * Stereo, which is only stereo if the two channels differ.
+ *
+ * A decoder that quietly played the sum signal into both would pass every
+ * check above, sound perfectly fine, and be mono. So this puts a different
+ * tone in each channel and measures how much of each reaches the other.
+ */
+static void test_stereo_separates_the_channels(void) {
+    struct fm_audio audio;
+    static int16_t frames[131072];
+    static float left[65536], right[65536];
+    size_t n, made, k;
+    double phase = 0.0;
+    double rate, l_at_1k, l_at_3k, r_at_1k, r_at_3k;
+
+    /* 1 kHz on the left, 3 kHz on the right, and a pilot so the receiver is
+       allowed to believe the difference signal. */
+    for (k = 0; k < SAMPLES; k++) {
+        double t = (double)k / RATE;
+        double l = 0.30 * sin(2.0 * M_PI * 1000.0 * t);
+        double r = 0.30 * sin(2.0 * M_PI * 3000.0 * t);
+        double m = (l + r) +
+                   (l - r) * cos(2.0 * M_PI * 2.0 * FM_PILOT_HZ * t) +
+                   0.10 * cos(2.0 * M_PI * FM_PILOT_HZ * t);
+        phase += 2.0 * M_PI * 75000.0 * m / RATE;
+        iq_i[k] = (float)cos(phase);
+        iq_q[k] = (float)sin(phase);
+    }
+    n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+    check_int("the audio path takes this rate", fm_audio_init(&audio, RATE), 0);
+    made = fm_audio_decode(&audio, out, n, NULL, frames, 65536);
+    check_true("frames came out", made > 4000);
+    check_true("and it says it found a pilot", fm_audio_is_stereo(&audio));
+    rate = fm_audio_rate(&audio);
+
+    for (k = 0; k < made; k++) {
+        left[k] = (float)frames[k * 2];
+        right[k] = (float)frames[k * 2 + 1];
+    }
+    {
+        static int16_t l16[65536], r16[65536];
+        for (k = 0; k < made; k++) {
+            l16[k] = frames[k * 2];
+            r16[k] = frames[k * 2 + 1];
+        }
+        l_at_1k = tone_in(l16, made, rate, 1000.0);
+        l_at_3k = tone_in(l16, made, rate, 3000.0);
+        r_at_1k = tone_in(r16, made, rate, 1000.0);
+        r_at_3k = tone_in(r16, made, rate, 3000.0);
+    }
+
+    check_true("the left channel carries its own tone", l_at_1k > 100.0);
+    check_true("and the right carries its own", r_at_3k > 100.0);
+    /*
+     * Separation. Ten times is 20 dB, which is poor for a broadcast receiver
+     * and is what this arrangement gives: three one-pole sections have a
+     * phase response, the sum and the difference travel through separate
+     * copies of them, and a difference in group delay between the two paths
+     * is exactly what leaks one channel into the other. It is enough to hear
+     * a stereo image, and saying so is better than claiming a number this
+     * does not reach.
+     */
+    check_msg(l_at_1k > l_at_3k * 10.0,
+              "the left channel has %.0f of its own tone and %.0f of the "
+              "right's\n", l_at_1k, l_at_3k);
+    check_msg(r_at_3k > r_at_1k * 10.0,
+              "the right channel has %.0f of its own tone and %.0f of the "
+              "left's\n", r_at_3k, r_at_1k);
+
+    /*
+     * And the fallback that matters just as much: a station with no pilot has
+     * no difference signal, and the noise where it would be must not be added
+     * to the sum. Both channels must come out identical.
+     */
+    build(FM_PILOT_HZ, 0.0, 0.30, 0.05);   /* audio and noise, no pilot */
+    n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+    fm_audio_init(&audio, RATE);
+    made = fm_audio_decode(&audio, out, n, NULL, frames, 65536);
+    check_true("a station with no pilot still plays", made > 4000);
+    check_true("and is not called stereo", !fm_audio_is_stereo(&audio));
+    {
+        size_t differ = 0;
+        for (k = made / 2; k < made; k++)
+            if (frames[k * 2] != frames[k * 2 + 1])
+                differ++;
+        check_msg(differ == 0,
+                  "%zu frames of a mono station have different channels\n",
+                  differ);
+    }
+    (void)left; (void)right;
+}
+
 int main(void) {
     test_the_discriminator();
     test_the_byte_path_matches();
@@ -955,6 +1048,7 @@ int main(void) {
     test_the_audio_rate_needs_no_resampler();
     test_the_audio_band_gets_through();
     test_the_pilot_does_not_reach_the_speaker();
+    test_stereo_separates_the_channels();
     test_a_real_capture_decodes();
 
     return check_report("FM multiplex: pilot, subcarrier and soft bits");
