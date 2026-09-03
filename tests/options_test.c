@@ -391,6 +391,54 @@ static void test_watching_needs_a_sweep(void) {
                   ? options.survey_watch : -1, 0);
 }
 
+/*
+ * Running a calibration with no window.
+ *
+ * The lock gate decides whether a correction may be applied, and until this it
+ * could only be reached by somebody clicking Start and reading a status line
+ * -- which is what ADR-0012 says a decision must never be.
+ */
+static void test_headless_calibration(void) {
+    struct options options;
+    const char *gsm[] = { "sdrprobe", "--calibrate", "gsm", "--arfcn", "113" };
+    const char *gsm_bare[] = { "sdrprobe", "--calibrate", "gsm" };
+    const char *lte[] = { "sdrprobe", "--calibrate", "lte", "--earfcn", "6200" };
+    const char *band[] = { "sdrprobe", "--calibrate", "lte",
+                           "--calibrate-band", "20" };
+    const char *both[] = { "sdrprobe", "--calibrate", "lte", "--earfcn",
+                           "6200", "--calibrate-band", "20" };
+    const char *nonsense[] = { "sdrprobe", "--calibrate", "5g" };
+    const char *stray[] = { "sdrprobe", "--calibrate-band", "20" };
+    const char *clash[] = { "sdrprobe", "--calibrate", "gsm", "--arfcn", "113",
+                            "--survey-range", "88M:108M" };
+
+    check_int("GSM with a channel", parse_options(5, (char **)gsm, &options), 0);
+    check_int("names the technology", options.calibrate, 1);
+    /* Without one there is nothing to point at, and guessing a channel would
+       calibrate against whatever happened to be there. */
+    check_true("GSM without one is refused",
+               parse_options(3, (char **)gsm_bare, &options) < 0);
+
+    check_int("LTE with an EARFCN", parse_options(5, (char **)lte, &options), 0);
+    check_int("LTE with a band to search",
+              parse_options(5, (char **)band, &options), 0);
+    check_int("which it remembers", options.calibrate_band, 20);
+    check_true("but not both, which is two answers to one question",
+               parse_options(7, (char **)both, &options) < 0);
+
+    check_true("an unknown technology is refused",
+               parse_options(3, (char **)nonsense, &options) < 0);
+    check_true("a band with nothing to calibrate is refused",
+               parse_options(3, (char **)stray, &options) < 0);
+    /* It is a run of its own: sharing the block loop with a sweep would have
+       the receiver in two places at once. */
+    check_true("calibrating and sweeping together are refused",
+               parse_options(7, (char **)clash, &options) < 0);
+    check_int("and it is off unless asked for",
+              parse_options(1, (char **)gsm, &options) == 0
+                  ? options.calibrate : -1, 0);
+}
+
 int main(void) {
     test_defaults();
     test_frequency_spellings();
@@ -404,6 +452,8 @@ int main(void) {
     test_asking_again_needs_a_sweep();
 
     test_watching_needs_a_sweep();
+
+    test_headless_calibration();
 
     return check_report("command line");
 }

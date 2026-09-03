@@ -96,6 +96,21 @@ struct options {
        printing what changed. A watch is otherwise a button, and a button is
        not something that can run overnight from a script (ADR-0012). */
     int survey_watch;
+    /*
+     * Run a calibration with no window and print what it measures.
+     *
+     * 0 none, 1 GSM, 2 LTE. The lock gate is a decision -- it decides whether
+     * a correction may be applied -- and until this it was reachable only by
+     * somebody clicking Start and watching a status line, which is exactly
+     * what ADR-0012 says a decision must never be.
+     */
+    int calibrate;
+    /* Scan this LTE band and calibrate against the strongest cell, instead of
+       being told an EARFCN. 0 = not asked for. */
+    int calibrate_band;
+    /* Give up after this long even if the gate never opens; a calibration
+       that cannot lock is a result worth reporting, not a hang. */
+    double calibrate_seconds;
     /* headless: walk an LTE band's channels and print the cells found, for
        the same reason -- the scan is otherwise a button. 0 = not asked for,
        otherwise the band number. */

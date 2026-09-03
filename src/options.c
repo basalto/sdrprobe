@@ -33,6 +33,10 @@ void usage(const char *program) {
             "  --view            screen to open on\n"
             "  --record-seconds  record raw I/Q to captures/ from startup,\n"
             "                    with a .json sidecar describing the tuning\n"
+            "  --calibrate       gsm|lte: measure the receiver's frequency\n"
+            "                    error with no window and print every step\n"
+            "  --calibrate-band  scan this LTE band and use its strongest cell\n"
+            "  --calibrate-seconds  give up after this long if it never locks\n"
             "  --survey-watch    keep sweeping this many times, folding each\n"
             "                    into the site's history and saying what changed\n"
             "  --survey-confirm  after a --survey-range sweep, ask again about\n"
@@ -405,6 +409,30 @@ int parse_options(int argc, char **argv, struct options *options) {
                 return -1;
         } else if (strcmp(option, "--survey-confirm") == 0) {
             options->survey_confirm = 1;
+        } else if (strcmp(option, "--calibrate") == 0) {
+            if (options->calibrate || i + 1 >= argc)
+                return -1;
+            if (!strcmp(argv[i + 1], "gsm"))
+                options->calibrate = 1;
+            else if (!strcmp(argv[i + 1], "lte"))
+                options->calibrate = 2;
+            else
+                return -1;
+            i++;
+        } else if (strcmp(option, "--calibrate-band") == 0) {
+            long band;
+            char *end;
+            if (options->calibrate_band || i + 1 >= argc)
+                return -1;
+            band = strtol(argv[++i], &end, 10);
+            if (*end || band < 1 || band > 100)
+                return -1;
+            options->calibrate_band = (int)band;
+        } else if (strcmp(option, "--calibrate-seconds") == 0) {
+            if (options->calibrate_seconds > 0.0 || i + 1 >= argc ||
+                parse_seconds(argv[++i], &options->calibrate_seconds) < 0 ||
+                options->calibrate_seconds <= 0.0)
+                return -1;
         } else if (strcmp(option, "--survey-watch") == 0) {
             long sweeps;
             char *end;
@@ -469,6 +497,26 @@ int parse_options(int argc, char **argv, struct options *options) {
     /* Asking again is about what a sweep found, so there has to be one. */
     if (options->survey_confirm && !options->survey_seen)
         return -1;
+    /*
+     * A calibration needs to know what to point at: an ARFCN for GSM, and for
+     * LTE either an EARFCN or a band to find one in.
+     */
+    if (options->calibrate == 1 && !options->arfcn)
+        return -1;
+    if (options->calibrate == 2 && !options->earfcn && !options->calibrate_band)
+        return -1;
+    if (options->calibrate == 2 && options->earfcn && options->calibrate_band)
+        return -1;   /* two answers to one question */
+    if (options->calibrate_band && options->calibrate != 2)
+        return -1;
+    if (options->calibrate_seconds > 0.0 && !options->calibrate)
+        return -1;
+    /* And it is a headless run of its own, not something to bolt onto a
+       sweep or a decode. */
+    if (options->calibrate && (options->survey_seen || options->decode ||
+                               options->lte_scan_band))
+        return -1;
+
     /* And a watch is a sweep repeated, so likewise. */
     if (options->survey_watch && !options->survey_seen)
         return -1;

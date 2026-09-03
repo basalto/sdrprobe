@@ -1500,6 +1500,155 @@ static int run_headless(struct app *app) {
         return 0;
     }
 
+    /*
+     * A headless calibration. Its own run, like the survey and the band scan,
+     * and for the same reason: the lock gate decides whether a correction may
+     * be applied, and a decision reachable only by somebody clicking Start is
+     * a decision no check can reach (ADR-0012).
+     *
+     * It prints every measurement rather than only the verdict. The verdict is
+     * one bit; the sequence is what shows *why* -- whether the residuals are
+     * converging, and if they are not, whether the scatter is in the estimator
+     * or in the crystal.
+     */
+    if (app->options.calibrate) {
+        double began = monotonic_seconds();
+        double limit = app->options.calibrate_seconds > 0.0
+                           ? app->options.calibrate_seconds : 90.0;
+        int reported = 0, locked = 0;
+        const char *why = "timeout";
+
+        sdr_dsp_init(&app->dsp);
+        app->calibration_open = 1;
+        app->calibration_technology = app->options.calibrate == 1 ? 0 : 1;
+        if (app->options.calibrate == 1) {
+            snprintf(app->cal.channel, sizeof(app->cal.channel), "%d",
+                     app->options.arfcn);
+        } else if (app->options.earfcn) {
+            snprintf(app->cal.channel, sizeof(app->cal.channel), "%d",
+                     app->options.earfcn);
+        }
+        app->cal.channel_length = (int)strlen(app->cal.channel);
+        app->cal.return_frequency = app->applied_frequency;
+
+        if (app->options.calibrate == 2 && app->options.calibrate_band) {
+            /* Find something to calibrate against rather than being told. */
+            printf("calibrate scanning band %d\n", app->options.calibrate_band);
+            fflush(stdout);
+            if (retune_receiver_at_rate(app, app->applied_frequency,
+                                        LTE_SAMPLE_RATE_HZ,
+                                        app->applied_ppm) < 0 ||
+                lte_scan_begin(app, app->options.calibrate_band,
+                               monotonic_seconds()) != 0) {
+                fprintf(stderr, "Could not start the band scan\n");
+                return -1;
+            }
+            while (lte_scan_running(app) && !signal_stop_requested) {
+                struct timespec tick = { 0, 5 * 1000000L };
+                struct slot_snapshot snapshot;
+                int have_new = consume_latest(&app->acq, &snapshot);
+                if (have_new)
+                    process_block(app, monotonic_seconds() - began);
+                if (snapshot.worker_failed) {
+                    fprintf(stderr, "Acquisition failed: %s\n",
+                            snapshot.worker_error);
+                    return -1;
+                }
+                update_lte_scan(app, monotonic_seconds(), have_new);
+                if (!have_new)
+                    nanosleep(&tick, NULL);
+            }
+            if (app->lte.scan.found_count < 1) {
+                printf("calibrate-result locked 0 reason no-cell\n");
+                fflush(stdout);
+                return stop_acquisition(app) < 0 ? -1 : 0;
+            }
+            /* Strongest first, so the head of the list is the best reference
+               the band has to offer. */
+            snprintf(app->cal.channel, sizeof(app->cal.channel), "%u",
+                     app->lte.scan.found[0].earfcn);
+            app->cal.channel_length = (int)strlen(app->cal.channel);
+            printf("calibrate chose earfcn %u cell %d pss %.2f\n",
+                   app->lte.scan.found[0].earfcn, app->lte.scan.found[0].pci,
+                   (double)app->lte.scan.found[0].pss);
+            fflush(stdout);
+            /* The budget is for the calibration, not for finding something to
+               calibrate against: a band scan runs for minutes and would eat
+               the whole of it before a single residual was measured. */
+            began = monotonic_seconds();
+        }
+
+        if (start_calibration(app) < 0) {
+            fprintf(stderr, "%s\n", app->calibration_status);
+            return -1;
+        }
+        printf("calibrate technology %s channel %s expected_hz %u "
+               "applied_ppm %d\n",
+               app->options.calibrate == 1 ? "gsm" : "lte", app->cal.channel,
+               app->calibration_expected_hz, app->applied_ppm);
+        fflush(stdout);
+
+        while (!signal_stop_requested) {
+            struct timespec tick = { 0, 5 * 1000000L };
+            struct slot_snapshot snapshot;
+            int have_new = consume_latest(&app->acq, &snapshot);
+            double now = monotonic_seconds();
+
+            if (have_new)
+                process_block(app, now - began);
+            if (snapshot.worker_failed) {
+                fprintf(stderr, "Acquisition failed: %s\n",
+                        snapshot.worker_error);
+                return -1;
+            }
+            update_calibration_measurement(app);
+            if (app->cal.track.measurements > reported) {
+                reported = app->cal.track.measurements;
+                /* Every measurement, not a summary: the sequence is what shows
+                   whether the scatter is the estimator or the crystal. */
+                printf("cal-measure %d observed_ppm %.2f centre_ppm %.2f "
+                       "sem_ppm %.2f spread_ppm %.2f source %s quality %.2f\n",
+                       reported, app->cal.offset_hz /
+                           (double)app->calibration_expected_hz * 1e6,
+                       app->cal.track.recent_center, app->cal.track.recent_sem,
+                       app->cal.track.recent_spread,
+                       app->cal.track.source == CALIBRATION_SOURCE_FCCH
+                           ? "fcch"
+                           : app->cal.track.source == CALIBRATION_SOURCE_LTE
+                                 ? "lte" : "centroid",
+                       (double)app->cal.fcch_confidence);
+                fflush(stdout);
+            }
+            if (app->cal.track.stable) {
+                locked = 1;
+                why = "locked";
+                break;
+            }
+            if (now - began > limit) {
+                /* Say which clause is still unsatisfied, so a calibration that
+                   will not lock is a diagnosis rather than a shrug. */
+                if (app->cal.track.measurements < CALIBRATION_MIN_MEASUREMENTS)
+                    why = "too-few-measurements";
+                else if (app->cal.track.recent_sem > CALIBRATION_MAX_SEM_PPM)
+                    why = "sem-too-wide";
+                else
+                    why = "timeout";
+                break;
+            }
+            if (!have_new)
+                nanosleep(&tick, NULL);
+        }
+        printf("calibrate-result locked %d measurements %d centre_ppm %.2f "
+               "sem_ppm %.2f spread_ppm %.2f suggested_ppm %d reason %s\n",
+               locked, app->cal.track.measurements, app->cal.track.recent_center,
+               app->cal.track.recent_sem, app->cal.track.recent_spread,
+               app->cal.suggested_ppm, why);
+        fflush(stdout);
+        if (stop_acquisition(app) < 0)
+            return -1;
+        return 0;
+    }
+
     /* A headless survey is its own run: it sweeps, prints, and returns, rather
        than sharing the block loop below with a decode. */
     if (app->options.survey_report) {
