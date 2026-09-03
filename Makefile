@@ -72,8 +72,18 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/
 # links nothing at all.
 # FM broadcast: the discriminator and the 19 kHz pilot every other rate in the
 # multiplex is derived from. Probe side, links libm only.
+# RDS: the block code, the search that finds group boundaries without a
+# preamble, and what a station says about itself. Decoder side; links fm_dsp
+# only to reach the real capture.
+check-rds: $(TESTS)/rds_test.c $(TESTS)/check.h $(SRC)/rds.c $(SRC)/rds.h \
+		$(SRC)/fm_dsp.c $(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/rds_test \
+		$(TESTS)/rds_test.c $(SRC)/rds.c $(SRC)/fm_dsp.c -lm
+	$(Q)./$(BUILD)/rds_test
+
 check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
-		$(SRC)/fm_dsp.h testfiles/fm_rds_89600.bin
+		$(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_dsp_test \
 		$(TESTS)/fm_dsp_test.c $(SRC)/fm_dsp.c -lm
@@ -321,7 +331,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-options check-survey check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
-	check-fm-dsp \
+	check-fm-dsp check-rds \
 	check-survey-list \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally

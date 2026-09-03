@@ -584,7 +584,7 @@ static long rds_scan(const float *soft, size_t count, int invert,
 }
 
 static void test_a_real_capture_decodes(void) {
-    const char *path = "testfiles/fm_rds_89600.bin";
+    const char *path = "testfiles/fm_rds_tsf.bin";
     FILE *f = fopen(path, "rb");
     static uint8_t raw[8192000];
     /*

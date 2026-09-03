@@ -1,6 +1,6 @@
 # 02 — Blocks, groups, and what the station calls itself
 
-Status: needs-triage
+Status: resolved
 Blocked by: 01
 
 `src/rds.{c,h}`, Decoder side, beside `gsm_bcch.c` and `lte_mib.c`: soft bits
@@ -43,3 +43,46 @@ Corroborate the name before pinning it: the programme identification code is
 allocated, so the name it decodes to and the country and station the code
 implies have to agree with each other. Two independent facts about one signal
 is the standard this repository holds itself to.
+
+## Comments
+
+**2026-09-03** — Done. `src/rds.{c,h}`, Decoder side, libm only. 77 checks in
+`check-rds`.
+
+**The floor first, as the ticket asked.** A ten-bit syndrome matching one of
+five offset words happens by chance about 4883 times per million bit
+positions; measured on 400000 noise bits it happens 4813 times per million,
+which is 1.5% from the prediction. So a lone block agreeing means nothing, and
+the synchroniser wants four in the offset order before it believes an
+alignment -- predicted at 0.000036 per million. On those same 400000 noise
+bits it finds zero groups.
+
+**The capture reads TSF**, and the ticket's corroboration rule is satisfied by
+three facts from three different places in the signal:
+
+- the programme service name, assembled from block 4 of eight separate group
+  0A transmissions, reads `TSF`;
+- the programme type, which lives in block 2 of *every* group and has nothing
+  to do with the name, reads `news` -- and TSF Radio Noticias is a news
+  station;
+- the identification is 0x8343 and the other station recorded at this site the
+  same evening reads 0x8442, sharing the top nibble and nothing else, which is
+  what a country code does.
+
+The capture is `testfiles/fm_rds_tsf.bin` now, renamed from its frequency, and
+its sidecar records all three.
+
+A second station corroborates the machinery rather than the station: 87.7 MHz
+gives PI 0x8442, PS `RDS`, PTY `pop music` over 16 groups.
+
+**A half-filled name is not shown.** Two characters at a time means `RADIO 1`
+passes through `RA`, `RADI`, `RADIO ` on its way, and each is a station that
+does not exist. A name needs all four segments *and* a repeat, because one
+pass through four segments can be four segments of two different names and
+look perfect. Both cases are checked, as is a name changing mid-assembly not
+being spliced onto the old one.
+
+**Radio text is implemented and does not complete in two seconds**, which is
+correct rather than a gap: sixteen segments at roughly one 2A group a second
+needs about thirteen. `rt_valid` stays false and nothing is shown, which is
+the same rule as the name.
