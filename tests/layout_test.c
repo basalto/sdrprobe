@@ -164,70 +164,136 @@ static const struct chrome_case chrome_cases[] = {
       858.00f },
 };
 
+/* raylib's own CheckCollisionRecs would do, but this check links no raylib --
+   it compiles against the headers and nothing else, which is what lets it run
+   with no window. */
+static int overlaps(Rectangle a, Rectangle b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x &&
+           a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
 /*
- * The LTE calibration's found-cell list.
+ * The calibration overlay: everything in it, against everything else.
  *
- * One property carries it: the point in the middle of where a row is drawn
- * must select that row. This mapping has been wrong twice in this program --
- * a bar chart and a site picker -- and both times it quietly selected the
- * neighbour of what was pointed at. Here that would calibrate the receiver
- * against a different cell than the operator chose, and the number would look
- * perfectly reasonable.
+ * The previous version of this checked the LTE controls against each other and
+ * nothing else, because the rest of the overlay was still literals in the draw
+ * call. It passed, and what shipped had the band buttons on the status line,
+ * the band caption running under the Scan button, and the cell list over three
+ * rows of text. A check that covers half a screen is not half a check -- it is
+ * a false negative with a green tick next to it.
+ *
+ * Text widths need a font and cannot be measured without a window, so what is
+ * compared is the *band* each line occupies. That is what a collision is made
+ * of, and it needs no font.
  */
-static void check_calibration_cells(void) {
+static void check_calibration_overlay(void) {
     const float sizes[][2] = { { 1100.0f, 720.0f }, { 1280.0f, 800.0f },
                                { 1000.0f, 540.0f }, { 1920.0f, 1080.0f } };
     unsigned c;
+    int lte;
 
-    for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++) {
+    for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++)
+    for (lte = 0; lte <= 1; lte++) {
         struct calibration_layout l =
-            calibration_layout_for(sizes[c][0], sizes[c][1]);
-        int n, r, b;
+            calibration_layout_for(sizes[c][0], sizes[c][1], lte);
+        /* Eighteen in the 4G arrangement; sized with room rather than to fit,
+           because a check that overruns its own array reports whatever was
+           next in the stack -- which it did, as 'back runs off the side'. */
+        Rectangle all[24];
+        const char *names[24];
+        int n = 0, a, b, i;
 
-        for (b = 0; b + 1 < CALIBRATION_LTE_BANDS; b++)
-            check_msg(l.band[b].x + l.band[b].width <= l.band[b + 1].x,
-                      "%.0fx%.0f band buttons %d and %d overlap\n",
-                      sizes[c][0], sizes[c][1], b, b + 1);
-        check_msg(l.band[CALIBRATION_LTE_BANDS - 1].x +
-                      l.band[CALIBRATION_LTE_BANDS - 1].width <=
-                      l.scan_button.x,
-                  "%.0fx%.0f the Scan button lands on a band button\n",
-                  sizes[c][0], sizes[c][1]);
-        check_msg(l.cell_list.y >= l.band[0].y + l.band[0].height,
-                  "%.0fx%.0f the cell list covers the band buttons\n",
-                  sizes[c][0], sizes[c][1]);
-        check_msg(l.cell_list.y + l.cell_list.height <= sizes[c][1],
-                  "%.0fx%.0f the cell list runs off the bottom\n",
-                  sizes[c][0], sizes[c][1]);
+        all[n] = l.back;        names[n++] = "back";
+        for (i = 0; i < 3; i++) {
+            all[n] = l.tech[i]; names[n++] = "tech";
+        }
+        all[n] = l.scan;        names[n++] = "scan";
+        all[n] = l.channel;     names[n++] = "channel";
+        all[n] = l.start;       names[n++] = "start";
+        all[n] = l.apply_ppm;   names[n++] = "apply";
+        if (lte) {
+            for (i = 0; i < CALIBRATION_LTE_BANDS; i++) {
+                all[n] = l.lte_band[i]; names[n++] = "lte band";
+            }
+            all[n] = l.lte_scan; names[n++] = "lte scan";
+        }
+        all[n] = l.band_label;  names[n++] = "band caption";
+        for (i = 0; i < CALIBRATION_STATUS_ROWS; i++) {
+            all[n] = l.status[i]; names[n++] = "status";
+        }
+        all[n] = l.chart;       names[n++] = "chart";
 
-        for (n = 1; n <= CALIBRATION_CELL_ROWS; n++)
-            for (r = 0; r < n; r++) {
+        for (a = 0; a < n; a++)
+            for (b = a + 1; b < n; b++)
+                if (all[a].width > 0.0f && all[b].width > 0.0f &&
+                    overlaps(all[a], all[b]))
+                    check_msg(0, "%.0fx%.0f %s: '%s' overlaps '%s'\n",
+                              sizes[c][0], sizes[c][1], lte ? "4G" : "2G",
+                              names[a], names[b]);
+
+        /* Everything drawn sits inside the window. */
+        for (a = 0; a < n; a++) {
+            if (all[a].width <= 0.0f)
+                continue;
+            check_msg(all[a].x >= 0.0f &&
+                      all[a].x + all[a].width <= sizes[c][0] + 0.01f,
+                      "%.0fx%.0f %s: '%s' runs off the side\n", sizes[c][0],
+                      sizes[c][1], lte ? "4G" : "2G", names[a]);
+            check_msg(all[a].y + all[a].height <= sizes[c][1] + 0.01f,
+                      "%.0fx%.0f %s: '%s' runs off the bottom\n", sizes[c][0],
+                      sizes[c][1], lte ? "4G" : "2G", names[a]);
+        }
+
+        /* The chart is last, below every row, or a row is drawn over it. */
+        for (a = 0; a + 1 < n; a++)
+            if (all[a].width > 0.0f)
+                check_msg(all[a].y < l.chart.y + 0.01f,
+                          "%.0fx%.0f %s: '%s' is below the chart's top\n",
+                          sizes[c][0], sizes[c][1], lte ? "4G" : "2G",
+                          names[a]);
+
+        /* Selecting 4G adds a row, so everything under it must move down. */
+        if (lte) {
+            struct calibration_layout gsm =
+                calibration_layout_for(sizes[c][0], sizes[c][1], 0);
+            check_msg(l.status[0].y > gsm.status[0].y,
+                      "%.0fx%.0f the 4G row does not push the status down\n",
+                      sizes[c][0], sizes[c][1]);
+            check_msg(l.chart.y > gsm.chart.y,
+                      "%.0fx%.0f the 4G row does not push the chart down\n",
+                      sizes[c][0], sizes[c][1]);
+        }
+
+        /*
+         * And the picker's rows map back to themselves. Getting this wrong
+         * calibrates the receiver against a cell the operator did not choose,
+         * and the number it produces looks perfectly reasonable.
+         */
+        {
+            int rows = calibration_cell_rows(l.cell_list);
+            int r;
+            check_msg(rows >= 4, "%.0fx%.0f the picker shows only %d rows\n",
+                      sizes[c][0], sizes[c][1], rows);
+            for (r = 0; r < rows; r++) {
                 Vector2 mid;
                 mid.x = l.cell_list.x + l.cell_list.width / 2.0f;
                 mid.y = l.cell_list.y + 30.0f +
                         CALIBRATION_CELL_ROW_H * ((float)r + 0.5f);
-                if (mid.y > l.cell_list.y + l.cell_list.height)
-                    continue;   /* a short window shows fewer rows */
-                check_msg(calibration_cell_row_at(l.cell_list, n, mid) == r,
-                          "%.0fx%.0f cell row %d of %d does not map back to "
-                          "itself\n", sizes[c][0], sizes[c][1], r, n);
+                check_msg(calibration_cell_row_at(l.cell_list, rows, mid) == r,
+                          "%.0fx%.0f picker row %d of %d does not map back\n",
+                          sizes[c][0], sizes[c][1], r, rows);
             }
-        /* And nothing outside it picks a cell to calibrate against. */
-        check_msg(calibration_cell_row_at(l.cell_list, 4,
-                      (Vector2){ l.cell_list.x - 4.0f,
-                                 l.cell_list.y + 40.0f }) == -1,
-                  "%.0fx%.0f a point left of the cell list selects a row\n",
-                  sizes[c][0], sizes[c][1]);
-        check_msg(calibration_cell_row_at(l.cell_list, 4,
-                      (Vector2){ l.cell_list.x + 10.0f,
-                                 l.cell_list.y + 10.0f }) == -1,
-                  "%.0fx%.0f the caption strip selects a row\n",
-                  sizes[c][0], sizes[c][1]);
-        check_msg(calibration_cell_row_at(l.cell_list, 0,
-                      (Vector2){ l.cell_list.x + 10.0f,
-                                 l.cell_list.y + 40.0f }) == -1,
-                  "%.0fx%.0f an empty list selects a row\n",
-                  sizes[c][0], sizes[c][1]);
+            check_msg(calibration_cell_row_at(l.cell_list, 4,
+                          (Vector2){ l.cell_list.x + 10.0f,
+                                     l.cell_list.y + 10.0f }) == -1,
+                      "%.0fx%.0f the picker's caption strip selects a row\n",
+                      sizes[c][0], sizes[c][1]);
+            check_msg(calibration_cell_row_at(l.cell_list, 0,
+                          (Vector2){ l.cell_list.x + 10.0f,
+                                     l.cell_list.y + 40.0f }) == -1,
+                      "%.0fx%.0f an empty picker selects a row\n",
+                      sizes[c][0], sizes[c][1]);
+        }
     }
 }
 
@@ -398,14 +464,6 @@ static void check_adsb(void) {
 
 /* The band survey. Its lower row is a pair like the ADS-B view's, and its
    inspect button lives inside a panel that a short window shrinks. */
-/* raylib's own CheckCollisionRecs would do, but this check links no raylib --
-   it compiles against the headers and nothing else, which is what lets it run
-   with no window. */
-static int overlaps(Rectangle a, Rectangle b) {
-    return a.x < b.x + b.width && a.x + a.width > b.x &&
-           a.y < b.y + b.height && a.y + a.height > b.y;
-}
-
 #define SURVEY_RECTS 19
 
 struct survey_case {
@@ -756,7 +814,7 @@ static void check_lte(void) {
 
 int main(void) {
     check_chrome();
-    check_calibration_cells();
+    check_calibration_overlay();
     check_adsb();
     check_lte();
     check_survey();

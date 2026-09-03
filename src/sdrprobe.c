@@ -985,6 +985,13 @@ static int run_gui(struct app *app) {
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_LTE:       set_decode(app, DECODE_LTE);
                                set_tab(app, TAB_DECODE); break;
+    case START_VIEW_CALIBRATION:
+        open_calibration(app);
+        /* --calibrate says which technology, so the overlay can be opened on
+           the 4G arrangement and looked at. */
+        if (app->options.calibrate == 2)
+            calibration_select_technology(app, 1);
+        break;
     default: break;
     }
 

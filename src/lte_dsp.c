@@ -158,6 +158,21 @@ int lte_band_count(void) {
     return (int)(sizeof(bands) / sizeof(bands[0]));
 }
 
+const struct lte_band *lte_band_for_number(int number) {
+    int i;
+    for (i = 0; i < lte_band_count(); i++)
+        if (lte_band_at(i)->band == number)
+            return lte_band_at(i);
+    return NULL;
+}
+
+int lte_reachable_band(int index) {
+    static const int reachable[LTE_REACHABLE_BANDS] = { 28, 20, 8 };
+    if (index < 0 || index >= LTE_REACHABLE_BANDS)
+        return 0;
+    return reachable[index];
+}
+
 const struct lte_band *lte_band_at(int index) {
     if (index < 0 || index >= lte_band_count())
         return NULL;

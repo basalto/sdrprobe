@@ -34,7 +34,13 @@ enum start_view {
     START_VIEW_SURVEY,
     START_VIEW_GSM,
     START_VIEW_ADSB,
-    START_VIEW_LTE
+    START_VIEW_LTE,
+    /* The calibration overlay. Not a view in the tab sense -- it is reachable
+       only by clicking Calibration, which meant it could not be screenshotted
+       and I shipped a screen with three overlapping panels because I never saw
+       it. Every screen has to be reachable from the command line for the same
+       reason every decision has to be (ADR-0012). */
+    START_VIEW_CALIBRATION
 };
 
 enum gain_request_kind {

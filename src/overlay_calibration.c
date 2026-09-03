@@ -39,6 +39,31 @@ void calibration_select_channel(struct app *app, int arfcn) {
     app->cal.channel_length = (int)strlen(app->cal.channel);
 }
 
+/*
+ * Choose a technology, with everything that entails: the channel it defaults
+ * to and the instruction that names it.
+ *
+ * One path, because there are two callers -- the button and opening the
+ * overlay already on 4G -- and when the button's side effects lived inline the
+ * second one showed the LTE arrangement under "Select GSM 900 ARFCN 1-124".
+ */
+void calibration_select_technology(struct app *app, int technology) {
+    app->calibration_technology = technology;
+    if (technology == 1) {
+        snprintf(app->cal.channel, sizeof(app->cal.channel), "6200");
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "Pick a band and Scan, or type an EARFCN, then press Start");
+    } else if (technology == 0) {
+        snprintf(app->cal.channel, sizeof(app->cal.channel), "113");
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "Select GSM 900 ARFCN 1-124, then press Start");
+    } else {
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "5G channel tables are not implemented yet");
+    }
+    app->cal.channel_length = (int)strlen(app->cal.channel);
+}
+
 void open_calibration(struct app *app) {
     app->calibration_open = 1;
     app->cal.running = 0;
@@ -233,7 +258,8 @@ static void update_lte_calibration_scan(struct app *app) {
         return;
     update_lte_scan(app, monotonic_seconds(), 1);
     if (lte_scan_running(app)) {
-        const struct lte_band *band = lte_band_at(app->cal_lte_band);
+        const struct lte_band *band =
+            lte_band_for_number(lte_reachable_band(app->cal_lte_band));
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Scanning band %d: %d of %d channels, %d cells so far",
                  band ? band->band : 0, app->lte.scan.candidate + 1,
@@ -477,16 +503,16 @@ void adjust_waterfall_scale(struct app *app, int zoom_in) {
 }
 
 void handle_calibration_input(struct app *app) {
-    Rectangle tech_2g = { 24, 72, 74, 34 };
-    Rectangle tech_4g = { 106, 72, 74, 34 };
-    Rectangle tech_5g = { 188, 72, 74, 34 };
-    float right = (float)GetScreenWidth() - 24.0f;
-    Rectangle scan = { 470, 72, 90, 34 };
-    Rectangle start = { right - 248.0f, 72, 88, 34 };
-    Rectangle apply_ppm = { right - 148.0f, 72, 126, 34 };
-    Rectangle back = { (float)GetScreenWidth() - 112.0f, 18, 88, 34 };
+    struct calibration_layout cl =
+        calibration_layout_now(app->calibration_technology == 1);
+    Rectangle tech_2g = cl.tech[0];
+    Rectangle tech_4g = cl.tech[1];
+    Rectangle tech_5g = cl.tech[2];
+    Rectangle scan = cl.scan;
+    Rectangle start = cl.start;
+    Rectangle apply_ppm = cl.apply_ppm;
+    Rectangle back = cl.back;
 
-    struct calibration_layout cl = calibration_layout_now();
     int inputs_changed = 0;
 
     /*
@@ -497,14 +523,15 @@ void handle_calibration_input(struct app *app) {
      */
     if (app->calibration_technology == 1 && !app->cal.running) {
         int b;
-        for (b = 0; b < CALIBRATION_LTE_BANDS && b < lte_band_count(); b++)
-            if (clicked(cl.band[b])) {
+        for (b = 0; b < CALIBRATION_LTE_BANDS; b++)
+            if (clicked(cl.lte_band[b])) {
                 app->cal_lte_band = b;
                 app->lte.scan.found_count = 0;
                 inputs_changed = 1;
             }
-        if (clicked(cl.scan_button) && !app->cal_lte_scanning) {
-            const struct lte_band *band = lte_band_at(app->cal_lte_band);
+        if (clicked(cl.lte_scan) && !app->cal_lte_scanning) {
+            const struct lte_band *band =
+                lte_band_for_number(lte_reachable_band(app->cal_lte_band));
             if (!app->receiver_mode) {
                 snprintf(app->calibration_status,
                          sizeof(app->calibration_status),
@@ -550,26 +577,16 @@ void handle_calibration_input(struct app *app) {
     }
 
     if (!app->cal.running && clicked(tech_2g)) {
-        app->calibration_technology = 0;
+        calibration_select_technology(app, 0);
         inputs_changed = 1;
-        snprintf(app->cal.channel, sizeof(app->cal.channel), "113");
-        app->cal.channel_length = 3;
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Select GSM 900 ARFCN 1-124, then press Start");
     }
     if (!app->cal.running && clicked(tech_4g)) {
-        app->calibration_technology = 1;
+        calibration_select_technology(app, 1);
         inputs_changed = 1;
-        snprintf(app->cal.channel, sizeof(app->cal.channel), "6200");
-        app->cal.channel_length = 4;
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Select an LTE EARFCN, then press Start");
     }
     if (!app->cal.running && clicked(tech_5g)) {
-        app->calibration_technology = 2;
+        calibration_select_technology(app, 2);
         inputs_changed = 1;
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "5G channel tables are not implemented yet");
     }
 
     int character;
@@ -662,15 +679,16 @@ void handle_calibration_input(struct app *app) {
 
 void draw_calibration(struct app *app) {
     char text[256];
-    Rectangle tech_2g = { 24, 72, 74, 34 };
-    Rectangle tech_4g = { 106, 72, 74, 34 };
-    Rectangle tech_5g = { 188, 72, 74, 34 };
-    float right = (float)GetScreenWidth() - 24.0f;
-    Rectangle scan = { 470, 72, 90, 34 };
-    Rectangle channel = { right - 370.0f, 72, 110, 34 };
-    Rectangle start = { right - 248.0f, 72, 88, 34 };
-    Rectangle apply_ppm = { right - 148.0f, 72, 126, 34 };
-    Rectangle back = { (float)GetScreenWidth() - 112.0f, 18, 88, 34 };
+    struct calibration_layout cl =
+        calibration_layout_now(app->calibration_technology == 1);
+    Rectangle tech_2g = cl.tech[0];
+    Rectangle tech_4g = cl.tech[1];
+    Rectangle tech_5g = cl.tech[2];
+    Rectangle scan = cl.scan;
+    Rectangle channel = cl.channel;
+    Rectangle start = cl.start;
+    Rectangle apply_ppm = cl.apply_ppm;
+    Rectangle back = cl.back;
 
     DrawText("Cellular frequency calibration", 24, 18, 26,
              (Color){ 235, 242, 246, 255 });
@@ -678,26 +696,29 @@ void draw_calibration(struct app *app) {
     draw_button(tech_2g, "2G", app->calibration_technology == 0);
     draw_button(tech_4g, "4G", app->calibration_technology == 1);
     draw_button(tech_5g, "5G", app->calibration_technology == 2);
-    DrawText(app->calibration_technology == 0
-                 ? "Band: GSM 900"
-                 : app->calibration_technology == 1
-                       ? "Band: LTE, 1.92 MS/s while measuring"
-                       : "Band: unavailable",
-             274, 80, 18,
-             (Color){ 209, 221, 228, 255 });
+    sdrgui_text_fit(app->calibration_technology == 0
+                        ? "Band: GSM 900"
+                        : app->calibration_technology == 1
+                              ? "Band: LTE, 1.92 MS/s while measuring"
+                              : "Band: unavailable",
+                    (int)cl.band_label.x, (int)cl.band_label.y, 17,
+                    cl.band_label.width, (Color){ 209, 221, 228, 255 });
     DrawText(app->calibration_technology == 1 ? "EARFCN" : "ARFCN",
              (int)channel.x, 50, 16, (Color){ 157, 180, 194, 255 });
-    if (app->calibration_technology == 1) {
-        struct calibration_layout cl = calibration_layout_now();
+    /*
+     * The picker takes the chart's rectangle, so exactly one of them is drawn.
+     * Both were, and the waterfall went over the list -- an overlap no
+     * geometry check can see, because the two agree about where they are.
+     */
+    if (app->calibration_technology == 1 && !app->cal.running) {
         char row[128];
         int b, i, rows;
 
-        for (b = 0; b < CALIBRATION_LTE_BANDS && b < lte_band_count(); b++) {
-            const struct lte_band *band = lte_band_at(b);
-            snprintf(row, sizeof(row), "Band %d", band ? band->band : 0);
-            draw_button(cl.band[b], row, b == app->cal_lte_band);
+        for (b = 0; b < CALIBRATION_LTE_BANDS; b++) {
+            snprintf(row, sizeof(row), "Band %d", lte_reachable_band(b));
+            draw_button(cl.lte_band[b], row, b == app->cal_lte_band);
         }
-        draw_button(cl.scan_button,
+        draw_button(cl.lte_scan,
                     app->cal_lte_scanning ? "Scanning" : "Scan band",
                     app->cal_lte_scanning);
 
@@ -708,8 +729,8 @@ void draw_calibration(struct app *app) {
         DrawText(row, (int)cl.cell_list.x + 10, (int)cl.cell_list.y + 8, 16,
                  (Color){ 151, 174, 188, 255 });
         rows = app->lte.scan.found_count;
-        if (rows > CALIBRATION_CELL_ROWS)
-            rows = CALIBRATION_CELL_ROWS;
+        if (rows > calibration_cell_rows(cl.cell_list))
+            rows = calibration_cell_rows(cl.cell_list);
         if (rows == 0) {
             DrawText(app->cal_lte_scanning ? "scanning..."
                                            : "pick a band and press Scan",
@@ -739,11 +760,15 @@ void draw_calibration(struct app *app) {
                          : (Color){ 150, 140, 120, 255 });
         }
     }
+    /* 4G takes a channel too now. The field said N/A because it was written
+       when only 2G did, and nothing made it say otherwise when 4G started
+       working -- so the overlay offered an EARFCN caption over a field that
+       refused to show one. */
     sdrgui_text_field(channel,
-                      app->calibration_technology == 0
+                      app->calibration_technology <= 1
                           ? app->cal.channel
                           : "N/A",
-                      app->calibration_technology == 0);
+                      app->calibration_technology <= 1);
     draw_button(start, app->cal.running ? "Retune" : "Start",
                 app->calibration_technology == 0);
     draw_button(apply_ppm, "Apply PPM", app->cal.track.stable);
@@ -754,7 +779,8 @@ void draw_calibration(struct app *app) {
              "expected: %.6f MHz   tuned center: %.6f MHz   current correction: %+d PPM",
              app->calibration_expected_hz / 1000000.0,
              app->applied_frequency / 1000000.0, app->applied_ppm);
-    DrawText(text, 24, 118, 17, (Color){ 190, 208, 218, 255 });
+    sdrgui_text_fit(text, (int)cl.status[0].x, (int)cl.status[0].y, 17,
+                    cl.status[0].width, (Color){ 190, 208, 218, 255 });
     if (app->cal.track.measurements > 0) {
         snprintf(text, sizeof(text),
                  "measured: %.6f MHz   offset: %+.1f kHz   observed: %+.2f PPM   center: %+.2f +/- %.2f PPM (SEM %.2f)",
@@ -765,18 +791,26 @@ void draw_calibration(struct app *app) {
                  app->cal.track.recent_center,
                  app->cal.track.recent_spread,
                  app->cal.track.recent_sem);
-        DrawText(text, 24, 142, 17, (Color){ 255, 205, 91, 255 });
+        sdrgui_text_fit(text, (int)cl.status[1].x, (int)cl.status[1].y, 17,
+                        cl.status[1].width, (Color){ 255, 205, 91, 255 });
         snprintf(text, sizeof(text),
                  "peak: %.1f dBFS   guard floor: %.1f dBFS   prominence: %.1f dB   suggested correction: %+d PPM",
                  app->cal.peak_dbfs, app->cal.floor_dbfs,
                  app->cal.prominence_db,
                  app->cal.suggested_ppm);
-        DrawText(text, 24, 164, 17,
+        sdrgui_text_fit(text, (int)cl.status[2].x, (int)cl.status[2].y, 17,
+                        cl.status[2].width,
                  app->cal.track.stable ? (Color){ 99, 228, 170, 255 }
                                          : (Color){ 250, 190, 74, 255 });
     }
-    DrawText(app->calibration_status, 24, 186, 17,
+    sdrgui_text_fit(app->calibration_status, (int)cl.status[3].x,
+                    (int)cl.status[3].y, 17, cl.status[3].width,
              (Color){ 158, 204, 230, 255 });
+
+    /* One or the other, never both. Before a cell is chosen the chart has
+       nothing to say, and the picker is what the operator needs to see. */
+    if (app->calibration_technology == 1 && !app->cal.running)
+        return;
 
     draw_waterfall(app, 1);
     if (app->calibration_expected_hz > 0) {
@@ -796,23 +830,23 @@ void draw_calibration(struct app *app) {
             lower = full_lower;
             upper = full_upper;
         }
-        float expected_x = app->plot.x +
+        float expected_x = cl.chart.x +
                            (float)((app->calibration_expected_hz - lower) /
-                                   (upper - lower)) * app->plot.width;
-        DrawLine((int)expected_x, (int)app->plot.y, (int)expected_x,
-                 (int)(app->plot.y + app->plot.height),
+                                   (upper - lower)) * cl.chart.width;
+        DrawLine((int)expected_x, (int)cl.chart.y, (int)expected_x,
+                 (int)(cl.chart.y + cl.chart.height),
                  (Color){ 87, 229, 173, 230 });
-        DrawText("expected", (int)expected_x + 5, (int)app->plot.y + 5, 16,
+        DrawText("expected", (int)expected_x + 5, (int)cl.chart.y + 5, 16,
                  (Color){ 111, 244, 191, 255 });
         if (app->cal.track.measurements > 0) {
-            float measured_x = app->plot.x +
+            float measured_x = cl.chart.x +
                                (float)((app->cal.measured_hz - lower) /
-                                       (upper - lower)) * app->plot.width;
-            DrawLine((int)measured_x, (int)app->plot.y, (int)measured_x,
-                     (int)(app->plot.y + app->plot.height),
+                                       (upper - lower)) * cl.chart.width;
+            DrawLine((int)measured_x, (int)cl.chart.y, (int)measured_x,
+                     (int)(cl.chart.y + cl.chart.height),
                      (Color){ 255, 181, 59, 240 });
             DrawText("measured", (int)measured_x + 5,
-                      (int)app->plot.y + 25, 16,
+                      (int)cl.chart.y + 25, 16,
                       (Color){ 255, 202, 105, 255 });
         }
     }

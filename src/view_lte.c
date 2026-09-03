@@ -33,7 +33,8 @@ static const int port_hypotheses[3] = { 1, 2, 4 };
 /* The bands a dongle can actually reach, in the order they are offered. The
    table in lte_dsp.c also holds 1, 3 and 7, which sit above an R820T's
    tuning range; offering them would be offering a button that cannot work. */
-static const int selectable_bands[LTE_LAYOUT_BANDS] = { 28, 20, 8 };
+/* The reachable list lives with the band table now, so the calibration
+   picker and this view cannot offer different bands. */
 
 static struct lte_layout lte_layout_now(void) {
     return lte_layout_for((float)GetScreenWidth(), (float)GetScreenHeight());
@@ -43,19 +44,14 @@ int lte_on_grid(const struct app *app) {
     return app->applied_sample_rate == (uint32_t)LTE_SAMPLE_RATE_HZ;
 }
 
-static const struct lte_band *band_numbered(int number) {
-    int i;
-    for (i = 0; i < lte_band_count(); i++)
-        if (lte_band_at(i)->band == number)
-            return lte_band_at(i);
-    return NULL;
-}
+/* lte_band_for_number() lives with the table now, so the calibration picker
+   and this view cannot disagree about what a band number means. */
 
 static const struct lte_band *selected_band(const struct app *app) {
     int index = app->lte.scan.band;
     if (index < 0 || index >= LTE_LAYOUT_BANDS)
         index = 1;
-    return band_numbered(selectable_bands[index]);
+    return lte_band_for_number(lte_reachable_band(index));
 }
 
 void view_lte_defaults(struct app *app) {
@@ -185,7 +181,7 @@ static int scan_start(struct app *app, double now) {
 int lte_scan_begin(struct app *app, int band_number, double now) {
     int i;
     for (i = 0; i < LTE_LAYOUT_BANDS; i++)
-        if (selectable_bands[i] == band_number) {
+        if (lte_reachable_band(i) == band_number) {
             app->lte.scan.band = i;
             return scan_start(app, now);
         }
@@ -873,7 +869,7 @@ void draw_lte(struct app *app) {
 
     for (i = 0; i < LTE_LAYOUT_BANDS; i++) {
         char label[24];
-        snprintf(label, sizeof(label), "Band %d", selectable_bands[i]);
+        snprintf(label, sizeof(label), "Band %d", lte_reachable_band(i));
         draw_button(l.band_button[i], label, i == app->lte.scan.band);
     }
     draw_button(l.scan_button, app->lte.scan.running ? "Stop" : "Scan band",
