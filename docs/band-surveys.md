@@ -169,6 +169,24 @@ that placed it, and the better placement wins when they merge.
 
 ```sh
 ./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
+    --survey-save
+```
+
+`--survey-save` does what the window's Save button does -- writes the JSON and
+folds the sweep into what the site has heard -- and prints where it went:
+
+```
+survey-saved surveys/2026-09-03-165948-88M-108M.json candidates 30 carriers 29
+survey-history site home-sala-estar sweeps 2 signals 32 new 6 quiet 3
+```
+
+It refuses without a site, for the same reason the button does. Piping through
+`ingest` still works and is the way to attach a `--note`.
+
+## Recording one by hand
+
+```sh
+./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
     | ./scripts/survey_tool.py ingest --note "where the antenna was, and why"
 ```
 

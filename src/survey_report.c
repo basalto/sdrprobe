@@ -11,6 +11,8 @@
 #include "survey_suspect.h"
 #include "survey_store.h"
 #include "survey_carrier.h"
+#include "site_history.h"
+#include <time.h>
 
 /*
  * The band survey with no window and nobody watching: sweep, then print what
@@ -191,6 +193,66 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
  * is whatever that tuning covers -- asking for another range would be asking
  * the capture for samples it does not contain.
  */
+/*
+ * Write the sweep down, as the window's Save button does.
+ *
+ * The same two things it does: the JSON under surveys/, which is the archive,
+ * and the fold into what the site has heard, which is what makes the next
+ * sweep able to say what changed. Doing only the first would leave a scripted
+ * sweep unable to teach the history anything, and the history is the half that
+ * answers questions.
+ */
+static void survey_save_run(struct app *app, const struct survey_plan *plan,
+                            const struct sdr_peak *peaks, int count,
+                            const float *spectrum) {
+    struct survey_candidate candidates[SURVEY_MAX_PEAKS];
+    struct survey_carrier carriers[SURVEY_CARRIER_MAX];
+    char path[256];
+    int found, carrier_count;
+
+    if (!app->config.site[0]) {
+        /* Refused, not saved as unknown: two sweeps with no site compare as
+           the same place, which is the one way the archive misleads. */
+        fprintf(stderr, "Not saving: no site is set. Use --site.\n");
+        return;
+    }
+    found = survey_candidates_from(app, plan, peaks, count, spectrum,
+                                   candidates, SURVEY_MAX_PEAKS);
+    carrier_count = survey_carriers_from(
+        survey_power, plan->bins, SURVEY_SENTINEL_DBFS,
+        survey_plan_bin_centre(plan, 0), plan->bin_hz, SURVEY_BANDWIDTH_DB,
+        peaks, count, carriers, SURVEY_CARRIER_MAX);
+    if (survey_store_write(app, plan, candidates, found, carriers,
+                           carrier_count, path, sizeof(path)) < 0)
+        return;
+    printf("survey-saved %s candidates %d carriers %d\n", path, found,
+           carrier_count);
+
+    {
+        struct site_history history;
+        double hz[SURVEY_CARRIER_MAX];
+        float level[SURVEY_CARRIER_MAX], prom[SURVEY_CARRIER_MAX];
+        time_t now = time(NULL);
+        struct tm local;
+        int i, added;
+
+        localtime_r(&now, &local);
+        site_history_load(app->config.site, &history);
+        for (i = 0; i < carrier_count; i++) {
+            hz[i] = carriers[i].centre_hz;
+            level[i] = carriers[i].peak_dbfs;
+            prom[i] = carriers[i].prominence_db;
+        }
+        added = site_history_merge(&history, hz, level, prom, carrier_count,
+                                   plan->bin_hz, local.tm_hour);
+        site_history_save(&history);
+        printf("survey-history site %s sweeps %d signals %d new %d quiet %d\n",
+               app->config.site, history.sweeps, history.count, added,
+               site_history_lost_now(&history));
+    }
+    fflush(stdout);
+}
+
 static int survey_capture(struct app *app) {
     struct survey_plan plan;
     struct slot_snapshot snapshot;
@@ -232,6 +294,8 @@ static int survey_capture(struct app *app) {
                                app->magnitude_sorted, peaks,
                                SURVEY_MAX_PEAKS);
     report_candidates(app, &plan, peaks, count, held_spectrum);
+    if (app->options.survey_save)
+        survey_save_run(app, &plan, peaks, count, held_spectrum);
     return 0;
 }
 
@@ -319,6 +383,8 @@ static int survey_receiver(struct app *app) {
     /* No spectrum to measure from: it belongs to the last step only. Widths
        come back as "-" rather than as a number about the wrong signal. */
     report_candidates(app, &plan, peaks, count, NULL);
+    if (app->options.survey_save)
+        survey_save_run(app, &plan, peaks, count, NULL);
     return 0;
 }
 

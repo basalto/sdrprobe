@@ -475,6 +475,24 @@ static void test_headless_lte_chain(void) {
                parse_options(6, (char **)clash, &options) < 0);
 }
 
+static void test_saving_a_scripted_sweep(void) {
+    struct options options;
+    /* A survey already needs a range or a file to sweep; saving needs a
+       survey on top of that. */
+    const char *ok[] = { "sdrprobe", "--headless", "--survey",
+                         "--survey-range", "88M:108M", "--survey-save" };
+    const char *bare[] = { "sdrprobe", "--survey-save" };
+
+    check_int("saving a sweep that happens",
+              parse_options(6, (char **)ok, &options), 0);
+    check_int("is remembered", options.survey_save, 1);
+    check_true("and saving nothing is refused",
+               parse_options(2, (char **)bare, &options) < 0);
+    check_int("off unless asked for",
+              parse_options(5, (char **)ok, &options) == 0
+                  ? options.survey_save : -1, 0);
+}
+
 int main(void) {
     test_defaults();
     test_frequency_spellings();
@@ -492,6 +510,8 @@ int main(void) {
     test_headless_calibration();
 
     test_headless_lte_chain();
+
+    test_saving_a_scripted_sweep();
 
     return check_report("command line");
 }
