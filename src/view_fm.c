@@ -11,6 +11,7 @@
 #include "view.h"
 #include "debug_log.h"
 #include "sdr_dsp.h"
+#include "row_list.h"
 
 #include "raygui.h"
 
@@ -197,34 +198,79 @@ static void draw_scan_list(const struct app *app, Rectangle rect) {
                         row_label);
         return;
     }
-    DrawText("   MHz        LEVEL     PILOT   RDS   STATION",
+    DrawText("   MHz       LEVEL    PILOT  RDS  STATION",
              (int)rect.x + 12, y, 15, row_label);
-    y += 20;
 
-    rows = (int)((rect.y + rect.height - 10.0f - (float)y) / 20.0f);
-    if (rows > scan->found_count)
-        rows = scan->found_count;
-    for (i = 0; i < rows; i++) {
-        const struct fm_found_station *f = &scan->found[i];
-        char name[32];
+    {
+        struct row_list_metrics m = FM_SCAN_LIST_METRICS;
+        int fits = row_list_rows(rect, m);
+        int scroll = row_list_clamp_scroll(scan->list_scroll,
+                                           scan->found_count, fits);
+        int hovered = row_list_rank_at(rect, m, scroll, scan->found_count,
+                                       fits, GetMousePosition());
 
-        if (f->ps[0])
-            snprintf(name, sizeof(name), "%s", f->ps);
-        else if (f->pi_valid)
-            snprintf(name, sizeof(name), "0x%04X", f->pi);
-        else
-            snprintf(name, sizeof(name), "--");
-        snprintf(row, sizeof(row), "%9.1f  %7.1f dBFS   %-5s  %-4s  %s",
-                 f->frequency_hz / 1e6, (double)f->power_dbfs,
-                 f->pilot ? "yes" : "no", f->rds ? "yes" : "no", name);
-        sdrgui_text_fit(row, (int)rect.x + 12, y + i * 20, 15,
-                        rect.width - 24.0f,
-                        f->ps[0] ? row_good : f->pilot ? row_value : row_label);
-    }
-    if (rows < scan->found_count) {
-        snprintf(row, sizeof(row), "... %d more",
-                 scan->found_count - rows);
-        DrawText(row, (int)rect.x + 12, y + rows * 20, 15, row_label);
+        rows = scan->found_count - scroll;
+        if (rows > fits)
+            rows = fits;
+        for (i = 0; i < rows; i++) {
+            const struct fm_found_station *f = &scan->found[scroll + i];
+            float row_y = row_list_row_y(rect, m, i);
+            char name[32];
+            Color colour;
+
+            if (scroll + i == hovered)
+                DrawRectangle((int)rect.x + 4, (int)row_y - 2,
+                              (int)rect.width - 8, (int)m.row_h,
+                              (Color){ 255, 174, 62, 40 });
+            /* The carrier being listened to now, so choosing another from
+               the list is a move from somewhere rather than from nowhere. */
+            if (fabs((double)app->applied_frequency - f->frequency_hz) < 50000.0)
+                DrawRectangle((int)rect.x + 4, (int)row_y - 2,
+                              (int)rect.width - 8, (int)m.row_h,
+                              (Color){ 99, 228, 170, 34 });
+
+            if (f->ps[0])
+                snprintf(name, sizeof(name), "%s", f->ps);
+            else if (f->pi_valid)
+                snprintf(name, sizeof(name), "0x%04X", f->pi);
+            else
+                snprintf(name, sizeof(name), "--");
+            snprintf(row, sizeof(row), "%8.1f  %6.1f dBFS  %-5s %-4s %s",
+                     f->frequency_hz / 1e6, (double)f->power_dbfs,
+                     f->pilot ? "yes" : "no", f->rds ? "yes" : "no", name);
+            colour = f->ps[0] ? row_good : f->pilot ? row_value : row_label;
+            sdrgui_text_fit(row, (int)rect.x + 12, (int)row_y, 15,
+                            rect.width - 24.0f, colour);
+        }
+
+        if (scan->found_count > fits) {
+            float track_x = rect.x + rect.width - 7.0f;
+            float track_y = rect.y + m.header_h;
+            float track_h = (float)fits * m.row_h;
+            float thumb_h = track_h * (float)fits / (float)scan->found_count;
+            float thumb_y = track_y + track_h * (float)scroll /
+                                          (float)scan->found_count;
+
+            /* Not "Up/Down": those are the waterfall's scale on this
+               screen. Saying otherwise sends a reader to press a key that
+               does something else. */
+            snprintf(row, sizeof(row),
+                     "%d-%d of %d   wheel to scroll, click to listen",
+                     scroll + 1, scroll + rows, scan->found_count);
+            DrawText(row, (int)rect.x + 12,
+                     (int)(rect.y + rect.height - 19.0f), 15, row_label);
+            if (thumb_h < 12.0f)
+                thumb_h = 12.0f;
+            if (thumb_y + thumb_h > track_y + track_h)
+                thumb_y = track_y + track_h - thumb_h;
+            DrawRectangle((int)track_x, (int)track_y, 4, (int)track_h,
+                          (Color){ 30, 42, 52, 255 });
+            DrawRectangle((int)track_x, (int)thumb_y, 4, (int)thumb_h,
+                          (Color){ 108, 138, 158, 255 });
+        } else if (!scan->running) {
+            DrawText("click a station to listen to it", (int)rect.x + 12,
+                     (int)(rect.y + rect.height - 19.0f), 15, row_label);
+        }
     }
 }
 
@@ -478,8 +524,41 @@ static void draw_groups_chart(const struct app *app, Rectangle rect) {
     sdrgui_burst_chart(&params);
 }
 
+/*
+ * Entering the view puts the receiver in the band.
+ *
+ * Without this the FM view opens on whatever the last screen was pointed at
+ * -- 1090 MHz by default, which is ADS-B -- so the waterfall shows a megahertz
+ * of nothing, the panels report no pilot, and the frequency field says 89.6
+ * while the receiver is nine hundred megahertz away. A scan then "returns" to
+ * 1090 when it finishes, which is correct by the convention every other scan
+ * follows and useless here.
+ *
+ * Only when it is outside band II, so switching away and back does not throw
+ * away a station the operator tuned by hand.
+ */
+void enter_fm(struct app *app) {
+    double megahertz;
+
+    if (!app->receiver_mode)
+        return;
+    if ((double)app->applied_frequency >= FM_BAND_LOWER_HZ &&
+        (double)app->applied_frequency <= FM_BAND_UPPER_HZ)
+        return;
+    megahertz = atof(app->fm.frequency);
+    if (megahertz < 76.0 || megahertz > 108.0)
+        return;
+    fm_tune(app, megahertz * 1e6);
+}
+
+/* Whether the scan list is on screen, which the layout needs to know before
+   it can say where anything is. */
+int fm_scan_showing(const struct app *app) {
+    return app->fm.scan.running || app->fm.scan.found_count > 0;
+}
+
 void draw_fm(struct app *app) {
-    struct fm_layout l = fm_layout_now();
+    struct fm_layout l = fm_layout_now(fm_scan_showing(app));
     char text[64];
     int i;
 
@@ -508,12 +587,9 @@ void draw_fm(struct app *app) {
         return;
     }
 
-    /* The scan takes the waterfall's place rather than covering it -- the
-       rule calibration_layout.h had to learn. */
-    if (app->fm.scan.running || app->fm.scan.found_count > 0)
+    if (fm_scan_showing(app))
         draw_scan_list(app, l.scan_list);
-    else
-        draw_waterfall_rect(app, 0, l.waterfall, 0.0);
+    draw_waterfall_rect(app, 0, l.waterfall, 0.0);
     draw_signal_panel(app, l.signal_panel);
     draw_station_panel(app, l.station_panel);
     draw_funnel_panel(app, l.funnel_panel);
@@ -526,7 +602,7 @@ int fm_editing(const struct app *app) {
 }
 
 void handle_fm_input(struct app *app) {
-    struct fm_layout l = fm_layout_now();
+    struct fm_layout l = fm_layout_now(fm_scan_showing(app));
     int character;
     int i;
 
@@ -571,6 +647,54 @@ void handle_fm_input(struct app *app) {
         else
             fm_scan_begin(app);
         return;
+    }
+    /*
+     * The list: wheel to scroll, click to listen.
+     *
+     * Reachable while the scan is still running, because the whole point of
+     * watching a band walk is stopping it when something interesting turns
+     * up -- and a list you can only use once it has finished is a list you
+     * wait for.
+     */
+    if (fm_scan_showing(app)) {
+        struct row_list_metrics m = FM_SCAN_LIST_METRICS;
+        struct fm_scan *scan = &app->fm.scan;
+        int fits = row_list_rows(l.scan_list, m);
+        float wheel = GetMouseWheelMove();
+
+        scan->list_scroll = row_list_clamp_scroll(scan->list_scroll,
+                                                  scan->found_count, fits);
+        if (wheel != 0.0f &&
+            CheckCollisionPointRec(GetMousePosition(), l.scan_list)) {
+            scan->list_scroll = row_list_clamp_scroll(
+                scan->list_scroll - (int)wheel * ROW_LIST_WHEEL_ROWS,
+                scan->found_count, fits);
+            return;
+        }
+        if (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN) ||
+            IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP)) {
+            /* Up and Down are the waterfall's scale on this screen, and the
+               list has the wheel and the pointer. Left here as a comment
+               rather than a binding so the next reader does not add one and
+               take the scale keys away again. */
+        }
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            int rank = row_list_rank_at(l.scan_list, m, scan->list_scroll,
+                                        scan->found_count, fits,
+                                        GetMousePosition());
+            if (rank >= 0) {
+                /* Choosing one stops the walk: the receiver cannot be in two
+                   places, and carrying on would tune away from the station
+                   just asked for. */
+                if (scan->running)
+                    fm_scan_stop(app);
+                snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
+                         scan->found[rank].frequency_hz / 1e6);
+                app->fm.frequency_length = (int)strlen(app->fm.frequency);
+                fm_tune(app, scan->found[rank].frequency_hz);
+                return;
+            }
+        }
     }
     if (app->fm.scan.running)
         return;   /* the receiver is walking the band; leave it there */
