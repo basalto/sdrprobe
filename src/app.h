@@ -197,7 +197,10 @@ struct fm_view {
     char audio_error[80];
     int playing;
     AudioStream audio_stream;
-    int16_t audio_ring[FM_AUDIO_RING];
+    /* Interleaved left and right, so a frame is two entries. Always two
+       channels even on a mono station -- switching the stream's format when
+       a pilot comes and goes would mean reopening the device mid-song. */
+    int16_t audio_ring[FM_AUDIO_RING * 2];
     size_t audio_head, audio_tail;  /* tail writes, head reads */
 
     /*

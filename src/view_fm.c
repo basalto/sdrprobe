@@ -155,6 +155,7 @@ void update_fm(struct app *app, double now) {
      */
     {
         static int16_t pcm[FM_AUDIO_RING];
+        static int16_t frames[FM_AUDIO_RING * 2];
         size_t made, k;
 
         /* The path is built once and kept, so the charts have something to
@@ -164,14 +165,18 @@ void update_fm(struct app *app, double now) {
             fm->audio.sample_rate != (double)app->applied_sample_rate)
             fm_audio_init(&fm->audio, (double)app->applied_sample_rate);
 
-        made = fm_audio_mono(&fm->audio, multiplex, n, pcm, FM_AUDIO_RING);
+        /* One pass gives both: the sum signal for the charts and the two
+           channels for the card. */
+        made = fm_audio_decode(&fm->audio, multiplex, n, pcm, frames,
+                               FM_AUDIO_RING);
 
         if (fm->playing) {
             for (k = 0; k < made; k++) {
                 size_t next = (fm->audio_tail + 1) & (FM_AUDIO_RING - 1);
                 if (next == fm->audio_head)
                     break;  /* the card is not keeping up; drop the newest */
-                fm->audio_ring[fm->audio_tail] = pcm[k];
+                fm->audio_ring[fm->audio_tail * 2] = frames[k * 2];
+                fm->audio_ring[fm->audio_tail * 2 + 1] = frames[k * 2 + 1];
                 fm->audio_tail = next;
             }
         }
@@ -339,11 +344,18 @@ static void draw_signal_panel(const struct app *app, Rectangle rect) {
         draw_row(rect, y, "audio", fm->audio_error, row_weak);
         y += 20;
     } else if (fm->playing) {
-        snprintf(text, sizeof(text), "%.0f Hz mono",
-                 fm_audio_rate(&fm->audio));
+        snprintf(text, sizeof(text), "%.0f Hz %s", fm_audio_rate(&fm->audio),
+                 fm_audio_is_stereo(&fm->audio) ? "stereo" : "mono");
         draw_row(rect, y, "audio", text, row_good);
         y += 20;
     }
+    /* Whether the station sends stereo, which is a fact about it rather than
+       about the sound card, so it is worth saying even when nothing is
+       playing. */
+    draw_row(rect, y, "broadcast",
+             fm_audio_is_stereo(&fm->audio) ? "stereo" : "mono",
+             fm_audio_is_stereo(&fm->audio) ? row_good : row_value);
+    y += 20;
     if (locked) {
         snprintf(text, sizeof(text), "%.2f Hz", fm_pilot_hz(&fm->front.pilot));
         draw_row(rect, y, "at", text, row_value);
@@ -579,7 +591,10 @@ static void draw_groups_chart(const struct app *app, Rectangle rect) {
     params.count = 16;
     params.type = SDRGUI_BURST_BAR;
     params.y_min = 0.0f;
-    params.y_max = top * 1.15f;
+    /* A round number, not 1.15 times whatever the tallest bar is: the axis
+       label's width sets the chart's left gutter, so an axis that follows the
+       data makes the plot shift sideways every time the count crosses ten. */
+    params.y_max = sdrgui_nice_ceiling(top);
     params.title = "groups by type: 0 carries the name, 2 the radio text";
     params.empty_notice = "no groups yet";
     sdrgui_burst_chart(&params);
@@ -592,6 +607,7 @@ static void draw_groups_chart(const struct app *app, Rectangle rect) {
  * with no sound card should not have every run of this program complain about
  * it, and most runs of this program never ask for audio.
  */
+/* In frames, not samples: the ring holds two entries per frame. */
 static size_t audio_pending(const struct fm_view *fm) {
     return (fm->audio_tail - fm->audio_head) & (FM_AUDIO_RING - 1);
 }
@@ -622,7 +638,7 @@ void fm_play(struct app *app) {
         }
         SetAudioStreamBufferSizeDefault(FM_AUDIO_CHUNK);
         fm->audio_stream = LoadAudioStream((unsigned)fm_audio_rate(&fm->audio),
-                                           16, 1);
+                                           16, 2);
         fm->audio_ready = 1;
     }
     fm->audio_error[0] = '\0';
@@ -658,11 +674,12 @@ void update_fm_audio(struct app *app) {
         return;
     while (IsAudioStreamProcessed(fm->audio_stream) &&
            audio_pending(fm) >= FM_AUDIO_CHUNK) {
-        static int16_t chunk[FM_AUDIO_CHUNK];
+        static int16_t chunk[FM_AUDIO_CHUNK * 2];
         size_t k;
 
         for (k = 0; k < FM_AUDIO_CHUNK; k++) {
-            chunk[k] = fm->audio_ring[fm->audio_head];
+            chunk[k * 2] = fm->audio_ring[fm->audio_head * 2];
+            chunk[k * 2 + 1] = fm->audio_ring[fm->audio_head * 2 + 1];
             fm->audio_head = (fm->audio_head + 1) & (FM_AUDIO_RING - 1);
         }
         UpdateAudioStream(fm->audio_stream, chunk, FM_AUDIO_CHUNK);

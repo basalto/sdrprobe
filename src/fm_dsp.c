@@ -80,6 +80,13 @@ void fm_pilot_init(struct fm_pilot *pilot, double sample_rate) {
     denom = 1.0 + 2.0 * FM_PILOT_DAMPING * bw + bw * bw;
     pilot->alpha = 4.0 * FM_PILOT_DAMPING * bw / denom;
     pilot->beta = 4.0 * bw * bw / denom;
+
+    pilot->average_k = 1.0 - exp(-1.0 / (FM_PILOT_AVERAGE_SECONDS *
+                                         pilot->sample_rate));
+    pilot->report_k = 1.0 - exp(-1.0 / (FM_PILOT_REPORT_SECONDS *
+                                        pilot->sample_rate));
+    pilot->lock_k = 1.0 - exp(-1.0 / (FM_PILOT_LOCK_SECONDS *
+                                      pilot->sample_rate));
 }
 
 double fm_pilot_feed(struct fm_pilot *pilot, float sample) {
@@ -116,12 +123,15 @@ double fm_pilot_feed(struct fm_pilot *pilot, float sample) {
      * "there is energy here" and "there is a tone here".
      */
     {
-        double a = 1.0 - exp(-1.0 / (FM_PILOT_AVERAGE_SECONDS *
-                                     pilot->sample_rate));
+        double a = pilot->average_k;
         pilot->i_average += a * (ci - pilot->i_average);
         pilot->q_average += a * (cq - pilot->q_average);
         pilot->amplitude = sqrt(pilot->i_average * pilot->i_average +
                                 pilot->q_average * pilot->q_average);
+        /* How big the multiplex is, so the pilot can be compared against
+           what it is sitting in. */
+        pilot->floor_estimate += a * (fabs((double)sample) -
+                                      pilot->floor_estimate);
     }
     /*
      * Lock, on two time scales.
@@ -143,8 +153,7 @@ double fm_pilot_feed(struct fm_pilot *pilot, float sample) {
      * backwards is worse than not ranking them.
      */
     {
-        double b = 1.0 - exp(-1.0 / (FM_PILOT_LOCK_SECONDS *
-                                     pilot->sample_rate));
+        double b = pilot->lock_k;
         double len = pilot->amplitude;
 
         pilot->lock_i += b * (pilot->i_average - pilot->lock_i);
@@ -170,8 +179,7 @@ double fm_pilot_feed(struct fm_pilot *pilot, float sample) {
      * number wants to be still.
      */
     {
-        double a = 1.0 - exp(-1.0 / (FM_PILOT_REPORT_SECONDS *
-                                     pilot->sample_rate));
+        double a = pilot->report_k;
         pilot->frequency_average += a * (pilot->frequency -
                                          pilot->frequency_average);
     }
@@ -190,6 +198,25 @@ int fm_pilot_locked(const struct fm_pilot *pilot) {
         return 0;
     if (pilot->settled <
         (long)(FM_PILOT_SETTLE_SECONDS * pilot->sample_rate))
+        return 0;
+    /*
+     * Both, and neither is enough alone.
+     *
+     * Coherence says the thing being tracked is a tone rather than noise. It
+     * does not say the tone is *there*: given a clean signal with no pilot in
+     * it, the loop settles on whatever coherent scrap sits near 19 kHz and
+     * reports 0.74, which is a lock by any reading of the ratio. The size of
+     * the pilot against the multiplex around it says the rest -- 0.020 on a
+     * real station, 0.002 on a signal carrying no pilot at all.
+     *
+     * The size alone was tried as the whole test and ranks stations
+     * backwards, because a loud station has more audio underneath it. It is a
+     * poor comparison and a perfectly good presence check, which is all it is
+     * asked for here.
+     */
+    if (pilot->floor_estimate <= 0.0)
+        return 0;
+    if (pilot->amplitude / pilot->floor_estimate < FM_PILOT_MIN_PRESENCE)
         return 0;
     return pilot->coherence >= FM_PILOT_MIN_COHERENCE;
 }
@@ -640,6 +667,7 @@ int fm_audio_init(struct fm_audio *audio, double sample_rate) {
     audio->deemphasis_k = 1.0 - exp(-1.0 / (FM_DEEMPHASIS_SECONDS *
                                             audio->audio_rate));
     audio->level = 0.0;
+    fm_pilot_init(&audio->pilot, sample_rate);
     return 0;
 }
 
@@ -649,16 +677,29 @@ double fm_audio_rate(const struct fm_audio *audio) {
 
 size_t fm_audio_mono(struct fm_audio *audio, const float *mpx, size_t n,
                      int16_t *out, size_t capacity) {
+    return fm_audio_decode(audio, mpx, n, out, NULL, capacity);
+}
+
+int fm_audio_is_stereo(const struct fm_audio *audio) {
+    return audio ? audio->stereo : 0;
+}
+
+size_t fm_audio_decode(struct fm_audio *audio, const float *mpx, size_t n,
+                       int16_t *mono, int16_t *stereo, size_t capacity) {
     size_t made = 0, s;
     double decay;
 
-    if (!audio || !mpx || !out || audio->decimate < 1)
+    if (!audio || !mpx || audio->decimate < 1)
+        return 0;
+    if (!mono && !stereo)
         return 0;
     decay = 1.0 - exp(-(double)audio->decimate /
                       (FM_AUDIO_AGC_SECONDS * audio->sample_rate));
 
     for (s = 0; s < n && made < capacity; s++) {
         double value = mpx[s];
+        double theta = fm_pilot_feed(&audio->pilot, (float)value);
+        double difference;
 
         /*
          * Low-pass to 14 kHz before decimating. Three sections, which puts
@@ -671,38 +712,77 @@ size_t fm_audio_mono(struct fm_audio *audio, const float *mpx, size_t n,
         audio->lowpass[2] += audio->lowpass_k * (audio->lowpass[1] -
                                                  audio->lowpass[2]);
         audio->accumulator += audio->lowpass[2];
-        audio->accumulated++;
 
+        /*
+         * And the difference, brought down from 38 kHz by twice the pilot's
+         * phase. Twice because a suppressed-carrier product halves the
+         * amplitude, and the same filter chain because it has to arrive with
+         * the same delay as the sum or the stereo image smears.
+         */
+        difference = 2.0 * value * cos(2.0 * theta);
+        audio->difference_lowpass[0] += audio->lowpass_k *
+            (difference - audio->difference_lowpass[0]);
+        audio->difference_lowpass[1] += audio->lowpass_k *
+            (audio->difference_lowpass[0] - audio->difference_lowpass[1]);
+        audio->difference_lowpass[2] += audio->lowpass_k *
+            (audio->difference_lowpass[1] - audio->difference_lowpass[2]);
+        audio->difference_accumulator += audio->difference_lowpass[2];
+
+        audio->accumulated++;
         if (audio->accumulated < audio->decimate)
             continue;
         {
-            double sample = audio->accumulator / audio->accumulated;
-            double gain;
+            double sum = audio->accumulator / audio->accumulated;
+            double diff = audio->difference_accumulator / audio->accumulated;
+            double left, right, gain;
 
             audio->accumulator = 0.0;
+            audio->difference_accumulator = 0.0;
             audio->accumulated = 0;
 
             /* De-emphasis: a broadcaster lifts the treble before
                transmitting and this puts it back, which is most of the
-               difference between "harsh" and "a radio". */
-            audio->deemphasis += audio->deemphasis_k * (sample -
+               difference between "harsh" and "a radio". Both channels, or
+               the image shifts with frequency. */
+            audio->deemphasis += audio->deemphasis_k * (sum -
                                                         audio->deemphasis);
-            sample = audio->deemphasis;
+            sum = audio->deemphasis;
+            audio->difference_deemphasis += audio->deemphasis_k *
+                (diff - audio->difference_deemphasis);
+            diff = audio->difference_deemphasis;
 
-            /* A slow peak follower, so a weak station is audible at the same
-               setting as a strong one. */
-            if (fabs(sample) > audio->level)
-                audio->level = fabs(sample);
+            audio->stereo = fm_pilot_locked(&audio->pilot);
+            if (!audio->stereo)
+                diff = 0.0;
+
+            /* A slow peak follower on the sum, so a weak station is audible
+               at the same setting as a strong one -- and on the sum rather
+               than on either channel, or a passage panned hard to one side
+               would pull the other one down with it. */
+            if (fabs(sum) > audio->level)
+                audio->level = fabs(sum);
             else
-                audio->level += decay * (fabs(sample) - audio->level);
+                audio->level += decay * (fabs(sum) - audio->level);
 
             gain = audio->level > 1e-6 ? 0.7 / audio->level : 0.0;
-            sample *= gain;
-            if (sample > 1.0)
-                sample = 1.0;
-            if (sample < -1.0)
-                sample = -1.0;
-            out[made++] = (int16_t)(sample * 32000.0);
+            left = (sum + diff) * 0.5 * gain;
+            right = (sum - diff) * 0.5 * gain;
+            if (left > 1.0) left = 1.0;
+            if (left < -1.0) left = -1.0;
+            if (right > 1.0) right = 1.0;
+            if (right < -1.0) right = -1.0;
+
+            if (mono) {
+                double m = sum * gain;
+                if (m > 1.0) m = 1.0;
+                if (m < -1.0) m = -1.0;
+                mono[made] = (int16_t)(m * 32000.0);
+            }
+            if (stereo) {
+                stereo[made * 2] = (int16_t)(left * 32000.0);
+                stereo[made * 2 + 1] = (int16_t)(right * 32000.0);
+            }
+            made++;
         }
     }
     return made;
