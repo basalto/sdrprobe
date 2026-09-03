@@ -37,6 +37,40 @@ static inline Rectangle sdrgui_chart_area(Rectangle outer, float gutter,
     return plot;
 }
 
+/*
+ * The next sensible number at or above this one: 1, 2 or 5 times a power of
+ * ten.
+ *
+ * For an axis whose maximum follows the data. A chart scaled to exactly
+ * 1.15 times whatever the largest value happens to be redraws its axis every
+ * time that value moves, and a chart component reserves its left gutter from
+ * how wide the labels render -- so the plot itself shifts sideways. Counts
+ * hovering around ten make it flicker: 9.2 needs three characters and 10.4
+ * needs four, and the boundary gets crossed every few seconds.
+ *
+ * Snapping to a round number costs a little headroom and makes the axis hold
+ * still until the data genuinely outgrows it.
+ */
+static inline float sdrgui_nice_ceiling(float value) {
+    float decade = 1.0f;
+    float scaled;
+
+    if (!(value > 0.0f))
+        return 1.0f;
+    while (value >= 10.0f * decade)
+        decade *= 10.0f;
+    while (value < decade)
+        decade /= 10.0f;
+    scaled = value / decade;
+    if (scaled <= 1.0f)
+        return decade;
+    if (scaled <= 2.0f)
+        return 2.0f * decade;
+    if (scaled <= 5.0f)
+        return 5.0f * decade;
+    return 10.0f * decade;
+}
+
 static inline int sdrgui_point_in(Rectangle rect, float x, float y) {
     return x >= rect.x && x <= rect.x + rect.width && y >= rect.y &&
            y <= rect.y + rect.height;

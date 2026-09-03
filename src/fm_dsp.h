@@ -90,6 +90,10 @@ struct fm_pilot {
     double i_average, q_average;  /* the correlator arms, smoothed */
     double nominal;             /* radians per sample at exactly 19 kHz */
     double alpha, beta;         /* loop gains, from FM_PILOT_LOOP_BW_HZ */
+    /* The three smoother coefficients, worked out once. They were three
+       exp() calls per sample, which at 2 MS/s is six million a second to
+       recompute constants that never change. */
+    double average_k, report_k, lock_k;
     double amplitude;           /* |smoothed correlation| -- the coherent part */
     double lock_i, lock_q;      /* the phasor, smoothed again and slowly */
     double incoherent;          /* its length, smoothed the same way */
@@ -125,6 +129,13 @@ struct fm_pilot {
  * clear beneath the worse station and 0.16 clear above the noise.
  */
 #define FM_PILOT_MIN_COHERENCE 0.70
+/*
+ * And how big it has to be, which coherence does not ask. Measured: a real
+ * station reads 0.020 to 0.024, an empty channel 0.003, and a synthesised
+ * multiplex with no pilot in it at all 0.002. Eight thousandths sits between
+ * them with room on both sides.
+ */
+#define FM_PILOT_MIN_PRESENCE 0.008
 /*
  * How long before a lock may be declared at all.
  *
@@ -306,12 +317,18 @@ size_t fm_multiplex_spectrum(const float *mpx, size_t n, double sample_rate,
 /*
  * The audio, which is what an FM carrier is actually for.
  *
- * Mono: the multiplex below 15 kHz is the sum signal, and every FM receiver
- * that has ever existed can play that. Stereo is genuinely within reach here
- * -- the difference signal rides at 38 kHz on twice the pilot phase, and the
- * pilot is already recovered coherently for the RDS subcarrier -- and it is
- * not done, because the point of this button is to hear whether the receiver
- * is pointed at what the panels say it is, and mono answers that.
+ * Stereo, when the station sends it. The multiplex below 15 kHz is the sum
+ * signal, L+R, which is what a mono receiver plays; the difference, L-R,
+ * rides at 38 kHz with its carrier suppressed. Nothing transmits that
+ * carrier's phase, and nothing needs to: 38 kHz is exactly twice the pilot,
+ * so multiplying the multiplex by the cosine of twice the pilot phase brings
+ * the difference to baseband with no loop to converge and no ambiguity to
+ * resolve. The same fact that hands the RDS subcarrier over hands this over.
+ *
+ * A station without a pilot has no difference signal either, and the noise
+ * where it would be is not something to add to the sum -- so the two channels
+ * are the sum, unchanged, until the pilot locks. That is what every FM
+ * receiver does and it is why they say "stereo" on the front.
  *
  * The rate is chosen rather than fixed, so no resampler is needed: decimating
  * by a whole number gives whatever it gives, and the audio device is told
@@ -344,6 +361,14 @@ struct fm_audio {
     double accumulator;
     int accumulated;
     double level;           /* smoothed peak, for the gain below */
+
+    /* The difference signal's own path: its own pilot, so the audio does not
+       depend on the RDS front end having been run, and its own filters. */
+    struct fm_pilot pilot;
+    double difference_lowpass[3];
+    double difference_deemphasis;
+    double difference_accumulator;
+    int stereo;             /* the pilot is locked; the difference is real */
 };
 
 /* Returns negative for a rate too low to carry audio at all. */
@@ -356,5 +381,15 @@ double fm_audio_rate(const struct fm_audio *audio);
  */
 size_t fm_audio_mono(struct fm_audio *audio, const float *mpx, size_t n,
                      int16_t *out, size_t capacity);
+/*
+ * The same pass, giving either or both: `mono` takes `capacity` samples of
+ * the sum signal, `stereo` takes `capacity` frames of interleaved left and
+ * right. Either may be NULL. Returns frames.
+ */
+size_t fm_audio_decode(struct fm_audio *audio, const float *mpx, size_t n,
+                       int16_t *mono, int16_t *stereo, size_t capacity);
+/* Whether the last pass found a pilot, and so whether the two channels
+   differ. */
+int fm_audio_is_stereo(const struct fm_audio *audio);
 
 #endif
