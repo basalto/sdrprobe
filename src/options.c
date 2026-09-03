@@ -20,7 +20,7 @@ void usage(const char *program) {
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
             "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte|\n"
-            "                  calibration]\n"
+            "                  calibration|settings|help]\n"
             "          [--record-seconds n] [--technology gsm|adsb|lte|raw]\n"
             "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
@@ -213,7 +213,9 @@ int parse_view(const char *text, enum start_view *view) {
         { "gsm", START_VIEW_GSM },
         { "adsb", START_VIEW_ADSB },
         { "lte", START_VIEW_LTE },
-        { "calibration", START_VIEW_CALIBRATION }
+        { "calibration", START_VIEW_CALIBRATION },
+        { "settings", START_VIEW_SETTINGS },
+        { "help", START_VIEW_HELP }
     };
 
     if (!text)

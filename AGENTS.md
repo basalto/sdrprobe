@@ -473,6 +473,12 @@ know about, and there is no way to see that broken except by clicking.
 
 ## Seeing the window
 
+`make screens` renders every screen to `build/screens/` from captures, which is
+the cheap way to do what the rule in `CLAUDE.md` asks: a change that draws is
+not finished until somebody has looked at it. `check-layout` compares
+rectangles and cannot see two panels sharing one, a picker offering unusable
+values, or a frame that came out blank -- all of which have shipped here.
+
 `--screenshot <file>` writes the last frame of a windowed run to a PNG, which
 the Read tool displays, so a change to a view can be looked at without a
 person. It needs `--duration`, since the frame captured is the one before the

@@ -812,7 +812,19 @@ void draw_calibration(struct app *app) {
     if (app->calibration_technology == 1 && !app->cal.running)
         return;
 
-    draw_waterfall(app, 1);
+    /*
+     * Into the layout's chart, not app->plot.
+     *
+     * draw_waterfall draws into the Scope's plot rectangle, which begins
+     * higher up the window than this overlay's chart does -- so the waterfall
+     * came out over the status line, while the expected and measured markers
+     * below were placed against cl.chart and therefore against a different
+     * chart from the one they marked. check-layout could not see either: it
+     * compares the rectangles the layout returns, and app->plot is not one of
+     * them.
+     */
+    draw_waterfall_rect(app, 1, cl.chart,
+                        (double)app->calibration_expected_hz);
     if (app->calibration_expected_hz > 0) {
         double full_lower = (double)app->applied_frequency -
                             app->applied_sample_rate / 2.0;

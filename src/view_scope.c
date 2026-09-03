@@ -211,10 +211,19 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
     sdrgui_waterfall(&params);
 }
 
-void draw_waterfall(const struct app *app, int calibration_mode) {
-    draw_waterfall_rect(app, calibration_mode, app->plot,
-                        calibration_mode ? (double)app->calibration_expected_hz
-                                         : 0.0);
+/*
+ * The Scope's waterfall, into the Scope's plot.
+ *
+ * It used to take a calibration flag, and the calibration overlay used it --
+ * which drew that overlay's waterfall into app->plot, a rectangle 52 px above
+ * the one the overlay's own layout had set aside. The result was a waterfall
+ * over the status line, and expected/measured markers placed against a chart
+ * that was somewhere else. The flag is gone rather than fixed: every other
+ * view already passes its own rectangle, so with no flag left there is no way
+ * to draw a waterfall anywhere but where a layout put it.
+ */
+void draw_waterfall(const struct app *app) {
+    draw_waterfall_rect(app, 0, app->plot, 0.0);
 }
 
 void update_scatter(struct app *app, double now, int insert) {

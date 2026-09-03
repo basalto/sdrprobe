@@ -493,6 +493,45 @@ static void test_saving_a_scripted_sweep(void) {
                   ? options.survey_save : -1, 0);
 }
 
+/*
+ * Every screen is reachable from the command line.
+ *
+ * This is the enforceable half of the screenshot rule: a screen nobody can
+ * open without clicking is a screen nobody looks at, and the LTE calibration
+ * panel shipped with three overlapping regions for exactly that reason. The
+ * looking itself needs a display and cannot live in `make check`; that a
+ * screen can be *asked for* does not.
+ */
+static void test_every_screen_is_reachable(void) {
+    static const char *screens[] = {
+        "magnitude", "spectrum", "scatter", "waterfall", "survey",
+        "gsm", "adsb", "lte", "calibration", "settings", "help"
+    };
+    unsigned i;
+
+    for (i = 0; i < sizeof(screens) / sizeof(screens[0]); i++) {
+        enum start_view view = START_VIEW_DEFAULT;
+        check_msg(parse_view(screens[i], &view) == 0,
+                  "--view %s is not accepted\n", screens[i]);
+        check_msg(view != START_VIEW_DEFAULT,
+                  "--view %s parses to the default\n", screens[i]);
+    }
+    /* And the overlays specifically, which are the ones that were only ever
+       reachable by a key or a button. */
+    {
+        enum start_view view = START_VIEW_DEFAULT;
+        check_int("the calibration overlay",
+                  parse_view("calibration", &view), 0);
+        check_int("names itself", (int)view, (int)START_VIEW_CALIBRATION);
+        check_int("settings", parse_view("settings", &view), 0);
+        check_int("names itself", (int)view, (int)START_VIEW_SETTINGS);
+        check_int("help", parse_view("help", &view), 0);
+        check_int("names itself", (int)view, (int)START_VIEW_HELP);
+    }
+    check_true("and a screen that does not exist is refused",
+               parse_view("nonsense", &(enum start_view){ 0 }) < 0);
+}
+
 int main(void) {
     test_defaults();
     test_frequency_spellings();
@@ -512,6 +551,8 @@ int main(void) {
     test_headless_lte_chain();
 
     test_saving_a_scripted_sweep();
+
+    test_every_screen_is_reachable();
 
     return check_report("command line");
 }

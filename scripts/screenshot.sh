@@ -22,7 +22,7 @@ case "$out" in
 esac
 
 # Repository root, so the recipes' relative capture paths resolve.
-cd "$(dirname "$0")/../../.." || exit 1
+cd "$(dirname "$0")/.." || exit 1
 
 ./sdrprobe --screenshot "$out" "$@" &
 app=$!
