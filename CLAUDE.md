@@ -351,6 +351,19 @@ Its shape:
   Calibration and settings are full-screen overlays orthogonal to the tabs
   (ADR-0008); `enum active_tab` (Scope/Decode) and `enum decode_kind` replaced the
   old ad-hoc mode flags — don't add a new one, extend those enums.
+Walking the LTE chain over a live cell, which `probe-lte-chain` only does for
+a capture:
+
+```sh
+./sdrprobe --headless --lte-chain --earfcn 6200 --lte-chain-seconds 30
+./sdrprobe --headless --lte-chain --lte-chain-band 20     # scan, walk the best
+```
+
+Three lines per block -- PSS, SSS, MIB -- then a funnel. Which stage stops is
+the diagnosis: no PSS is tuning or band, PSS without SSS was the conjugated
+sequence, SSS without parity is the broadcast channel, and parity without a
+repeat is chance. A live cell gave 175 blocks, 169 cells, 168 messages.
+
 Calibrating with no window, which is how the gate is reachable at all
 (ADR-0012):
 

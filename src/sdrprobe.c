@@ -1501,6 +1501,171 @@ static int run_headless(struct app *app) {
     }
 
     /*
+     * Walking the LTE chain over a live cell.
+     *
+     * probe-lte-chain does this for a capture, and a capture is two seconds of
+     * one afternoon. What the chain does over a live cell for a minute is a
+     * different question and the one that matters when it is not working: a
+     * cell that decodes in half its blocks and a cell that never decodes look
+     * identical in a single block, and completely different in sixty.
+     *
+     * A stage line per block rather than a verdict. Which stage stops is the
+     * whole diagnosis -- no PSS is a tuning or a band problem, PSS without SSS
+     * was the conjugated-sequence bug, SSS without parity is the broadcast
+     * channel, and parity without a repeat is chance.
+     */
+    if (app->options.lte_chain) {
+        static const int port_hypotheses[3] = { 1, 2, 4 };
+        double began, limit = app->options.lte_chain_seconds > 0.0
+                                  ? app->options.lte_chain_seconds : 30.0;
+        unsigned long blocks = 0, cells = 0, parity = 0, messages = 0;
+        struct lte_mib last;
+        int have_last = 0;
+        uint32_t carrier = 0;
+        int earfcn = app->options.earfcn;
+
+        sdr_dsp_init(&app->dsp);
+        if (app->options.lte_chain_band) {
+            printf("lte-chain scanning band %d\n", app->options.lte_chain_band);
+            fflush(stdout);
+            if (retune_receiver_at_rate(app, app->applied_frequency,
+                                        LTE_SAMPLE_RATE_HZ,
+                                        app->applied_ppm) < 0 ||
+                lte_scan_begin(app, app->options.lte_chain_band,
+                               monotonic_seconds()) != 0) {
+                fprintf(stderr, "Could not start the band scan\n");
+                return -1;
+            }
+            while (lte_scan_running(app) && !signal_stop_requested) {
+                struct timespec tick = { 0, 5 * 1000000L };
+                struct slot_snapshot snapshot;
+                int have_new = consume_latest(&app->acq, &snapshot);
+                if (have_new)
+                    process_block(app, monotonic_seconds());
+                if (snapshot.worker_failed) {
+                    fprintf(stderr, "Acquisition failed: %s\n",
+                            snapshot.worker_error);
+                    return -1;
+                }
+                update_lte_scan(app, monotonic_seconds(), have_new);
+                if (!have_new)
+                    nanosleep(&tick, NULL);
+            }
+            if (app->lte.scan.found_count < 1) {
+                printf("lte-chain-summary blocks 0 cells 0 parity 0 "
+                       "messages 0 reason no-cell\n");
+                fflush(stdout);
+                return stop_acquisition(app) < 0 ? -1 : 0;
+            }
+            earfcn = (int)app->lte.scan.found[0].earfcn;
+        }
+        if (!lte_earfcn_downlink_hz((unsigned int)earfcn, &carrier)) {
+            fprintf(stderr, "EARFCN %d is not a downlink channel\n", earfcn);
+            return -1;
+        }
+        if (retune_receiver_at_rate(app, carrier, LTE_SAMPLE_RATE_HZ,
+                                    app->applied_ppm) < 0)
+            return -1;
+        printf("lte-chain earfcn %d carrier_hz %u rate %u ppm %d\n", earfcn,
+               carrier, app->applied_sample_rate, app->applied_ppm);
+        printf("# chain <block> pss <corr> <runner_up> n_id_2 <n> timing <sample> "
+               "offset_hz <hz> integer <subcarriers>\n");
+        printf("# chain <block> sss <corr> <runner_up> n_id_1 <n> pci <n> cp "
+               "<normal|extended> half_frame <0|1>\n");
+        printf("# chain <block> mib ports <n> prb <n> phich <duration> "
+               "<resource> sfn <n> quarter <n> combining <ports>\n");
+        fflush(stdout);
+        began = monotonic_seconds();
+
+        while (!signal_stop_requested &&
+               monotonic_seconds() - began < limit) {
+            struct timespec tick = { 0, 5 * 1000000L };
+            struct slot_snapshot snapshot;
+            struct lte_cell cell;
+            int have_new = consume_latest(&app->acq, &snapshot);
+            int h;
+
+            if (!have_new) {
+                nanosleep(&tick, NULL);
+                continue;
+            }
+            process_block(app, monotonic_seconds());
+            if (snapshot.worker_failed) {
+                fprintf(stderr, "Acquisition failed: %s\n",
+                        snapshot.worker_error);
+                return -1;
+            }
+            if (app->pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE)
+                continue;
+            blocks++;
+            if (lte_cell_search(app->i_samples, app->q_samples,
+                                app->pair_count,
+                                (double)app->applied_sample_rate, &cell,
+                                NULL) != 1) {
+                printf("chain %lu pss %.3f %.3f n_id_2 %d timing - "
+                       "offset_hz - integer - no-cell\n", blocks,
+                       (double)cell.pss_correlation,
+                       (double)cell.pss_runner_up, cell.n_id_2);
+                fflush(stdout);
+                continue;
+            }
+            cells++;
+            printf("chain %lu pss %.3f %.3f n_id_2 %d timing %zu offset_hz "
+                   "%.0f integer %d\n", blocks, (double)cell.pss_correlation,
+                   (double)cell.pss_runner_up, cell.n_id_2,
+                   cell.subframe0_start, cell.frequency_offset_hz,
+                   cell.integer_offset);
+            printf("chain %lu sss %.3f %.3f n_id_1 %d pci %d cp %s "
+                   "half_frame %d\n", blocks, (double)cell.sss_correlation,
+                   (double)cell.sss_runner_up, cell.n_id_1, cell.pci,
+                   cell.extended_cp ? "extended" : "normal", cell.half_frame);
+
+            for (h = 0; h < 3; h++) {
+                float soft[LTE_PBCH_SOFT_BITS];
+                struct lte_mib mib;
+                if (lte_pbch_soft_bits(app->i_samples, app->q_samples,
+                                       app->pair_count,
+                                       (double)app->applied_sample_rate, &cell,
+                                       cell.subframe0_start,
+                                       port_hypotheses[h], soft,
+                                       NULL) != LTE_PBCH_SOFT_BITS)
+                    continue;
+                if (!lte_mib_decode(soft, cell.pci, &mib))
+                    continue;
+                parity++;
+                /* A parity that passes is not yet a message: sixteen bits
+                   accept one block in 65536 and this tries thirty-six a
+                   block. What separates them is a repeat that agrees. */
+                if (have_last && lte_mib_same_cell(&last, &mib))
+                    messages++;
+                last = mib;
+                have_last = 1;
+                {
+                    /* The resource as the standard names it -- 1/6, 1/2, 1,
+                       2 -- not the raw count of sixths, which reads as a
+                       different number entirely. */
+                    const char *res =
+                        lte_phich_resource_name(mib.phich_resource_sixths);
+                    printf("chain %lu mib ports %d prb %d phich %s %s sfn %d "
+                           "quarter %d combining %d\n", blocks,
+                           mib.antenna_ports, mib.bandwidth_prb,
+                           mib.phich_extended ? "extended" : "normal",
+                           res ? res : "?", mib.system_frame_number,
+                           mib.quarter, port_hypotheses[h]);
+                }
+                break;
+            }
+            fflush(stdout);
+        }
+        printf("lte-chain-summary blocks %lu cells %lu parity %lu messages "
+               "%lu\n", blocks, cells, parity, messages);
+        fflush(stdout);
+        if (stop_acquisition(app) < 0)
+            return -1;
+        return 0;
+    }
+
+    /*
      * A headless calibration. Its own run, like the survey and the band scan,
      * and for the same reason: the lock gate decides whether a correction may
      * be applied, and a decision reachable only by somebody clicking Start is

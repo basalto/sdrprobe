@@ -33,6 +33,10 @@ void usage(const char *program) {
             "  --view            screen to open on\n"
             "  --record-seconds  record raw I/Q to captures/ from startup,\n"
             "                    with a .json sidecar describing the tuning\n"
+            "  --lte-chain       walk the LTE decode chain over a live cell,\n"
+            "                    printing what every stage produced per block\n"
+            "  --lte-chain-band  scan this band and walk its strongest cell\n"
+            "  --lte-chain-seconds  how long to walk it for\n"
             "  --calibrate       gsm|lte: measure the receiver's frequency\n"
             "                    error with no window and print every step\n"
             "  --calibrate-band  scan this LTE band and use its strongest cell\n"
@@ -409,6 +413,22 @@ int parse_options(int argc, char **argv, struct options *options) {
                 return -1;
         } else if (strcmp(option, "--survey-confirm") == 0) {
             options->survey_confirm = 1;
+        } else if (strcmp(option, "--lte-chain") == 0) {
+            options->lte_chain = 1;
+        } else if (strcmp(option, "--lte-chain-band") == 0) {
+            long band;
+            char *end;
+            if (options->lte_chain_band || i + 1 >= argc)
+                return -1;
+            band = strtol(argv[++i], &end, 10);
+            if (*end || band < 1 || band > 100)
+                return -1;
+            options->lte_chain_band = (int)band;
+        } else if (strcmp(option, "--lte-chain-seconds") == 0) {
+            if (options->lte_chain_seconds > 0.0 || i + 1 >= argc ||
+                parse_seconds(argv[++i], &options->lte_chain_seconds) < 0 ||
+                options->lte_chain_seconds <= 0.0)
+                return -1;
         } else if (strcmp(option, "--calibrate") == 0) {
             if (options->calibrate || i + 1 >= argc)
                 return -1;
@@ -497,6 +517,19 @@ int parse_options(int argc, char **argv, struct options *options) {
     /* Asking again is about what a sweep found, so there has to be one. */
     if (options->survey_confirm && !options->survey_seen)
         return -1;
+    /* The chain needs a cell to walk: an EARFCN, or a band to find one in. */
+    if (options->lte_chain && !options->earfcn && !options->lte_chain_band)
+        return -1;
+    if (options->lte_chain && options->earfcn && options->lte_chain_band)
+        return -1;
+    if ((options->lte_chain_band || options->lte_chain_seconds > 0.0) &&
+        !options->lte_chain)
+        return -1;
+    /* Its own run, like the calibration and the survey. */
+    if (options->lte_chain && (options->calibrate || options->survey_seen ||
+                               options->decode || options->lte_scan_band))
+        return -1;
+
     /*
      * A calibration needs to know what to point at: an ARFCN for GSM, and for
      * LTE either an EARFCN or a band to find one in.

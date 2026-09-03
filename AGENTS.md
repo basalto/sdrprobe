@@ -491,6 +491,8 @@ checks, and which diagnostic tool answers which question.
 
 ### Calibrating against two references
 
+`--lte-chain` walks the decode chain over a live cell and prints what every
+stage produced per block, which is what `probe-lte-chain` does for a capture.
 `--calibrate gsm|lte` runs one with no window and prints every residual, and
 `--calibrate-band N` scans an LTE band and takes its strongest cell rather than
 being told an EARFCN. The lock gate decides whether a correction may be

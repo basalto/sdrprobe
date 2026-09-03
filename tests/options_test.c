@@ -439,6 +439,42 @@ static void test_headless_calibration(void) {
                   ? options.calibrate : -1, 0);
 }
 
+/*
+ * Walking the LTE chain over a live cell, with no window.
+ *
+ * probe-lte-chain does this for a capture. A capture is two seconds of one
+ * afternoon; a cell that decodes in half its blocks and one that never decodes
+ * are indistinguishable in a single block and obvious in sixty.
+ */
+static void test_headless_lte_chain(void) {
+    struct options options;
+    const char *earfcn[] = { "sdrprobe", "--lte-chain", "--earfcn", "6200" };
+    const char *band[] = { "sdrprobe", "--lte-chain", "--lte-chain-band", "20" };
+    const char *bare[] = { "sdrprobe", "--lte-chain" };
+    const char *both[] = { "sdrprobe", "--lte-chain", "--earfcn", "6200",
+                           "--lte-chain-band", "20" };
+    const char *stray[] = { "sdrprobe", "--lte-chain-band", "20" };
+    const char *clash[] = { "sdrprobe", "--lte-chain", "--earfcn", "6200",
+                            "--calibrate", "lte" };
+
+    check_int("with an EARFCN", parse_options(4, (char **)earfcn, &options), 0);
+    check_int("or with a band to find one in",
+              parse_options(4, (char **)band, &options), 0);
+    check_int("which it remembers", options.lte_chain_band, 20);
+    /* Without either there is no cell to walk, and picking one at random
+       would report a chain over whatever happened to be tuned. */
+    check_true("with neither it is refused",
+               parse_options(2, (char **)bare, &options) < 0);
+    check_true("and with both, which is two answers to one question",
+               parse_options(6, (char **)both, &options) < 0);
+    check_true("a band with no chain to walk is refused",
+               parse_options(3, (char **)stray, &options) < 0);
+    /* One receiver: a chain and a calibration together would have it in two
+       places at once. */
+    check_true("walking and calibrating together are refused",
+               parse_options(6, (char **)clash, &options) < 0);
+}
+
 int main(void) {
     test_defaults();
     test_frequency_spellings();
@@ -454,6 +490,8 @@ int main(void) {
     test_watching_needs_a_sweep();
 
     test_headless_calibration();
+
+    test_headless_lte_chain();
 
     return check_report("command line");
 }
