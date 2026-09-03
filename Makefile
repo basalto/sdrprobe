@@ -73,7 +73,7 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/
 # FM broadcast: the discriminator and the 19 kHz pilot every other rate in the
 # multiplex is derived from. Probe side, links libm only.
 check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
-		$(SRC)/fm_dsp.h
+		$(SRC)/fm_dsp.h testfiles/fm_rds_89600.bin
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_dsp_test \
 		$(TESTS)/fm_dsp_test.c $(SRC)/fm_dsp.c -lm
