@@ -59,12 +59,21 @@ enum sdrgui_health {
 };
 
 struct sdrgui_health_params {
+    /*
+     * Where the dot goes, rather than a position worked out inside the
+     * widget. There are two of these now -- one per technology calibrated --
+     * and two widgets each deciding where they sit is two widgets that can
+     * land on each other. The layout owns it, so a check can see it.
+     */
+    Vector2 centre;
     int state;          /* enum sdrgui_health */
-    int arfcn;          /* for the "checking" banner */
+    const char *label;  /* "GSM cal", "LTE cal" */
+    const char *channel_name;  /* "ARFCN", "EARFCN" -- for the banner */
+    int channel;        /* for the "checking" banner */
     const char *notice; /* drift banner text (may be NULL/empty) */
 };
 
-/* Top-right status circle plus an optional checking/drift banner. */
+/* A status circle with its caption, plus an optional checking/drift banner. */
 void sdrgui_health_dot(const struct sdrgui_health_params *params);
 
 /* --- Views --- */

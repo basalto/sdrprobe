@@ -7,6 +7,8 @@
 
 #include "view.h"
 #include "calibration_gate.h"
+#include "lte_dsp.h"
+#include "chrome_layout.h"
 #include "sdrgui.h"
 
 /*
@@ -48,12 +50,63 @@ void open_calibration(struct app *app) {
              "Select GSM 900 ARFCN 1-124, then press Start");
 }
 
+/*
+ * Calibrating against an LTE cell.
+ *
+ * The cell search measures the receiver's frequency error twice over -- a
+ * phase from the primary sequence, which only sees it modulo one subcarrier,
+ * and then the whole subcarriers by search. That second half is why this is
+ * worth having: an uncalibrated dongle is two subcarriers out at 800 MHz, and
+ * a reference that could not see them would report the error as the remainder
+ * and be confidently wrong by 30 kHz.
+ *
+ * It runs on LTE's own 1.92 MS/s grid and refuses anything else (ADR-0014),
+ * so the calibration borrows the rate and gives it back on the way out.
+ */
+static int start_lte_calibration(struct app *app) {
+    int earfcn;
+    uint32_t carrier;
+
+    if (parse_int(app->cal.channel, &earfcn) < 0 || earfcn <= 0 ||
+        !lte_earfcn_downlink_hz((unsigned int)earfcn, &carrier)) {
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "Not an LTE downlink EARFCN this band table knows");
+        return -1;
+    }
+    app->calibration_expected_hz = carrier;
+    /* Tuned to the carrier's centre, not beside it as an ARFCN is: LTE never
+       transmits on the middle subcarrier, so the receiver's own DC spike
+       lands where the standard already leaves a hole. */
+    app->cal.tune_hz = carrier;
+    app->cal.measured_hz = 0.0;
+    app->cal.offset_hz = 0.0;
+    calibration_tracker_init(&app->cal.track);
+    app->cal.track.source = CALIBRATION_SOURCE_LTE;
+    if (!app->cal_return_sample_rate)
+        app->cal_return_sample_rate = app->applied_sample_rate;
+    if (retune_receiver_at_rate(app, app->cal.tune_hz, app->applied_ppm,
+                                LTE_SAMPLE_RATE_HZ) < 0) {
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "The receiver would not take LTE's 1.92 MS/s");
+        return -1;
+    }
+    app->cal.started_at = GetTime();
+    app->cal.running = 1;
+    app->lte_cal_earfcn = earfcn;
+    snprintf(app->calibration_status, sizeof(app->calibration_status),
+             "Measuring LTE EARFCN %d at %.3f MHz", earfcn,
+             carrier / 1000000.0);
+    return 0;
+}
+
 int start_calibration(struct app *app) {
     int arfcn;
     uint32_t expected;
+    if (app->calibration_technology == 1)
+        return start_lte_calibration(app);
     if (app->calibration_technology != 0 || app->cal.band != 0) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Only 2G GSM 900 is supported in this version");
+                 "Only 2G and 4G are supported in this version");
         return -1;
     }
     if (app->applied_sample_rate < 1000000U) {
@@ -101,9 +154,64 @@ static void calibration_set_status(struct app *app) {
              app->cal.suggested_ppm);
 }
 
+/*
+ * One block of an LTE calibration: find the cell, take its frequency error.
+ *
+ * Nothing here estimates a frequency. The cell search already did, better than
+ * anything this overlay could: coarsely from the primary sequence, then the
+ * whole subcarriers by search, then refined from the reference signals. The
+ * calibration's job is only to decide whether the number has settled, which is
+ * what the gate is for.
+ */
+static void update_lte_calibration(struct app *app) {
+    struct lte_cell cell;
+    double observed_ppm;
+
+    if (app->pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE)
+        return;
+    if (lte_cell_search(app->i_samples, app->q_samples, app->pair_count,
+                        (double)app->applied_sample_rate, &cell, NULL) != 1) {
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "No LTE cell found at EARFCN %d", app->lte_cal_earfcn);
+        return;
+    }
+    /* The buffer must never hold two references at once (ADR-0004), and with
+       three sources there are more ways to get that wrong than there were. */
+    calibration_tracker_use(&app->cal.track, CALIBRATION_SOURCE_LTE);
+    app->cal.fcch_confidence = cell.pss_correlation;
+    app->cal.prominence_db = cell.pss_correlation;
+    app->cal.measured_hz = (double)app->calibration_expected_hz +
+                           cell.frequency_offset_hz;
+    app->cal.offset_hz = cell.frequency_offset_hz;
+    observed_ppm = app->cal.offset_hz /
+                   (double)app->calibration_expected_hz * 1000000.0;
+    calibration_tracker_observe(&app->cal.track, observed_ppm);
+    app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
+        app->applied_ppm, app->cal.measured_hz,
+        (double)app->calibration_expected_hz);
+    snprintf(app->calibration_status, sizeof(app->calibration_status),
+             "%s (LTE cell %d): %d meas, +/- %.2f PPM (spread %.2f), "
+             "offset %+.1f kHz, PSS %.2f, suggested %+d PPM",
+             app->cal.track.stable ? "Stable lock" : "Acquiring", cell.pci,
+             app->cal.track.measurements, app->cal.track.recent_sem,
+             app->cal.track.recent_spread, app->cal.offset_hz / 1e3,
+             (double)cell.pss_correlation, app->cal.suggested_ppm);
+}
+
 void update_calibration_measurement(struct app *app) {
-    if (!app->calibration_open || !app->cal.running ||
-        app->scan_open || !app->spectrum_ready)
+    if (!app->calibration_open || !app->cal.running || app->scan_open)
+        return;
+    if (app->calibration_technology == 1) {
+        double waited = GetTime() - app->cal.started_at;
+        if (waited < CALIBRATION_SETTLE_SECONDS) {
+            snprintf(app->calibration_status, sizeof(app->calibration_status),
+                     "Settling receiver... %.1f s", waited);
+            return;
+        }
+        update_lte_calibration(app);
+        return;
+    }
+    if (!app->spectrum_ready)
         return;
 
     double lower = (double)app->applied_frequency -
@@ -281,11 +389,25 @@ void update_drift_check(struct app *app, int have_block) {
 }
 
 void close_calibration(struct app *app) {
-    if (app->cal.running) {
+    /*
+     * An LTE calibration borrowed the sample rate as well as the tuning
+     * (ADR-0014), so both go back. Leaving the receiver on 1.92 MS/s would
+     * strand every Scope view at a rate they do not expect, which is the same
+     * trap the LTE decode view has to avoid on the way out.
+     */
+    if (app->cal_return_sample_rate &&
+        app->cal_return_sample_rate != app->applied_sample_rate) {
+        if (retune_receiver_at_rate(app, app->cal.return_frequency,
+                                    app->applied_ppm,
+                                    app->cal_return_sample_rate) < 0)
+            return;
+        app->cal_return_sample_rate = 0;
+    } else if (app->cal.running) {
         if (retune_receiver(app, app->cal.return_frequency,
                             app->applied_ppm) < 0)
             return;
     }
+    app->cal_return_sample_rate = 0;
     app->cal.running = 0;
     app->calibration_open = 0;
 }
@@ -312,14 +434,18 @@ void handle_calibration_input(struct app *app) {
     if (!app->cal.running && clicked(tech_2g)) {
         app->calibration_technology = 0;
         inputs_changed = 1;
+        snprintf(app->cal.channel, sizeof(app->cal.channel), "113");
+        app->cal.channel_length = 3;
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Select GSM 900 ARFCN 1-124, then press Start");
     }
     if (!app->cal.running && clicked(tech_4g)) {
         app->calibration_technology = 1;
         inputs_changed = 1;
+        snprintf(app->cal.channel, sizeof(app->cal.channel), "6200");
+        app->cal.channel_length = 4;
         snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "4G channel tables are not implemented yet");
+                 "Select an LTE EARFCN, then press Start");
     }
     if (!app->cal.running && clicked(tech_5g)) {
         app->calibration_technology = 2;
@@ -329,7 +455,7 @@ void handle_calibration_input(struct app *app) {
     }
 
     int character;
-    while (app->calibration_technology == 0 &&
+    while (app->calibration_technology <= 1 &&
            (character = GetCharPressed()) != 0) {
         if (character >= '0' && character <= '9' &&
             app->cal.channel_length <
@@ -340,7 +466,7 @@ void handle_calibration_input(struct app *app) {
             inputs_changed = 1;
         }
     }
-    if (app->calibration_technology == 0 &&
+    if (app->calibration_technology <= 1 &&
         IsKeyPressed(KEY_BACKSPACE) &&
         app->cal.channel_length > 0) {
         app->cal.channel[--app->cal.channel_length] = '\0';
@@ -372,6 +498,10 @@ void handle_calibration_input(struct app *app) {
         if (retune_receiver(app, app->cal.tune_hz,
                             app->cal.suggested_ppm) == 0) {
             app->options.ppm = app->cal.suggested_ppm;
+            if (app->calibration_technology == 1) {
+                app->lte_cal_valid = 1;
+                app->lte_cal_ppm = app->cal.suggested_ppm;
+            }
             /* A measured correction belongs to where it was measured. */
             if (app->config.site[0] &&
                 config_set_site_ppm(&app->config, app->config.site,
@@ -432,11 +562,13 @@ void draw_calibration(struct app *app) {
     draw_button(tech_5g, "5G", app->calibration_technology == 2);
     DrawText(app->calibration_technology == 0
                  ? "Band: GSM 900"
-                 : "Band: unavailable",
+                 : app->calibration_technology == 1
+                       ? "Band: LTE, 1.92 MS/s while measuring"
+                       : "Band: unavailable",
              274, 80, 18,
              (Color){ 209, 221, 228, 255 });
-    DrawText("ARFCN", (int)channel.x, 50, 16,
-             (Color){ 157, 180, 194, 255 });
+    DrawText(app->calibration_technology == 1 ? "EARFCN" : "ARFCN",
+             (int)channel.x, 50, 16, (Color){ 157, 180, 194, 255 });
     sdrgui_text_field(channel,
                       app->calibration_technology == 0
                           ? app->cal.channel
@@ -519,9 +651,43 @@ void draw_calibration(struct app *app) {
 
 
 
+/*
+ * One circle per reference. Two, because two independent measurements of one
+ * crystal are worth far more than either alone -- and the moment they stop
+ * agreeing is the moment to distrust the correction, which a single dot could
+ * never show.
+ */
 void draw_health_indicator(const struct app *app) {
-    struct sdrgui_health_params params = {
-        app->drift_health, app->gsm_cal_arfcn, app->drift_notice
-    };
-    sdrgui_health_dot(&params);
+    struct chrome_layout chrome = chrome_layout_now();
+    struct sdrgui_health_params gsm;
+    struct sdrgui_health_params lte;
+
+    memset(&gsm, 0, sizeof(gsm));
+    gsm.centre = chrome.gsm_dot;
+    gsm.state = app->drift_health;
+    gsm.label = "GSM cal";
+    gsm.channel_name = "ARFCN";
+    gsm.channel = app->gsm_cal_arfcn;
+    gsm.notice = app->drift_notice;
+    sdrgui_health_dot(&gsm);
+
+    memset(&lte, 0, sizeof(lte));
+    lte.centre = chrome.lte_dot;
+    /*
+     * No drift monitor behind this one yet, so it says only what it knows:
+     * measuring now, measured and applied, or nothing yet. Claiming a health
+     * it has not checked would be worse than an honest grey.
+     */
+    if (app->calibration_open && app->cal.running &&
+        app->calibration_technology == 1)
+        lte.state = SDRGUI_HEALTH_CHECKING;
+    else if (app->lte_cal_valid)
+        lte.state = SDRGUI_HEALTH_GOOD;
+    else
+        lte.state = SDRGUI_HEALTH_UNKNOWN;
+    lte.label = "LTE cal";
+    lte.channel_name = "EARFCN";
+    lte.channel = app->lte_cal_earfcn;
+    lte.notice = NULL;
+    sdrgui_health_dot(&lte);
 }

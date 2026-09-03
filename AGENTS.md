@@ -489,6 +489,14 @@ A round trip proves the code agrees with itself, not with the standard.
 corroboration of a real-signal answer, the two faults that hid behind green
 checks, and which diagnostic tool answers which question.
 
+### Calibrating against two references
+
+The calibration overlay takes 2G or 4G. GSM measures an FCCH tone; LTE takes
+the offset the cell search already measures, and borrows 1.92 MS/s to do it.
+Two circles at the top right, one per reference, because two independent
+measurements of one crystal are worth more than either alone -- and the moment
+they stop agreeing is the moment to distrust the correction.
+
 ### The RF environment
 
 The survey is the default view and is reached by the Survey button at the left

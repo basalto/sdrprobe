@@ -351,6 +351,17 @@ Its shape:
   Calibration and settings are full-screen overlays orthogonal to the tabs
   (ADR-0008); `enum active_tab` (Scope/Decode) and `enum decode_kind` replaced the
   old ad-hoc mode flags — don't add a new one, extend those enums.
+Calibration takes two references. GSM measures an FCCH tone; LTE takes the
+offset `lte_cell_search` already measures -- coarsely from the primary
+sequence, then the whole subcarriers by search, which is the half that matters
+because an uncalibrated dongle is two subcarriers out at 800 MHz. Both feed the
+same gate through a third source, `CALIBRATION_SOURCE_LTE`, and the source rule
+matters more with three than with two: residuals from different references have
+different centres and a buffer holding both passes the gate while suggesting a
+correction belonging to neither. An LTE calibration borrows 1.92 MS/s
+(ADR-0014) and gives the rate back on close. Measured on air, the two agree to
+about a ppm -- GSM ARFCN 113 gave -31.3 and LTE EARFCN 6200 gave -32.5.
+
 - **Calibration lock** (`update_calibration_measurement`, `robust_center_spread`)
   gates on a median/MAD-based standard error over a *source-homogeneous* residual
   buffer — mixing centroid and FCCH residuals is the bug the gate exists to

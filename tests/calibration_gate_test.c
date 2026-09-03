@@ -363,6 +363,68 @@ static void test_a_lock_settles(void) {
               CALIBRATION_SOURCE_FCCH);
 }
 
+/*
+ * A third reference, and the rule that keeps them apart.
+ *
+ * An FCCH residual and an LTE residual measure the same crystal, but at
+ * different frequencies against different references, so a buffer holding
+ * both has a centre belonging to neither and a standard error small enough to
+ * pass the gate while the correction is nonsense. That is ADR-0004's mistake,
+ * and with three sources there are six ways to make it instead of two.
+ */
+static void test_the_lte_source(void) {
+    struct calibration_tracker t;
+
+    calibration_tracker_init(&t);
+    calibration_tracker_use(&t, CALIBRATION_SOURCE_LTE);
+    check_int("the buffer follows the source", t.source,
+              CALIBRATION_SOURCE_LTE);
+
+    calibration_tracker_observe(&t, -36.0);
+    calibration_tracker_observe(&t, -36.1);
+    check_int("and holds what it was given", t.measurements, 2);
+
+    /* Switching reference throws the old residuals away rather than averaging
+       across two. */
+    calibration_tracker_use(&t, CALIBRATION_SOURCE_FCCH);
+    check_int("switching clears the buffer", t.measurements, 0);
+    check_int("and points it at the new source", t.source,
+              CALIBRATION_SOURCE_FCCH);
+
+    /* Asking for the source it already has changes nothing. */
+    calibration_tracker_observe(&t, -35.0);
+    calibration_tracker_use(&t, CALIBRATION_SOURCE_FCCH);
+    check_int("staying put keeps what was measured", t.measurements, 1);
+}
+
+static void test_what_an_lte_offset_must_be_worth(void) {
+    /* A weak lock on the right cell still measures the right offset; a lock
+       this poor is as likely to be noise, and a noise "offset" is a number
+       with no crystal behind it. */
+    check_true("a solid cell is good enough",
+               calibration_is_stable(60.0, 40, 40, 0.1,
+                                     CALIBRATION_SOURCE_LTE, 0.85f));
+    check_true("a marginal one is not",
+               !calibration_is_stable(60.0, 40, 40, 0.1,
+                                      CALIBRATION_SOURCE_LTE, 0.30f));
+    /* The quality figure means something different per source, which is why
+       it is judged per source: 0.85 is a fine correlation and a hopeless
+       prominence in decibels. */
+    check_true("the same number judged as a centroid fails",
+               !calibration_is_stable(60.0, 40, 40, 0.1,
+                                      CALIBRATION_SOURCE_CENTROID, 0.85f));
+    check_true("and a tone needs no quality figure at all",
+               calibration_is_stable(60.0, 40, 40, 0.1,
+                                     CALIBRATION_SOURCE_FCCH, 0.0f));
+    /* Everything else the gate wants still applies to LTE. */
+    check_true("too few measurements is still too few",
+               !calibration_is_stable(60.0, 4, 40, 0.1,
+                                      CALIBRATION_SOURCE_LTE, 0.85f));
+    check_true("and too loose a spread is still too loose",
+               !calibration_is_stable(60.0, 40, 40, 99.0,
+                                      CALIBRATION_SOURCE_LTE, 0.85f));
+}
+
 int main(void) {
     test_a_good_lock_passes();
     test_each_clause_refuses();
@@ -377,6 +439,9 @@ int main(void) {
     test_losing_the_signal_empties_the_buffer();
     test_the_residual_ring();
     test_a_lock_settles();
+
+    test_the_lte_source();
+    test_what_an_lte_offset_must_be_worth();
 
     return check_report("calibration gate");
 }
