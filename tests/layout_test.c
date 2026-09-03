@@ -1,6 +1,7 @@
 #include "adsb_layout.h"
 #include "lte_layout.h"
 #include "calibration_layout.h"
+#include "fm_layout.h"
 #include "chrome_layout.h"
 #include "gsm_layout.h"
 #include "survey_layout.h"
@@ -813,9 +814,78 @@ static void check_lte(void) {
     }
 }
 
+
+/*
+ * The FM decode view: three panels in a row under a waterfall, and a controls
+ * strip above it. Same all-against-all as the calibration overlay, and for
+ * the same reason -- a header that models half a screen puts a green tick
+ * over the half it does not model.
+ */
+static void check_fm_view(void) {
+    const float sizes[][2] = { { 1100.0f, 720.0f }, { 1280.0f, 800.0f },
+                               { 1000.0f, 540.0f }, { 1920.0f, 1080.0f } };
+    unsigned c;
+
+    for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++) {
+        struct fm_layout l = fm_layout_for(sizes[c][0], sizes[c][1]);
+        Rectangle all[12];
+        const char *names[12];
+        int n = 0, a, b, i;
+
+        all[n] = l.frequency_field; names[n++] = "frequency";
+        all[n] = l.tune_button;     names[n++] = "tune";
+        for (i = 0; i < FM_LAYOUT_STATIONS; i++) {
+            all[n] = l.station_button[i]; names[n++] = "preset";
+        }
+        all[n] = l.waterfall;       names[n++] = "waterfall";
+        all[n] = l.signal_panel;    names[n++] = "signal";
+        all[n] = l.station_panel;   names[n++] = "station";
+        all[n] = l.funnel_panel;    names[n++] = "funnel";
+
+        for (a = 0; a < n; a++)
+            for (b = a + 1; b < n; b++)
+                check_msg(!overlaps(all[a], all[b]),
+                          "%.0fx%.0f: '%s' overlaps '%s'\n", sizes[c][0],
+                          sizes[c][1], names[a], names[b]);
+
+        for (a = 0; a < n; a++) {
+            check_msg(all[a].x >= 0.0f &&
+                      all[a].x + all[a].width <= sizes[c][0] + 0.01f,
+                      "%.0fx%.0f: '%s' runs off the side\n", sizes[c][0],
+                      sizes[c][1], names[a]);
+            check_msg(all[a].y + all[a].height <= sizes[c][1] + 0.01f,
+                      "%.0fx%.0f: '%s' runs off the bottom\n", sizes[c][0],
+                      sizes[c][1], names[a]);
+            check_msg(all[a].width > 0.0f && all[a].height > 0.0f,
+                      "%.0fx%.0f: '%s' has no area\n", sizes[c][0],
+                      sizes[c][1], names[a]);
+        }
+
+        /* The three panels share a row: same top, same height, or one of them
+           is a different shape from its neighbours for no reason a reader can
+           see. */
+        check_msg(l.signal_panel.y == l.station_panel.y &&
+                  l.station_panel.y == l.funnel_panel.y,
+                  "%.0fx%.0f: the three panels are not on one row\n",
+                  sizes[c][0], sizes[c][1]);
+        check_msg(l.signal_panel.height == l.funnel_panel.height,
+                  "%.0fx%.0f: the panels are different heights\n",
+                  sizes[c][0], sizes[c][1]);
+        /* And they are below the waterfall, not over it. */
+        check_msg(l.signal_panel.y >= l.waterfall.y + l.waterfall.height,
+                  "%.0fx%.0f: the panels start above the waterfall's bottom\n",
+                  sizes[c][0], sizes[c][1]);
+        /* The controls clear the chrome the header owns down to y = 92. */
+        check_msg(l.frequency_field.y >= 92.0f,
+                  "%.0fx%.0f: the controls are under the header chrome\n",
+                  sizes[c][0], sizes[c][1]);
+    }
+}
+
 int main(void) {
     check_chrome();
     check_calibration_overlay();
+    check_fm_view();
     check_adsb();
     check_lte();
     check_survey();

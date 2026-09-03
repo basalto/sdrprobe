@@ -121,6 +121,11 @@ struct sdrgui_scatter_params {
 /* I/Q scatter view: draws the scatter texture with I/Q axes and a cursor. */
 void sdrgui_scatter(const struct sdrgui_scatter_params *params);
 
+/* How much room the waterfall's footer caption needs below its plot. It is
+   drawn 36 px under the plot in a 16 px font, and chart_area already reserves
+   8 of that. */
+#define SDRGUI_WATERFALL_FOOTER_H 44.0f
+
 struct sdrgui_waterfall_params {
     Rectangle plot;
     Texture2D texture;          /* full-span waterfall history (app-owned) */
