@@ -1106,6 +1106,8 @@ void fm_scan_begin(struct app *app) {
         scan->power[i] = FM_SCAN_SENTINEL_DBFS;
     scan->found_count = 0;
     scan->visiting = 0;
+    scan->naming = 0;
+    scan->naming_pass = 0;
     scan->step = 0;
     scan->sweeping = 1;
     scan->return_frequency = app->applied_frequency;
@@ -1210,6 +1212,55 @@ void update_fm(struct app *app, double now) {
     update_fm_flush(app, now, 0);
 }
 
+/*
+ * The scan is over: count what was found, say so, and stay on the loudest
+ * station.
+ *
+ * Reached from two places -- the end of pass two when nothing carried RDS,
+ * and the end of pass three once every station that did has had its chance to
+ * say its name.
+ */
+static void fm_scan_finish(struct app *app, struct fm_scan *scan, double now) {
+    int with_rds = 0, with_stereo = 0, named = 0, i, best = 0;
+
+    (void)now;
+    for (i = 0; i < scan->found_count; i++) {
+        if (scan->found[i].rds)
+            with_rds++;
+        if (scan->found[i].ps[0])
+            named++;
+        if (scan->found[i].stereo)
+            with_stereo++;
+        if (scan->found[i].power_dbfs > scan->found[best].power_dbfs)
+            best = i;
+    }
+    scan->running = 0;
+    scan->naming_pass = 0;
+    if (scan->found_count == 0) {
+        snprintf(scan->status, sizeof(scan->status), "No carriers found.");
+        return;
+    }
+    /*
+     * It ends on the loudest station rather than back where it started. Every
+     * other scan here restores the tuning it borrowed, because the operator
+     * was listening to something and asked a question about the band; this
+     * one *is* how a station gets chosen, so returning would put the receiver
+     * on whatever the previous screen happened to be pointed at -- 1090 MHz
+     * on a fresh start, which is not in the band at all.
+     */
+    fm_tune(app, scan->found[best].frequency_hz);
+    snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
+             scan->found[best].frequency_hz / 1e6);
+    app->fm.frequency_length = (int)strlen(app->fm.frequency);
+    snprintf(scan->status, sizeof(scan->status),
+             "%d carrier%s, %d in stereo, %d carrying RDS, %d named. "
+             "Listening to the strongest.", scan->found_count,
+             scan->found_count == 1 ? "" : "s", with_stereo, with_rds, named);
+    debug_log_write("fm-scan", "done, %d found, %d with RDS, %d named, "
+                    "tuned %.1f MHz", scan->found_count, with_rds, named,
+                    scan->found[best].frequency_hz / 1e6);
+}
+
 void update_fm_scan(struct app *app, double now, int have_block) {
     struct fm_scan *scan = &app->fm.scan;
     double elapsed;
@@ -1259,6 +1310,62 @@ void update_fm_scan(struct app *app, double now, int have_block) {
         return;
     }
 
+    /*
+     * Pass three: back to the ones that answered, until each says its name.
+     *
+     * Only the ones that answered, because a name costs seconds where
+     * deciding whether there is RDS at all costs under one -- and it stops
+     * the moment the name is confirmed, so a station that names itself
+     * quickly costs what it takes rather than what it was budgeted.
+     */
+    if (scan->naming_pass) {
+        struct fm_found_station *f;
+
+        while (scan->naming < scan->found_count &&
+               (!scan->found[scan->naming].rds ||
+                scan->found[scan->naming].ps[0]))
+            scan->naming++;
+        if (scan->naming >= scan->found_count) {
+            fm_scan_finish(app, scan, now);
+            return;
+        }
+        f = &scan->found[scan->naming];
+        if (elapsed < FM_SCAN_VISIT_SETTLE_SECONDS)
+            return;
+        if (have_block)
+            update_fm(app, now);
+        if (app->fm.station.ps_valid) {
+            snprintf(f->ps, sizeof(f->ps), "%s", app->fm.station.ps);
+            debug_log_write("fm-scan", "%.1f MHz named \"%s\" after %.1f s",
+                            f->frequency_hz / 1e6, f->ps,
+                            elapsed - FM_SCAN_VISIT_SETTLE_SECONDS);
+        } else if (elapsed <
+                   FM_SCAN_VISIT_SETTLE_SECONDS + FM_SCAN_NAME_SECONDS) {
+            return;
+        } else {
+            update_fm_flush(app, now, 1);
+            if (app->fm.station.ps_valid)
+                snprintf(f->ps, sizeof(f->ps), "%s", app->fm.station.ps);
+            debug_log_write("fm-scan", "%.1f MHz unnamed after %.1f s",
+                            f->frequency_hz / 1e6, FM_SCAN_NAME_SECONDS);
+        }
+        scan->naming++;
+        while (scan->naming < scan->found_count &&
+               (!scan->found[scan->naming].rds ||
+                scan->found[scan->naming].ps[0]))
+            scan->naming++;
+        if (scan->naming >= scan->found_count) {
+            fm_scan_finish(app, scan, now);
+            return;
+        }
+        fm_tune(app, scan->found[scan->naming].frequency_hz);
+        scan->step_started_at = now;
+        snprintf(scan->status, sizeof(scan->status),
+                 "Reading the name at %.1f MHz",
+                 scan->found[scan->naming].frequency_hz / 1e6);
+        return;
+    }
+
     /* Pass two: one carrier at a time, reading whatever arrives. */
     if (elapsed < FM_SCAN_VISIT_SETTLE_SECONDS)
         return;
@@ -1298,39 +1405,31 @@ void update_fm_scan(struct app *app, double now, int have_block) {
 
         scan->visiting++;
         if (scan->visiting >= scan->found_count) {
-            int with_rds = 0, with_stereo = 0, i, best = 0;
-
-            for (i = 0; i < scan->found_count; i++) {
-                if (scan->found[i].rds)
-                    with_rds++;
-                if (scan->found[i].stereo)
-                    with_stereo++;
-                if (scan->found[i].power_dbfs >
-                    scan->found[best].power_dbfs)
-                    best = i;
-            }
-            scan->running = 0;
             /*
-             * It ends on the loudest station rather than back where it
-             * started. Every other scan here restores the tuning it borrowed,
-             * because the operator was listening to something and asked a
-             * question about the band; this one *is* how a station gets
-             * chosen, so returning would put the receiver on whatever the
-             * previous screen happened to be pointed at -- 1090 MHz on a
-             * fresh start, which is not in the band at all.
+             * Pass two is done: every carrier has been asked whether it
+             * carries RDS. Now go back to the ones that said yes and wait for
+             * each to say its name.
              */
-            fm_tune(app, scan->found[best].frequency_hz);
-            snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
-                     scan->found[best].frequency_hz / 1e6);
-            app->fm.frequency_length = (int)strlen(app->fm.frequency);
+            int any = 0, i;
+
+            for (i = 0; i < scan->found_count; i++)
+                if (scan->found[i].rds && !scan->found[i].ps[0])
+                    any = 1;
+            if (!any) {
+                fm_scan_finish(app, scan, now);
+                return;
+            }
+            scan->naming_pass = 1;
+            scan->naming = 0;
+            while (scan->naming < scan->found_count &&
+                   (!scan->found[scan->naming].rds ||
+                    scan->found[scan->naming].ps[0]))
+                scan->naming++;
+            fm_tune(app, scan->found[scan->naming].frequency_hz);
+            scan->step_started_at = now;
             snprintf(scan->status, sizeof(scan->status),
-                     "%d carrier%s, %d in stereo, %d carrying RDS. "
-                     "Listening to the strongest.", scan->found_count,
-                     scan->found_count == 1 ? "" : "s", with_stereo,
-                     with_rds);
-            debug_log_write("fm-scan", "done, %d found, tuned %.1f MHz",
-                            scan->found_count,
-                            scan->found[best].frequency_hz / 1e6);
+                     "Reading the name at %.1f MHz",
+                     scan->found[scan->naming].frequency_hz / 1e6);
             return;
         }
         fm_tune(app, scan->found[scan->visiting].frequency_hz);

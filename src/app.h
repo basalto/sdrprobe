@@ -119,6 +119,14 @@ struct fm_scan {
     int found_count;
     int list_scroll;            /* row_list.h holds the arithmetic */
     int visiting;               /* pass two: which candidate */
+    /*
+     * Pass three: back to the ones that answered, for long enough to read
+     * their name. Only those -- a name costs seconds where deciding whether
+     * there is RDS at all costs under one, so spending it on every carrier
+     * would turn a scan of band II into a scan of the whole tuner.
+     */
+    int naming;
+    int naming_pass;            /* pass two is done; this one is running */
     uint32_t return_frequency;
     int return_valid;
     char status[160];

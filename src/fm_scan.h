@@ -44,6 +44,26 @@
  */
 #define FM_SCAN_VISIT_SETTLE_SECONDS 0.10
 #define FM_SCAN_VISIT_SECONDS 0.70
+/*
+ * How long to sit on a station that answered, waiting for it to say its name.
+ *
+ * A name is not one reading. It arrives in four two-character segments, and
+ * rds.c shows it only once the four have been seen whole *twice* and agreed,
+ * because one pass through four segments can be four segments of two
+ * different names and look perfect. So this is bounded by how often a station
+ * repeats group 0A, not by how strong it is.
+ *
+ * The listening stops the moment the name is confirmed, which is what keeps
+ * the cost honest: a station that names itself in two seconds costs two, and
+ * the cap is only paid by one that never manages it at all.
+ *
+ * Five seconds rather than more, because the cap is what bounds the worst
+ * case and the worst case is what has to stay under the minute that visiting
+ * all 205 channels would cost -- the arithmetic the two-pass arrangement
+ * exists for. Measured here, six stations named themselves in about two
+ * seconds each and none came close to it.
+ */
+#define FM_SCAN_NAME_SECONDS 5.0
 
 #define FM_SCAN_SENTINEL_DBFS (-300.0f)
 
@@ -201,6 +221,25 @@ static inline size_t fm_rds_chunk_length(size_t available, int flush) {
 static inline int fm_scan_visit_fills_chunk(double visit_seconds,
                                             double baseband_rate) {
     return visit_seconds * baseband_rate >= (double)FM_RDS_CHUNK_SAMPLES;
+}
+
+/*
+ * What a scan costs, in seconds: the coarse sweep, one visit each, and the
+ * name pass over however many answered.
+ *
+ * The third pass is charged at its cap, so this is the worst case. It is
+ * worth being able to state, because the argument for scanning band II in two
+ * passes at all is arithmetic -- 205 channels at a quarter second each is a
+ * minute, thirteen tunings plus the carriers that exist is a fraction of it --
+ * and a third pass is only defensible while that argument still holds.
+ */
+static inline double fm_scan_seconds(int steps, int carriers, int with_rds) {
+    return (double)steps *
+               (FM_SCAN_STEP_SETTLE_SECONDS + FM_SCAN_STEP_MEASURE_SECONDS) +
+           (double)carriers *
+               (FM_SCAN_VISIT_SETTLE_SECONDS + FM_SCAN_VISIT_SECONDS) +
+           (double)with_rds *
+               (FM_SCAN_VISIT_SETTLE_SECONDS + FM_SCAN_NAME_SECONDS);
 }
 
 #endif

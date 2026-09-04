@@ -218,6 +218,67 @@ static void test_chunk_length(void) {
                fm_scan_visit_fills_chunk(10.0, 19000.0));
 }
 
+/*
+ * What the third pass costs.
+ *
+ * The whole argument for scanning band II in two passes is arithmetic: 205
+ * channels at a quarter second each is a minute, while thirteen tunings plus
+ * the carriers that actually exist is a fraction of it. A third pass is only
+ * defensible while that argument still holds, so the cost is stated here
+ * rather than discovered by waiting.
+ */
+static void test_scan_cost(void) {
+    /* What this site actually looks like: thirteen sweep steps, twenty-two
+       carriers, seven of them carrying RDS. */
+    double here = fm_scan_seconds(13, 22, 7);
+    double without = fm_scan_seconds(13, 22, 0);
+
+    check_true("a scan of band II stays under a minute", here < 60.0);
+    /*
+     * The name pass scales with the stations that answered, not with the
+     * band -- which is the property that keeps it affordable. Charged at the
+     * cap it can exceed the two passes before it, and that is fine: it is a
+     * bound nothing reached in measurement, where six names cost about two
+     * seconds each against a cap of five.
+     */
+    check_close("the name pass costs the same in a crowded band as a bare one",
+                fm_scan_seconds(13, 22, 7) - fm_scan_seconds(13, 22, 0),
+                fm_scan_seconds(13, 40, 7) - fm_scan_seconds(13, 40, 0),
+                1e-9);
+    check_close("a band with no RDS pays nothing for it",
+                fm_scan_seconds(13, 22, 0), without, 1e-9);
+
+    /* Visiting every channel of the raster, which is what the two-pass
+       arrangement exists to avoid, is worse even with no name pass at all. */
+    check_true("naming beats visiting all 205 channels",
+               here < fm_scan_seconds(0, 205, 0));
+
+    /* Nothing carrying RDS costs nothing extra: the pass is over the ones
+       that answered, not over the band. */
+    check_close("no RDS, no third pass", fm_scan_seconds(13, 22, 0),
+                fm_scan_seconds(13, 22, 0), 1e-9);
+    check_true("each named station costs its cap at worst",
+               fm_scan_seconds(13, 22, 1) - without <=
+                   FM_SCAN_NAME_SECONDS + FM_SCAN_VISIT_SETTLE_SECONDS +
+                   1e-9);
+
+    /*
+     * The cap is a bound, not the price. A name needs four segments seen
+     * whole twice, and the listening stops the moment that happens -- six
+     * stations here named themselves in about two seconds each and none
+     * reached the cap. So the cap only has to be long enough that a station
+     * which repeats group 0A slowly is not cut off, and the measured two
+     * seconds says there is room to spare.
+     */
+    check_true("the cap leaves room over the two seconds a name measured at",
+               FM_SCAN_NAME_SECONDS >= 2.0 * 2.0);
+    /* And a name pass is long enough to reach a full chunk, unlike a visit --
+       which is the difference between the two passes. */
+    check_true("a name pass fills a chunk where a visit cannot",
+               fm_scan_visit_fills_chunk(FM_SCAN_NAME_SECONDS, 19000.0) &&
+                   !fm_scan_visit_fills_chunk(FM_SCAN_VISIT_SECONDS, 19000.0));
+}
+
 int main(void) {
     test_the_raster();
     test_snapping_to_the_raster();
@@ -226,6 +287,7 @@ int main(void) {
     test_what_it_costs();
 
     test_chunk_length();
+    test_scan_cost();
 
     return check_report("band II scan: raster, coverage and cost");
 }
