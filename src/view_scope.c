@@ -7,6 +7,7 @@
 
 #include "chrome_layout.h"
 #include "view.h"
+#include "scope_layout.h"
 #include "sdrgui.h"
 
 /*
@@ -24,7 +25,8 @@ Rectangle calculate_plot(void) {
        overhang into: 66 px on the left for the widest axis label, 25 above for
        the caption, 8 below for the lowest label's overhang. The drawn plot
        lands where it always did. */
-    Rectangle plot = { 16.0f, 185.0f, width - 46.0f, height - 245.0f };
+    Rectangle plot = { 16.0f, SCOPE_ROW_BOTTOM, width - 46.0f,
+                       height - 245.0f - (SCOPE_ROW_BOTTOM - 185.0f) };
 
     if (plot.width < 1.0f)
         plot.width = 1.0f;
@@ -623,7 +625,30 @@ void scope_freq_range(const struct app *app, double *lower, double *upper) {
  * pan has run out of received span, never from a drag. Looking closer at
  * something already arriving cannot cost you the samples either side of it.
  */
-int scope_freq_input(struct app *app, Rectangle plot) {
+enum chart_key chart_key_pressed(void) {
+    int typed;
+
+    while ((typed = GetCharPressed()) != 0) {
+        if (typed == '+' || typed == '=')
+            return CHART_KEY_SCALE_UP;
+        if (typed == '-' || typed == '_')
+            return CHART_KEY_SCALE_DOWN;
+        if (typed == '0')
+            return CHART_KEY_RESET_ZOOM;
+    }
+    if (IsKeyPressed(KEY_KP_ADD) || IsKeyPressedRepeat(KEY_KP_ADD) ||
+        IsKeyPressed(KEY_EQUAL) || IsKeyPressedRepeat(KEY_EQUAL))
+        return CHART_KEY_SCALE_UP;
+    if (IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressedRepeat(KEY_KP_SUBTRACT) ||
+        IsKeyPressed(KEY_MINUS) || IsKeyPressedRepeat(KEY_MINUS))
+        return CHART_KEY_SCALE_DOWN;
+    if (IsKeyPressed(KEY_KP_0))
+        return CHART_KEY_RESET_ZOOM;
+    return CHART_KEY_NONE;
+}
+
+int scope_freq_input(struct app *app, Rectangle plot,
+                     enum chart_key key) {
     struct scope_view *sv = &app->sv;
     Vector2 mouse = GetMousePosition();
     int retune = 0;
@@ -650,6 +675,26 @@ int scope_freq_input(struct app *app, Rectangle plot) {
         }
     }
 
+    {
+        /* Zoom about the pointer when it is over the chart, so the feature
+           under the cursor stays under it -- and about the middle otherwise,
+           which is what a reader using only the keyboard expects. */
+        int over = CheckCollisionPointRec(mouse, plot);
+        double anchor = freq_window_hz_at(&sv->freq, plot.x, plot.width,
+                                          mouse.x);
+        int in = IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP);
+        int out = IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN);
+
+        if (in)
+            freq_window_zoom(&sv->freq, 1.0 / SCOPE_ZOOM_STEP, anchor, over,
+                             SCOPE_FREQ_MIN_SPAN_HZ);
+        else if (out)
+            freq_window_zoom(&sv->freq, SCOPE_ZOOM_STEP, anchor, over,
+                             SCOPE_FREQ_MIN_SPAN_HZ);
+        else if (key == CHART_KEY_RESET_ZOOM)
+            freq_window_reset(&sv->freq);
+    }
+
     if (IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT) ||
         IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) {
         double direction = (IsKeyPressed(KEY_RIGHT) ||
@@ -672,4 +717,203 @@ int scope_freq_input(struct app *app, Rectangle plot) {
 void scope_freq_reset(struct app *app) {
     scope_freq_sync(app);
     freq_window_reset(&app->sv.freq);
+}
+
+/*
+ * The control row.
+ *
+ * Three fields and a stepper, and the rule that keeps them honest: a field
+ * nobody is typing into shows what is actually on screen. The centre follows
+ * the receiver, the edges follow the frequency window -- so a drag updates
+ * them, a retune updates them, and there is never a moment where the numbers
+ * on the row and the numbers on the axis disagree.
+ */
+
+static void scope_field_text(char *out, size_t size, double hz) {
+    snprintf(out, size, "%.4f", hz / 1e6);
+}
+
+void scope_header_sync(struct app *app) {
+    struct scope_view *sv = &app->sv;
+
+    scope_freq_sync(app);
+    if (sv->field_focus != SCOPE_FIELD_CENTRE)
+        scope_field_text(sv->centre_text, sizeof(sv->centre_text),
+                         (double)app->applied_frequency);
+    if (sv->field_focus != SCOPE_FIELD_START)
+        scope_field_text(sv->start_text, sizeof(sv->start_text),
+                         sv->freq.view_lower_hz);
+    if (sv->field_focus != SCOPE_FIELD_END)
+        scope_field_text(sv->end_text, sizeof(sv->end_text),
+                         sv->freq.view_upper_hz);
+}
+
+/* Returns 1 when the receiver was retuned. */
+static int scope_field_commit(struct app *app) {
+    struct scope_view *sv = &app->sv;
+    int retuned = 0;
+
+    if (sv->field_focus == SCOPE_FIELD_CENTRE) {
+        double hz = scope_field_hz(sv->centre_text);
+        if (hz > 0.0 && app->receiver_mode &&
+            retune_receiver(app, (uint32_t)llround(hz), app->applied_ppm) == 0)
+            retuned = 1;
+    } else if (sv->field_focus == SCOPE_FIELD_START ||
+               sv->field_focus == SCOPE_FIELD_END) {
+        double lower = scope_field_hz(sv->start_text);
+        double upper = scope_field_hz(sv->end_text);
+        if (lower > 0.0 && upper > lower + SCOPE_FREQ_MIN_SPAN_HZ) {
+            sv->freq.view_lower_hz = lower;
+            sv->freq.view_upper_hz = upper;
+            freq_window_clamp(&sv->freq, SCOPE_FREQ_MIN_SPAN_HZ);
+        }
+    }
+    sv->field_focus = SCOPE_FIELD_NONE;
+    scope_header_sync(app);
+    return retuned;
+}
+
+static void scope_field_type(char *text, size_t size) {
+    int key;
+
+    while ((key = GetCharPressed()) != 0) {
+        size_t length = strlen(text);
+        if (length + 1 >= size)
+            break;
+        if ((key >= '0' && key <= '9') || key == '.') {
+            text[length] = (char)key;
+            text[length + 1] = '\0';
+        }
+    }
+    if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE)) {
+        size_t length = strlen(text);
+        if (length > 0)
+            text[length - 1] = '\0';
+    }
+}
+
+int scope_header_input(struct app *app) {
+    struct scope_view *sv = &app->sv;
+    struct scope_header_layout l =
+        scope_header_layout_for((float)GetScreenWidth(),
+                                app->view == VIEW_SPECTRUM ||
+                                    app->view == VIEW_WATERFALL);
+    Vector2 mouse = GetMousePosition();
+    int retuned = 0;
+
+    scope_header_sync(app);
+
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        int was = sv->field_focus;
+        int now = SCOPE_FIELD_NONE;
+
+        if (CheckCollisionPointRec(mouse, l.centre_field))
+            now = SCOPE_FIELD_CENTRE;
+        else if (l.has_window && CheckCollisionPointRec(mouse, l.start_field))
+            now = SCOPE_FIELD_START;
+        else if (l.has_window && CheckCollisionPointRec(mouse, l.end_field))
+            now = SCOPE_FIELD_END;
+
+        if (now != was) {
+            /* Clicking away from a field commits it, the way leaving a cell
+               in a spreadsheet does -- a reader who types a frequency and
+               clicks the chart meant the frequency. */
+            if (was != SCOPE_FIELD_NONE)
+                retuned = scope_field_commit(app);
+            sv->field_focus = now;
+        }
+        if (l.has_window && l.fft_next.width > 0.0f) {
+            int choice = sdr_dsp_fft_choice_of(sv->fft_size);
+            int step = 0;
+            if (CheckCollisionPointRec(mouse, l.fft_previous))
+                step = -1;
+            else if (CheckCollisionPointRec(mouse, l.fft_next))
+                step = 1;
+            if (step && choice >= 0) {
+                int size;
+                choice = (choice + step + SDR_DSP_FFT_CHOICES) %
+                         SDR_DSP_FFT_CHOICES;
+                size = sdr_dsp_fft_choice(choice);
+                if (size > 0) {
+                    sv->fft_size = size;
+                    app->set.fft_choice = choice;
+                    if (config_set_fft_size(&app->config, size))
+                        config_save(&app->config);
+                }
+            }
+        }
+    }
+
+    if (sv->field_focus != SCOPE_FIELD_NONE) {
+        char *text = sv->field_focus == SCOPE_FIELD_CENTRE ? sv->centre_text
+                     : sv->field_focus == SCOPE_FIELD_START ? sv->start_text
+                                                            : sv->end_text;
+        scope_field_type(text, sizeof(sv->centre_text));
+        if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER))
+            retuned = scope_field_commit(app);
+        else if (IsKeyPressed(KEY_ESCAPE)) {
+            /* Escape abandons the edit rather than leaving the view: the
+               field is what has focus, so it is what Escape acts on. */
+            sv->field_focus = SCOPE_FIELD_NONE;
+            scope_header_sync(app);
+        }
+    }
+    return retuned;
+}
+
+/* Right-aligned into the gap left of a field. MeasureText needs a font which
+   needs a window, so this stays with the drawing and the layout header leaves
+   a fixed gap for it (ADR-0012). */
+static void scope_label_right(const char *text, float right, float y, int size,
+                              Color color) {
+    DrawText(text, (int)(right - (float)MeasureText(text, size)), (int)y, size,
+             color);
+}
+
+void draw_scope_header(const struct app *app) {
+    const struct scope_view *sv = &app->sv;
+    struct scope_header_layout l =
+        scope_header_layout_for((float)GetScreenWidth(),
+                                app->view == VIEW_SPECTRUM ||
+                                    app->view == VIEW_WATERFALL);
+    const Color label = { 157, 180, 194, 255 };
+    int size = (int)l.label_height;
+
+    if (!l.has_window) {
+        scope_label_right("centre", l.centre_field.x - l.label_gap,
+                          l.centre_field.y + 4.0f, size, label);
+        sdrgui_text_field(l.centre_field, sv->centre_text,
+                          sv->field_focus == SCOPE_FIELD_CENTRE);
+        return;
+    }
+
+    scope_label_right("start", l.start_field.x - l.label_gap,
+                      l.start_field.y + 4.0f, size, label);
+    sdrgui_text_field(l.start_field, sv->start_text,
+                      sv->field_focus == SCOPE_FIELD_START);
+    scope_label_right("centre", l.centre_field.x - l.label_gap,
+                      l.centre_field.y + 4.0f, size, label);
+    sdrgui_text_field(l.centre_field, sv->centre_text,
+                      sv->field_focus == SCOPE_FIELD_CENTRE);
+    scope_label_right("end", l.end_field.x - l.label_gap,
+                      l.end_field.y + 4.0f, size, label);
+    sdrgui_text_field(l.end_field, sv->end_text,
+                      sv->field_focus == SCOPE_FIELD_END);
+
+    if (l.fft_next.width <= 0.0f)
+        return;
+    scope_label_right("FFT", l.fft_previous.x - l.label_gap,
+                      l.fft_previous.y + 4.0f, size, label);
+    draw_button(l.fft_previous, "<", 0);
+    draw_button(l.fft_next, ">", 0);
+    {
+        char text[32];
+        int width;
+        snprintf(text, sizeof(text), "%d", sv->fft_size);
+        width = MeasureText(text, size);
+        DrawText(text,
+                 (int)(l.fft_value.x + (l.fft_value.width - (float)width) / 2.0f),
+                 (int)(l.fft_value.y + 4.0f), size,
+                 (Color){ 226, 236, 243, 255 });
+    }
 }

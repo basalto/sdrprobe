@@ -570,6 +570,57 @@ static void test_who_owns_the_spectrum(void) {
     }
 }
 
+/*
+ * Escape backs out of one thing at a time, and the zoom is now a rung on that
+ * ladder. The ordering is the whole content: a reader with a menu open, a
+ * field focused and a zoom applied should get the menu back first.
+ */
+static void test_escape_unzooms(void) {
+    struct input_state s;
+
+    memset(&s, 0, sizeof(s));
+    s.tab = TAB_SCOPE;
+    s.scope_zoomed = 1;
+    check_int("a zoom is what Escape backs out of", input_escape(&s),
+              INPUT_ESCAPE_UNZOOM);
+
+    s.scope_zoomed = 0;
+    check_int("and with none, it leaves", input_escape(&s),
+              INPUT_ESCAPE_QUIT);
+
+    /* Nearer the surface wins. */
+    s.scope_zoomed = 1;
+    s.text_focus = 1;
+    check_int("a field is nearer than the zoom", input_escape(&s),
+              INPUT_ESCAPE_LEAVE_FIELD);
+    s.menu_open = 1;
+    check_int("and a menu is nearer than the field", input_escape(&s),
+              INPUT_ESCAPE_CLOSE_MENU);
+
+    /* An overlay still owns its own key, zoomed or not. */
+    memset(&s, 0, sizeof(s));
+    s.tab = TAB_SCOPE;
+    s.scope_zoomed = 1;
+    s.settings_open = 1;
+    check_int("an overlay keeps it", input_escape(&s), INPUT_ESCAPE_NOTHING);
+
+    /* Escape still always does something on every screen -- the property the
+       suite already holds, re-asked with the new rung in place. */
+    {
+        int tab, zoomed, did_nothing = 0;
+        for (tab = 0; tab < TAB_COUNT; tab++)
+            for (zoomed = 0; zoomed < 2; zoomed++) {
+                struct input_state t;
+                memset(&t, 0, sizeof(t));
+                t.tab = tab;
+                t.scope_zoomed = zoomed;
+                if (input_escape(&t) == INPUT_ESCAPE_NOTHING)
+                    did_nothing++;
+            }
+        check_int("Escape is bound on every screen", did_nothing, 0);
+    }
+}
+
 int main(void) {
     test_the_tabs();
     test_the_precedence();
@@ -584,6 +635,8 @@ int main(void) {
     test_the_scale_keys_reach_every_chart();
     test_what_escape_does();
     test_who_owns_the_spectrum();
+
+    test_escape_unzooms();
 
     return check_report("input precedence");
 }

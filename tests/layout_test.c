@@ -5,6 +5,7 @@
 #include "row_list.h"
 #include "chrome_layout.h"
 #include "gsm_layout.h"
+#include "scope_layout.h"
 #include "survey_layout.h"
 
 #include "check.h"
@@ -1013,6 +1014,103 @@ static void check_fm_view(void) {
     }
 }
 
+/*
+ * The Scope's control row.
+ *
+ * Its first version put the centre frequency in a field that was never filled
+ * in, because "focused" happened to be the zero value the state initialises
+ * to. That one is a check below rather than here -- it is not geometry -- but
+ * the row is the reason this block exists at all: it is the first thing ever
+ * drawn between the statistics and the chart, and there was nothing asserting
+ * the chart moved out of its way.
+ */
+static void check_scope_header(void) {
+    static const struct { float width, height; } sizes[] = {
+        { 1100.0f, 720.0f }, { 1280.0f, 800.0f },
+        { 1500.0f, 950.0f }, { 1920.0f, 1080.0f }
+    };
+    size_t n;
+
+    for (n = 0; n < sizeof(sizes) / sizeof(sizes[0]); n++) {
+        float width = sizes[n].width, height = sizes[n].height;
+        struct scope_header_layout l = scope_header_layout_for(width, 1);
+        Rectangle all[6];
+        int count = 0, a, b;
+
+        all[count++] = l.start_field;
+        all[count++] = l.centre_field;
+        all[count++] = l.end_field;
+        if (l.fft_next.width > 0.0f) {
+            all[count++] = l.fft_previous;
+            all[count++] = l.fft_value;
+            all[count++] = l.fft_next;
+        }
+
+        for (a = 0; a < count; a++) {
+            check_msg(all[a].x >= 0.0f,
+                      "%.0fx%.0f control %d starts off the left edge\n",
+                      width, height, a);
+            check_msg(all[a].x + all[a].width <= width,
+                      "%.0fx%.0f control %d runs past the right edge\n",
+                      width, height, a);
+            for (b = a + 1; b < count; b++)
+                if (overlaps(all[a], all[b]))
+                    check_msg(0, "%.0fx%.0f control %d overlaps %d\n",
+                              width, height, a, b);
+        }
+
+        /* start, centre, end -- in the order they appear on the axis. */
+        check_msg(l.start_field.x < l.centre_field.x,
+                  "%.0fx%.0f start is not left of centre\n", width, height);
+        check_msg(l.centre_field.x < l.end_field.x,
+                  "%.0fx%.0f centre is not left of end\n", width, height);
+
+        /* Every label has somewhere to go. The drawing right-aligns into the
+           gap, so a field flush against the one before it would have its
+           caption drawn over that field's contents. */
+        check_msg(l.centre_field.x - (l.start_field.x + l.start_field.width) >=
+                      l.label_gap * 2.0f,
+                  "%.0fx%.0f no room for the centre label\n", width, height);
+        check_msg(l.end_field.x - (l.centre_field.x + l.centre_field.width) >=
+                      l.label_gap * 2.0f,
+                  "%.0fx%.0f no room for the end label\n", width, height);
+
+        /* And the chart clears the row. This is the one that would have
+           caught a row added above a plot that did not move down. */
+        check_msg(SCOPE_ROW_Y + SCOPE_ROW_H <= SCOPE_ROW_BOTTOM,
+                  "the control row overruns what the plot leaves it\n");
+    }
+
+    /* A view with no frequency axis shows the centre alone, and shows it at
+       the left rather than leaving a hole where start would have been. */
+    {
+        struct scope_header_layout l = scope_header_layout_for(1500.0f, 0);
+        check_true("no window, no edge fields", l.has_window == 0);
+        check_close("start is not drawn", (double)l.start_field.width, 0.0, 0.01);
+        check_close("nor the stepper", (double)l.fft_next.width, 0.0, 0.01);
+        check_true("and the centre moves to the left",
+                   l.centre_field.x <
+                       scope_header_layout_for(1500.0f, 1).centre_field.x);
+    }
+}
+
+/*
+ * What a field says. Trailing rubbish is the case worth having: strtod stops
+ * at the first character it cannot use, so "948.4x" parses as 948.4 and a
+ * field that accepted it would retune somewhere nobody typed.
+ */
+static void check_scope_fields(void) {
+    check_close("a plain frequency", scope_field_hz("948.4"), 948.4e6, 1.0);
+    check_close("and a whole one", scope_field_hz("100"), 100e6, 1.0);
+    check_true("an empty field is not one", scope_field_hz("") < 0.0);
+    check_true("nor a lone point", scope_field_hz(".") < 0.0);
+    check_true("nor half-typed", scope_field_hz("948.") >= 0.0);
+    check_true("trailing rubbish is refused", scope_field_hz("948.4x") < 0.0);
+    check_true("so is leading", scope_field_hz("x948.4") < 0.0);
+    check_true("and zero is not a frequency", scope_field_hz("0") < 0.0);
+    check_true("nor a negative one", scope_field_hz("-10") < 0.0);
+}
+
 int main(void) {
     check_chrome();
     check_calibration_overlay();
@@ -1032,5 +1130,8 @@ int main(void) {
         for (int i = 0; i < RECTS; i++)
             check(w, h, e[i].name, got[i], &e[i]);
     }
+    check_scope_header();
+    check_scope_fields();
+
     return check_report("view layout");
 }
