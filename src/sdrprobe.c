@@ -1637,6 +1637,13 @@ static void print_new_decodes(struct app *app, double now,
             announced_valid = 1;
             announced_ps[0] = '\0';
         }
+        {
+            static char announced_rt[65];
+            if (s->rt_valid && strcmp(s->rt, announced_rt) != 0) {
+                printf("RT   \"%s\"\n", s->rt);
+                snprintf(announced_rt, sizeof(announced_rt), "%s", s->rt);
+            }
+        }
         if (s->ps_valid && strcmp(s->ps, announced_ps) != 0) {
             printf("RDS  \"%s\"  %s, %s  identification 0x%04X "
                    "(%d agreeing)\n", s->ps,

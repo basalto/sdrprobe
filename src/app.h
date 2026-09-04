@@ -161,6 +161,30 @@ struct fm_scan {
    short enough to still be what is happening now. */
 #define FM_AUDIO_TRACE 4096
 #define FM_VIEW_SOFT_BITS (FM_VIEW_BASEBAND / FM_RDS_SAMPLES_PER_SYMBOL + 8)
+/*
+ * And a much longer memory of the *bits*, which is a different thing.
+ *
+ * The baseband window is short because one timing search and one axis have to
+ * cover it, and both cost work proportional to its length. Radio text needs
+ * far longer than that: sixty-four characters in sixteen segments at roughly
+ * one group a second is a quarter of a minute, and a three-second window can
+ * never hold it -- the name arrived and the text never did.
+ *
+ * Bits are cheap where baseband is not. Thirty thousand of them is
+ * twenty-five seconds and 128 KB, and the block synchroniser walks them in
+ * one pass. So the baseband is decoded in chunks and the bits accumulate.
+ *
+ * Chunks, not a sliding window, and the difference cost an attempt. A sliding
+ * window re-derives its timing offset and drops a leading symbol every time,
+ * so which absolute symbol a given index means moves under you -- appending
+ * "the newest few" from each pass gave a stream that decoded worse than the
+ * window alone had. Fixed chunks that never overlap have one seam each and no
+ * ambiguity about what has already been counted.
+ */
+#define FM_VIEW_BIT_MEMORY 32768
+/* One chunk: 2048 symbols, about 1.7 s. Long enough for a solid timing and
+   axis estimate, short enough that the view is never far behind. */
+#define FM_RDS_CHUNK_SAMPLES 32768
 
 struct fm_view {
     char frequency[16];             /* megahertz, as typed */
@@ -175,6 +199,10 @@ struct fm_view {
     size_t bb_count;
     float soft[FM_VIEW_SOFT_BITS];
     size_t soft_count;
+    /* Everything the window has produced, oldest first. */
+    float bits[FM_VIEW_BIT_MEMORY];
+    size_t bit_count;
+    size_t bb_consumed;     /* baseband already turned into bits */
 
     struct rds_station station;
     int timing_offset;
