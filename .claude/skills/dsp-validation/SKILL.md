@@ -109,6 +109,12 @@ The same arithmetic applies to parity. 16 bits accept 1 in 65536 by chance, and
 rather than a hypothetical -- `lte_mib_same_cell` exists because of it. Repeat
 before reporting.
 
+## Is it *better*? That is a different skill
+
+This establishes that a result is true. Whether a change *improves* anything
+fails in its own ways -- measuring where the answer cannot show, comparing at
+different gains, one draw of noise -- and `does-it-help` carries those.
+
 ## Which tool answers which question
 
 | Question | Reach for |
