@@ -944,7 +944,8 @@ static void draw_header(const struct app *app) {
         draw_option_row((int)app->decode, decode_opts, 4,
                         app->decode == DECODE_ADSB
                             ? "h help   Esc scope"
-                            : "Up/Down scale   h help   Esc scope",
+                            : "drag/Up/Down zoom  Left/Right pan  +/- scale"
+                              "  0 reset  h help  Esc scope",
                         "h help  Esc scope");
     }
 
@@ -985,7 +986,7 @@ static struct input_state input_state_now(const struct app *app) {
     state.scope_zoomed = app->tab == TAB_SCOPE &&
                          (app->view == VIEW_SPECTRUM ||
                           app->view == VIEW_WATERFALL) &&
-                         freq_window_zoomed(&app->sv.freq);
+                         freq_window_zoomed(&app->sv.window.freq);
     state.menu_open = app->survey.site_menu_open ||
                       app->survey.antenna_menu_open ||
                       app->survey.band_menu_open;
@@ -1218,9 +1219,9 @@ static int run_gui(struct app *app) {
         app->sv.fft_size = app->options.fft_size;
     if (app->options.zoom_to_hz > app->options.zoom_from_hz) {
         scope_freq_sync(app);
-        app->sv.freq.view_lower_hz = (double)app->options.zoom_from_hz;
-        app->sv.freq.view_upper_hz = (double)app->options.zoom_to_hz;
-        freq_window_clamp(&app->sv.freq, SCOPE_FREQ_MIN_SPAN_HZ);
+        app->sv.window.freq.view_lower_hz = (double)app->options.zoom_from_hz;
+        app->sv.window.freq.view_upper_hz = (double)app->options.zoom_to_hz;
+        freq_window_clamp(&app->sv.window.freq, CHART_MIN_SPAN_HZ);
     }
     if (app->options.fm_play) {
         set_decode(app, DECODE_FM);
@@ -1312,6 +1313,15 @@ static int run_gui(struct app *app) {
             break;
         case INPUT_TARGET_CALIBRATION:
             handle_calibration_input(app);
+            /* The overlay's waterfall takes the same gestures as every other
+               one. Its axis is channels while calibrating against GSM, so the
+               zoom floor is one ARFCN there and linear otherwise. */
+            if (!input.text_focus)
+                view_window_input(app, &app->cal.window,
+                                  calibration_chart_rect(app), chart_key,
+                                  app->calibration_technology == 0
+                                      ? GSM900_ARFCN_SPACING_HZ : 0.0,
+                                  1);
             break;
         case INPUT_TARGET_SURVEY:
             if (handle_tab_input(app)) {
@@ -1366,6 +1376,32 @@ static int run_gui(struct app *app) {
                     handle_fm_input(app);
                 else
                     handle_lte_input(app);
+                /*
+                 * The window over each view's waterfall. After the view's own
+                 * input, so a field that has the keyboard keeps the digits --
+                 * and skipped entirely while one has focus, since Up and Down
+                 * would otherwise zoom the chart while somebody types.
+                 */
+                if (!input.text_focus) {
+                    struct chart_window *win = NULL;
+                    Rectangle rect = { 0, 0, 0, 0 };
+                    double spacing = 0.0;
+
+                    if (app->decode == DECODE_GSM) {
+                        win = &app->gsm.window;
+                        rect = gsm_waterfall_rect();
+                        spacing = GSM900_ARFCN_SPACING_HZ;
+                    } else if (app->decode == DECODE_FM) {
+                        win = &app->fm.window;
+                        rect = fm_waterfall_rect(app);
+                    } else if (app->decode == DECODE_LTE) {
+                        win = &app->lte.window;
+                        rect = lte_waterfall_rect();
+                    }
+                    if (win)
+                        view_window_input(app, win, rect, chart_key, spacing,
+                                          1);
+                }
             } else if (IsKeyPressed(KEY_ESCAPE) && !input.text_focus) {
                 /* A zoom is backed out of before the program is. 0 does it
                    explicitly, but a reader who has just dragged a region
@@ -1396,17 +1432,16 @@ static int run_gui(struct app *app) {
             int down = chart_key == CHART_KEY_SCALE_DOWN;
 
             /*
-             * + and - are the scale keys everywhere now. Up and Down were,
-             * and still are on every screen that has no frequency window to
-             * zoom -- the two axes want two pairs of keys, and taking the
-             * arrows away from a screen that has nothing else for them would
-             * be a loss rather than a simplification.
+             * + and - are the scale keys, everywhere, with no exception.
+             *
+             * Up and Down were, on screens that had no frequency window to
+             * zoom -- which was every screen but two until the decode views
+             * and the calibration overlay got one. Keeping the exception
+             * would have made the arrows mean "zoom" on five screens and
+             * "scale" on two, and on the five they would have done both at
+             * once. One rule is worth more than the arrows doing something
+             * on the two charts that have no frequency axis at all.
              */
-            if (!input_scope_owns_spectrum(&input)) {
-                up = up || IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP);
-                down = down || IsKeyPressed(KEY_DOWN) ||
-                       IsKeyPressedRepeat(KEY_DOWN);
-            }
             if (scale == INPUT_SCALE_ACTIVE_CHART && (up || down))
                 adjust_active_scale(app, up);
             else if (scale == INPUT_SCALE_WATERFALL && (up || down))

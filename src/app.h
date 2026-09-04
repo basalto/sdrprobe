@@ -80,7 +80,7 @@ enum decode_kind {
 /* What the ADS-B view decides -- the log row, which frame the charts are
    drawn from, and the funnel -- is in a header the checks can reach. */
 #include "adsb_analysis.h"
-#include "freq_window.h"
+#include "chart_window.h"
 #include "fm_dsp.h"
 #include "fm_scan.h"
 #include "rds.h"
@@ -196,6 +196,10 @@ struct fm_scan {
 
 
 struct fm_view {
+    /* What the waterfall draws: the reader's zoom and pan over the received
+       span, shared with every other frequency chart (chart_window.h). */
+    struct chart_window window;
+
     char frequency[16];             /* megahertz, as typed */
     int frequency_length;
     int typing;
@@ -315,6 +319,10 @@ struct band_scan {
 };
 
 struct calibration {
+    /* What the waterfall draws: the reader's zoom and pan over the received
+       span, shared with every other frequency chart (chart_window.h). */
+    struct chart_window window;
+
     float workspace[SDR_DSP_FFT_SIZE];
     int running;
     int band;
@@ -444,6 +452,10 @@ struct lte_band_scan {
 };
 
 struct lte_view {
+    /* What the waterfall draws: the reader's zoom and pan over the received
+       span, shared with every other frequency chart (chart_window.h). */
+    struct chart_window window;
+
     int earfcn;                 /* 0 when the tuning is not on the raster */
     struct lte_cell cell;
     int cell_valid;
@@ -539,6 +551,10 @@ struct gsm_cell {
 };
 
 struct gsm_view {
+    /* What the waterfall draws: the reader's zoom and pan over the received
+       span, shared with every other frequency chart (chart_window.h). */
+    struct chart_window window;
+
     double selected_hz;         /* carrier of the selected ARFCN (0 = none) */
     uint32_t return_frequency;  /* view frequency to restore on leave */
     int return_valid;
@@ -584,15 +600,10 @@ struct scope_view {
        survey, both band scans and calibration always get the default. */
     int fft_size;
 
-    struct freq_window freq;
-    int freq_dragging;
-    float freq_drag_from_x;
-    float freq_drag_to_x;
-    /* The tuning and rate the window was set against, so a retune from
-       anywhere else re-anchors it rather than leaving it describing a span
-       that is no longer arriving. */
-    uint32_t freq_anchor_hz;
-    uint32_t freq_anchor_rate;
+    /* The drawn range, the drag, and the tuning it is all anchored against.
+       Shared with every decode view's waterfall (chart_window.h), so what a
+       drag means is decided in one place. */
+    struct chart_window window;
     /*
      * The control row's three fields. They hold text rather than numbers
      * because a half-typed "94." is not a frequency, and the value is only

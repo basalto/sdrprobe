@@ -68,6 +68,14 @@ void gsm_tune_selected(struct app *app, int arfcn) {
         return;
     app->scan_selected_arfcn = arfcn;
     app->gsm.selected_hz = (double)expected;
+    /* Open on the channel that was chosen. A default, not a lock: 0 puts the
+       whole span back and a drag goes anywhere. */
+    chart_window_sync(&app->gsm.window, app->applied_frequency,
+                      app->applied_sample_rate,
+                      chart_min_span(GSM900_ARFCN_SPACING_HZ));
+    chart_window_centre_on(&app->gsm.window, (double)expected,
+                           CALIBRATION_VIEW_HALF_WIDTH_HZ,
+                           chart_min_span(GSM900_ARFCN_SPACING_HZ));
     app->gsm.sch_valid = 0;
     gsm_continuity_reset(&app->gsm.continuity);
     memset(&app->gsm.cell, 0, sizeof(app->gsm.cell)); /* a different cell */
@@ -413,7 +421,7 @@ void draw_gsm(struct app *app) {
             DrawText(TextFormat("ARFCN waterfall - inspecting ARFCN %d",
                                 app->scan_selected_arfcn),
                      (int)wf.x, (int)wf.y - 18, 16, (Color){ 151, 174, 188, 255 });
-            draw_waterfall_rect(app, 1, wf, app->gsm.selected_hz);
+            draw_waterfall_rect(app, 1, wf, &app->gsm.window);
         }
 
 
@@ -439,7 +447,7 @@ void draw_gsm(struct app *app) {
         Rectangle wf = gsm_waterfall_rect();
         DrawText("ARFCN waterfall", (int)wf.x, (int)wf.y - 18, 16,
                  (Color){ 151, 174, 188, 255 });
-        draw_waterfall_rect(app, 1, wf, app->gsm.selected_hz);
+        draw_waterfall_rect(app, 1, wf, &app->gsm.window);
 
         /* Default Channel Power Scan Chart on Bottom */
         Rectangle sc = gsm_scan_rect();

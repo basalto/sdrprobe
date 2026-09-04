@@ -1,5 +1,6 @@
 #include "check.h"
 #include "freq_window.h"
+#include "chart_window.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -393,6 +394,62 @@ static void test_zoomed(void) {
     check_true("nor is one a half hertz short", !freq_window_zoomed(&w));
 }
 
+/*
+ * How narrow a window may get, which differs by axis.
+ *
+ * On a channel axis the labels are channel *centres*, drawn wherever one
+ * falls inside the drawn range. Zoom tighter than the channel spacing and the
+ * range can contain no centre at all: an ARFCN chart with no ARFCN on it,
+ * which reads as broken rather than as zoomed. A window exactly one spacing
+ * wide always contains exactly one multiple of the spacing whatever its
+ * phase, so that is the floor.
+ */
+static void test_channel_axis_floor(void) {
+    const double spacing = 200000.0;   /* GSM 900 */
+
+    check_close("a linear axis floors at 20 kHz", chart_min_span(0.0),
+                CHART_MIN_SPAN_HZ, 1.0);
+    check_close("a channel axis floors at one channel",
+                chart_min_span(spacing), spacing, 1.0);
+    check_true("which is wider than the linear floor",
+               chart_min_span(spacing) > chart_min_span(0.0));
+    /* A spacing finer than the linear floor does not raise it: the floor is
+       the wider of the two, not the channel one unconditionally. */
+    check_close("a very fine channel raster keeps the linear floor",
+                chart_min_span(1000.0), CHART_MIN_SPAN_HZ, 1.0);
+
+    /*
+     * The property the floor exists for: a window one spacing wide always
+     * contains a centre, wherever it starts. Walked across a whole channel in
+     * twentieths, since the failing case is a window sitting between two
+     * centres and that is a question about phase.
+     */
+    {
+        int step, without = 0;
+        for (step = 0; step < 20; step++) {
+            double lower = 948000000.0 + spacing * (double)step / 20.0;
+            double upper = lower + spacing;
+            /* the first centre at or above `lower` */
+            double first = ceil(lower / spacing) * spacing;
+            if (first > upper)
+                without++;
+        }
+        check_int("a one-channel window always shows a channel", without, 0);
+    }
+    /* And half a channel does not, which is what would have happened. */
+    {
+        int step, without = 0;
+        for (step = 0; step < 20; step++) {
+            double lower = 948000000.0 + spacing * (double)step / 20.0;
+            double upper = lower + spacing / 2.0;
+            double first = ceil(lower / spacing) * spacing;
+            if (first > upper)
+                without++;
+        }
+        check_true("half a channel sometimes shows none", without > 0);
+    }
+}
+
 int main(void) {
     test_window_before_any_sweep();
     test_zoom_in_and_out();
@@ -407,6 +464,7 @@ int main(void) {
     test_panning_past_the_end();
 
     test_zoomed();
+    test_channel_axis_floor();
 
     return check_report("the frequency window");
 }
