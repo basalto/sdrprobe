@@ -557,6 +557,26 @@ static void test_every_screen_is_reachable(void) {
     }
 }
 
+/* --version, which is how a script asks which build it is looking at. */
+static void test_version_flag(void) {
+    struct options o;
+    const char *argv[] = { "sdrprobe", "--version" };
+
+    check_int("--version parses", parse_options(2, (char **)argv, &o), 0);
+    check_true("and asks for the version", o.show_version);
+    {
+        const char *twice[] = { "sdrprobe", "--version", "--version" };
+        check_true("but not twice",
+                   parse_options(3, (char **)twice, &o) < 0);
+    }
+    {
+        const char *plain[] = { "sdrprobe" };
+        check_int("nothing asks for it by default",
+                  parse_options(1, (char **)plain, &o), 0);
+        check_true("and it stays off", !o.show_version);
+    }
+}
+
 int main(void) {
     test_defaults();
     test_frequency_spellings();
@@ -578,6 +598,8 @@ int main(void) {
     test_saving_a_scripted_sweep();
 
     test_every_screen_is_reachable();
+
+    test_version_flag();
 
     return check_report("command line");
 }

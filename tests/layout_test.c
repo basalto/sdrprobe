@@ -4,6 +4,7 @@
 #include "fm_layout.h"
 #include "row_list.h"
 #include "chrome_layout.h"
+#include "version.h"
 #include "gsm_layout.h"
 #include "scope_layout.h"
 #include "settings_layout.h"
@@ -1247,6 +1248,88 @@ static void check_settings_panel(void) {
     }
 }
 
+/*
+ * The signature in the corner, and the version it carries.
+ *
+ * Two things worth pinning. The corner is the one place on screen every view
+ * reaches -- the charts run to within about sixty pixels of the bottom -- so
+ * it has to stay inside the window and clear of what the chrome draws. And
+ * the version has to stay a version: SemVer is three dot-separated numbers
+ * and nothing else, and a string that quietly stopped being one would still
+ * render perfectly in the corner while breaking anything that parses it.
+ */
+static void check_footer_and_version(void) {
+    static const struct { float width, height; } sizes[] = {
+        { 900.0f, 600.0f }, { 1100.0f, 720.0f },
+        { 1500.0f, 950.0f }, { 1920.0f, 1080.0f }
+    };
+    size_t n;
+
+    for (n = 0; n < sizeof(sizes) / sizeof(sizes[0]); n++) {
+        float width = sizes[n].width, height = sizes[n].height;
+        struct chrome_layout l = chrome_layout_for(width, height);
+        int i;
+
+        check_msg(l.footer.x >= 0.0f &&
+                      l.footer.x + l.footer.width <= width,
+                  "%.0fx%.0f the signature runs off the side\n", width,
+                  height);
+        check_msg(l.footer.y >= 0.0f &&
+                      l.footer.y + l.footer.height <= height,
+                  "%.0fx%.0f the signature runs off the bottom\n", width,
+                  height);
+        /* Bottom right, not merely somewhere: it is a corner or it is
+           clutter. */
+        check_msg(l.footer.x + l.footer.width > width * 0.6f,
+                  "%.0fx%.0f the signature is not in the right corner\n",
+                  width, height);
+        check_msg(l.footer.y > height * 0.8f,
+                  "%.0fx%.0f the signature is not at the bottom\n", width,
+                  height);
+        /* And clear of the chrome above it. */
+        check_msg(!overlaps(l.footer, l.settings_button) &&
+                      !overlaps(l.footer, l.calibration_button),
+                  "%.0fx%.0f the signature lands on a chrome button\n",
+                  width, height);
+        for (i = 0; i < TAB_COUNT; i++)
+            if (overlaps(l.footer, chrome_tab_rect(&l, i)))
+                check_msg(0, "%.0fx%.0f the signature lands on tab %d\n",
+                          width, height, i);
+    }
+
+    /* The version is three numbers, in order, with a leading v. Parsed rather
+       than compared to a literal, so bumping it does not mean editing a
+       check -- the shape is the invariant, not the value. */
+    {
+        const char *v = SDRPROBE_VERSION;
+        int major = -1, minor = -1, patch = -1, consumed = 0;
+
+        check_true("the version begins with v", v[0] == 'v');
+        check_int("and is three dot-separated numbers",
+                  sscanf(v + 1, "%d.%d.%d%n", &major, &minor, &patch,
+                         &consumed), 3);
+        check_true("with nothing after them",
+                   consumed > 0 && v[1 + consumed] == '\0');
+        check_true("none of them negative",
+                   major >= 0 && minor >= 0 && patch >= 0);
+        check_int("and the string agrees with the numbers it is built from",
+                  major, SDRPROBE_VERSION_MAJOR);
+        check_int("minor too", minor, SDRPROBE_VERSION_MINOR);
+        check_int("and patch", patch, SDRPROBE_VERSION_PATCH);
+    }
+
+    /* The signature is the contact and the version, in that order, so what a
+       screenshot shows and what --version prints cannot drift apart. */
+    {
+        const char *sig = SDRPROBE_SIGNATURE;
+        check_true("the signature leads with the contact",
+                   strncmp(sig, SDRPROBE_CONTACT,
+                           strlen(SDRPROBE_CONTACT)) == 0);
+        check_true("and ends with the version",
+                   strstr(sig, SDRPROBE_VERSION) != NULL);
+    }
+}
+
 int main(void) {
     check_chrome();
     check_calibration_overlay();
@@ -1266,6 +1349,7 @@ int main(void) {
         for (int i = 0; i < RECTS; i++)
             check(w, h, e[i].name, got[i], &e[i]);
     }
+    check_footer_and_version();
     check_settings_panel();
     check_scope_header();
     check_scope_fields();
