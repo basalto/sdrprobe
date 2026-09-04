@@ -1,6 +1,6 @@
 # 01 — Pick a band to sweep, instead of typing its edges
 
-Status: needs-triage
+Status: resolved
 Blocked by: (none)
 
 The survey sweeps whatever `Range` and `to` say, and the default is the
@@ -43,3 +43,33 @@ sweep in the first place closes the loop.
 Which allocations are offered, and what range each fills in, are decisions --
 a pure function from the band plan and the tuner's limits to a list. The combo
 itself is drawing.
+
+## Comments
+
+**2026-09-04** — Done. A **Band...** button beside Reset zoom opens a
+scrolling list of the 54 allocations this tuner reaches; choosing one fills
+the range fields and the dwell.
+
+Both things the ticket said to decide rather than assume were decided by
+measuring the table. The list is filtered by the tuner's reach, which drops 14
+of 68 entries -- long wave and the microwave allocations, none of which this
+receiver could sweep. And picking a band sets the dwell, because one value
+does not suit a band of two megahertz and one of two hundred: it aims at a
+twenty-second sweep, which in practice means half a second a step for
+everything under about fifty megahertz and the plain default above it.
+
+`check-survey-bands` holds the properties: nothing offered is out of reach,
+nothing reachable is left off, every range is inside the tuner and runs
+forwards, and no band implies a sweep over three minutes. The list also
+colours the allocations that have a decoder, which falls out of the table
+`band_plan_view.h` grew for Inspect -- so a reader can see at a glance which
+bands they can not only sweep but read.
+
+Two checks of my own were wrong before the code was, both the same way: they
+asserted a narrower band gets a longer dwell, and it does not, because
+everything under fifty megahertz sits on the ceiling and everything over two
+hundred sits on the floor. The flat regions are deliberate and the checks say
+so now.
+
+`--survey-bands` opens the list on arrival, because a dropdown exists only
+while a pointer holds it open and there was otherwise no way to photograph it.

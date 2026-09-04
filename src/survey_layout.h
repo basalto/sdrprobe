@@ -17,6 +17,9 @@ struct survey_layout {
     Rectangle dwell_field;     /* seconds spent on each step */
     Rectangle sweep_button;    /* sweeps whatever the chart is showing */
     Rectangle reset_button;    /* back out of a zoom, or of a region sweep */
+    /* Choosing a band fills the two range fields in, so it sits in front of
+       them: the reading order is the doing order. */
+    Rectangle band_button;
     Rectangle stop_button;
     /* A second row: what the sweep will be recorded as, and the button that
        records it. They sit with the sweep rather than in Settings because
@@ -110,6 +113,7 @@ static inline struct survey_layout survey_layout_for(float width,
        they neither overlap nor run off the edge. */
     l.sweep_button = (Rectangle){ 530.0f, 128.0f, 120.0f, 30.0f };
     l.reset_button = (Rectangle){ 666.0f, 128.0f, 130.0f, 30.0f };
+    l.band_button = (Rectangle){ 812.0f, 128.0f, 150.0f, 30.0f };
     l.stop_button = (Rectangle){ 812.0f, 128.0f, 90.0f, 30.0f };
     /* The second row. A survey saved without a site cannot be compared with
        anything, so the field is here in front of the reader rather than in a

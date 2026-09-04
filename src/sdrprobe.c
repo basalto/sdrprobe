@@ -1111,6 +1111,7 @@ static int run_gui(struct app *app) {
          */
         set_tab(app, TAB_SURVEY);
         view_survey_enter(app);
+        app->survey.band_menu_open = app->options.survey_bands;
         break;
     case START_VIEW_GSM:       set_decode(app, DECODE_GSM);
                                set_tab(app, TAB_DECODE); break;

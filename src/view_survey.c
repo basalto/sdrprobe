@@ -13,6 +13,7 @@
 #include "survey_suspect.h"
 #include "survey_store.h"
 #include "band_plan_view.h"
+#include "survey_bands.h"
 #include "lte_dsp.h"
 #include "sdrgui.h"
 
@@ -944,6 +945,21 @@ static void survey_find_peaks(struct app *app) {
 }
 
 /*
+ * The band list's rows. Longer than the site and antenna lists, which fit
+ * whatever they hold -- fifty-four allocations do not, so this one scrolls
+ * and uses the same arithmetic the candidate list does.
+ */
+#define SURVEY_BAND_METRICS ((struct row_list_metrics){ 0.0f, 22.0f, 0.0f })
+#define SURVEY_BAND_ROWS 14
+
+static Rectangle survey_band_menu(Rectangle button) {
+    Rectangle menu = { button.x, button.y + button.height,
+                       button.width + 190.0f,
+                       (float)SURVEY_BAND_ROWS * 22.0f };
+    return menu;
+}
+
+/*
  * The nth strongest candidate on screen, counting from one, or -1.
  *
  * By power rather than by frequency: a script asking for "the strongest" and
@@ -1316,6 +1332,63 @@ void handle_survey_input(struct app *app) {
                 survey_commit_installation(app);
             }
             s->antenna_menu_open = 0;
+            return;
+        }
+    }
+    /*
+     * The band list. It sits in front of the range fields because choosing a
+     * band fills them in, and it is checked before them so a click landing on
+     * the open list is not also read as a click on whatever it covers.
+     */
+    if (clicked(l.band_button)) {
+        s->band_menu_open = !s->band_menu_open;
+        s->site_menu_open = 0;
+        s->antenna_menu_open = 0;
+        return;
+    }
+    if (s->band_menu_open) {
+        Rectangle menu = survey_band_menu(l.band_button);
+        struct row_list_metrics m = SURVEY_BAND_METRICS;
+        int count = survey_band_count(SURVEY_TUNER_LOWER_HZ,
+                                      SURVEY_TUNER_UPPER_HZ);
+        float wheel = GetMouseWheelMove();
+
+        s->band_scroll = row_list_clamp_scroll(s->band_scroll, count,
+                                               SURVEY_BAND_ROWS);
+        if (wheel != 0.0f &&
+            CheckCollisionPointRec(GetMousePosition(), menu)) {
+            s->band_scroll = row_list_clamp_scroll(
+                s->band_scroll - (int)wheel * ROW_LIST_WHEEL_ROWS, count,
+                SURVEY_BAND_ROWS);
+            return;
+        }
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            int rank = row_list_rank_at(menu, m, s->band_scroll, count,
+                                        SURVEY_BAND_ROWS, GetMousePosition());
+            const struct band_plan_entry *entry =
+                rank >= 0 ? survey_band_at(rank, SURVEY_TUNER_LOWER_HZ,
+                                           SURVEY_TUNER_UPPER_HZ) : NULL;
+            double from = 0.0, to = 0.0;
+
+            if (entry && survey_band_range(entry, SURVEY_TUNER_LOWER_HZ,
+                                           SURVEY_TUNER_UPPER_HZ, &from,
+                                           &to) == 0) {
+                survey_format_hz(s->from, sizeof(s->from),
+                                 (uint32_t)llround(from));
+                s->from_length = (int)strlen(s->from);
+                survey_format_hz(s->to, sizeof(s->to), (uint32_t)llround(to));
+                s->to_length = (int)strlen(s->to);
+                /* And the dwell, because one value does not suit a band of
+                   two megahertz and one of two hundred. */
+                snprintf(s->dwell, sizeof(s->dwell), "%.2f",
+                         survey_band_dwell(from, to,
+                                           (double)app->applied_sample_rate));
+                s->dwell_length = (int)strlen(s->dwell);
+                snprintf(s->status, sizeof(s->status),
+                         "%s: %.3f to %.3f MHz. Press Sweep.", entry->name,
+                         from / 1e6, to / 1e6);
+            }
+            s->band_menu_open = 0;
             return;
         }
     }
@@ -2136,6 +2209,64 @@ static void survey_draw_pickers(const struct app *app,
         survey_draw_menu(l->antenna_field, app->config.antenna_count, chosen,
                          survey_antenna_label, app);
     }
+    /*
+     * The band list, drawn its own way rather than through survey_draw_menu.
+     * That one sizes itself to whatever it holds, which works for a handful
+     * of sites and not for fifty-four allocations -- this one is a fixed
+     * height and scrolls, using the same arithmetic the candidate list does.
+     */
+    if (s->band_menu_open) {
+        Rectangle menu = survey_band_menu(l->band_button);
+        struct row_list_metrics m = SURVEY_BAND_METRICS;
+        int count = survey_band_count(SURVEY_TUNER_LOWER_HZ,
+                                      SURVEY_TUNER_UPPER_HZ);
+        int scroll = row_list_clamp_scroll(s->band_scroll, count,
+                                           SURVEY_BAND_ROWS);
+        int hovered = row_list_rank_at(menu, m, scroll, count,
+                                       SURVEY_BAND_ROWS, GetMousePosition());
+        int rows = count - scroll;
+        int row;
+
+        if (rows > SURVEY_BAND_ROWS)
+            rows = SURVEY_BAND_ROWS;
+        DrawRectangleRec(menu, (Color){ 12, 19, 28, 255 });
+        DrawRectangleLinesEx(menu, 1.0f, (Color){ 108, 138, 158, 255 });
+        for (row = 0; row < rows; row++) {
+            const struct band_plan_entry *entry =
+                survey_band_at(scroll + row, SURVEY_TUNER_LOWER_HZ,
+                               SURVEY_TUNER_UPPER_HZ);
+            float y = row_list_row_y(menu, m, row);
+            char text[128];
+
+            if (!entry)
+                break;
+            if (scroll + row == hovered)
+                DrawRectangle((int)menu.x + 1, (int)y, (int)menu.width - 2,
+                              (int)m.row_h, (Color){ 255, 174, 62, 46 });
+            snprintf(text, sizeof(text), "%7.1f-%-7.1f  %s",
+                     entry->lower_hz / 1e6, entry->upper_hz / 1e6,
+                     entry->name);
+            sdrgui_text_fit(text, (int)menu.x + 8, (int)y + 3, 15,
+                            menu.width - 16.0f,
+                            band_plan_can_inspect(entry->decoder)
+                                ? (Color){ 99, 228, 170, 255 }
+                                : (Color){ 213, 226, 234, 255 });
+        }
+        if (count > SURVEY_BAND_ROWS) {
+            float track_h = (float)SURVEY_BAND_ROWS * m.row_h;
+            float thumb_h = track_h * (float)SURVEY_BAND_ROWS / (float)count;
+            float thumb_y = menu.y + track_h * (float)scroll / (float)count;
+
+            if (thumb_h < 12.0f)
+                thumb_h = 12.0f;
+            if (thumb_y + thumb_h > menu.y + track_h)
+                thumb_y = menu.y + track_h - thumb_h;
+            DrawRectangle((int)(menu.x + menu.width - 6.0f), (int)menu.y, 4,
+                          (int)track_h, (Color){ 30, 42, 52, 255 });
+            DrawRectangle((int)(menu.x + menu.width - 6.0f), (int)thumb_y, 4,
+                          (int)thumb_h, (Color){ 108, 138, 158, 255 });
+        }
+    }
 }
 
 /*
@@ -2300,6 +2431,7 @@ void draw_survey(struct app *app) {
     draw_button(l.sweep_button, s->sweeping ? "Sweeping" : "Sweep",
                 !s->sweeping);
     draw_button(l.reset_button, "Reset zoom", 0);
+    draw_button(l.band_button, "Band...", app->survey.band_menu_open);
     if (s->sweeping)
         draw_button(l.stop_button, "Stop", 0);
 
