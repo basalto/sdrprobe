@@ -1267,6 +1267,15 @@ void handle_survey_input(struct app *app) {
 
     /* Typing into whichever range field has focus. The same spellings the
        Settings panel takes, because parse_frequency is the same parser. */
+    /* A list that is down is the nearest thing to the surface, so Escape
+       closes it before it does anything else. */
+    if (IsKeyPressed(KEY_ESCAPE) &&
+        (s->band_menu_open || s->site_menu_open || s->antenna_menu_open)) {
+        s->band_menu_open = 0;
+        s->site_menu_open = 0;
+        s->antenna_menu_open = 0;
+        return;
+    }
     if (s->focus >= 0 && IsKeyPressed(KEY_ESCAPE)) {
         if (s->focus == 3 || s->focus == 4)
             survey_commit_installation(app);

@@ -919,6 +919,9 @@ static struct input_state input_state_now(const struct app *app) {
        reaches the view switcher instead of the field it was typed into is a
        screen change nobody asked for. */
     state.text_focus = survey_editing(app) || fm_editing(app);
+    state.menu_open = app->survey.site_menu_open ||
+                      app->survey.antenna_menu_open ||
+                      app->survey.band_menu_open;
     return state;
 }
 
@@ -1234,6 +1237,13 @@ static int run_gui(struct app *app) {
             } else if (clicked(calibration_button()) ||
                        (shortcuts && IsKeyPressed(KEY_C))) {
                 open_calibration(app);
+            } else if (IsKeyPressed(KEY_ESCAPE) &&
+                       input_escape(&input) == INPUT_ESCAPE_QUIT) {
+                /* The survey is the top of its own stack -- it is the tab the
+                   program opens on -- so Escape leaves the program, the same
+                   as it does from the Scope views. Anything nearer the
+                   surface, a dropdown or a field, is handled below. */
+                break_requested = 1;
             } else {
                 handle_survey_input(app);
             }

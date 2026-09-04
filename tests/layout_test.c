@@ -496,12 +496,12 @@ struct survey_case {
 
 static const struct survey_case survey_cases[] = {
     { 1100.0f, 720.0f, {
-        { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
-        { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
-        { "dwell_field", 414.00f, 128.00f, 100.00f, 30.00f },
-        { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
-        { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
-        { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
+        { "from_field", 82.00f, 128.00f, 120.00f, 30.00f },
+        { "to_field", 218.00f, 128.00f, 120.00f, 30.00f },
+        { "dwell_field", 354.00f, 128.00f, 80.00f, 30.00f },
+        { "sweep_button", 596.00f, 128.00f, 110.00f, 30.00f },
+        { "reset_button", 818.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 722.00f, 128.00f, 80.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
@@ -517,12 +517,12 @@ static const struct survey_case survey_cases[] = {
         { "inspect_button", 528.96f, 650.00f, 529.04f, 28.00f },
     }, 82.00f, 950.00f },
     { 1280.0f, 800.0f, {
-        { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
-        { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
-        { "dwell_field", 414.00f, 128.00f, 100.00f, 30.00f },
-        { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
-        { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
-        { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
+        { "from_field", 82.00f, 128.00f, 120.00f, 30.00f },
+        { "to_field", 218.00f, 128.00f, 120.00f, 30.00f },
+        { "dwell_field", 354.00f, 128.00f, 80.00f, 30.00f },
+        { "sweep_button", 596.00f, 128.00f, 110.00f, 30.00f },
+        { "reset_button", 818.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 722.00f, 128.00f, 80.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
@@ -538,12 +538,12 @@ static const struct survey_case survey_cases[] = {
         { "inspect_button", 604.56f, 730.00f, 633.44f, 28.00f },
     }, 82.00f, 1130.00f },
     { 1000.0f, 540.0f, {
-        { "from_field", 82.00f, 128.00f, 150.00f, 30.00f },
-        { "to_field", 248.00f, 128.00f, 150.00f, 30.00f },
-        { "dwell_field", 414.00f, 128.00f, 100.00f, 30.00f },
-        { "sweep_button", 530.00f, 128.00f, 120.00f, 30.00f },
-        { "reset_button", 666.00f, 128.00f, 130.00f, 30.00f },
-        { "stop_button", 812.00f, 128.00f, 90.00f, 30.00f },
+        { "from_field", 82.00f, 128.00f, 120.00f, 30.00f },
+        { "to_field", 218.00f, 128.00f, 120.00f, 30.00f },
+        { "dwell_field", 354.00f, 128.00f, 80.00f, 30.00f },
+        { "sweep_button", 596.00f, 128.00f, 110.00f, 30.00f },
+        { "reset_button", 818.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 722.00f, 128.00f, 80.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
@@ -581,25 +581,18 @@ static void check_survey(void) {
                   "%.0fx%.0f survey header bounds moved\n", w->width,
                   w->height);
         /*
-         * The band selector, checked as a property rather than pinned: it
-         * sits on the controls row and must not land on anything already
-         * there, nor run off the narrowest window this program is asked to
-         * draw on.
+         * And the whole row fits the narrowest window this program is checked
+         * at. Adding the band selector to a row that already held three
+         * fields and three buttons is what made this worth asserting: it did
+         * not fit, and the fields had to give up the width they were not
+         * using.
          */
         {
-            Rectangle row[] = { l.from_field, l.to_field, l.dwell_field,
-                                l.sweep_button, l.reset_button };
-            const char *row_names[] = { "from", "to", "dwell", "sweep",
-                                        "reset" };
-            unsigned r;
-
-            for (r = 0; r < sizeof(row) / sizeof(row[0]); r++)
-                check_msg(!overlaps(l.band_button, row[r]),
-                          "%.0fx%.0f the band selector lands on '%s'\n",
-                          w->width, w->height, row_names[r]);
-            check_msg(l.band_button.x + l.band_button.width <= w->width,
-                      "%.0fx%.0f the band selector runs off the side\n",
-                      w->width, w->height);
+            Rectangle last = l.reset_button;
+            check_msg(last.x + last.width <= w->width,
+                      "%.0fx%.0f the controls row runs off the side by "
+                      "%.0f px\n", w->width, w->height,
+                      last.x + last.width - w->width);
             check_msg(l.band_button.width > 0.0f &&
                       l.band_button.height > 0.0f,
                       "%.0fx%.0f the band selector has no area\n", w->width,
@@ -647,9 +640,16 @@ static void check_survey(void) {
             check_msg(0, "%.0fx%.0f inspect_button escapes the panel\n",
                       w->width, w->height);
         }
-        Rectangle row[6] = { l.from_field, l.to_field, l.dwell_field,
-                             l.sweep_button, l.reset_button, l.stop_button };
-        for (int i = 1; i < 6; i++) {
+        /*
+         * The controls row, in the order it is read and used: three fields,
+         * then the band that fills them in, then the sweep it starts, then
+         * stopping that sweep, then backing out of a zoom. Left to right with
+         * no overlaps.
+         */
+        Rectangle row[7] = { l.from_field, l.to_field, l.dwell_field,
+                             l.band_button, l.sweep_button, l.stop_button,
+                             l.reset_button };
+        for (int i = 1; i < 7; i++) {
             check_msg(row[i].x >= row[i - 1].x + row[i - 1].width,
                       "%.0fx%.0f control %d overlaps the one before\n",
                       w->width, w->height, i);

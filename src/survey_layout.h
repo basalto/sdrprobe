@@ -105,16 +105,30 @@ static inline struct survey_layout survey_layout_for(float width,
        Scope views put their first HUD line: the Scope tab draws its numbered
        option row across y = 100-120, and the field labels above the row landed
        on top of it. */
-    l.from_field = (Rectangle){ 82.0f, 128.0f, 150.0f, 30.0f };
-    l.to_field = (Rectangle){ 248.0f, 128.0f, 150.0f, 30.0f };
-    l.dwell_field = (Rectangle){ 414.0f, 128.0f, 100.0f, 30.0f };
+    /*
+     * The whole row, tightened to make room for the band selector.
+     *
+     * The fields were sized at 150 px for "1766M" and 100 for "0.10", which
+     * is generous; four buttons and three fields do not fit a thousand-pixel
+     * window at those widths, and a thousand is the narrowest this program is
+     * checked at. They hold what they have to hold and no more now.
+     */
+    l.from_field = (Rectangle){ 82.0f, 128.0f, 120.0f, 30.0f };
+    l.to_field = (Rectangle){ 218.0f, 128.0f, 120.0f, 30.0f };
+    l.dwell_field = (Rectangle){ 354.0f, 128.0f, 80.0f, 30.0f };
     /* Five controls on one row, comfortably inside the 1000 px minimum window
        now that one Sweep does what two used to. tests/layout_test.c asserts
        they neither overlap nor run off the edge. */
-    l.sweep_button = (Rectangle){ 530.0f, 128.0f, 120.0f, 30.0f };
-    l.reset_button = (Rectangle){ 666.0f, 128.0f, 130.0f, 30.0f };
-    l.band_button = (Rectangle){ 812.0f, 128.0f, 150.0f, 30.0f };
-    l.stop_button = (Rectangle){ 812.0f, 128.0f, 90.0f, 30.0f };
+    /* Band sits between the dwell and Sweep, because that is the order the
+       row is used in: choose a band, which fills the three fields to its
+       left, then sweep it. */
+    l.band_button = (Rectangle){ 450.0f, 128.0f, 130.0f, 30.0f };
+    l.sweep_button = (Rectangle){ 596.0f, 128.0f, 110.0f, 30.0f };
+    /* Stop is drawn beside Sweep, not instead of it, so it needs a place of
+       its own -- and next to the button it stops rather than at the far end
+       of the row. */
+    l.stop_button = (Rectangle){ 722.0f, 128.0f, 80.0f, 30.0f };
+    l.reset_button = (Rectangle){ 818.0f, 128.0f, 130.0f, 30.0f };
     /* The second row. A survey saved without a site cannot be compared with
        anything, so the field is here in front of the reader rather than in a
        configuration file they have never opened. */

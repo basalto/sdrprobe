@@ -50,6 +50,7 @@ struct input_state {
     int scan_open;      /* the scan overlay sits inside calibration */
     int tab;            /* enum active_tab */
     int view;           /* enum view_kind, when the Scope tab is up */
+    int menu_open;      /* a combo list is down over the view */
     int decode;         /* enum decode_kind, when the Decode tab is up */
     int text_focus;     /* a text field outside the settings panel has focus */
 };
@@ -155,6 +156,42 @@ static inline int input_scale_keys(const struct input_state *s) {
     if (s->tab == TAB_SURVEY)
         return INPUT_SCALE_NONE;
     return INPUT_SCALE_ACTIVE_CHART;
+}
+
+/*
+ * What Escape does on the screen now showing.
+ *
+ * One step out, never two, and never nothing. It closes a list that is down
+ * over the view before it leaves the view, leaves a decode view for the Scope
+ * tab, and quits only from the two screens that are the top of their own
+ * stack.
+ *
+ * Written down because it was got wrong twice by omission rather than by
+ * error: the FM view had no Escape at all, and the survey lost its when it
+ * stopped being a Scope view and became a tab -- in both cases nothing failed
+ * and a key simply did nothing.
+ */
+enum input_escape {
+    INPUT_ESCAPE_NOTHING = 0,   /* an overlay's own handler has it */
+    INPUT_ESCAPE_CLOSE_MENU,
+    INPUT_ESCAPE_LEAVE_FIELD,
+    INPUT_ESCAPE_TO_SCOPE,
+    INPUT_ESCAPE_QUIT
+};
+
+static inline int input_escape(const struct input_state *s) {
+    if (!s)
+        return INPUT_ESCAPE_NOTHING;
+    /* An overlay that is up owns the key; its handler decides. */
+    if (s->help_open || s->settings_open || s->calibration_open)
+        return INPUT_ESCAPE_NOTHING;
+    if (s->menu_open)
+        return INPUT_ESCAPE_CLOSE_MENU;
+    if (s->text_focus)
+        return INPUT_ESCAPE_LEAVE_FIELD;
+    if (s->tab == TAB_DECODE)
+        return INPUT_ESCAPE_TO_SCOPE;
+    return INPUT_ESCAPE_QUIT;
 }
 
 /*
