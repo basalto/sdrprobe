@@ -127,6 +127,7 @@ make probe-gsm-chain FILE=captures/x.bin
 make probe-adsb-chain FILE_ADSB=testfiles/adsb_modes1.bin
 make probe-lte-chain FILE_LTE=testfiles/lte_b20_pci28.bin
 make probe-periodicity FILE_PERIODICITY=captures/x.bin   # LTE or NR? which grid?
+make probe-fm-filter FILE_FM_FILTER=testfiles/fm_rds_tsf.bin  # RDS: which biphase filter?
 ```
 
 `probe-periodicity` is the odd one out: it demodulates nothing, and works on a

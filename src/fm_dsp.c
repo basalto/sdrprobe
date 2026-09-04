@@ -443,30 +443,63 @@ size_t fm_rds_front_feed(struct fm_rds_front *front, const float *mpx,
 }
 
 /*
- * The biphase matched filter at one timing offset: eight samples of +1 then
- * eight of -1, which is the shape of the symbol itself.
+ * The biphase filter's taps, at one of two shapes.
+ *
+ * Rectangular is eight samples of +1 then eight of -1 -- the symbol as the
+ * standard defines it. Shaped weights each half by a half-sine, which is the
+ * matched filter for the band-limited pulse that is actually transmitted.
+ *
+ * Built once per call rather than per symbol: sixteen sines against tens of
+ * thousands of symbols is not worth a table, but doing it inside the inner
+ * loop would be.
  */
-static void fm_rds_correlate(const float *bb_i, const float *bb_q,
-                             size_t samples, int offset, size_t index,
-                             double *ri, double *rq) {
+static void fm_rds_taps(enum fm_rds_filter filter,
+                        double taps[FM_RDS_SAMPLES_PER_SYMBOL]) {
     const int half = FM_RDS_SAMPLES_PER_SYMBOL / 2;
+    int k;
+
+    for (k = 0; k < FM_RDS_SAMPLES_PER_SYMBOL; k++) {
+        double sign = k < half ? 1.0 : -1.0;
+        if (filter == FM_RDS_FILTER_SHAPED) {
+            /*
+             * Half a sine across each half, so the taps rise and fall rather
+             * than switching. Scaled by root two so the two filters carry the
+             * same energy: a rectangular tap set sums to sixteen, and sin
+             * squared averages a half, so the shaped one would otherwise sum
+             * to eight and read uniformly quieter. Comparing them at
+             * different gains would measure the scaling, not the shape.
+             */
+            double phase = M_PI * ((double)(k % half) + 0.5) / (double)half;
+            taps[k] = sign * sin(phase) * 1.4142135623730951;
+        } else {
+            taps[k] = sign;
+        }
+    }
+}
+
+/* The filter at one timing offset. */
+static void fm_rds_correlate(const float *bb_i, const float *bb_q,
+                             const double *taps, int offset, size_t index,
+                             double *ri, double *rq) {
     size_t base = (size_t)offset + index * FM_RDS_SAMPLES_PER_SYMBOL;
     double ai = 0.0, aq = 0.0;
 
-    (void)samples;
     for (int k = 0; k < FM_RDS_SAMPLES_PER_SYMBOL; k++) {
-        double sign = k < half ? 1.0 : -1.0;
-        ai += sign * bb_i[base + (size_t)k];
-        aq += sign * bb_q[base + (size_t)k];
+        ai += taps[k] * bb_i[base + (size_t)k];
+        aq += taps[k] * bb_q[base + (size_t)k];
     }
     *ri = ai;
     *rq = aq;
 }
 
-size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
-                        float *soft, size_t capacity, int *timing_offset,
-                        double *axis_radians) {
+size_t fm_rds_soft_bits_with(const float *bb_i, const float *bb_q,
+                             size_t samples, enum fm_rds_filter filter,
+                             float *soft, size_t capacity, int *timing_offset,
+                             double *axis_radians) {
     const int span = FM_RDS_SAMPLES_PER_SYMBOL;
+    double taps[FM_RDS_SAMPLES_PER_SYMBOL];
+
+    fm_rds_taps(filter, taps);
     int best_offset = 0;
     double best_energy = -1.0;
     size_t symbols, made = 0;
@@ -494,7 +527,7 @@ size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
             continue;
         for (size_t k = 0; k < count; k++) {
             double ri, rq;
-            fm_rds_correlate(bb_i, bb_q, samples, offset, k, &ri, &rq);
+            fm_rds_correlate(bb_i, bb_q, taps, offset, k, &ri, &rq);
             energy += ri * ri + rq * rq;
         }
         energy /= (double)count;
@@ -518,7 +551,7 @@ size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
      */
     for (size_t k = 0; k < symbols; k++) {
         double ri, rq;
-        fm_rds_correlate(bb_i, bb_q, samples, best_offset, k, &ri, &rq);
+        fm_rds_correlate(bb_i, bb_q, taps, best_offset, k, &ri, &rq);
         sum_i += ri * ri - rq * rq;
         sum_q += 2.0 * ri * rq;
     }
@@ -543,7 +576,7 @@ size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
         for (size_t k = 0; k < symbols && made < capacity; k++) {
             double ri, rq, projected;
 
-            fm_rds_correlate(bb_i, bb_q, samples, best_offset, k, &ri, &rq);
+            fm_rds_correlate(bb_i, bb_q, taps, best_offset, k, &ri, &rq);
             projected = ri * ca + rq * sa;
             if (have_previous)
                 soft[made++] = (float)(projected * previous);
@@ -672,8 +705,13 @@ size_t fm_multiplex_spectrum(const float *mpx, size_t n, double sample_rate,
 void fm_rds_timing_scores(const float *bb_i, const float *bb_q, size_t samples,
                           float scores[FM_RDS_SAMPLES_PER_SYMBOL]) {
     const int span = FM_RDS_SAMPLES_PER_SYMBOL;
+    double taps[FM_RDS_SAMPLES_PER_SYMBOL];
     double best = 0.0;
     int offset;
+
+    /* The chart shows what the decode is doing, so it uses the decode's
+       filter rather than one of its own. */
+    fm_rds_taps(FM_RDS_FILTER_RECTANGULAR, taps);
 
     if (!scores)
         return;
@@ -691,7 +729,7 @@ void fm_rds_timing_scores(const float *bb_i, const float *bb_q, size_t samples,
             continue;
         for (k = 0; k < count; k++) {
             double ri, rq;
-            fm_rds_correlate(bb_i, bb_q, samples, offset, k, &ri, &rq);
+            fm_rds_correlate(bb_i, bb_q, taps, offset, k, &ri, &rq);
             energy += ri * ri + rq * rq;
         }
         energy /= (double)count;
@@ -705,15 +743,31 @@ void fm_rds_timing_scores(const float *bb_i, const float *bb_q, size_t samples,
         scores[offset] = (float)(scores[offset] / best);
 }
 
+size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
+                        float *soft, size_t capacity, int *timing_offset,
+                        double *axis_radians) {
+    /* Rectangular, and measured rather than assumed: see
+       docs/rds-matched-filter.md. The shaped filter is the theoretically
+       correct one and is never worse, but the two are identical above about
+       13 dB and the window where they differ at all is three decibels wide. */
+    return fm_rds_soft_bits_with(bb_i, bb_q, samples,
+                                 FM_RDS_FILTER_RECTANGULAR, soft, capacity,
+                                 timing_offset, axis_radians);
+}
+
 size_t fm_rds_symbols(const float *bb_i, const float *bb_q, size_t samples,
                       int timing_offset, float *out_i, float *out_q,
                       size_t capacity) {
     const int span = FM_RDS_SAMPLES_PER_SYMBOL;
+    double taps[FM_RDS_SAMPLES_PER_SYMBOL];
     size_t count, k, made = 0;
     double scale = 0.0;
 
     if (!bb_i || !bb_q || !out_i || !out_q || capacity == 0)
         return 0;
+    /* The scatter shows what the decode is doing, so it uses the decode's
+       filter. */
+    fm_rds_taps(FM_RDS_FILTER_RECTANGULAR, taps);
     if (timing_offset < 0 || timing_offset >= span)
         return 0;
     if (samples < (size_t)(4 * span))
@@ -726,7 +780,7 @@ size_t fm_rds_symbols(const float *bb_i, const float *bb_q, size_t samples,
     for (k = 0; k < count; k++) {
         double ri, rq, magnitude;
 
-        fm_rds_correlate(bb_i, bb_q, samples, timing_offset, k, &ri, &rq);
+        fm_rds_correlate(bb_i, bb_q, taps, timing_offset, k, &ri, &rq);
         out_i[made] = (float)ri;
         out_q[made] = (float)rq;
         magnitude = sqrt(ri * ri + rq * rq);
