@@ -150,7 +150,7 @@ enum chart_key {
 
 enum chart_key chart_key_pressed(void);
 
-int scope_freq_input(struct app *app, Rectangle plot,
+int scope_freq_input(struct app *app, Rectangle outer,
                      enum chart_key key);
 void scope_freq_reset(struct app *app);
 /* How far Left and Right move it, and the narrowest it may become. */

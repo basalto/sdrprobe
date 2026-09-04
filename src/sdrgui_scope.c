@@ -80,11 +80,48 @@ void sdrgui_magnitude(const struct sdrgui_magnitude_params *params) {
     }
 }
 
+/*
+ * The two frequency charts' plot areas. One definition each, called by the
+ * drawing and by the hit test, so the two cannot disagree about where the
+ * trace is -- which they did, by a label gutter, for as long as the caller
+ * guessed.
+ *
+ * The label strings are the widest each axis draws: a spectrum's dBFS floor
+ * and a waterfall's oldest row.
+ */
+/* One drawing of the dragged band, for the three charts that offer one. */
+static void draw_drag_band(Rectangle plot, struct sdrgui_drag_band band) {
+    if (!band.visible)
+        return;
+    DrawRectangle((int)band.x0, (int)plot.y, (int)(band.x1 - band.x0),
+                  (int)plot.height, (Color){ 255, 174, 62, 40 });
+    DrawLine((int)band.x0, (int)plot.y, (int)band.x0,
+             (int)(plot.y + plot.height), (Color){ 255, 202, 105, 210 });
+    DrawLine((int)band.x1, (int)plot.y, (int)band.x1,
+             (int)(plot.y + plot.height), (Color){ 255, 202, 105, 210 });
+}
+
+Rectangle sdrgui_spectrum_area(Rectangle outer) {
+    return sdrgui_chart_area(outer, (float)(MeasureText("-120", 16) + 11.0f),
+                             25.0f);
+}
+
+Rectangle sdrgui_waterfall_area(Rectangle outer) {
+    Rectangle plot = sdrgui_chart_area(
+        outer, (float)(MeasureText("-10.0 s", 16) + 11.0f), 25.0f);
+
+    /* The footer carries the frequency axis and its caption, below the
+       strip itself. */
+    plot.height -= SDRGUI_WATERFALL_FOOTER_H;
+    if (plot.height < 1.0f)
+        plot.height = 1.0f;
+    return plot;
+}
+
 void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
     char text[256];
     Rectangle outer = params->plot;
-    Rectangle plot = sdrgui_chart_area(outer, (float)(MeasureText("-120", 16) + 11.0f),
-                                    25.0f);
+    Rectangle plot = sdrgui_spectrum_area(outer);
     double full_lower_hz = params->center_hz - params->sample_rate / 2.0;
     double full_upper_hz = params->center_hz + params->sample_rate / 2.0;
     /*
@@ -230,31 +267,12 @@ void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
      * The region being dragged out, over the trace: a reader needs to see
      * what the release will select, not learn it afterwards.
      */
-    if (params->drag_active && upper_frequency > lower_frequency) {
-        double from = params->drag_lower_hz < params->drag_upper_hz
-                          ? params->drag_lower_hz : params->drag_upper_hz;
-        double to = params->drag_lower_hz < params->drag_upper_hz
-                        ? params->drag_upper_hz : params->drag_lower_hz;
-        float x0 = plot.x + plot.width *
-                   (float)((from - lower_frequency) /
-                           (upper_frequency - lower_frequency));
-        float x1 = plot.x + plot.width *
-                   (float)((to - lower_frequency) /
-                           (upper_frequency - lower_frequency));
-
-        if (x0 < plot.x)
-            x0 = plot.x;
-        if (x1 > plot.x + plot.width)
-            x1 = plot.x + plot.width;
-        if (x1 > x0) {
-            DrawRectangle((int)x0, (int)plot.y, (int)(x1 - x0),
-                          (int)plot.height, (Color){ 255, 174, 62, 40 });
-            DrawLine((int)x0, (int)plot.y, (int)x0,
-                     (int)(plot.y + plot.height), (Color){ 255, 202, 105, 200 });
-            DrawLine((int)x1, (int)plot.y, (int)x1,
-                     (int)(plot.y + plot.height), (Color){ 255, 202, 105, 200 });
-        }
-    }
+    if (params->drag_active)
+        draw_drag_band(plot,
+                       sdrgui_drag_band_at(plot, lower_frequency,
+                                           upper_frequency,
+                                           params->drag_lower_hz,
+                                           params->drag_upper_hz));
 
     snprintf(text, sizeof(text),
               "frequency (MHz), major %.3f MHz   axis %.1f..%.1f dBFS   %d x %d-pair windows   bin %.3f Hz   average   peak hold",
@@ -373,13 +391,7 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
      * the rule in CLAUDE.md requires: a chart draws inside its rectangle, and
      * a caller cannot compute this clearance because it depends on a font.
      */
-    Rectangle plot = sdrgui_chart_area(outer,
-                                       (float)(MeasureText("-10.0 s", 16) +
-                                               11.0f),
-                                       25.0f);
-    plot.height -= SDRGUI_WATERFALL_FOOTER_H;
-    if (plot.height < 1.0f)
-        plot.height = 1.0f;
+    Rectangle plot = sdrgui_waterfall_area(outer);
     Rectangle source = { 0.0f, 0.0f, (float)params->texture.width,
                          (float)params->texture.height };
     struct sdrgui_waterfall_span span = sdrgui_waterfall_span(
@@ -411,6 +423,14 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
     DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
     DrawTexturePro(params->texture, source, plot, (Vector2){ 0.0f, 0.0f },
                    0.0f, WHITE);
+
+    /* Over the strip, so a reader sees the band the release will select. */
+    if (params->drag_active)
+        draw_drag_band(plot,
+                       sdrgui_drag_band_at(plot, lower_frequency,
+                                           upper_frequency,
+                                           params->drag_lower_hz,
+                                           params->drag_upper_hz));
 
     double first_frequency = ceil(lower_frequency / frequency_step) *
                              frequency_step;
@@ -781,27 +801,16 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
     /* The rectangle being dragged to zoom, drawn over the trace so the reader
        can see what the release will select. */
     if (params->drag_active) {
-        double from = params->drag_lower_hz;
-        double to = params->drag_upper_hz;
-        if (to < from) {
-            double swap = from;
-            from = to;
-            to = swap;
-        }
-        float x0 = survey_x_for_hz(plot, params->lower_hz, params->upper_hz,
-                                   from);
-        float x1 = survey_x_for_hz(plot, params->lower_hz, params->upper_hz, to);
-        if (x1 < x0) {
-            float swap = x0;
-            x0 = x1;
-            x1 = swap;
-        }
-        DrawRectangle((int)x0, (int)plot.y, (int)(x1 - x0), (int)plot.height,
-                      (Color){ 255, 174, 62, 40 });
-        DrawLine((int)x0, (int)plot.y, (int)x0, (int)(plot.y + plot.height),
-                 (Color){ 255, 174, 62, 220 });
-        DrawLine((int)x1, (int)plot.y, (int)x1, (int)(plot.y + plot.height),
-                 (Color){ 255, 174, 62, 220 });
+        struct sdrgui_drag_band band =
+            sdrgui_drag_band_at(plot, params->lower_hz, params->upper_hz,
+                                params->drag_lower_hz, params->drag_upper_hz);
+        double from = params->drag_lower_hz < params->drag_upper_hz
+                          ? params->drag_lower_hz : params->drag_upper_hz;
+        double to = params->drag_lower_hz < params->drag_upper_hz
+                        ? params->drag_upper_hz : params->drag_lower_hz;
+        float x0 = band.x0;
+
+        draw_drag_band(plot, band);
         char span[64];
         snprintf(span, sizeof(span), "%.3f MHz", (to - from) / 1e6);
         DrawText(span, (int)x0 + 6, (int)plot.y + 6, 16,
