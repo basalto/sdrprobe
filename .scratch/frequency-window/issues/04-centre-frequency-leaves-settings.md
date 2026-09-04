@@ -1,6 +1,6 @@
 # 04 — The centre frequency moves to the header
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02
 
 It is in the Settings panel, which is where a thing goes when nothing else has
@@ -52,3 +52,20 @@ because nothing else had a place for it, and now something does.
 Do this **after** `overlay-layouts/01`. Removing a row from a panel whose ten
 rectangles are each written out twice, once in the input handler and once in
 the draw, is precisely the edit that leaves one copy behind.
+
+## Comments
+
+Resolved. The field, its 32-byte buffer, its length counter, the panel's
+`focus` selector and the frequency parse in `apply_settings` are all gone.
+
+The parse is the part worth noting. `apply_settings` still names a frequency,
+because a PPM or gain change stops and restarts acquisition and the device
+comes back untuned -- but it now names `app->applied_frequency`, which is
+where the receiver already is, rather than re-parsing a string that said the
+same thing. That was the second parser the ticket was about, and it was the
+one that could disagree.
+
+`focus` went with it: PPM is the only text field left, so there is nothing to
+select between. A panel with one field does not need a notion of which field
+has the keyboard, and keeping one would have been a state that is always the
+same value.

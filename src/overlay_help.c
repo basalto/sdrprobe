@@ -87,7 +87,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "drag   select a region of a frequency chart to zoom into. A zoom only "
     "changes what is drawn -- the receiver stays where it is until a pan "
     "runs off the edge\n"
-    "s   Settings: gain, PPM, DC-spike filter\n"
+    "s   Settings: PPM, gain, DC-spike filter, Scope resolution\n"
     "c   Calibration\n"
     "h   this help\n"
     "+ - 0   band survey: zoom in, out, and back to the whole sweep\n"

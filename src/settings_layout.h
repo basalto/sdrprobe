@@ -42,7 +42,6 @@
 
 struct settings_layout {
     Rectangle panel;
-    Rectangle frequency;
     Rectangle ppm;
     Rectangle gain_previous;
     Rectangle gain_next;
@@ -72,9 +71,12 @@ static inline struct settings_layout settings_layout_for(float screen_width,
     float y = title_h;
     float height;
 
-    /* frequency and PPM share a row */
-    float frequency_y = y + SETTINGS_CAPTION_GAP;
-    y = frequency_y + SETTINGS_FIELD_H + row_gap + SETTINGS_CAPTION_GAP;
+    /* PPM has the top row to itself. The centre frequency was beside it
+       until the Scope header grew a field for it; a value with two homes has
+       two parsers, and the panel's copy was the one nobody would look at
+       again. */
+    float ppm_y = y + SETTINGS_CAPTION_GAP;
+    y = ppm_y + SETTINGS_FIELD_H + row_gap + SETTINGS_CAPTION_GAP;
     {
         float gain_y = y;
         float dc_y = gain_y + SETTINGS_FIELD_H + 16.0f;
@@ -88,11 +90,8 @@ static inline struct settings_layout settings_layout_for(float screen_width,
                                (screen_height - height) * 0.5f, width,
                                height };
 
-        l.frequency = (Rectangle){ l.panel.x + SETTINGS_MARGIN,
-                                   l.panel.y + frequency_y, 300.0f,
-                                   SETTINGS_FIELD_H };
-        l.ppm = (Rectangle){ l.panel.x + 342.0f, l.panel.y + frequency_y,
-                             width - 370.0f, SETTINGS_FIELD_H };
+        l.ppm = (Rectangle){ l.panel.x + SETTINGS_MARGIN, l.panel.y + ppm_y,
+                             160.0f, SETTINGS_FIELD_H };
 
         l.gain_previous = (Rectangle){ l.panel.x + SETTINGS_MARGIN,
                                        l.panel.y + gain_y, 42.0f,
