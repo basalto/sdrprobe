@@ -30,6 +30,10 @@
    reordered this stops the build rather than misrouting a key. */
 typedef char input_route_adsb_matches[
     (DECODE_KIND_ADSB == (int)DECODE_ADSB) ? 1 : -1];
+typedef char input_route_spectrum_matches[
+    (VIEW_KIND_SPECTRUM == (int)VIEW_SPECTRUM) ? 1 : -1];
+typedef char input_route_waterfall_matches[
+    (VIEW_KIND_WATERFALL == (int)VIEW_WATERFALL) ? 1 : -1];
 #include "raygui.h"
 
 
@@ -43,6 +47,7 @@ int stop_requested(void) {
 }
 
 void set_tab(struct app *app, int new_tab);
+static struct input_state input_state_now(const struct app *app);
 void set_decode(struct app *app, int kind);
 
 static void on_signal(int signal_number) {
@@ -330,16 +335,38 @@ int process_block(struct app *app, double now) {
         spectrum_i = app->spectrum_i;
         spectrum_q = app->spectrum_q;
     }
+    /*
+     * The size is a function of what is on screen, worked out here rather
+     * than remembered across a screen change -- see
+     * input_scope_owns_spectrum for why that distinction is load-bearing.
+     */
+    {
+        struct input_state screen = input_state_now(app);
+        int size = input_scope_owns_spectrum(&screen) &&
+                   sdr_dsp_fft_size_valid(app->sv.fft_size)
+                       ? app->sv.fft_size : SDR_DSP_FFT_SIZE;
+        if (size != app->spectrum_bins) {
+            /* A different number of bins is a different chart; the peak hold
+               and the waterfall's history were gathered against the old one
+               and mean nothing under the new. */
+            app->spectrum_peak_ready = 0;
+            app->sv.waterfall_rows = 0;
+            app->spectrum_bins = size;
+        }
+    }
     int windows = sdr_dsp_spectrum(
         &app->dsp, spectrum_i, spectrum_q, app->pair_count,
-        SDR_DSP_FFT_SIZE, app->spectrum_average, app->spectrum_candidate);
+        app->spectrum_bins, app->spectrum_average, app->spectrum_candidate);
     if (windows > 0) {
+        /* The live bins, not the array's length: it is sized to the largest
+           transform and mostly empty at every other size. */
         if (!app->spectrum_peak_ready) {
             memcpy(app->spectrum_peak, app->spectrum_candidate,
-                   sizeof(app->spectrum_peak));
+                   (size_t)app->spectrum_bins *
+                   sizeof(app->spectrum_peak[0]));
             app->spectrum_peak_ready = 1;
         } else {
-            for (int i = 0; i < SDR_DSP_FFT_SIZE; i++)
+            for (int i = 0; i < app->spectrum_bins; i++)
                 if (app->spectrum_candidate[i] > app->spectrum_peak[i])
                     app->spectrum_peak[i] = app->spectrum_candidate[i];
         }
@@ -1145,6 +1172,8 @@ static int run_gui(struct app *app) {
      * three overlapping regions because there was no way to look at it, and
      * three analysis screens had no way either.
      */
+    if (app->options.fft_size)
+        app->sv.fft_size = app->options.fft_size;
     if (app->options.zoom_to_hz > app->options.zoom_from_hz) {
         scope_freq_sync(app);
         app->sv.freq.view_lower_hz = (double)app->options.zoom_from_hz;

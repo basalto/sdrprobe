@@ -41,6 +41,8 @@ enum active_tab {
  * than a routing rule that quietly means something else.
  */
 #define DECODE_KIND_ADSB 1
+#define VIEW_KIND_SPECTRUM 1
+#define VIEW_KIND_WATERFALL 3
 
 /* Everything the routing depends on, and nothing else. */
 struct input_state {
@@ -156,6 +158,36 @@ static inline int input_scale_keys(const struct input_state *s) {
     if (s->tab == TAB_SURVEY)
         return INPUT_SCALE_NONE;
     return INPUT_SCALE_ACTIVE_CHART;
+}
+
+/*
+ * Whether the Scope owns the spectrum this block.
+ *
+ * There is one spectrum array and five things read it: the Scope's two
+ * frequency charts, the band survey, the GSM channel scan, the FM band scan,
+ * and the calibration overlay's centroid and tone. The last four had their
+ * floors and thresholds chosen against 977 Hz bins, so the Scope may only use
+ * a different transform size while none of them can run.
+ *
+ * Derived every block rather than reset when screens change. "Put the size
+ * back on the way out" is the same shape as three bugs this week -- a
+ * transition that stopped being taken when the survey became a tab -- and a
+ * predicate over state that is already true has no transition to miss.
+ *
+ * Note what is *not* only a tab: calibration is an overlay and can sit over
+ * the Scope while measuring in that very array, and the GSM channel scan sits
+ * inside calibration. A test on the tab alone would hand both of them
+ * whatever the Scope had chosen.
+ */
+static inline int input_scope_owns_spectrum(const struct input_state *s) {
+    if (!s || s->tab != TAB_SCOPE)
+        return 0;
+    if (s->calibration_open || s->scan_open)
+        return 0;
+    /* And only the two views that draw it. The others do not read the
+       spectrum at all, so there is nothing to gain and a size that changed
+       under a screen not showing it would be a surprise later. */
+    return s->view == VIEW_KIND_SPECTRUM || s->view == VIEW_KIND_WATERFALL;
 }
 
 /*

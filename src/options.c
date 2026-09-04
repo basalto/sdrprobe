@@ -1,4 +1,5 @@
 #include "options.h"
+#include "sdr_dsp.h"
 
 #include "gsm_dsp.h"
 
@@ -24,7 +25,7 @@ void usage(const char *program) {
             "          [--record-seconds n] [--technology gsm|adsb|lte|fm|raw]\n"
             "          [--debug-log FILE|-] [--analysis] [--fm-scan] [--fm-play]\n"
             "          [--survey-select n] [--survey-bands] [--survey-band n]\n"
-            "          [--zoom from:to]\n"
+            "          [--zoom from:to] [--fft points]\n"
             "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
@@ -416,6 +417,12 @@ int parse_options(int argc, char **argv, struct options *options) {
             options->fm_play = 1;
         } else if (strcmp(option, "--fm-scan") == 0) {
             options->fm_scan = 1;
+        } else if (strcmp(option, "--fft") == 0) {
+            if (options->fft_size || i + 1 >= argc)
+                return -1;
+            if (parse_int(argv[++i], &options->fft_size) < 0 ||
+                !sdr_dsp_fft_size_valid(options->fft_size))
+                return -1;
         } else if (strcmp(option, "--zoom") == 0) {
             /* "from:to", split into a buffer of our own -- argv belongs to
                the caller and writing a terminator into it is not ours to do. */
