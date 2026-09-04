@@ -104,8 +104,10 @@ void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
     };
     double frequency_step = frequency_steps[
         sizeof(frequency_steps) / sizeof(frequency_steps[0]) - 1];
-    double minimum_frequency_step = params->sample_rate * 105.0 /
-                                    fmaxf(plot.width, 1.0f);
+    /* Against the span on screen, not the span received: a zoomed strip
+       asked for a 2 MHz step and drew one label. */
+    double minimum_frequency_step = (upper_frequency - lower_frequency) *
+                                    105.0 / fmaxf(plot.width, 1.0f);
     for (size_t i = 0;
          i < sizeof(frequency_steps) / sizeof(frequency_steps[0]); i++) {
         if (frequency_steps[i] >= minimum_frequency_step) {
@@ -380,29 +382,13 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
         plot.height = 1.0f;
     Rectangle source = { 0.0f, 0.0f, (float)params->texture.width,
                          (float)params->texture.height };
-    double full_lower = params->center_hz - params->sample_rate / 2.0;
-    double full_upper = params->center_hz + params->sample_rate / 2.0;
-    double lower_frequency = full_lower;
-    double upper_frequency = full_upper;
-    if (params->calibration_mode && params->zoom_center_hz > 0 &&
-        full_upper > full_lower) {
-        double zoom_lower = params->zoom_center_hz - params->zoom_half_width_hz;
-        double zoom_upper = params->zoom_center_hz + params->zoom_half_width_hz;
-        if (zoom_lower < full_lower)
-            zoom_lower = full_lower;
-        if (zoom_upper > full_upper)
-            zoom_upper = full_upper;
-        if (zoom_upper - zoom_lower > 1.0) {
-            lower_frequency = zoom_lower;
-            upper_frequency = zoom_upper;
-            source.x = (float)((zoom_lower - full_lower) /
-                               (full_upper - full_lower)) *
-                       (float)params->texture.width;
-            source.width = (float)((zoom_upper - zoom_lower) /
-                                   (full_upper - full_lower)) *
-                           (float)params->texture.width;
-        }
-    }
+    struct sdrgui_waterfall_span span = sdrgui_waterfall_span(
+        params->center_hz, params->sample_rate, params->zoom_center_hz,
+        params->zoom_half_width_hz, (float)params->texture.width);
+    double lower_frequency = span.lower_hz;
+    double upper_frequency = span.upper_hz;
+    source.x = span.source_x;
+    source.width = span.source_width;
     const double frequency_steps[] = {
         1000.0, 2000.0, 5000.0, 10000.0, 20000.0, 50000.0,
         100000.0, 200000.0, 500000.0, 1000000.0, 2000000.0,
@@ -410,8 +396,10 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
     };
     double frequency_step = frequency_steps[
         sizeof(frequency_steps) / sizeof(frequency_steps[0]) - 1];
-    double minimum_frequency_step = params->sample_rate * 105.0 /
-                                    fmaxf(plot.width, 1.0f);
+    /* Against the span on screen, not the span received: a zoomed strip
+       asked for a 2 MHz step and drew one label. */
+    double minimum_frequency_step = (upper_frequency - lower_frequency) *
+                                    105.0 / fmaxf(plot.width, 1.0f);
     for (size_t i = 0;
          i < sizeof(frequency_steps) / sizeof(frequency_steps[0]); i++) {
         if (frequency_steps[i] >= minimum_frequency_step) {

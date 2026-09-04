@@ -140,7 +140,8 @@ struct sdrgui_waterfall_params {
     Texture2D texture;          /* full-span waterfall history (app-owned) */
     double center_hz;
     double sample_rate;
-    int calibration_mode;       /* suppress the top caption, allow zoom */
+    int calibration_mode;       /* suppress the top caption. Not the zoom: see
+                                   sdrgui_waterfall_span(). */
     int channel_axis;           /* label the x-axis by channel number */
     double zoom_center_hz;      /* 0 disables the zoom-to-channel */
     double zoom_half_width_hz;
