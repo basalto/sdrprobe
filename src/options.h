@@ -178,6 +178,9 @@ struct options {
     /* Open the band list on arrival. A dropdown exists only while a pointer
        holds it open, so without this there is no way to photograph it. */
     int survey_bands;
+    /* Choose the nth band from that list, 1-based, without sweeping it --
+       which is what clicking a row does, and had no scripted equivalent. */
+    int survey_band;
     double survey_dwell_seconds;  /* 0 = leave the view's own default */
 };
 

@@ -945,6 +945,52 @@ static void survey_find_peaks(struct app *app) {
 }
 
 /*
+ * Point the range fields at a band, and the chart with them.
+ *
+ * Shared by the click and by --survey-band, which is how this is reachable
+ * from a script at all -- and how the chart's failure to follow was found.
+ */
+int survey_choose_band(struct app *app, int nth) {
+    struct survey_view *s = &app->survey;
+    const struct band_plan_entry *entry =
+        survey_band_at(nth - 1, SURVEY_TUNER_LOWER_HZ, SURVEY_TUNER_UPPER_HZ);
+    double from = 0.0, to = 0.0;
+
+    if (!entry || survey_band_range(entry, SURVEY_TUNER_LOWER_HZ,
+                                    SURVEY_TUNER_UPPER_HZ, &from, &to) != 0)
+        return -1;
+    survey_format_hz(s->from, sizeof(s->from), (uint32_t)llround(from));
+    s->from_length = (int)strlen(s->from);
+    survey_format_hz(s->to, sizeof(s->to), (uint32_t)llround(to));
+    s->to_length = (int)strlen(s->to);
+    /* And the dwell, because one value does not suit a band of two megahertz
+       and one of two hundred. */
+    snprintf(s->dwell, sizeof(s->dwell), "%.2f",
+             survey_band_dwell(from, to, (double)app->applied_sample_rate));
+    s->dwell_length = (int)strlen(s->dwell);
+
+    /*
+     * And the chart, now, rather than when a sweep next runs.
+     *
+     * The measurements on screen were taken over a different range, and
+     * drawing them under an axis that has moved would put every one of them
+     * at a frequency it was not measured at. Choosing a band is a statement
+     * about what to look at next, so what is on screen from looking somewhere
+     * else goes.
+     */
+    survey_clear(s);
+    s->bins = 0;
+    s->field_lower_hz = from;
+    s->field_upper_hz = to;
+    s->view_lower_hz = from;
+    s->view_upper_hz = to;
+    snprintf(s->status, sizeof(s->status),
+             "%s: %.3f to %.3f MHz. Press Sweep.", entry->name, from / 1e6,
+             to / 1e6);
+    return 0;
+}
+
+/*
  * The band list's rows. Longer than the site and antenna lists, which fit
  * whatever they hold -- fifty-four allocations do not, so this one scrolls
  * and uses the same arithmetic the candidate list does.
@@ -1379,24 +1425,9 @@ void handle_survey_input(struct app *app) {
                                            SURVEY_TUNER_UPPER_HZ) : NULL;
             double from = 0.0, to = 0.0;
 
-            if (entry && survey_band_range(entry, SURVEY_TUNER_LOWER_HZ,
-                                           SURVEY_TUNER_UPPER_HZ, &from,
-                                           &to) == 0) {
-                survey_format_hz(s->from, sizeof(s->from),
-                                 (uint32_t)llround(from));
-                s->from_length = (int)strlen(s->from);
-                survey_format_hz(s->to, sizeof(s->to), (uint32_t)llround(to));
-                s->to_length = (int)strlen(s->to);
-                /* And the dwell, because one value does not suit a band of
-                   two megahertz and one of two hundred. */
-                snprintf(s->dwell, sizeof(s->dwell), "%.2f",
-                         survey_band_dwell(from, to,
-                                           (double)app->applied_sample_rate));
-                s->dwell_length = (int)strlen(s->dwell);
-                snprintf(s->status, sizeof(s->status),
-                         "%s: %.3f to %.3f MHz. Press Sweep.", entry->name,
-                         from / 1e6, to / 1e6);
-            }
+            (void)entry; (void)from; (void)to;
+            if (rank >= 0)
+                survey_choose_band(app, rank + 1);
             s->band_menu_open = 0;
             return;
         }
@@ -1769,7 +1800,19 @@ void handle_survey_input(struct app *app) {
         s->return_valid = 0;
         if (recreate_waterfall(app, app->plot, 1) < 0)
             return;
+        /*
+         * The tab as well as the view, and that is what was missing: the
+         * survey used to be one of the Scope views, so setting app->view was
+         * the whole of switching to another. It is a tab of its own now and
+         * the Scope views are behind theirs, so this set a view nobody was
+         * looking at and the button did nothing at all.
+         *
+         * view_survey_leave normally puts back the tuning the sweep borrowed,
+         * which is the opposite of what has just been asked for -- the
+         * return_valid = 0 above is what stops it.
+         */
         app->view = VIEW_WATERFALL;
+        set_tab(app, TAB_SCOPE);
         return;
     }
 
