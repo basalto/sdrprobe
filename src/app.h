@@ -80,6 +80,7 @@ enum decode_kind {
 /* What the ADS-B view decides -- the log row, which frame the charts are
    drawn from, and the funnel -- is in a header the checks can reach. */
 #include "adsb_analysis.h"
+#include "freq_window.h"
 #include "fm_dsp.h"
 #include "fm_scan.h"
 #include "rds.h"
@@ -553,6 +554,30 @@ struct gsm_view {
  * It calls view_scope_resize_if_needed() now and knows neither.
  */
 struct scope_view {
+    /*
+     * What part of the received span the two frequency charts are showing.
+     *
+     * One window for the spectrum and the waterfall together: they are two
+     * drawings of the same samples, and a reader who zoomed one and not the
+     * other would have been given two answers to one question.
+     *
+     * The rules, decided rather than assumed (.scratch/frequency-window/):
+     * dragging a region is a zoom and never a retune -- what is on screen is
+     * already received and looking closer at it costs nothing. Left and Right
+     * pan inside it, and only when the window runs out of received span does
+     * panning become retuning, which is the point at which carrying on is
+     * impossible any other way.
+     */
+    struct freq_window freq;
+    int freq_dragging;
+    float freq_drag_from_x;
+    float freq_drag_to_x;
+    /* The tuning and rate the window was set against, so a retune from
+       anywhere else re-anchors it rather than leaving it describing a span
+       that is no longer arriving. */
+    uint32_t freq_anchor_hz;
+    uint32_t freq_anchor_rate;
+
     int scatter_ready;
     int waterfall_ready;
     float magnitude_peaks[SAMPLE_BLOCK_PAIRS];

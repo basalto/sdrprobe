@@ -118,6 +118,14 @@ int adsb_tuned(const struct app *app);
    between frames. render_waterfall and update_scatter are here because the
    frame loop drives them; waterfall_color and view_name stay private. */
 Rectangle calculate_plot(void);
+/* The frequency window the Scope's spectrum and waterfall share. */
+void scope_freq_sync(struct app *app);
+void scope_freq_range(const struct app *app, double *lower, double *upper);
+int scope_freq_input(struct app *app, Rectangle plot);
+void scope_freq_reset(struct app *app);
+/* How far Left and Right move it, and the narrowest it may become. */
+#define SCOPE_FREQ_PAN 0.20
+#define SCOPE_FREQ_MIN_SPAN_HZ 20000.0
 void clear_scatter(struct app *app);
 int recreate_scatter(struct app *app, Rectangle plot);
 int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);

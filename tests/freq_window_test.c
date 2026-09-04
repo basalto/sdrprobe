@@ -301,6 +301,75 @@ static void test_what_a_drag_means(void) {
                                &upper), 0);
 }
 
+
+/*
+ * Panning past the end of the data.
+ *
+ * The window can only move inside what exists, and on a live receiver that is
+ * not a wall: the tuner can be pointed somewhere else. So a pan that runs out
+ * of data reports the part it could not absorb, and a caller with a tuner
+ * moves it by that much -- which is how panning turns into retuning at the
+ * edge of the span and nowhere before it.
+ */
+static void test_panning_past_the_end(void) {
+    struct freq_window w;
+    double over;
+
+    /* Inside the data, nothing overflows. */
+    w = (struct freq_window){ 88000000.0, 108000000.0,
+                              94000000.0, 98000000.0 };
+    over = freq_window_pan_overflow(&w, 0.5, 100000.0);
+    check_close("a pan with room takes it all", over, 0.0, 1.0);
+    check_close("and moves half a window", w.view_lower_hz, 96000000.0, 1.0);
+
+    /* Against the top edge, all of it overflows. */
+    w = (struct freq_window){ 88000000.0, 108000000.0,
+                              104000000.0, 108000000.0 };
+    over = freq_window_pan_overflow(&w, 0.5, 100000.0);
+    check_close("a pan with no room at all overflows entirely", over,
+                2000000.0, 1.0);
+    check_close("and the window does not move", w.view_lower_hz, 104000000.0,
+                1.0);
+
+    /* Partly against it: what fits is taken and the rest reported. */
+    w = (struct freq_window){ 88000000.0, 108000000.0,
+                              103000000.0, 107000000.0 };
+    over = freq_window_pan_overflow(&w, 0.5, 100000.0);
+    check_close("a pan that half fits takes half", over, 1000000.0, 1.0);
+    check_close("moving as far as it can", w.view_upper_hz, 108000000.0, 1.0);
+
+    /* Downwards too, with the sign kept: a caller retunes by it. */
+    w = (struct freq_window){ 88000000.0, 108000000.0,
+                              88000000.0, 92000000.0 };
+    over = freq_window_pan_overflow(&w, -0.5, 100000.0);
+    check_close("panning down at the bottom overflows downwards", over,
+                -2000000.0, 1.0);
+
+    /*
+     * The property: what the window moved plus what overflowed is what was
+     * asked for. Anything else loses movement silently, which reads as a key
+     * that sometimes works.
+     */
+    {
+        double start, fraction;
+        int wrong = 0;
+        for (start = 88000000.0; start < 104000000.0; start += 1000000.0)
+        for (fraction = -1.0; fraction <= 1.0; fraction += 0.25) {
+            struct freq_window p = { 88000000.0, 108000000.0, start,
+                                     start + 4000000.0 };
+            double before = p.view_lower_hz;
+            double spill = freq_window_pan_overflow(&p, fraction, 100000.0);
+            double asked = 4000000.0 * fraction;
+            double got = (p.view_lower_hz - before) + spill;
+
+            if (fabs(got - asked) > 1.0)
+                wrong++;
+        }
+        check_int("no movement is lost between the window and the overflow",
+                  wrong, 0);
+    }
+}
+
 int main(void) {
     test_window_before_any_sweep();
     test_zoom_in_and_out();
@@ -312,6 +381,7 @@ int main(void) {
 
     test_pixels_and_frequencies();
     test_what_a_drag_means();
+    test_panning_past_the_end();
 
     return check_report("the frequency window");
 }

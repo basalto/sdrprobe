@@ -45,6 +45,14 @@ wide almost certainly means the second -- they want to look at it properly --
 but a zoom that silently retunes is a zoom that cannot be undone by zooming
 out, because the samples either side are gone.
 
+**Settled, 2026-09-04.** A dragged region is a zoom and never a retune: what
+is on screen has already been received and looking closer at it must not cost
+the samples either side. Retuning happens when the centre frequency is
+changed, when a signal is selected in the survey or a decode view, and when
+Left or Right have panned the window to the end of the received span and are
+asked to carry on -- which is the only point at which moving is impossible any
+other way.
+
 The arrangement this settles on: **the header's two fields are the truth**.
 They say what part of the spectrum is on screen. Dragging sets them. Typing
 sets them. When what they ask for lies inside what the receiver is already

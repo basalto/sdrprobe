@@ -1145,6 +1145,12 @@ static int run_gui(struct app *app) {
      * three overlapping regions because there was no way to look at it, and
      * three analysis screens had no way either.
      */
+    if (app->options.zoom_to_hz > app->options.zoom_from_hz) {
+        scope_freq_sync(app);
+        app->sv.freq.view_lower_hz = (double)app->options.zoom_from_hz;
+        app->sv.freq.view_upper_hz = (double)app->options.zoom_to_hz;
+        freq_window_clamp(&app->sv.freq, SCOPE_FREQ_MIN_SPAN_HZ);
+    }
     if (app->options.fm_play) {
         set_decode(app, DECODE_FM);
         set_tab(app, TAB_DECODE);
@@ -1359,6 +1365,18 @@ static int run_gui(struct app *app) {
                     app->view = selected;
                     if (selected == VIEW_SCATTER)
                         clear_scatter(app);
+                }
+                /*
+                 * The frequency window the spectrum and the waterfall share:
+                 * drag to zoom, Left and Right to pan, 0 to put it back. It
+                 * retunes only when a pan has run out of received span.
+                 */
+                if (app->view == VIEW_SPECTRUM ||
+                    app->view == VIEW_WATERFALL) {
+                    if (IsKeyPressed(KEY_ZERO))
+                        scope_freq_reset(app);
+                    else
+                        scope_freq_input(app, app->plot);
                 }
                 /* The scale keys are applied once, below, for every screen
                    that has a scale -- not here, and not per view. */

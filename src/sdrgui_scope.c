@@ -85,8 +85,18 @@ void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
     Rectangle outer = params->plot;
     Rectangle plot = sdrgui_chart_area(outer, (float)(MeasureText("-120", 16) + 11.0f),
                                     25.0f);
-    double lower_frequency = params->center_hz - params->sample_rate / 2.0;
-    double upper_frequency = params->center_hz + params->sample_rate / 2.0;
+    double full_lower_hz = params->center_hz - params->sample_rate / 2.0;
+    double full_upper_hz = params->center_hz + params->sample_rate / 2.0;
+    /*
+     * What is drawn: the whole span, or the part of it the caller's window
+     * asks for. The axis and the trace both come off these, so narrowing them
+     * narrows both -- an axis that moved without the trace would put every
+     * reading at a frequency it was not measured at.
+     */
+    double lower_frequency = params->view_upper_hz > params->view_lower_hz
+                                 ? params->view_lower_hz : full_lower_hz;
+    double upper_frequency = params->view_upper_hz > params->view_lower_hz
+                                 ? params->view_upper_hz : full_upper_hz;
     const double frequency_steps[] = {
         1000.0, 2000.0, 5000.0, 10000.0, 20000.0, 50000.0,
         100000.0, 200000.0, 500000.0, 1000000.0, 2000000.0,
@@ -173,10 +183,27 @@ void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
 
     if (params->ready) {
         for (int i = 1; i < params->bins; i++) {
-            float x0 = plot.x + plot.width * (float)(i - 1) /
-                                  (params->bins - 1);
-            float x1 = plot.x + plot.width * (float)i /
-                                  (params->bins - 1);
+            /*
+             * By frequency, not by index. A bin covers the same slice of the
+             * full span whatever is on screen, so when the window is narrower
+             * than the span the bins spread out -- placing them by index
+             * instead would draw the whole spectrum squeezed into the zoomed
+             * axis, which looks like a zoom and is not one.
+             */
+            double hz0 = full_lower_hz + (full_upper_hz - full_lower_hz) *
+                                             (double)(i - 1) /
+                                             (params->bins - 1);
+            double hz1 = full_lower_hz + (full_upper_hz - full_lower_hz) *
+                                             (double)i / (params->bins - 1);
+            float x0 = plot.x + plot.width *
+                       (float)((hz0 - lower_frequency) /
+                               (upper_frequency - lower_frequency));
+            float x1 = plot.x + plot.width *
+                       (float)((hz1 - lower_frequency) /
+                               (upper_frequency - lower_frequency));
+
+            if (x1 < plot.x || x0 > plot.x + plot.width)
+                continue;
             float average_y0 = sdrgui_plot_y(plot, params->average[i - 1],
                                       params->lower_dbfs,
                                       params->top_dbfs);
@@ -194,6 +221,36 @@ void sdrgui_spectrum(const struct sdrgui_spectrum_params *params) {
             DrawLineEx((Vector2){ x0, average_y0 },
                        (Vector2){ x1, average_y1 }, 1.4f,
                        (Color){ 65, 202, 240, 255 });
+        }
+    }
+
+    /*
+     * The region being dragged out, over the trace: a reader needs to see
+     * what the release will select, not learn it afterwards.
+     */
+    if (params->drag_active && upper_frequency > lower_frequency) {
+        double from = params->drag_lower_hz < params->drag_upper_hz
+                          ? params->drag_lower_hz : params->drag_upper_hz;
+        double to = params->drag_lower_hz < params->drag_upper_hz
+                        ? params->drag_upper_hz : params->drag_lower_hz;
+        float x0 = plot.x + plot.width *
+                   (float)((from - lower_frequency) /
+                           (upper_frequency - lower_frequency));
+        float x1 = plot.x + plot.width *
+                   (float)((to - lower_frequency) /
+                           (upper_frequency - lower_frequency));
+
+        if (x0 < plot.x)
+            x0 = plot.x;
+        if (x1 > plot.x + plot.width)
+            x1 = plot.x + plot.width;
+        if (x1 > x0) {
+            DrawRectangle((int)x0, (int)plot.y, (int)(x1 - x0),
+                          (int)plot.height, (Color){ 255, 174, 62, 40 });
+            DrawLine((int)x0, (int)plot.y, (int)x0,
+                     (int)(plot.y + plot.height), (Color){ 255, 202, 105, 200 });
+            DrawLine((int)x1, (int)plot.y, (int)x1,
+                     (int)(plot.y + plot.height), (Color){ 255, 202, 105, 200 });
         }
     }
 

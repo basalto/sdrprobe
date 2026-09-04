@@ -106,6 +106,15 @@ struct sdrgui_spectrum_params {
     float lower_dbfs;    /* axis bottom */
     float top_dbfs;      /* axis top */
     int windows;         /* averaged FFT windows, for the caption */
+    /* The part of the span to draw. Zero for the whole of it -- which is what
+       every caller wanted until the Scope grew a frequency window, and is
+       still what a caller with nothing to zoom passes. */
+    double view_lower_hz;
+    double view_upper_hz;
+    /* A region being dragged out, drawn over the trace. */
+    int drag_active;
+    double drag_lower_hz;
+    double drag_upper_hz;
 };
 
 /* Frequency spectrum view (average trace + peak hold) with dBFS/frequency axes. */
