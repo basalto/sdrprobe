@@ -213,7 +213,8 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
         app->sv.waterfall_rows, app->sv.waterfall_height, app->pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
-        "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900"
+        "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
+        0, 0.0, 0.0
     };
     sdrgui_waterfall(&params);
 }
@@ -240,7 +241,8 @@ void draw_waterfall(const struct app *app) {
         app->sv.waterfall_rows, app->sv.waterfall_height, app->pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
-        "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900"
+        "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
+        0, 0.0, 0.0
     };
 
     /* The component already knows how to draw part of its span -- the
@@ -249,6 +251,16 @@ void draw_waterfall(const struct app *app) {
     if (span > 0.0 && data > 0.0 && span < data - 1.0) {
         params.zoom_center_hz = (w->view_lower_hz + w->view_upper_hz) / 2.0;
         params.zoom_half_width_hz = span / 2.0;
+    }
+    /* The band being dragged out, mapped with the rectangle the strip is
+       actually drawn in -- the same one the hit test uses. */
+    if (app->sv.freq_dragging) {
+        Rectangle area = sdrgui_waterfall_area(app->plot);
+        params.drag_active = 1;
+        params.drag_lower_hz = freq_window_hz_at(w, area.x, area.width,
+                                                 app->sv.freq_drag_from_x);
+        params.drag_upper_hz = freq_window_hz_at(w, area.x, area.width,
+                                                 app->sv.freq_drag_to_x);
     }
     sdrgui_waterfall(&params);
 }
@@ -439,9 +451,10 @@ void draw_spectrum(const struct app *app) {
     /* The region being dragged out, drawn over the trace so a reader can see
        what they are about to select rather than what they selected. */
     if (app->sv.freq_dragging) {
-        double a = freq_window_hz_at(w, app->plot.x, app->plot.width,
+        Rectangle area = sdrgui_spectrum_area(app->plot);
+        double a = freq_window_hz_at(w, area.x, area.width,
                                      app->sv.freq_drag_from_x);
-        double b = freq_window_hz_at(w, app->plot.x, app->plot.width,
+        double b = freq_window_hz_at(w, area.x, area.width,
                                      app->sv.freq_drag_to_x);
         params.drag_active = 1;
         params.drag_lower_hz = a < b ? a : b;
@@ -647,11 +660,17 @@ enum chart_key chart_key_pressed(void) {
     return CHART_KEY_NONE;
 }
 
-int scope_freq_input(struct app *app, Rectangle plot,
+int scope_freq_input(struct app *app, Rectangle outer,
                      enum chart_key key) {
     struct scope_view *sv = &app->sv;
     Vector2 mouse = GetMousePosition();
     int retune = 0;
+    /* The rectangle the trace is actually drawn in, from the same function
+       the chart uses. Mapping across the outer one put every drag a label
+       gutter -- about 50 kHz at full span -- left of where it looked. */
+    Rectangle plot = app->view == VIEW_WATERFALL
+                         ? sdrgui_waterfall_area(outer)
+                         : sdrgui_spectrum_area(outer);
 
     scope_freq_sync(app);
 

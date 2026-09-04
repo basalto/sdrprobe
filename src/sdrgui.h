@@ -158,10 +158,35 @@ struct sdrgui_waterfall_params {
     const char *channel_label;    /* e.g. "ARFCN" */
     const char *channel_caption;  /* bottom caption in channel-axis mode */
     const char *channel_outside;  /* cursor text off-grid */
+    /* The band being dragged out, drawn over the strip so a reader sees what
+       the release will select rather than learning it afterwards. */
+    int drag_active;
+    double drag_lower_hz;
+    double drag_upper_hz;
 };
 
 /* Frequency/time waterfall with a frequency or channel x-axis and a cursor. */
 void sdrgui_waterfall(const struct sdrgui_waterfall_params *params);
+
+/*
+ * Where these two actually draw their traces, inside the rectangle they are
+ * handed.
+ *
+ * Both reserve a caption strip and a label gutter, and the gutter's width
+ * depends on the font -- so a caller cannot work it out, and for a long time
+ * did not try: the Scope mapped a pointer across the *outer* rectangle while
+ * the trace was drawn inside the inset one, putting every drag about a label
+ * gutter to the left of where it looked. The highlight was drawn with the
+ * same wrong mapping, so the two agreed with each other and only disagreed
+ * with the chart.
+ *
+ * Exposed rather than reported back after the fact, so the hit test and the
+ * drawing call the same function in the same frame instead of the input
+ * phase working from what the previous frame happened to draw. MeasureText
+ * needs a font, so these need a window -- which the input phase has.
+ */
+Rectangle sdrgui_spectrum_area(Rectangle outer);
+Rectangle sdrgui_waterfall_area(Rectangle outer);
 
 struct sdrgui_scan_chart_params {
     Rectangle plot;
