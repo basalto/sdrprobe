@@ -103,7 +103,19 @@ to that twice — a conjugated LTE primary sequence and a scattered GSM SCH fiel
 layout, both green throughout. Before trusting a decode, diagnosing one that is
 wrong, or pinning a real-capture answer in a check, the `dsp-validation` skill
 in `.claude/skills/` carries what corroborates such an answer and what merely
-agrees with it.
+agrees with it. **Whether a change *improves* anything is a different question
+with its own failures** -- measuring where the answer cannot show, comparing
+two implementations at different gains, drawing noise once -- and
+`does-it-help` carries those, along with how to choose a constant by measuring
+where it breaks.
+
+**A check that fails on its first run is more often a wrong claim than a found
+bug.** These checks carry prose, and prose can be false beside impeccable
+arithmetic: six wrong claims were written in one session -- a property
+asserted of a superset, a worst case confused with a measurement, two things
+asserted not to collide that cannot coexist, an expression subtracting a term
+from itself. Read the claim before changing the code; the `check-claims` skill
+carries how.
 
 There is no CI and no linter, and the test framework is one header:
 `tests/check.h` holds the counters, the comparisons (`check_int`, `check_close`,
