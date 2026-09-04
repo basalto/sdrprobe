@@ -26,8 +26,12 @@ enum band_plan_decoder {
     BAND_PLAN_NONE = 0,
     BAND_PLAN_GSM,
     BAND_PLAN_ADSB,
-    BAND_PLAN_LTE
+    BAND_PLAN_LTE,
+    BAND_PLAN_FM
 };
+
+/* How many there are, so a check can walk them. */
+#define BAND_PLAN_DECODER_COUNT 5
 
 struct band_plan_entry {
     double lower_hz;

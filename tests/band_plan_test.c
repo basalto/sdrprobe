@@ -1,4 +1,5 @@
 #include "band_plan.h"
+#include "band_plan_view.h"
 #include "check.h"
 
 #include <stdio.h>
@@ -54,7 +55,14 @@ static void test_gaps(void) {
     check_none("below everything", 50000.0);
 }
 
-/* The two entries a decode view can be pointed at, and only those. */
+/*
+ * The entries a decode view can be pointed at.
+ *
+ * FM used to be asserted as offering *no* decoder, because for a long time
+ * there was none -- and that assertion went on being true for a while after
+ * there was one, which is exactly the failure it was written to prevent in
+ * the other direction.
+ */
 static void test_decoders(void) {
     const struct band_plan_entry *gsm = band_plan_lookup(943200000.0);
     const struct band_plan_entry *adsb = band_plan_lookup(1090000000.0);
@@ -64,8 +72,8 @@ static void test_decoders(void) {
               "GSM 900 downlink does not offer the GSM decoder\n");
     check_msg(adsb && adsb->decoder == BAND_PLAN_ADSB,
               "1090 MHz does not offer the ADS-B decoder\n");
-    check_msg(fm && fm->decoder == BAND_PLAN_NONE,
-              "FM broadcast claims a decoder this program lacks\n");
+    check_msg(fm && fm->decoder == BAND_PLAN_FM,
+              "FM broadcast does not offer the FM decoder\n");
 }
 
 static void test_table_is_well_formed(void) {
@@ -94,11 +102,113 @@ static void test_table_is_well_formed(void) {
               "band_plan_entry_at accepted an out-of-range index\n");
 }
 
+
+/*
+ * Every decoder an allocation names is one this program has.
+ *
+ * The table points a reader at somewhere to go next, and a row naming a view
+ * that does not exist is worse than a row naming none -- it offers a button
+ * that cannot work. It is also the other way round: FM broadcast sat here
+ * with BAND_PLAN_NONE for as long as there was no FM view, and went on
+ * saying so after there was, so the survey could find a station, name it, and
+ * offer nothing.
+ */
+static void test_the_decoders_are_ones_we_have(void) {
+    int i, count = band_plan_entry_count();
+    int named[BAND_PLAN_DECODER_COUNT];
+    int d;
+
+    for (d = 0; d < BAND_PLAN_DECODER_COUNT; d++)
+        named[d] = 0;
+    for (i = 0; i < count; i++) {
+        const struct band_plan_entry *entry = band_plan_entry_at(i);
+        check_msg(entry->decoder >= 0 &&
+                  entry->decoder < BAND_PLAN_DECODER_COUNT,
+                  "'%s' names decoder %d, which is not one of them\n",
+                  entry->name, (int)entry->decoder);
+        if (entry->decoder >= 0 && entry->decoder < BAND_PLAN_DECODER_COUNT)
+            named[entry->decoder]++;
+    }
+    /* And every decoder this program has is reachable from somewhere in the
+       band plan, or the survey can never offer it. */
+    check_true("some allocation points at GSM", named[BAND_PLAN_GSM] > 0);
+    check_true("and at ADS-B", named[BAND_PLAN_ADSB] > 0);
+    check_true("and at LTE", named[BAND_PLAN_LTE] > 0);
+    check_true("and at FM", named[BAND_PLAN_FM] > 0);
+}
+
+/* The frequencies this program is actually pointed at land on the right one. */
+static void test_where_the_decoders_are(void) {
+    struct { double hz; enum band_plan_decoder want; const char *what; } cases[] = {
+        {   94400000.0, BAND_PLAN_FM,   "a band II station" },
+        {   89500000.0, BAND_PLAN_FM,   "another" },
+        {  107900000.0, BAND_PLAN_FM,   "the top of the band" },
+        {   87400000.0, BAND_PLAN_NONE, "just below it" },
+        {  108100000.0, BAND_PLAN_NONE, "just above it" },
+        {  948400000.0, BAND_PLAN_GSM,  "a GSM downlink" },
+        { 1090000000.0, BAND_PLAN_ADSB, "Mode S" },
+        {  806000000.0, BAND_PLAN_LTE,  "an LTE band 20 carrier" }
+    };
+    unsigned c;
+
+    for (c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+        const struct band_plan_entry *entry = band_plan_lookup(cases[c].hz);
+        enum band_plan_decoder got = entry ? entry->decoder : BAND_PLAN_NONE;
+        check_msg(got == cases[c].want,
+                  "%s at %.3f MHz maps to decoder %d, expected %d\n",
+                  cases[c].what, cases[c].hz / 1e6, (int)got,
+                  (int)cases[c].want);
+    }
+}
+
+
+/*
+ * Where Inspect sends a reader, and that it sends them somewhere for every
+ * technology this program has.
+ *
+ * The click handler used to name GSM and ADS-B and fall off the end for the
+ * other two, so an LTE carrier offered no button and an FM station offered
+ * none -- and nothing could see a case was simply missing, because a missing
+ * case is not a wrong value. Here it is a table, and a decoder with no label
+ * is a decoder Inspect cannot reach.
+ */
+static void test_inspect_reaches_every_decoder(void) {
+    check_str("GSM", band_plan_inspect_label(BAND_PLAN_GSM),
+              "Inspect in Decode > GSM");
+    check_str("ADS-B", band_plan_inspect_label(BAND_PLAN_ADSB),
+              "Inspect in Decode > ADS-B");
+    check_str("LTE", band_plan_inspect_label(BAND_PLAN_LTE),
+              "Inspect in Decode > LTE");
+    check_str("FM, which listens rather than inspects",
+              band_plan_inspect_label(BAND_PLAN_FM), "Listen in Decode > FM");
+    check_true("an allocation with no decoder offers nothing",
+               band_plan_inspect_label(BAND_PLAN_NONE) == NULL);
+    check_true("and so cannot be inspected",
+               !band_plan_can_inspect(BAND_PLAN_NONE));
+
+    /*
+     * The property: every decoder the band plan can name is one Inspect can
+     * reach. Adding a technology to the enum and forgetting this table is
+     * exactly how the last two were missed.
+     */
+    {
+        int d, unreachable = 0;
+        for (d = 1; d < BAND_PLAN_DECODER_COUNT; d++)
+            if (!band_plan_can_inspect((enum band_plan_decoder)d))
+                unreachable++;
+        check_int("every decoder has somewhere to go", unreachable, 0);
+    }
+}
+
 int main(void) {
     test_known_frequencies();
     test_gaps();
     test_decoders();
     test_table_is_well_formed();
+
+    test_the_decoders_are_ones_we_have();
+    test_where_the_decoders_are();
+    test_inspect_reaches_every_decoder();
 
     return check_report("band plan");
 }

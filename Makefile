@@ -99,7 +99,7 @@ check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
 		$(TESTS)/fm_dsp_test.c $(SRC)/fm_dsp.c -lm
 	$(Q)./$(BUILD)/fm_dsp_test
 
-check-band-plan: $(TESTS)/band_plan_test.c $(TESTS)/check.h $(SRC)/band_plan.c $(SRC)/band_plan.h
+check-band-plan: $(TESTS)/band_plan_test.c $(TESTS)/check.h $(SRC)/band_plan.c $(SRC)/band_plan.h $(SRC)/band_plan_view.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/band_plan_test \
 		$(TESTS)/band_plan_test.c $(SRC)/band_plan.c

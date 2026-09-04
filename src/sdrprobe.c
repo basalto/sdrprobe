@@ -1099,7 +1099,19 @@ static int run_gui(struct app *app) {
                                set_tab(app, TAB_SCOPE); break;
     case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL;
                                set_tab(app, TAB_SCOPE); break;
-    case START_VIEW_SURVEY:    set_tab(app, TAB_SURVEY); break;
+    case START_VIEW_SURVEY:
+        /*
+         * Entered explicitly, not through set_tab.
+         *
+         * set_tab returns at once when the tab is already current, and since
+         * the survey became the default tab it always is -- so --view survey
+         * stopped calling view_survey_enter and --survey-range stopped
+         * starting a sweep. Nothing failed: the window opened on the survey,
+         * which is where it opens anyway, and the sweep simply never began.
+         */
+        set_tab(app, TAB_SURVEY);
+        view_survey_enter(app);
+        break;
     case START_VIEW_GSM:       set_decode(app, DECODE_GSM);
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB);

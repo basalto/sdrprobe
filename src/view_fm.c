@@ -711,11 +711,20 @@ void enter_fm(struct app *app) {
     if (!app->receiver_mode)
         return;
     /*
-     * Only the first time. Switching tabs away and back would otherwise
+     * Only when there is nothing to show and nowhere to listen.
+     *
+     * Not the first time only: switching tabs away and back would otherwise
      * throw away both the list and whichever station was being listened to,
-     * and start half a minute of tuning nobody asked for.
+     * and start half a minute of tuning nobody asked for. And not when the
+     * receiver is already in band II, which is how arriving from the survey's
+     * Inspect works -- it has tuned to a station the reader picked, and
+     * walking the whole band before playing it would answer a question they
+     * did not ask.
      */
     if (app->fm.scan.found_count > 0 || app->fm.scan.running)
+        return;
+    if ((double)app->applied_frequency >= FM_BAND_LOWER_HZ &&
+        (double)app->applied_frequency <= FM_BAND_UPPER_HZ)
         return;
     fm_scan_begin(app);
 }

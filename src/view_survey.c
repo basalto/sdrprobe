@@ -12,6 +12,8 @@
 #include "survey_window.h"
 #include "survey_suspect.h"
 #include "survey_store.h"
+#include "band_plan_view.h"
+#include "lte_dsp.h"
 #include "sdrgui.h"
 
 /*
@@ -941,6 +943,37 @@ static void survey_find_peaks(struct app *app) {
     }
 }
 
+/*
+ * The nth strongest candidate on screen, counting from one, or -1.
+ *
+ * By power rather than by frequency: a script asking for "the strongest" and
+ * getting whatever happens to be lowest in the band is asking a different
+ * question. Kept next to the walk it shares an ordering idea with.
+ */
+static int survey_strongest_visible(const struct survey_view *s, int rank) {
+    int taken[SURVEY_MAX_PEAKS];
+    int i, r, best = -1;
+
+    if (rank < 1 || s->peak_count <= 0)
+        return -1;
+    for (i = 0; i < s->peak_count; i++)
+        taken[i] = 0;
+    for (r = 0; r < rank; r++) {
+        best = -1;
+        for (i = 0; i < s->peak_count; i++) {
+            if (taken[i] || !survey_peak_visible(s, i))
+                continue;
+            if (best < 0 ||
+                s->peaks[i].power_dbfs > s->peaks[best].power_dbfs)
+                best = i;
+        }
+        if (best < 0)
+            return -1;
+        taken[best] = 1;
+    }
+    return best;
+}
+
 /* Point the receiver at a candidate and start measuring it. The candidate is
    placed off centre on purpose: the receiver's own DC spike sits at the middle
    of the span, and a carrier measured on top of it would be measuring the
@@ -1111,6 +1144,20 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
             /* Back where the operator was, until they pick a candidate. */
             if (app->receiver_mode && s->return_valid)
                 retune_receiver(app, s->return_frequency, app->applied_ppm);
+            /*
+             * Unless a script asked for one. The detail panel and its Inspect
+             * button only exist once a candidate has been chosen and
+             * measured, so without this there is no way to photograph that
+             * screen -- and it is a screen this program has twice shipped
+             * broken (CLAUDE.md).
+             */
+            if (app->options.survey_select > 0) {
+                int rank = app->options.survey_select;
+                int best = survey_strongest_visible(s, rank);
+                app->options.survey_select = 0;
+                if (best >= 0)
+                    survey_select(app, best);
+            }
             return;
         }
         double next = survey_plan_step_centre(&s->plan, s->step);
@@ -1649,7 +1696,10 @@ void handle_survey_input(struct app *app) {
     if (s->selected >= 0 && s->report_valid && clicked(l.inspect_button)) {
         const struct band_plan_entry *entry =
             band_plan_lookup(s->report.centre_hz);
-        if (entry && entry->decoder == BAND_PLAN_GSM) {
+        enum band_plan_decoder decoder = entry ? entry->decoder
+                                               : BAND_PLAN_NONE;
+
+        if (decoder == BAND_PLAN_GSM) {
             int arfcn = gsm_arfcn_for_hz(s->report.centre_hz);
             view_survey_leave(app);
             set_decode(app, DECODE_GSM);
@@ -1657,11 +1707,50 @@ void handle_survey_input(struct app *app) {
             if (arfcn > 0)
                 gsm_tune_selected(app, arfcn);
             app->gsm_analysis_mode = 1;
-        } else if (entry && entry->decoder == BAND_PLAN_ADSB) {
+        } else if (decoder == BAND_PLAN_ADSB) {
             view_survey_leave(app);
             set_decode(app, DECODE_ADSB);
             set_tab(app, TAB_DECODE);
             retune_receiver(app, DEFAULT_FREQUENCY, app->applied_ppm);
+        } else if (decoder == BAND_PLAN_LTE) {
+            /*
+             * Snapped to the channel raster, not tuned to where the energy
+             * was. A Zadoff-Chu correlation wants the carrier's centre, and
+             * the survey reports the middle of a maximum -- which on a
+             * lopsided carrier is not the same place. enter_lte then moves it
+             * to 1.92 MS/s, which the cell search refuses to work without
+             * (ADR-0014).
+             */
+            int earfcn = lte_earfcn_for_hz(s->report.centre_hz);
+            uint32_t centre = 0;
+
+            view_survey_leave(app);
+            set_decode(app, DECODE_LTE);
+            if (earfcn > 0 && lte_earfcn_downlink_hz((unsigned int)earfcn,
+                                                     &centre) == 0)
+                retune_receiver(app, centre, app->applied_ppm);
+            set_tab(app, TAB_DECODE);
+        } else if (decoder == BAND_PLAN_FM) {
+            /*
+             * Tuned, and deliberately no band scan.
+             *
+             * Opening the FM tab normally starts one, which is right when
+             * somebody has come to find out what is on air. Arriving from the
+             * survey they have already chosen a frequency, and spending
+             * twenty-five seconds walking the band before playing it would
+             * answer a question they did not ask. enter_fm only scans when it
+             * has no results, so seeding the frequency and tuning first is
+             * enough to keep it quiet.
+             */
+            double hz = s->report.centre_hz;
+
+            view_survey_leave(app);
+            set_decode(app, DECODE_FM);
+            snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
+                     hz / 1e6);
+            app->fm.frequency_length = (int)strlen(app->fm.frequency);
+            fm_tune(app, hz);
+            set_tab(app, TAB_DECODE);
         }
     }
 }
@@ -1928,12 +2017,9 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
         sdrgui_text_fit("a frequency lookup, not a detection",
                         (int)rect.x + 12, y, 15, rect.width - 24.0f,
                         (Color){ 126, 151, 166, 255 });
-        if (entry->decoder != BAND_PLAN_NONE && s->report_valid)
+        if (band_plan_can_inspect(entry->decoder) && s->report_valid)
             draw_button(l->inspect_button,
-                        entry->decoder == BAND_PLAN_GSM
-                            ? "Inspect in Decode > GSM"
-                            : "Inspect in Decode > ADS-B",
-                        1);
+                        band_plan_inspect_label(entry->decoder), 1);
     } else {
         sdrgui_text_fit("band plan: nothing allocated here that this table knows",
                         (int)rect.x + 12, y, 16, rect.width - 24.0f,
