@@ -387,6 +387,12 @@ Tabs are presentation only, not the boundary (ADR-0010).
   those get the quarter second — eleven seconds against sixty. That asymmetry
   is what makes FM the cheap band to scan and does not hold for the cellular
   ones.
+  The FM view decodes baseband in **fixed non-overlapping chunks** and
+  accumulates the *bits*, not the baseband: one timing search and one axis
+  cost work proportional to their span, so the span stays short, while radio
+  text needs twenty-five seconds of groups. A sliding window cannot do it —
+  it re-derives its timing offset and drops a leading symbol each pass, so
+  which absolute symbol an index means moves underneath you.
 - `src/rds.{c,h}` — one layer further, Decoder side: the (26,16) block code,
   the five offset words, groups, and a station's identification, programme
   type and name. **RDS has no preamble**, so synchronisation is a search: a

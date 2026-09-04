@@ -12,6 +12,7 @@
 #include "debug_log.h"
 #include "sdr_dsp.h"
 #include "row_list.h"
+#include "text_wrap.h"
 
 #include "raygui.h"
 
@@ -80,22 +81,7 @@ void update_fm(struct app *app, double now) {
     if (bb == 0)
         return;
 
-    /*
-     * The window, in baseband. When it fills the oldest quarter goes, in
-     * whole symbols -- dropping a fraction of one would shift the grid under
-     * the timing search and cost a group at every wrap.
-     */
-    if (fm->bb_count + bb > FM_VIEW_BASEBAND) {
-        size_t drop = FM_VIEW_BASEBAND / 4;
-        drop -= drop % FM_RDS_SAMPLES_PER_SYMBOL;
-        if (drop > fm->bb_count)
-            drop = fm->bb_count;
-        memmove(fm->bb_i, fm->bb_i + drop,
-                (fm->bb_count - drop) * sizeof(fm->bb_i[0]));
-        memmove(fm->bb_q, fm->bb_q + drop,
-                (fm->bb_count - drop) * sizeof(fm->bb_q[0]));
-        fm->bb_count -= drop;
-    }
+    /* Accumulate baseband until there is a whole chunk to decode. */
     if (bb > FM_VIEW_BASEBAND - fm->bb_count)
         bb = FM_VIEW_BASEBAND - fm->bb_count;
     memcpy(fm->bb_i + fm->bb_count, fresh_i, bb * sizeof(fresh_i[0]));
@@ -190,20 +176,82 @@ void update_fm(struct app *app, double now) {
         }
     }
 
-    /* One timing search and one axis over the whole window, which is what
-       makes this the same answer the offline decode gives. */
-    fm->soft_count = fm_rds_soft_bits(fm->bb_i, fm->bb_q, fm->bb_count,
-                                      fm->soft, FM_VIEW_SOFT_BITS,
-                                      &fm->timing_offset, &fm->axis_radians);
+    /*
+     * One chunk at a time: a timing search and an axis over each, then its
+     * bits appended and the baseband it came from discarded. Nothing is
+     * decoded twice and nothing straddles two estimates.
+     */
+    if (fm->bb_count < FM_RDS_CHUNK_SAMPLES)
+        return;
+
+    fm->soft_count = fm_rds_soft_bits(fm->bb_i, fm->bb_q,
+                                      FM_RDS_CHUNK_SAMPLES, fm->soft,
+                                      FM_VIEW_SOFT_BITS, &fm->timing_offset,
+                                      &fm->axis_radians);
     if (fm->analysis_mode)
-        fm_rds_timing_scores(fm->bb_i, fm->bb_q, fm->bb_count,
+        fm_rds_timing_scores(fm->bb_i, fm->bb_q, FM_RDS_CHUNK_SAMPLES,
                              fm->timing_energy);
+    {
+        size_t k;
+
+        if (fm->bit_count + fm->soft_count > FM_VIEW_BIT_MEMORY) {
+            size_t drop = fm->bit_count + fm->soft_count - FM_VIEW_BIT_MEMORY;
+            if (drop > fm->bit_count)
+                drop = fm->bit_count;
+            memmove(fm->bits, fm->bits + drop,
+                    (fm->bit_count - drop) * sizeof(fm->bits[0]));
+            fm->bit_count -= drop;
+        }
+        for (k = 0; k < fm->soft_count && fm->bit_count < FM_VIEW_BIT_MEMORY;
+             k++)
+            fm->bits[fm->bit_count++] = fm->soft[k];
+    }
+    /* The chunk is spent; keep whatever arrived past its end. */
+    fm->bb_count -= FM_RDS_CHUNK_SAMPLES;
+    if (fm->bb_count > 0) {
+        memmove(fm->bb_i, fm->bb_i + FM_RDS_CHUNK_SAMPLES,
+                fm->bb_count * sizeof(fm->bb_i[0]));
+        memmove(fm->bb_q, fm->bb_q + FM_RDS_CHUNK_SAMPLES,
+                fm->bb_count * sizeof(fm->bb_q[0]));
+    }
     if (fm->soft_count == 0)
         return;
 
+    /*
+     * Append only what is new.
+     *
+     * The window slides by whole symbols, so symbol k of this decode is
+     * symbol k + dropped of the last one and the newest few are the ones that
+     * have not been seen. Re-appending the whole window every block would
+     * count each group twenty times over.
+     */
+    {
+        size_t fresh_bb = fm->bb_count > fm->bb_consumed
+                              ? fm->bb_count - fm->bb_consumed : 0;
+        size_t fresh = fresh_bb / FM_RDS_SAMPLES_PER_SYMBOL;
+        size_t k;
+
+        if (fresh > fm->soft_count)
+            fresh = fm->soft_count;
+        if (fm->bit_count + fresh > FM_VIEW_BIT_MEMORY) {
+            size_t drop = fm->bit_count + fresh - FM_VIEW_BIT_MEMORY;
+            if (drop > fm->bit_count)
+                drop = fm->bit_count;
+            memmove(fm->bits, fm->bits + drop,
+                    (fm->bit_count - drop) * sizeof(fm->bits[0]));
+            fm->bit_count -= drop;
+        }
+        for (k = 0; k < fresh && fm->bit_count < FM_VIEW_BIT_MEMORY; k++)
+            fm->bits[fm->bit_count++] =
+                fm->soft[fm->soft_count - fresh + k];
+        fm->bb_consumed = fm->bb_count;
+    }
+
     {
         long before = fm->station.funnel.groups;
-        rds_decode(fm->soft, fm->soft_count, &fm->station, NULL, 0);
+        /* Over everything remembered, not just the window: the window is
+           three seconds and a radio text is twenty. */
+        rds_decode(fm->bits, fm->bit_count, &fm->station, NULL, 0);
         if (fm->station.funnel.groups > 0 &&
             fm->station.funnel.groups != before)
             fm->last_group_at = now;
@@ -433,9 +481,39 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
                  s->tp && s->ta ? row_weak : row_label);
         y += 20;
     }
-    if (s->rt_valid)
-        sdrgui_text_fit(s->rt, (int)rect.x + 12, y, 15, rect.width - 24.0f,
-                        row_value);
+    /*
+     * Radio text, wrapped rather than ellipsised.
+     *
+     * Sixty-four characters into a panel a third of the window wide: handing
+     * the whole of it to sdrgui_text_fit cut it at "Cultura em
+     * antena2.rtp...", which is exactly where the useful part begins. How
+     * many characters fit is a font question and belongs here; where the
+     * breaks go is arithmetic and lives in text_wrap.h.
+     */
+    if (s->rt_valid) {
+        struct text_wrap_line lines[4];
+        float room = rect.width - 24.0f;
+        int columns = (int)(room / (float)MeasureText("n", 15));
+        int count, i;
+
+        draw_row(rect, y, "radio text", "", row_label);
+        y += 18;
+        if (columns < 8)
+            columns = 8;
+        count = text_wrap(s->rt, columns, lines,
+                          (int)(sizeof(lines) / sizeof(lines[0])));
+        for (i = 0; i < count; i++) {
+            char line[80];
+            int length = lines[i].length;
+
+            if (length > (int)sizeof(line) - 1)
+                length = (int)sizeof(line) - 1;
+            memcpy(line, s->rt + lines[i].start, (size_t)length);
+            line[length] = '\0';
+            sdrgui_text_fit(line, (int)rect.x + 12, y, 15, room, row_value);
+            y += 18;
+        }
+    }
 }
 
 /*
@@ -957,6 +1035,8 @@ void fm_tune(struct app *app, double hz) {
     if (retune_receiver(app, (uint32_t)llround(hz), app->applied_ppm) < 0)
         return;
     app->fm.soft_count = 0;
+    app->fm.bit_count = 0;
+    app->fm.bb_consumed = 0;
     app->fm.bb_count = 0;
     app->fm.front_rate = 0;
     app->fm.blocks_seen = 0;
