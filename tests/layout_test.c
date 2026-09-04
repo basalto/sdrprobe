@@ -6,6 +6,7 @@
 #include "chrome_layout.h"
 #include "gsm_layout.h"
 #include "scope_layout.h"
+#include "settings_layout.h"
 #include "survey_layout.h"
 
 #include "check.h"
@@ -1111,6 +1112,144 @@ static void check_scope_fields(void) {
     check_true("nor a negative one", scope_field_hz("-10") < 0.0);
 }
 
+/*
+ * The Settings panel.
+ *
+ * The reason this block exists is a caption: the resolution row went in at
+ * y + 262 where the checkbox above runs to y + 272, it shipped in a build,
+ * and a screenshot was the only thing that could say so. check-layout had
+ * never seen this screen -- and the panel's ten rectangles were each written
+ * out twice, once in the input handler and once in the draw, with nothing but
+ * simultaneous editing keeping the two copies equal.
+ */
+static void check_settings_panel(void) {
+    static const struct { float width, height; } sizes[] = {
+        { 1100.0f, 720.0f }, { 1280.0f, 800.0f },
+        { 1500.0f, 950.0f }, { 1920.0f, 1080.0f }
+    };
+    static const char *names[] = {
+        "frequency", "ppm", "gain_previous", "gain_value", "gain_next",
+        "dc_toggle", "drift_toggle", "fft_previous", "fft_value", "fft_next",
+        "cancel", "apply"
+    };
+    size_t n;
+
+    for (n = 0; n < sizeof(sizes) / sizeof(sizes[0]); n++) {
+        float width = sizes[n].width, height = sizes[n].height;
+        struct settings_layout l = settings_layout_for(width, height);
+        Rectangle all[12];
+        int count = 0, a, b;
+
+        all[count++] = l.frequency;
+        all[count++] = l.ppm;
+        all[count++] = l.gain_previous;
+        all[count++] = l.gain_value;
+        all[count++] = l.gain_next;
+        all[count++] = l.dc_toggle;
+        all[count++] = l.drift_toggle;
+        all[count++] = l.fft_previous;
+        all[count++] = l.fft_value;
+        all[count++] = l.fft_next;
+        all[count++] = l.cancel;
+        all[count++] = l.apply;
+
+        for (a = 0; a < count; a++) {
+            /* Everything inside the panel. The controls are positioned from
+               it, so a row added past the bottom runs out of the panel rather
+               than over another control -- which makes this the check that
+               catches the next row, not the last one. */
+            check_msg(all[a].x >= l.panel.x &&
+                          all[a].x + all[a].width <= l.panel.x + l.panel.width,
+                      "%.0fx%.0f '%s' is outside the panel horizontally\n",
+                      width, height, names[a]);
+            check_msg(all[a].y >= l.panel.y &&
+                          all[a].y + all[a].height <=
+                              l.panel.y + l.panel.height,
+                      "%.0fx%.0f '%s' is outside the panel vertically\n",
+                      width, height, names[a]);
+            for (b = a + 1; b < count; b++)
+                if (overlaps(all[a], all[b]))
+                    check_msg(0, "%.0fx%.0f '%s' overlaps '%s'\n", width,
+                              height, names[a], names[b]);
+        }
+
+        /*
+         * And every caption clears whatever is above it. This is the one the
+         * panel actually got wrong, and comparing controls alone cannot see
+         * it: a caption is not a control, so two rows can be a comfortable
+         * distance apart while the lower one's caption sits on the upper one.
+         *
+         * Four controls carry a caption above them. The two checkboxes label
+         * themselves to the right and the buttons carry their text inside, so
+         * asking those for a caption would be asking about a rectangle
+         * nothing draws into.
+         */
+        {
+            Rectangle captioned[4];
+            const char *captioned_names[4] = { "frequency", "ppm", "gain",
+                                               "resolution" };
+            int c;
+
+            captioned[0] = l.frequency;
+            captioned[1] = l.ppm;
+            captioned[2] = l.gain_previous;
+            captioned[3] = l.fft_previous;
+
+            for (c = 0; c < 4; c++) {
+                Rectangle caption = settings_caption_of(captioned[c]);
+                check_msg(caption.y >= l.panel.y,
+                          "%.0fx%.0f '%s' caption is above the panel\n",
+                          width, height, captioned_names[c]);
+                for (b = 0; b < count; b++)
+                    if (overlaps(caption, all[b]))
+                        check_msg(0, "%.0fx%.0f '%s' caption lands on '%s'\n",
+                                  width, height, captioned_names[c],
+                                  names[b]);
+            }
+        }
+
+        /* The rejection message has a line of its own. It used to be drawn at
+           a fixed offset from the panel's top, which put it straight onto the
+           resolution caption the moment that row was added. */
+        check_msg(l.error.y >= l.fft_next.y + l.fft_next.height,
+                  "%.0fx%.0f the error line is up among the controls\n",
+                  width, height);
+        for (a = 0; a < count; a++)
+            if (overlaps(l.error, all[a]) && a < count - 2)
+                check_msg(0, "%.0fx%.0f the error line lands on '%s'\n",
+                          width, height, names[a]);
+
+        /* The panel is centred on the screen, which is what makes it an
+           overlay rather than a corner of one. */
+        check_close("centred horizontally",
+                    (double)(l.panel.x + l.panel.width / 2.0f),
+                    (double)width / 2.0, 0.51);
+        check_close("centred vertically",
+                    (double)(l.panel.y + l.panel.height / 2.0f),
+                    (double)height / 2.0, 0.51);
+
+        /* The buttons clear the last row: the failure that made this panel
+           420 px tall, worked out by hand and then asserted by nobody. */
+        check_msg(l.apply.y > l.fft_next.y + l.fft_next.height,
+                  "%.0fx%.0f the buttons overlap the resolution row\n",
+                  width, height);
+        check_msg(l.cancel.x + l.cancel.width < l.apply.x,
+                  "%.0fx%.0f Cancel runs into Apply\n", width, height);
+    }
+
+    /* The panel is the same size whatever the screen is: it is a fixed dialog
+       that moves, not one that stretches. A screen too small for it is a real
+       case and it stays whole rather than being squashed. */
+    {
+        struct settings_layout small = settings_layout_for(600.0f, 400.0f);
+        struct settings_layout large = settings_layout_for(1920.0f, 1080.0f);
+        check_close("the panel keeps its width", (double)small.panel.width,
+                    (double)large.panel.width, 0.01);
+        check_close("and its height", (double)small.panel.height,
+                    (double)large.panel.height, 0.01);
+    }
+}
+
 int main(void) {
     check_chrome();
     check_calibration_overlay();
@@ -1130,6 +1269,7 @@ int main(void) {
         for (int i = 0; i < RECTS; i++)
             check(w, h, e[i].name, got[i], &e[i]);
     }
+    check_settings_panel();
     check_scope_header();
     check_scope_fields();
 
