@@ -599,7 +599,7 @@ struct help_overlay {
  *
  * The sweep's own arithmetic -- how many steps, how many bins, when a step is
  * done, what a measurement adds up to -- lives in survey_sweep.h, with the
- * constants that go with it; the window's lives in survey_window.h. What is
+ * constants that go with it; the window's lives in freq_window.h. What is
  * left here is this view's state and the few numbers only the view uses.
  */
 #define SURVEY_SCAN_HALF_SPAN_HZ 2000000.0  /* "scan this frequency" window */

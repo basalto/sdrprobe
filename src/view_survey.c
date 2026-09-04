@@ -9,7 +9,7 @@
 #include "view.h"
 #include "survey_layout.h"
 #include "row_list.h"
-#include "survey_window.h"
+#include "freq_window.h"
 #include "survey_suspect.h"
 #include "survey_store.h"
 #include "band_plan_view.h"
@@ -66,14 +66,14 @@ static struct survey_layout survey_layout_now(void) {
 }
 
 /*
- * The window arithmetic lives in survey_window.h, as plain doubles that
- * tests/survey_window_test.c can exercise without a window or a receiver.
+ * The window arithmetic lives in freq_window.h, as plain doubles that
+ * tests/freq_window_test.c can exercise without a window or a receiver.
  * These are the adapters between it and the view's own state: the range that
  * exists is what was swept once there is a sweep, and what the fields say
  * before that.
  */
-static struct survey_window survey_window_of(const struct survey_view *s) {
-    struct survey_window w;
+static struct freq_window freq_window_of(const struct survey_view *s) {
+    struct freq_window w;
 
     w.data_lower_hz = s->bins > 0 ? s->lower_hz : s->field_lower_hz;
     w.data_upper_hz = s->bins > 0 ? s->upper_hz : s->field_upper_hz;
@@ -82,8 +82,8 @@ static struct survey_window survey_window_of(const struct survey_view *s) {
     return w;
 }
 
-static void survey_window_put(struct survey_view *s,
-                              const struct survey_window *w) {
+static void freq_window_put(struct survey_view *s,
+                              const struct freq_window *w) {
     s->view_lower_hz = w->view_lower_hz;
     s->view_upper_hz = w->view_upper_hz;
 }
@@ -112,13 +112,13 @@ static int survey_suspicious_now(const struct app *app) {
 }
 
 static double survey_bin_hz(const struct survey_view *s, int bin) {
-    struct survey_window w = survey_window_of(s);
+    struct freq_window w = freq_window_of(s);
 
     /* Bins span what was swept, so before a sweep there is nothing to index
        into and the range's low edge is the honest answer. */
     if (s->bins <= 0)
         return s->lower_hz;
-    return survey_window_bin_hz(&w, s->bins, bin);
+    return freq_window_bin_hz(&w, s->bins, bin);
 }
 
 static double survey_bin_width_hz(const struct survey_view *s) {
@@ -135,25 +135,25 @@ static double survey_bin_width_hz(const struct survey_view *s) {
  * they were dividing by a span of zero.
  */
 static double survey_data_lower(const struct survey_view *s) {
-    return survey_window_of(s).data_lower_hz;
+    return freq_window_of(s).data_lower_hz;
 }
 
 static double survey_data_upper(const struct survey_view *s) {
-    return survey_window_of(s).data_upper_hz;
+    return freq_window_of(s).data_upper_hz;
 }
 
 static void survey_clamp_view(struct survey_view *s) {
-    struct survey_window w = survey_window_of(s);
+    struct freq_window w = freq_window_of(s);
 
-    survey_window_clamp(&w, SURVEY_MIN_SPAN_HZ);
-    survey_window_put(s, &w);
+    freq_window_clamp(&w, SURVEY_MIN_SPAN_HZ);
+    freq_window_put(s, &w);
 }
 
 static void survey_reset_view(struct survey_view *s) {
-    struct survey_window w = survey_window_of(s);
+    struct freq_window w = freq_window_of(s);
 
-    survey_window_reset(&w);
-    survey_window_put(s, &w);
+    freq_window_reset(&w);
+    freq_window_put(s, &w);
 }
 
 /* Keep the field range current, and before the first sweep keep the window on
@@ -640,42 +640,42 @@ static void survey_refresh_fields(struct survey_view *s) {
 /* Zoom about the selected candidate when there is one, so zooming in keeps
    what you picked in sight; otherwise about the middle. */
 static void survey_zoom(struct survey_view *s, double factor) {
-    struct survey_window w = survey_window_of(s);
+    struct freq_window w = freq_window_of(s);
     int has_anchor = s->selected >= 0 && s->selected < s->peak_count;
     double anchor = has_anchor
                         ? survey_bin_hz(s, s->peaks[s->selected].index)
                         : 0.0;
 
-    survey_window_zoom(&w, factor, anchor, has_anchor, SURVEY_MIN_SPAN_HZ);
-    survey_window_put(s, &w);
+    freq_window_zoom(&w, factor, anchor, has_anchor, SURVEY_MIN_SPAN_HZ);
+    freq_window_put(s, &w);
 }
 
 /* Panning a window that already spans the whole sweep cannot move it, and a
    key that silently does nothing reads as a broken key. Say which it is. */
 static void survey_pan(struct app *app, double fraction) {
     struct survey_view *s = &app->survey;
-    struct survey_window w = survey_window_of(s);
+    struct freq_window w = freq_window_of(s);
     double span = w.view_upper_hz - w.view_lower_hz;
 
-    if (!survey_window_pan(&w, fraction, SURVEY_MIN_SPAN_HZ))
+    if (!freq_window_pan(&w, fraction, SURVEY_MIN_SPAN_HZ))
         snprintf(s->status, sizeof(s->status),
                  "Already showing %s of the range; zoom in first (+ or the "
                  "wheel over the chart).",
                  span >= (w.data_upper_hz - w.data_lower_hz) - 1.0
                      ? "all"
                      : "the end");
-    survey_window_put(s, &w);
+    freq_window_put(s, &w);
 }
 
 /* Candidates inside the window on screen. Zooming into a band and still
    being shown a list of what is loudest elsewhere is no use, so the list, the
    count and the Up/Down walk all follow the window. */
 static int survey_peak_visible(const struct survey_view *s, int index) {
-    struct survey_window w = survey_window_of(s);
+    struct freq_window w = freq_window_of(s);
 
     if (index < 0 || index >= s->peak_count)
         return 0;
-    return survey_window_bin_visible(&w, s->bins, s->peaks[index].index);
+    return freq_window_bin_visible(&w, s->bins, s->peaks[index].index);
 }
 
 static int survey_visible_count(const struct survey_view *s) {
@@ -1276,9 +1276,9 @@ static void survey_keep_current(struct survey_view *s) {
  */
 static int survey_sweep_target(const struct survey_view *s, double *from,
                                double *to) {
-    struct survey_window w = survey_window_of(s);
+    struct freq_window w = freq_window_of(s);
 
-    return survey_window_sweep_target(&w, from, to);
+    return freq_window_sweep_target(&w, from, to);
 }
 
 /* Point the range fields at a span and sweep it. */
