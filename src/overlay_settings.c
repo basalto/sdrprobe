@@ -12,8 +12,13 @@
 #include "raygui.h"
 
 /*
- * The Settings panel: centre frequency, gain, PPM and the DC-spike filter,
- * plus the two buttons that open this panel and the calibration overlay.
+ * The Settings panel: PPM, gain, the DC-spike filter and the Scope's
+ * transform size -- plus the two buttons that open this panel and the
+ * calibration overlay.
+ *
+ * The centre frequency was the first field here and is not any more. It lived
+ * in this panel because nothing else had a place for it; the Scope header
+ * does now, on the screen the frequency actually moves.
  *
  * Applying a change can retune or restart acquisition, which is why
  * apply_settings reaches back into the application rather than only writing
@@ -21,13 +26,9 @@
  */
 
 void open_settings(struct app *app) {
-    snprintf(app->set.frequency, sizeof(app->set.frequency), "%u",
-             app->applied_frequency);
-    app->set.frequency_length = (int)strlen(app->set.frequency);
     snprintf(app->set.ppm, sizeof(app->set.ppm), "%d",
              app->applied_ppm);
     app->set.ppm_length = (int)strlen(app->set.ppm);
-    app->set.focus = 0;
     {
         int choice = sdr_dsp_fft_choice_of(app->sv.fft_size);
         app->set.fft_choice = choice >= 0
@@ -47,13 +48,14 @@ void open_settings(struct app *app) {
 }
 
 int apply_settings(struct app *app) {
-    uint32_t frequency;
+    /*
+     * Where the receiver already is. This panel no longer moves it -- the
+     * Scope header does -- but the retune below still has to name a
+     * frequency, because a PPM or gain change restarts acquisition and the
+     * device comes back untuned.
+     */
+    uint32_t frequency = app->applied_frequency;
     int ppm;
-    if (parse_frequency(app->set.frequency, &frequency) < 0) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
-                 "Use Hz or a K/M/G value, for example 1090M");
-        return -1;
-    }
     if (parse_int(app->set.ppm, &ppm) < 0 || ppm < -1000 || ppm > 1000) {
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "PPM must be a signed integer from -1000 to 1000");
@@ -181,40 +183,19 @@ void handle_settings_input(struct app *app) {
         (float)GetScreenWidth(), (float)GetScreenHeight());
 
     int character;
+
+    /* PPM is the only field left here: the centre frequency moved to the
+       Scope header, where the chart it moves can be seen. */
     while ((character = GetCharPressed()) != 0) {
-        if (app->set.focus == 0) {
-            int valid = (character >= '0' && character <= '9') ||
-                        character == '.' || character == 'k' ||
-                        character == 'K' || character == 'm' ||
-                        character == 'M' || character == 'g' ||
-                        character == 'G';
-            if (valid && app->set.frequency_length <
-                             (int)sizeof(app->set.frequency) - 1) {
-                app->set.frequency[app->set.frequency_length++] =
-                    (char)character;
-                app->set.frequency[app->set.frequency_length] = '\0';
-            }
-        } else {
-            int valid = (character >= '0' && character <= '9') ||
-                        (character == '-' && app->set.ppm_length == 0);
-            if (valid && app->set.ppm_length <
-                             (int)sizeof(app->set.ppm) - 1) {
-                app->set.ppm[app->set.ppm_length++] =
-                    (char)character;
-                app->set.ppm[app->set.ppm_length] = '\0';
-            }
+        int valid = (character >= '0' && character <= '9') ||
+                    (character == '-' && app->set.ppm_length == 0);
+        if (valid && app->set.ppm_length < (int)sizeof(app->set.ppm) - 1) {
+            app->set.ppm[app->set.ppm_length++] = (char)character;
+            app->set.ppm[app->set.ppm_length] = '\0';
         }
     }
-    if (IsKeyPressed(KEY_BACKSPACE)) {
-        if (app->set.focus == 0 && app->set.frequency_length > 0)
-            app->set.frequency[--app->set.frequency_length] = '\0';
-        if (app->set.focus == 1 && app->set.ppm_length > 0)
-            app->set.ppm[--app->set.ppm_length] = '\0';
-    }
-    if (clicked(l.frequency))
-        app->set.focus = 0;
-    if (clicked(l.ppm))
-        app->set.focus = 1;
+    if (IsKeyPressed(KEY_BACKSPACE) && app->set.ppm_length > 0)
+        app->set.ppm[--app->set.ppm_length] = '\0';
 
     if (app->receiver_mode && clicked(l.gain_previous)) {
         app->set.gain_choice--;
@@ -252,7 +233,6 @@ void handle_settings_input(struct app *app) {
             app->settings_open = 0;
     }
 
-    (void)l.frequency;
 }
 
 void draw_settings(const struct app *app) {
@@ -267,14 +247,10 @@ void draw_settings(const struct app *app) {
     DrawRectangleLinesEx(panel, 2.0f, (Color){ 111, 139, 154, 255 });
     DrawText("Acquisition settings", (int)panel.x + 28, (int)panel.y + 22,
              24, (Color){ 235, 242, 246, 255 });
-    DrawText("Center frequency (Hz or K/M/G)", (int)l.frequency.x,
-             (int)settings_caption_of(l.frequency).y, 17,
+    DrawText("PPM (tuning correction)", (int)l.ppm.x,
+             (int)settings_caption_of(l.ppm).y, 17,
              (Color){ 166, 188, 201, 255 });
-    sdrgui_text_field(l.frequency, app->set.frequency,
-                      app->set.focus == 0);
-    DrawText("PPM", (int)l.ppm.x, (int)settings_caption_of(l.ppm).y, 17,
-             (Color){ 166, 188, 201, 255 });
-    sdrgui_text_field(l.ppm, app->set.ppm, app->set.focus == 1);
+    sdrgui_text_field(l.ppm, app->set.ppm, 1);
 
     DrawText("Gain", (int)l.gain_previous.x,
              (int)settings_caption_of(l.gain_previous).y, 17,
