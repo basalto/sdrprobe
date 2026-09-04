@@ -916,7 +916,11 @@ static void draw_header(const struct app *app) {
                  (int)chrome.option_row_y, 16, (Color){ 143, 167, 182, 255 });
     } else if (app->tab == TAB_SCOPE) {
         draw_option_row((int)app->view, scope_opts, 4,
-                        "Up/Down scale   h help   Esc quit");
+                        app->view == VIEW_SPECTRUM ||
+                                app->view == VIEW_WATERFALL
+                            ? "drag/Up/Down zoom  Left/Right pan  +/- scale"
+                              "  0 reset  h help  Esc quit"
+                            : "+/- scale   h help   Esc quit");
     } else {
         draw_option_row((int)app->decode, decode_opts, 4,
                         app->decode == DECODE_ADSB
@@ -945,7 +949,12 @@ static struct input_state input_state_now(const struct app *app) {
        fields, and the FM view's frequency. Both take digits, and a digit that
        reaches the view switcher instead of the field it was typed into is a
        screen change nobody asked for. */
-    state.text_focus = survey_editing(app) || fm_editing(app);
+    state.text_focus = survey_editing(app) || fm_editing(app) ||
+                       app->sv.field_focus != SCOPE_FIELD_NONE;
+    state.scope_zoomed = app->tab == TAB_SCOPE &&
+                         (app->view == VIEW_SPECTRUM ||
+                          app->view == VIEW_WATERFALL) &&
+                         freq_window_zoomed(&app->sv.freq);
     state.menu_open = app->survey.site_menu_open ||
                       app->survey.antenna_menu_open ||
                       app->survey.band_menu_open;
@@ -1230,6 +1239,12 @@ static int run_gui(struct app *app) {
            where it can be checked; what each target does with the keys is its
            own handler's business. */
         struct input_state input = input_state_now(app);
+
+        /* Once a frame: GetCharPressed() drains a queue, so a second caller
+           would intermittently see nothing. */
+        enum chart_key chart_key = input.text_focus ? CHART_KEY_NONE
+                                                    : chart_key_pressed();
+
         int shortcuts = input_shortcuts_live(&input);
 
         debug_log_frame_keys(app, &input);
@@ -1321,7 +1336,13 @@ static int run_gui(struct app *app) {
                 else
                     handle_lte_input(app);
             } else if (IsKeyPressed(KEY_ESCAPE) && !input.text_focus) {
-                break_requested = 1;
+                /* A zoom is backed out of before the program is. 0 does it
+                   explicitly, but a reader who has just dragged a region
+                   reaches for Escape, and quitting instead is expensive. */
+                if (input_escape(&input) == INPUT_ESCAPE_UNZOOM)
+                    scope_freq_reset(app);
+                else
+                    break_requested = 1;
             }
             break;
         }
@@ -1340,9 +1361,21 @@ static int run_gui(struct app *app) {
          */
         {
             int scale = input_scale_keys(&input);
-            int up = IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP);
-            int down = IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN);
+            int up = chart_key == CHART_KEY_SCALE_UP;
+            int down = chart_key == CHART_KEY_SCALE_DOWN;
 
+            /*
+             * + and - are the scale keys everywhere now. Up and Down were,
+             * and still are on every screen that has no frequency window to
+             * zoom -- the two axes want two pairs of keys, and taking the
+             * arrows away from a screen that has nothing else for them would
+             * be a loss rather than a simplification.
+             */
+            if (!input_scope_owns_spectrum(&input)) {
+                up = up || IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP);
+                down = down || IsKeyPressed(KEY_DOWN) ||
+                       IsKeyPressedRepeat(KEY_DOWN);
+            }
             if (scale == INPUT_SCALE_ACTIVE_CHART && (up || down))
                 adjust_active_scale(app, up);
             else if (scale == INPUT_SCALE_WATERFALL && (up || down))
@@ -1380,6 +1413,12 @@ static int run_gui(struct app *app) {
         }
 
         if (input_route(&input) == INPUT_TARGET_SCOPE) {
+            /* The control row first: while one of its fields has focus the
+               digits are a frequency being typed, not a view number. That is
+               what input_view_keys_live() below is reading. */
+            if (!app->calibration_open && !app->settings_open &&
+                !app->help.open)
+                scope_header_input(app);   /* retune_receiver logs its own */
             /* While a survey range field has focus the digits belong to it,
                not to the view switcher. */
             if (input_view_keys_live(&input)) {
@@ -1404,10 +1443,7 @@ static int run_gui(struct app *app) {
                  */
                 if (app->view == VIEW_SPECTRUM ||
                     app->view == VIEW_WATERFALL) {
-                    if (IsKeyPressed(KEY_ZERO))
-                        scope_freq_reset(app);
-                    else
-                        scope_freq_input(app, app->plot);
+                    scope_freq_input(app, app->plot, chart_key);
                 }
                 /* The scale keys are applied once, below, for every screen
                    that has a scale -- not here, and not per view. */
@@ -1480,6 +1516,7 @@ static int run_gui(struct app *app) {
                 draw_survey(app);
             } else {
                 draw_base_hud(app, &snapshot);
+                draw_scope_header(app);
                 if (app->view == VIEW_MAGNITUDE)
                     draw_magnitude(app);
                 else if (app->view == VIEW_SPECTRUM)

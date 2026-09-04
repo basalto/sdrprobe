@@ -42,6 +42,16 @@ static inline int freq_window_has_data(const struct freq_window *w) {
     return w->data_upper_hz > w->data_lower_hz;
 }
 
+/* Whether the reader is looking at less than the receiver is hearing. What
+   "exit the zoom" is asked about, and what decides whether Escape has a zoom
+   to back out of before it has a program to leave. */
+static inline int freq_window_zoomed(const struct freq_window *w) {
+    if (!w || !freq_window_has_data(w))
+        return 0;
+    return w->view_upper_hz - w->view_lower_hz <
+           (w->data_upper_hz - w->data_lower_hz) - 1.0;
+}
+
 static inline void freq_window_reset(struct freq_window *w) {
     w->view_lower_hz = w->data_lower_hz;
     w->view_upper_hz = w->data_upper_hz;

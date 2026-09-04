@@ -55,6 +55,8 @@ struct input_state {
     int menu_open;      /* a combo list is down over the view */
     int decode;         /* enum decode_kind, when the Decode tab is up */
     int text_focus;     /* a text field outside the settings panel has focus */
+    int scope_zoomed;   /* the Scope's frequency window is narrower than the
+                           span being received */
 };
 
 /*
@@ -207,6 +209,7 @@ enum input_escape {
     INPUT_ESCAPE_NOTHING = 0,   /* an overlay's own handler has it */
     INPUT_ESCAPE_CLOSE_MENU,
     INPUT_ESCAPE_LEAVE_FIELD,
+    INPUT_ESCAPE_UNZOOM,
     INPUT_ESCAPE_TO_SCOPE,
     INPUT_ESCAPE_QUIT
 };
@@ -221,6 +224,11 @@ static inline int input_escape(const struct input_state *s) {
         return INPUT_ESCAPE_CLOSE_MENU;
     if (s->text_focus)
         return INPUT_ESCAPE_LEAVE_FIELD;
+    /* Backing out of a zoom before backing out of the program. 0 does it
+       explicitly, but a reader who has just dragged a region reaches for
+       Escape, and finding that it quits instead is expensive. */
+    if (s->scope_zoomed)
+        return INPUT_ESCAPE_UNZOOM;
     if (s->tab == TAB_DECODE)
         return INPUT_ESCAPE_TO_SCOPE;
     return INPUT_ESCAPE_QUIT;
