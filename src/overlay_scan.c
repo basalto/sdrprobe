@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "scan_layout.h"
 #include "view.h"
 #include "sdrgui.h"
 
@@ -129,8 +130,9 @@ static int scan_arfcn_at(const struct app *app, Vector2 point) {
 
 void draw_scan(struct app *app) {
     char text[160];
-    Rectangle back = { (float)GetScreenWidth() - 112.0f, 18, 88, 34 };
-    Rectangle rescan = { (float)GetScreenWidth() - 212.0f, 18, 88, 34 };
+    struct scan_layout l = scan_layout_for((float)GetScreenWidth());
+    Rectangle back = l.back;
+    Rectangle rescan = l.rescan;
     int strongest = scan_strongest_arfcn(app);
     int strongest_bcch = scan_strongest_bcch(app);
 
@@ -169,8 +171,9 @@ void draw_scan(struct app *app) {
 }
 
 void handle_scan_input(struct app *app) {
-    Rectangle back = { (float)GetScreenWidth() - 112.0f, 18, 88, 34 };
-    Rectangle rescan = { (float)GetScreenWidth() - 212.0f, 18, 88, 34 };
+    struct scan_layout l = scan_layout_for((float)GetScreenWidth());
+    Rectangle back = l.back;
+    Rectangle rescan = l.rescan;
 
     if (clicked(back) || IsKeyPressed(KEY_ESCAPE)) {
         if (app->receiver_mode)

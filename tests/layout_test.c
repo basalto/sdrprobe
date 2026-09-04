@@ -7,6 +7,8 @@
 #include "version.h"
 #include "gsm_layout.h"
 #include "scope_layout.h"
+#include "help_layout.h"
+#include "scan_layout.h"
 #include "settings_layout.h"
 #include "survey_layout.h"
 
@@ -1330,6 +1332,84 @@ static void check_footer_and_version(void) {
     }
 }
 
+/*
+ * The channel scan overlay's two buttons, and the help overlay.
+ *
+ * Two rectangles is not much, and that is the point: they were declared once
+ * in the draw and again in the input handler with the same four literals in
+ * both. Two is where the Settings panel started.
+ */
+static void check_scan_and_help(void) {
+    static const struct { float width, height; } sizes[] = {
+        { 900.0f, 600.0f }, { 1100.0f, 720.0f },
+        { 1500.0f, 950.0f }, { 1920.0f, 1080.0f }
+    };
+    size_t n;
+
+    for (n = 0; n < sizeof(sizes) / sizeof(sizes[0]); n++) {
+        float width = sizes[n].width, height = sizes[n].height;
+        struct scan_layout s = scan_layout_for(width);
+        struct help_layout h = help_layout_for(width, height);
+        struct chrome_layout c = chrome_layout_for(width, height);
+        int i, j;
+
+        /* Scan: on screen, apart, and Rescan to the left of Back. */
+        check_msg(s.rescan.x >= 0.0f && s.back.x + s.back.width <= width,
+                  "%.0fx%.0f a scan button is off screen\n", width, height);
+        check_msg(!overlaps(s.rescan, s.back),
+                  "%.0fx%.0f Rescan runs into Back\n", width, height);
+        check_msg(s.rescan.x + s.rescan.width <= s.back.x,
+                  "%.0fx%.0f Rescan is not left of Back\n", width, height);
+        /*
+         * They sit exactly where the chrome's Settings button does, and that
+         * is fine rather than a collision: the scan overlay is drawn instead
+         * of the chrome, not over it, and owns the input while it is up. Said
+         * here because it looks like a bug until you check, and the next
+         * person to add a button in that corner should know which it is.
+         */
+        check_msg(overlaps(s.back, c.settings_button),
+                  "%.0fx%.0f the scan buttons have moved out of the chrome's "
+                  "corner; if the overlay now draws the chrome too, this "
+                  "check is the wrong way round\n", width, height);
+
+        /* Help: the panel holds everything, and nothing inside it collides. */
+        check_msg(h.panel.x >= 0.0f && h.panel.y >= 0.0f,
+                  "%.0fx%.0f the help panel starts off screen\n", width,
+                  height);
+        check_msg(!overlaps(h.body, h.close),
+                  "%.0fx%.0f the help body runs under its close button\n",
+                  width, height);
+        for (i = 0; i < HELP_TOPIC_COUNT; i++) {
+            check_msg(!overlaps(h.entry[i], h.body),
+                      "%.0fx%.0f topic %d overlaps the body\n", width, height,
+                      i);
+            check_msg(!overlaps(h.entry[i], h.close),
+                      "%.0fx%.0f topic %d overlaps the close button\n", width,
+                      height, i);
+            for (j = i + 1; j < HELP_TOPIC_COUNT; j++)
+                if (overlaps(h.entry[i], h.entry[j]))
+                    check_msg(0, "%.0fx%.0f topics %d and %d overlap\n",
+                              width, height, i, j);
+        }
+        /*
+         * Every topic is reachable. The sidebar is a fixed column of fifteen
+         * entries in a panel that shrinks with the window, so the last ones
+         * are what fall off the bottom -- and a topic drawn past the panel is
+         * one nobody can click.
+         */
+        check_msg(h.entry[HELP_TOPIC_COUNT - 1].y +
+                          h.entry[HELP_TOPIC_COUNT - 1].height <=
+                      h.panel.y + h.panel.height,
+                  "%.0fx%.0f the last help topic is below the panel\n", width,
+                  height);
+        /* And the body, which scrolls, stays inside it. */
+        check_msg(h.body.x + h.body.width <= h.panel.x + h.panel.width &&
+                      h.body.y + h.body.height <= h.panel.y + h.panel.height,
+                  "%.0fx%.0f the help body runs outside the panel\n", width,
+                  height);
+    }
+}
+
 int main(void) {
     check_chrome();
     check_calibration_overlay();
@@ -1350,6 +1430,7 @@ int main(void) {
             check(w, h, e[i].name, got[i], &e[i]);
     }
     check_footer_and_version();
+    check_scan_and_help();
     check_settings_panel();
     check_scope_header();
     check_scope_fields();

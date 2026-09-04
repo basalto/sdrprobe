@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "help_layout.h"
 #include "view.h"
 #include "sdrgui.h"
 
@@ -22,24 +23,6 @@
  * be rechecked when those change.
  */
 
-enum help_topic {
-    HELP_OVERVIEW,
-    HELP_MAGNITUDE,
-    HELP_SPECTRUM,
-    HELP_WATERFALL,
-    HELP_SCATTER,
-    HELP_SURVEY,
-    HELP_QUALITY,
-    HELP_SCAN,
-    HELP_BURST,
-    HELP_CONSTELLATION,
-    HELP_ADSB,
-    HELP_ADSB_ANALYSIS,
-    HELP_LTE,
-    HELP_FM,
-    HELP_CALIBRATION,
-    HELP_TOPIC_COUNT
-};
 
 struct help_page {
     const char *entry;   /* sidebar label */
@@ -211,7 +194,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
 },
 {
     "Band survey",
-    "Band survey (Scope, the Survey button)",
+    "Band survey (the Survey tab)",
     "Every other view shows the 2 MHz the receiver is tuned to. This one sweeps "
     "a range you choose and shows what is on it, which is the question you "
     "start with when you do not already know where to look.\n"
@@ -728,44 +711,6 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
  * draw pass -- the same reason chrome_layout.h exists. The topic list is a
  * fixed-height column on the left; the body takes the rest and scrolls.
  */
-struct help_layout {
-    Rectangle panel;
-    Rectangle entry[HELP_TOPIC_COUNT];
-    Rectangle body;
-    Rectangle close;
-};
-
-static struct help_layout help_layout_now(void) {
-    struct help_layout l;
-    float width = (float)GetScreenWidth();
-    float height = (float)GetScreenHeight();
-    const float entry_h = 28.0f;
-    const float entry_gap = 3.0f;
-    float sidebar_w = 196.0f;
-    float content_y;
-
-    l.panel = (Rectangle){ 34.0f, 34.0f, width - 68.0f, height - 68.0f };
-    if (l.panel.width < 320.0f)
-        l.panel.width = 320.0f;
-    if (l.panel.height < 220.0f)
-        l.panel.height = 220.0f;
-
-    l.close = (Rectangle){ l.panel.x + l.panel.width - 104.0f,
-                           l.panel.y + 16.0f, 84.0f, 30.0f };
-    content_y = l.panel.y + 86.0f;
-    for (int i = 0; i < HELP_TOPIC_COUNT; i++)
-        l.entry[i] = (Rectangle){ l.panel.x + 20.0f,
-                                  content_y + (float)i * (entry_h + entry_gap),
-                                  sidebar_w, entry_h };
-    l.body = (Rectangle){ l.panel.x + 20.0f + sidebar_w + 26.0f, content_y,
-                          l.panel.width - sidebar_w - 72.0f,
-                          l.panel.height - 86.0f - 44.0f };
-    if (l.body.width < 120.0f)
-        l.body.width = 120.0f;
-    if (l.body.height < 60.0f)
-        l.body.height = 60.0f;
-    return l;
-}
 
 /* The topic that answers the question the current screen raises. */
 static int help_topic_for_screen(const struct app *app) {
