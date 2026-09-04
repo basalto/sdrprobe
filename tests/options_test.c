@@ -532,6 +532,45 @@ static void test_every_screen_is_reachable(void) {
                parse_view("nonsense", &(enum start_view){ 0 }) < 0);
 
     /*
+     * Both arrangements of every decode view, which is a screen count of its
+     * own: four views that each draw their data or their charts, reached by
+     * --view with and without --analysis.
+     *
+     * GSM was the one that could not be. Entering that view with a channel
+     * already chosen turns the analysis arrangement on -- right when a reader
+     * inspects a channel from the scan, and wrong on the way in from the
+     * command line, where it made --analysis a no-op and left the ARFCN
+     * waterfall unreachable without a window. The option is assigned at
+     * startup now rather than only set, so a flag that is absent means
+     * something.
+     */
+    {
+        static const char *decoders[] = { "gsm", "adsb", "lte", "fm" };
+        unsigned d;
+
+        for (d = 0; d < sizeof(decoders) / sizeof(decoders[0]); d++) {
+            struct options plain, charts;
+            const char *a[] = { "sdrprobe", "--view", decoders[d] };
+            const char *b[] = { "sdrprobe", "--view", decoders[d],
+                                "--analysis" };
+
+            check_msg(parse_options(3, (char **)a, &plain) == 0,
+                      "--view %s is refused\n", decoders[d]);
+            check_msg(parse_options(4, (char **)b, &charts) == 0,
+                      "--view %s --analysis is refused\n", decoders[d]);
+            check_msg(plain.analysis == 0,
+                      "--view %s asks for charts without being told to\n",
+                      decoders[d]);
+            check_msg(charts.analysis == 1,
+                      "--view %s --analysis does not ask for charts\n",
+                      decoders[d]);
+            check_msg(plain.view == charts.view,
+                      "--analysis changes which view %s opens\n",
+                      decoders[d]);
+        }
+    }
+
+    /*
      * Every one of them names a different screen.
      *
      * They stopped doing so when the survey became a tab: the four Scope

@@ -6,7 +6,8 @@ accepted
 
 ## Context and decision
 
-The band survey (Scope view 5) finds carriers and reports what can be measured
+The band survey (a Scope view when this was written; a top-level tab since)
+finds carriers and reports what can be measured
 about them: power, occupied bandwidth, prominence above the local floor,
 carrier offset, duty and frequency stability. Alongside those it prints the
 allocation the frequency falls in, from a static table in `src/band_plan.c`.
@@ -44,3 +45,11 @@ The decision is to keep the two separable in the words, not only in the code:
   and it would put an inference where this context promises a measurement.
 - If a later cut wants to *identify* a signal, that belongs in the Decoder
   context behind a demodulator, not in this table.
+
+## Note, later
+
+The survey stopped being the Scope's fifth view and became a top-level tab
+beside Scope and Decode. The sentence above is annotated rather than rewritten
+because an ADR records what was decided and what was true when it was decided;
+where it lives does not change what this one decided, which is that the band
+plan is a lookup and never an identification.

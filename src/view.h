@@ -216,7 +216,7 @@ void decay_spectrum_peak(struct app *app, double now);
 void adjust_active_scale(struct app *app, int zoom_in);
 
 
-/* Band survey (Scope view 5): sweep a range, find what stands above the local
+/* Band survey (its own tab): sweep a range, find what stands above the local
    floor, and measure whichever candidate is selected. */
 void view_survey_defaults(struct app *app);
 void view_survey_enter(struct app *app);
