@@ -117,4 +117,67 @@ static inline int sdrgui_bar_index_at(Rectangle plot, int count, float x,
     return index;
 }
 
+/*
+ * What a waterfall strip actually covers, and which slice of its texture to
+ * draw for that.
+ *
+ * The texture always holds the whole received span -- one column per bin, from
+ * `center - rate/2` to `center + rate/2` -- because that is what the rows were
+ * written with. Showing part of it is therefore a source-rectangle question,
+ * not a re-render, which is why a zoom costs nothing.
+ *
+ * This was gated on the calibration overlay's own flag for as long as the
+ * overlay was the only caller that zoomed. The Scope's frequency window then
+ * arrived, computed a range, handed it over, and was silently discarded: the
+ * drag worked, the axis never moved, and nothing anywhere said why. The gate
+ * is gone rather than widened -- a zoom is requested by asking for one, and a
+ * flag naming a *screen* has no business deciding whether the request is
+ * honoured.
+ *
+ * A request outside the received span is clamped to it rather than refused: a
+ * pan that runs off the edge is how retuning is triggered, and it must keep
+ * drawing something while the receiver catches up.
+ */
+struct sdrgui_waterfall_span {
+    double lower_hz;      /* what the drawn strip covers */
+    double upper_hz;
+    float source_x;       /* the slice of the texture that covers it */
+    float source_width;
+};
+
+static inline struct sdrgui_waterfall_span
+sdrgui_waterfall_span(double center_hz, double sample_rate,
+                      double zoom_center_hz, double zoom_half_width_hz,
+                      float texture_width) {
+    double full_lower = center_hz - sample_rate / 2.0;
+    double full_upper = center_hz + sample_rate / 2.0;
+    struct sdrgui_waterfall_span span;
+    double lower, upper;
+
+    span.lower_hz = full_lower;
+    span.upper_hz = full_upper;
+    span.source_x = 0.0f;
+    span.source_width = texture_width;
+    if (zoom_center_hz <= 0.0 || zoom_half_width_hz <= 0.0 ||
+        full_upper <= full_lower)
+        return span;
+
+    lower = zoom_center_hz - zoom_half_width_hz;
+    upper = zoom_center_hz + zoom_half_width_hz;
+    if (lower < full_lower)
+        lower = full_lower;
+    if (upper > full_upper)
+        upper = full_upper;
+    if (upper - lower <= 1.0)
+        return span;
+
+    span.lower_hz = lower;
+    span.upper_hz = upper;
+    span.source_x = (float)((lower - full_lower) / (full_upper - full_lower)) *
+                    texture_width;
+    span.source_width =
+        (float)((upper - lower) / (full_upper - full_lower)) * texture_width;
+    return span;
+}
+
 #endif

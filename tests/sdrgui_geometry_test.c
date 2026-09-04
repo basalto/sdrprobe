@@ -187,6 +187,71 @@ static void test_a_narrow_chart(void) {
     check_int("every sub-pixel bar still finds itself", wrong, 0);
 }
 
+/*
+ * What a waterfall strip covers.
+ *
+ * The bug this is here for: the zoom was gated on the calibration overlay's
+ * own flag, so the Scope's frequency window computed a range, handed it over,
+ * and had it discarded. The drag worked, the axis never moved, and a
+ * screenshot was the only thing that could tell the difference -- there was no
+ * decision with a name to ask.
+ */
+static void test_waterfall_span(void) {
+    const double centre = 948.4e6, rate = 2.0e6;
+    struct sdrgui_waterfall_span s;
+
+    /* No zoom asked for: the whole received span, the whole texture. */
+    s = sdrgui_waterfall_span(centre, rate, 0.0, 0.0, 1024.0f);
+    check_close("unzoomed lower", s.lower_hz, 947.4e6, 1.0);
+    check_close("unzoomed upper", s.upper_hz, 949.4e6, 1.0);
+    check_close("and all of the texture", (double)s.source_width, 1024.0, 0.01);
+    check_close("from its start", (double)s.source_x, 0.0, 0.01);
+
+    /* A zoom is honoured on its own merits -- no screen has to be named. This
+       is the case that silently did nothing. */
+    s = sdrgui_waterfall_span(centre, rate, 948.45e6, 150e3, 1024.0f);
+    check_close("zoomed lower", s.lower_hz, 948.3e6, 1.0);
+    check_close("zoomed upper", s.upper_hz, 948.6e6, 1.0);
+    check_close("a 300 kHz slice of a 2 MHz texture",
+                (double)s.source_width, 1024.0 * 0.15, 0.5);
+    check_close("starting 0.9 MHz in",
+                (double)s.source_x, 1024.0 * 0.45, 0.5);
+
+    /* The texture slice and the labelled range describe the same band: the
+       one property that stops a zoom drawing a band it did not measure. */
+    {
+        double left = 947.4e6 + (double)s.source_x / 1024.0 * rate;
+        double right = 947.4e6 + (double)(s.source_x + s.source_width) /
+                                 1024.0 * rate;
+        check_close("the pixels drawn start where the axis says",
+                    left, s.lower_hz, 2000.0);
+        check_close("and end where it says", right, s.upper_hz, 2000.0);
+    }
+
+    /* A request past the edge is clamped, not refused: panning off the end is
+       how a retune is triggered, and it must keep drawing meanwhile. */
+    s = sdrgui_waterfall_span(centre, rate, 947.45e6, 200e3, 1024.0f);
+    check_close("clamped to what was received", s.lower_hz, 947.4e6, 1.0);
+    check_close("keeping the part that overlaps", s.upper_hz, 947.65e6, 1.0);
+    check_true("and still narrower than the whole", s.upper_hz < 949.4e6);
+    check_close("from the texture's start", (double)s.source_x, 0.0, 0.01);
+
+    /* A window entirely off the received span has no overlap to show. It
+       falls back to the whole rather than drawing an empty strip, because the
+       retune that will fix it takes a frame or two to arrive. */
+    s = sdrgui_waterfall_span(centre, rate, 947.0e6, 200e3, 1024.0f);
+    check_close("no overlap falls back to the whole span",
+                s.upper_hz - s.lower_hz, rate, 1.0);
+
+    /* Degenerate requests fall back rather than dividing by zero. */
+    s = sdrgui_waterfall_span(centre, rate, 948.4e6, 0.4, 1024.0f);
+    check_close("a sub-hertz zoom is no zoom", s.upper_hz - s.lower_hz,
+                rate, 1.0);
+    s = sdrgui_waterfall_span(centre, 0.0, 948.4e6, 150e3, 1024.0f);
+    check_close("nor is one on a stopped receiver",
+                s.upper_hz - s.lower_hz, 0.0, 1.0);
+}
+
 int main(void) {
     test_the_plot_sits_inside_its_chart();
     test_a_tiny_chart();
@@ -195,6 +260,8 @@ int main(void) {
     test_the_edges();
     test_no_bars();
     test_a_narrow_chart();
+
+    test_waterfall_span();
 
     return check_report("chart geometry");
 }
