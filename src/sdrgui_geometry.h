@@ -180,4 +180,41 @@ sdrgui_waterfall_span(double center_hz, double sample_rate,
     return span;
 }
 
+/*
+ * Where the band a reader is dragging out lands on a chart.
+ *
+ * Three charts draw this -- the spectrum, the waterfall and the survey -- and
+ * for a while only two did, because it was written out by hand in each one.
+ * The two that had it had already drifted apart in colour. This is the
+ * arithmetic; the drawing stays with the drawing.
+ *
+ * `from` and `to` are in whichever order the reader dragged, since a drag
+ * rightwards and a drag leftwards select the same band.
+ */
+struct sdrgui_drag_band {
+    float x0;
+    float x1;
+    int visible;        /* 0 when the band falls outside the drawn range */
+};
+
+static inline struct sdrgui_drag_band
+sdrgui_drag_band_at(Rectangle plot, double lower_hz, double upper_hz,
+                    double from_hz, double to_hz) {
+    struct sdrgui_drag_band band = { 0.0f, 0.0f, 0 };
+    double span = upper_hz - lower_hz;
+    double low = from_hz < to_hz ? from_hz : to_hz;
+    double high = from_hz < to_hz ? to_hz : from_hz;
+
+    if (span <= 0.0 || high <= low)
+        return band;
+    band.x0 = plot.x + plot.width * (float)((low - lower_hz) / span);
+    band.x1 = plot.x + plot.width * (float)((high - lower_hz) / span);
+    if (band.x0 < plot.x)
+        band.x0 = plot.x;
+    if (band.x1 > plot.x + plot.width)
+        band.x1 = plot.x + plot.width;
+    band.visible = band.x1 > band.x0;
+    return band;
+}
+
 #endif

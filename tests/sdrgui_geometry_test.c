@@ -252,6 +252,46 @@ static void test_waterfall_span(void) {
                 s.upper_hz - s.lower_hz, 0.0, 1.0);
 }
 
+/*
+ * The band a reader is dragging out. Three charts draw it, and for a while
+ * only two did -- the waterfall zoomed on release with nothing shown on the
+ * way, so the reader found out what they had selected afterwards.
+ */
+static void test_drag_band(void) {
+    Rectangle plot = { 100.0f, 0.0f, 800.0f, 400.0f };
+    struct sdrgui_drag_band b;
+
+    /* A drag across the middle half. */
+    b = sdrgui_drag_band_at(plot, 947.4e6, 949.4e6, 947.9e6, 948.9e6);
+    check_true("the band is drawn", b.visible);
+    check_close("its left edge", (double)b.x0, 300.0, 0.5);
+    check_close("its right edge", (double)b.x1, 700.0, 0.5);
+
+    /* Dragged the other way, it is the same band: a reader who selects right
+       to left means what a reader who selects left to right means. */
+    {
+        struct sdrgui_drag_band r =
+            sdrgui_drag_band_at(plot, 947.4e6, 949.4e6, 948.9e6, 947.9e6);
+        check_close("backwards is the same left edge", (double)r.x0,
+                    (double)b.x0, 0.01);
+        check_close("and the same right edge", (double)r.x1, (double)b.x1,
+                    0.01);
+    }
+
+    /* Clamped to the plot rather than drawn outside it. */
+    b = sdrgui_drag_band_at(plot, 947.4e6, 949.4e6, 900e6, 1000e6);
+    check_true("an oversized drag still shows", b.visible);
+    check_close("clamped to the left edge", (double)b.x0, 100.0, 0.01);
+    check_close("and the right", (double)b.x1, 900.0, 0.01);
+
+    /* Degenerate cases draw nothing rather than a zero-width sliver or a
+       division by zero. */
+    b = sdrgui_drag_band_at(plot, 947.4e6, 949.4e6, 948e6, 948e6);
+    check_true("a drag that never moved is not a band", !b.visible);
+    b = sdrgui_drag_band_at(plot, 948e6, 948e6, 947.9e6, 948.1e6);
+    check_true("nor is any drag on a chart with no span", !b.visible);
+}
+
 int main(void) {
     test_the_plot_sits_inside_its_chart();
     test_a_tiny_chart();
@@ -262,6 +302,7 @@ int main(void) {
     test_a_narrow_chart();
 
     test_waterfall_span();
+    test_drag_band();
 
     return check_report("chart geometry");
 }

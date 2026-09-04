@@ -842,17 +842,34 @@ void set_decode(struct app *app, int kind) {
 }
 
 /* One row of numbered mode options, the active one highlighted. */
+/*
+ * The numbered options, and the key hints after them.
+ *
+ * The hints are given twice, long and short, because the row shares its line
+ * with the tab bar and there is no clipping between them: a suffix that does
+ * not fit is simply drawn over the tabs. That was invisible while every
+ * suffix was short, and arrived the moment the Scope's grew to name the zoom
+ * keys. Long if it fits, short if only that fits, nothing if neither does --
+ * the numbered options are what the row is for, and they are never the part
+ * that gets dropped.
+ */
 static void draw_option_row(int active, const char **labels, int count,
-                            const char *suffix) {
+                            const char *suffix, const char *short_suffix) {
     struct chrome_layout chrome = chrome_layout_now();
     int x = (int)chrome.option_row_left;
     const int y = (int)chrome.option_row_y;
+    float limit = chrome_tab_rect(&chrome, 0).x - 12.0f;
+
     for (int i = 0; i < count; i++) {
         Color color = (i == active) ? (Color){ 255, 201, 103, 255 }
                                     : (Color){ 150, 172, 188, 255 };
         DrawText(labels[i], x, y, 18, color);
         x += MeasureText(labels[i], 18) + 26;
     }
+    if (suffix && suffix[0] && (float)(x + MeasureText(suffix, 18)) > limit)
+        suffix = short_suffix;
+    if (suffix && suffix[0] && (float)(x + MeasureText(suffix, 18)) > limit)
+        return;
     if (suffix && suffix[0])
         DrawText(suffix, x, y, 18, (Color){ 110, 132, 150, 255 });
 }
@@ -920,12 +937,14 @@ static void draw_header(const struct app *app) {
                                 app->view == VIEW_WATERFALL
                             ? "drag/Up/Down zoom  Left/Right pan  +/- scale"
                               "  0 reset  h help  Esc quit"
-                            : "+/- scale   h help   Esc quit");
+                            : "+/- scale   h help   Esc quit",
+                        "h help  Esc quit");
     } else {
         draw_option_row((int)app->decode, decode_opts, 4,
                         app->decode == DECODE_ADSB
                             ? "h help   Esc scope"
-                            : "Up/Down scale   h help   Esc scope");
+                            : "Up/Down scale   h help   Esc scope",
+                        "h help  Esc scope");
     }
 
     draw_tab_bar(app);
