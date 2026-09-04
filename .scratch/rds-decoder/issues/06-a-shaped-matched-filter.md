@@ -1,6 +1,6 @@
 # 06 — A matched filter shaped like the pulse
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: (none)
 
 `fm_rds_correlate` uses a rectangular biphase filter: eight samples of +1 then
@@ -56,3 +56,41 @@ lost months to exactly that twice.
   `TSF`, and its programme type.
 - The measurement itself recorded in the ticket -- station, level, groups per
   second with and without -- so the answer survives the ticket.
+
+## Comments
+
+Resolved: built, measured, **not adopted**, and written up in
+`docs/rds-matched-filter.md` so the question is closed with a number rather
+than an opinion.
+
+The ticket asked for a marginal station to test against. There is not one.
+Every carrier in band II reachable from this site either decodes well or
+carries no RDS at all -- 87.6, 95.3 and 96.6 were each listened to for twenty
+seconds and produced nothing, while the seven that do carry it name themselves
+within a couple of seconds. So the weak signal had to be made: `make
+probe-fm-filter` adds noise to a real recording's I/Q and runs both filters
+over the identical noisy samples, six draws per point.
+
+Two details that decided whether the measurement meant anything. Noise goes on
+the I/Q rather than the baseband, because the discriminator is nonlinear and
+has a threshold -- adding noise after it would not reproduce how a weak signal
+actually degrades. And the shaped taps are scaled by root two so the two
+filters carry equal energy; without that the comparison would have measured
+the scaling instead of the shape.
+
+The result is the interesting part: **the shaped filter is never worse and
+about 14% better in blocks at the threshold edge**, exactly as theory
+predicts. It is still not worth adopting, for three reasons that only showed
+up in the data. The window where the two differ at all is three decibels
+wide -- identical at +13 dB and above, both dead at +9 -- because FM's own
+threshold closes it from below. Whether the station gets *named*, which is
+what a person actually sees, did not improve: 5/6 against 4/6, then 4/6
+against 3/6, then 0/6 against 1/6, all one-trial differences in both
+directions. And nothing reachable from here lives in that window, so a change
+that cannot be observed from this site has regressions that cannot be observed
+either.
+
+Kept: `enum fm_rds_filter`, `fm_rds_soft_bits_with()` and the probe. The
+default is one argument away, and if a marginal station ever matters -- a
+distant transmitter, a worse antenna, an indoor site -- the measurement is one
+command and the answer may come out differently.

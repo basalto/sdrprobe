@@ -400,6 +400,19 @@ check-touched:
 # White-box diagnostic walk through the GSM SCH chain (not a unit test). It
 # compiles gsm_dsp.c in (to reach its statics), so it links only sdr_dsp.c.
 FILE ?= testfiles/gsm_arfcn_69.bin
+FILE_FM_FILTER ?= testfiles/fm_rds_tsf.bin
+RATE_FM_FILTER ?= 2048000
+
+# Rectangular against shaped biphase filter, over the same samples at a sweep
+# of added noise. Answers whether the theoretical decibel is worth having.
+probe-fm-filter: scripts/fm_filter_probe.c $(SRC)/fm_dsp.c $(SRC)/fm_dsp.h \
+		$(SRC)/rds.c $(SRC)/rds.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_filter_probe \
+		scripts/fm_filter_probe.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
+		$(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/fm_filter_probe $(FILE_FM_FILTER) $(RATE_FM_FILTER)
+
 probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)

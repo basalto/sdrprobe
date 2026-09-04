@@ -291,6 +291,31 @@ size_t fm_rds_symbols(const float *bb_i, const float *bb_q, size_t samples,
 void fm_rds_timing_scores(const float *bb_i, const float *bb_q, size_t samples,
                           float scores[FM_RDS_SAMPLES_PER_SYMBOL]);
 
+/*
+ * Which biphase filter recovers the symbols.
+ *
+ * RECTANGULAR is eight samples of +1 then eight of -1 -- the shape of the
+ * symbol as the standard defines it, and what this has always used. SHAPED
+ * weights those halves by a half-sine, which is the matched filter for the
+ * band-limited pulse actually transmitted; the mismatch between the two is
+ * worth about a decibel in theory.
+ *
+ * Selectable rather than replaced because "about a decibel in theory" is a
+ * claim, and the only way to close it either way is to run both over the same
+ * samples. See docs/rds-matched-filter.md for what that measured.
+ */
+enum fm_rds_filter {
+    FM_RDS_FILTER_RECTANGULAR = 0,
+    FM_RDS_FILTER_SHAPED
+};
+
+/* As fm_rds_soft_bits, with the filter named. fm_rds_soft_bits is this with
+   the rectangular one, which is what the view and every check use. */
+size_t fm_rds_soft_bits_with(const float *bb_i, const float *bb_q,
+                             size_t samples, enum fm_rds_filter filter,
+                             float *soft, size_t capacity, int *timing_offset,
+                             double *axis_radians);
+
 size_t fm_rds_soft_bits(const float *bb_i, const float *bb_q, size_t samples,
                         float *soft, size_t capacity, int *timing_offset,
                         double *axis_radians);
