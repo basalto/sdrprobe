@@ -110,6 +110,11 @@ static int start_lte_calibration(struct app *app) {
         return -1;
     }
     app->calibration_expected_hz = carrier;
+    chart_window_sync(&app->cal.window, app->applied_frequency,
+                      app->applied_sample_rate, CHART_MIN_SPAN_HZ);
+    chart_window_centre_on(&app->cal.window, (double)carrier,
+                           CALIBRATION_VIEW_HALF_WIDTH_HZ,
+                           CHART_MIN_SPAN_HZ);
     /* Tuned to the carrier's centre, not beside it as an ARFCN is: LTE never
        transmits on the middle subcarrier, so the receiver's own DC spike
        lands where the standard already leaves a hole. */
@@ -159,6 +164,12 @@ int start_calibration(struct app *app) {
     }
 
     app->calibration_expected_hz = expected;
+    chart_window_sync(&app->cal.window, app->applied_frequency,
+                      app->applied_sample_rate,
+                      chart_min_span(GSM900_ARFCN_SPACING_HZ));
+    chart_window_centre_on(&app->cal.window, (double)expected,
+                           CALIBRATION_VIEW_HALF_WIDTH_HZ,
+                           chart_min_span(GSM900_ARFCN_SPACING_HZ));
     app->cal.tune_hz = expected - 400000U;
     app->cal.measured_hz = 0.0;
     app->cal.offset_hz = 0.0;
@@ -722,6 +733,10 @@ void handle_calibration_input(struct app *app) {
     }
 }
 
+Rectangle calibration_chart_rect(const struct app *app) {
+    return calibration_layout_now(app->calibration_technology == 1).chart;
+}
+
 void draw_calibration(struct app *app) {
     char text[256];
     struct calibration_layout cl =
@@ -873,8 +888,7 @@ void draw_calibration(struct app *app) {
      * compares the rectangles the layout returns, and app->plot is not one of
      * them.
      */
-    draw_waterfall_rect(app, 1, cl.chart,
-                        (double)app->calibration_expected_hz);
+    draw_waterfall_rect(app, 1, cl.chart, &app->cal.window);
     if (app->calibration_expected_hz > 0) {
         double full_lower = (double)app->applied_frequency -
                             app->applied_sample_rate / 2.0;

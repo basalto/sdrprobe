@@ -926,11 +926,15 @@ void draw_lte(struct app *app) {
     if (app->lte.analysis_mode) {
         draw_charts(app, &l);
     } else {
-        draw_waterfall_rect(app, 0, l.waterfall, 0.0);
+        draw_waterfall_rect(app, 0, l.waterfall, &app->lte.window);
         draw_cell_panel(app, l.cell_panel, now);
         draw_mib_panel(app, l.mib_panel, now);
     }
     draw_found_panel(app, found_rect(app, &l));
+}
+
+Rectangle lte_waterfall_rect(void) {
+    return lte_layout_now().waterfall;
 }
 
 void handle_lte_input(struct app *app) {
