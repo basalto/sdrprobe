@@ -370,6 +370,29 @@ static void test_panning_past_the_end(void) {
     }
 }
 
+/* Whether there is a zoom to back out of. */
+static void test_zoomed(void) {
+    struct freq_window w;
+
+    memset(&w, 0, sizeof(w));
+    check_true("no data, no zoom", !freq_window_zoomed(&w));
+
+    w.data_lower_hz = 947.4e6;
+    w.data_upper_hz = 949.4e6;
+    freq_window_reset(&w);
+    check_true("the whole span is not a zoom", !freq_window_zoomed(&w));
+
+    w.view_lower_hz = 948.3e6;
+    w.view_upper_hz = 948.6e6;
+    check_true("a narrower window is", freq_window_zoomed(&w));
+
+    /* A window as wide as the data, to within a hertz, is not a zoom -- the
+       edges come from floating point arithmetic and will not land exactly. */
+    w.view_lower_hz = 947.4e6 + 0.25;
+    w.view_upper_hz = 949.4e6 - 0.25;
+    check_true("nor is one a half hertz short", !freq_window_zoomed(&w));
+}
+
 int main(void) {
     test_window_before_any_sweep();
     test_zoom_in_and_out();
@@ -382,6 +405,8 @@ int main(void) {
     test_pixels_and_frequencies();
     test_what_a_drag_means();
     test_panning_past_the_end();
+
+    test_zoomed();
 
     return check_report("the frequency window");
 }

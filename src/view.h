@@ -121,11 +121,60 @@ Rectangle calculate_plot(void);
 /* The frequency window the Scope's spectrum and waterfall share. */
 void scope_freq_sync(struct app *app);
 void scope_freq_range(const struct app *app, double *lower, double *upper);
-int scope_freq_input(struct app *app, Rectangle plot);
+/*
+ * The keys every chart shares, read once a frame.
+ *
+ * + and - change the vertical scale; Up and Down zoom the frequency window in
+ * and out; Left and Right pan it; 0 puts it back. The split is deliberate:
+ * the two axes get two pairs of keys, so neither has to be modal and a reader
+ * never has to remember which one the arrows are currently driving.
+ *
+ * + - and 0 are read as *characters* rather than as keys, and that is not a
+ * style choice. raylib names keys after positions on a US keyboard, so
+ * KEY_EQUAL and KEY_MINUS are wherever a US board prints = and -. On a
+ * Portuguese layout the key printed + sits where a US board has [, so binding
+ * the physical keys makes them do nothing at all -- which is exactly how the
+ * survey's zoom shipped once. The keypad and the US positions stay as
+ * fallbacks, since a numpad + is the same key everywhere.
+ *
+ * Read once a frame, in the frame loop, because GetCharPressed() drains a
+ * queue: two callers asking independently means the second one gets nothing,
+ * intermittently, depending on who ran first.
+ */
+enum chart_key {
+    CHART_KEY_NONE = 0,
+    CHART_KEY_SCALE_UP,     /* + */
+    CHART_KEY_SCALE_DOWN,   /* - */
+    CHART_KEY_RESET_ZOOM    /* 0 */
+};
+
+enum chart_key chart_key_pressed(void);
+
+int scope_freq_input(struct app *app, Rectangle plot,
+                     enum chart_key key);
 void scope_freq_reset(struct app *app);
 /* How far Left and Right move it, and the narrowest it may become. */
 #define SCOPE_FREQ_PAN 0.20
+#define SCOPE_ZOOM_STEP 1.4
 #define SCOPE_FREQ_MIN_SPAN_HZ 20000.0
+
+/*
+ * Which control-row field has the keyboard. NONE is 0 deliberately: the state
+ * is zero-initialised with the rest of struct app, and a "focused" value of 0
+ * meant the centre field came up believing it was mid-edit, so it was never
+ * filled in and the row opened with an empty box under a caption promising a
+ * frequency. Said out loud rather than relied on, the way TAB_SURVEY is.
+ */
+#define SCOPE_FIELD_NONE 0
+#define SCOPE_FIELD_CENTRE 1
+#define SCOPE_FIELD_START 2
+#define SCOPE_FIELD_END 3
+
+
+
+void scope_header_sync(struct app *app);
+int scope_header_input(struct app *app);
+void draw_scope_header(const struct app *app);
 void clear_scatter(struct app *app);
 int recreate_scatter(struct app *app, Rectangle plot);
 int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);

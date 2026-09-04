@@ -585,6 +585,17 @@ struct scope_view {
        that is no longer arriving. */
     uint32_t freq_anchor_hz;
     uint32_t freq_anchor_rate;
+    /*
+     * The control row's three fields. They hold text rather than numbers
+     * because a half-typed "94." is not a frequency, and the value is only
+     * parsed when the reader commits with Enter. While a field has focus it
+     * is left alone; the rest of the time it follows the receiver and the
+     * window, so it always says what is actually on screen.
+     */
+    char centre_text[32];
+    char start_text[32];
+    char end_text[32];
+    int field_focus;            /* SCOPE_FIELD_* below, or -1 for none */
 
     int scatter_ready;
     int waterfall_ready;
