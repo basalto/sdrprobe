@@ -57,7 +57,15 @@ void view_fm_defaults(struct app *app) {
  * that number and a stale one puts the pilot 450 Hz from where the loop is
  * looking, which a 10 Hz loop will never find.
  */
-void update_fm(struct app *app, double now) {
+/*
+ * A block of samples into the FM chain: audio, the multiplex, the RDS
+ * subcarrier and whatever bits fall out of it.
+ *
+ * `flush` is for the band scan, which leaves a carrier after less than a
+ * second and would otherwise discard every partial chunk unread. See the
+ * chunk length below.
+ */
+void update_fm_flush(struct app *app, double now, int flush) {
     static float multiplex[SAMPLE_BLOCK_PAIRS];
     static float fresh_i[FM_VIEW_BASEBAND];
     static float fresh_q[FM_VIEW_BASEBAND];
@@ -181,15 +189,25 @@ void update_fm(struct app *app, double now) {
      * bits appended and the baseband it came from discarded. Nothing is
      * decoded twice and nothing straddles two estimates.
      */
-    if (fm->bb_count < FM_RDS_CHUNK_SAMPLES)
+    /*
+     * `flush` says there will be no more baseband for this tuning -- the band
+     * scan is about to move on -- so whatever has arrived is decoded as a
+     * short chunk instead of being thrown away unread. It is as valid as a
+     * full one and simply carries fewer bits: the fixed size exists so that
+     * *consecutive* chunks agree about which absolute symbol an index means,
+     * and a tuning that is ending has no next chunk to agree with.
+     */
+    size_t chunk = fm_rds_chunk_length(fm->bb_count, flush);
+
+    if (chunk == 0)
         return;
 
     fm->soft_count = fm_rds_soft_bits(fm->bb_i, fm->bb_q,
-                                      FM_RDS_CHUNK_SAMPLES, fm->soft,
+                                      chunk, fm->soft,
                                       FM_VIEW_SOFT_BITS, &fm->timing_offset,
                                       &fm->axis_radians);
     if (fm->analysis_mode)
-        fm_rds_timing_scores(fm->bb_i, fm->bb_q, FM_RDS_CHUNK_SAMPLES,
+        fm_rds_timing_scores(fm->bb_i, fm->bb_q, chunk,
                              fm->timing_energy);
     {
         size_t k;
@@ -207,11 +225,11 @@ void update_fm(struct app *app, double now) {
             fm->bits[fm->bit_count++] = fm->soft[k];
     }
     /* The chunk is spent; keep whatever arrived past its end. */
-    fm->bb_count -= FM_RDS_CHUNK_SAMPLES;
+    fm->bb_count -= chunk;
     if (fm->bb_count > 0) {
-        memmove(fm->bb_i, fm->bb_i + FM_RDS_CHUNK_SAMPLES,
+        memmove(fm->bb_i, fm->bb_i + chunk,
                 fm->bb_count * sizeof(fm->bb_i[0]));
-        memmove(fm->bb_q, fm->bb_q + FM_RDS_CHUNK_SAMPLES,
+        memmove(fm->bb_q, fm->bb_q + chunk,
                 fm->bb_count * sizeof(fm->bb_q[0]));
     }
     if (fm->soft_count == 0)
@@ -1188,6 +1206,10 @@ static void fm_scan_choose(struct app *app) {
                     scan->found_count, floor_dbfs);
 }
 
+void update_fm(struct app *app, double now) {
+    update_fm_flush(app, now, 0);
+}
+
 void update_fm_scan(struct app *app, double now, int have_block) {
     struct fm_scan *scan = &app->fm.scan;
     double elapsed;
@@ -1249,15 +1271,30 @@ void update_fm_scan(struct app *app, double now, int have_block) {
         struct fm_found_station *f = &scan->found[scan->visiting];
         const struct rds_station *s = &app->fm.station;
 
+        /* The visit is over: decode the baseband it gathered rather than
+           moving on and dropping it. Without this the scan reported every
+           station as carrying no RDS, because a visit is shorter than a
+           chunk. */
+        update_fm_flush(app, now, 1);
+
         f->stereo = fm_audio_is_stereo(&app->fm.audio);
         f->rds = s->funnel.groups > 0;
         f->pi_valid = s->pi_valid;
         f->pi = s->pi;
         if (s->ps_valid)
             snprintf(f->ps, sizeof(f->ps), "%s", s->ps);
-        debug_log_write("fm-scan", "%.1f MHz %s rds %d pi 0x%04X",
+        /* The funnel, not just the verdict: which stage stops is the
+           diagnosis, exactly as it is for the LTE chain. A visit that reads
+           no RDS because the pilot never locked is a different fault from one
+           that demodulated symbols and never synchronised. */
+        debug_log_write("fm-scan",
+                        "%.1f MHz %s bb %zu consumed %zu bits %zu "
+                        "soft %ld matched %ld groups %ld pi 0x%04X",
                         f->frequency_hz / 1e6,
-                        f->stereo ? "stereo" : "mono", f->rds, f->pi);
+                        f->stereo ? "stereo" : "mono",
+                        app->fm.bb_count, app->fm.bb_consumed,
+                        app->fm.bit_count, s->funnel.bits,
+                        s->funnel.blocks_matched, s->funnel.groups, f->pi);
 
         scan->visiting++;
         if (scan->visiting >= scan->found_count) {

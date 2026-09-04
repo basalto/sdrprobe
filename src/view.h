@@ -70,6 +70,10 @@ Rectangle gsm_burst_rect(void);
 void draw_fm(struct app *app);
 void handle_fm_input(struct app *app);
 void update_fm(struct app *app, double now);
+/* As above, but `flush` decodes a short final chunk instead of waiting for a
+   full one -- what the band scan needs, since a visit is shorter than a
+   chunk. */
+void update_fm_flush(struct app *app, double now, int flush);
 void view_fm_defaults(struct app *app);
 /* Retune and start over: everything in the view belongs to one carrier. */
 void fm_tune(struct app *app, double hz);

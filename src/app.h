@@ -185,7 +185,7 @@ struct fm_scan {
 #define FM_VIEW_BIT_MEMORY 32768
 /* One chunk: 2048 symbols, about 1.7 s. Long enough for a solid timing and
    axis estimate, short enough that the view is never far behind. */
-#define FM_RDS_CHUNK_SAMPLES 32768
+
 
 struct fm_view {
     char frequency[16];             /* megahertz, as typed */
