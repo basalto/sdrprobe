@@ -267,16 +267,17 @@ void draw_settings(const struct app *app) {
     DrawRectangleLinesEx(panel, 2.0f, (Color){ 111, 139, 154, 255 });
     DrawText("Acquisition settings", (int)panel.x + 28, (int)panel.y + 22,
              24, (Color){ 235, 242, 246, 255 });
-    DrawText("Center l.frequency (Hz or K/M/G)", (int)l.frequency.x,
-             (int)l.frequency.y - 23,
-             17, (Color){ 166, 188, 201, 255 });
+    DrawText("Center frequency (Hz or K/M/G)", (int)l.frequency.x,
+             (int)settings_caption_of(l.frequency).y, 17,
+             (Color){ 166, 188, 201, 255 });
     sdrgui_text_field(l.frequency, app->set.frequency,
                       app->set.focus == 0);
-    DrawText("PPM", (int)l.ppm.x, (int)l.ppm.y - 23, 17,
+    DrawText("PPM", (int)l.ppm.x, (int)settings_caption_of(l.ppm).y, 17,
              (Color){ 166, 188, 201, 255 });
     sdrgui_text_field(l.ppm, app->set.ppm, app->set.focus == 1);
 
-    DrawText("Gain", (int)panel.x + 28, (int)panel.y + 137, 17,
+    DrawText("Gain", (int)l.gain_previous.x,
+             (int)settings_caption_of(l.gain_previous).y, 17,
              (Color){ 166, 188, 201, 255 });
     if (!app->receiver_mode) {
         snprintf(gain, sizeof(gain), "capture (not adjustable)");
@@ -291,8 +292,9 @@ void draw_settings(const struct app *app) {
         draw_button(l.gain_next, ">", 0);
     }
     DrawText(gain,
-             (int)(panel.x + (panel.width - MeasureText(gain, 20)) / 2.0f),
-             (int)panel.y + 173, 20, (Color){ 235, 242, 246, 255 });
+             (int)(l.gain_value.x +
+                   (l.gain_value.width - (float)MeasureText(gain, 20)) / 2.0f),
+             (int)(l.gain_value.y + 9.0f), 20, (Color){ 235, 242, 246, 255 });
 
     /*
      * The transform size, and what it costs. Both numbers, because it is a
@@ -307,7 +309,8 @@ void draw_settings(const struct app *app) {
         double rate = (double)app->applied_sample_rate;
         int windows = size > 0 ? (int)(SAMPLE_BLOCK_PAIRS / (size_t)size) : 0;
 
-        DrawText("Scope resolution", (int)panel.x + 28, (int)panel.y + 282, 16,
+        DrawText("Scope resolution", (int)l.fft_previous.x,
+                 (int)settings_caption_of(l.fft_previous).y, 16,
                  (Color){ 157, 180, 194, 255 });
         if (size > 0 && rate > 0.0)
             snprintf(fft, sizeof(fft), "%d points   %.0f Hz bins   %d averaged",
@@ -317,8 +320,11 @@ void draw_settings(const struct app *app) {
         draw_button(l.fft_previous, "<", 0);
         draw_button(l.fft_next, ">", 0);
         DrawText(fft,
-                 (int)(panel.x + (panel.width - MeasureText(fft, 18)) / 2.0f),
-                 (int)panel.y + 310, 18, (Color){ 235, 242, 246, 255 });
+                 (int)(l.fft_value.x +
+                       (l.fft_value.width - (float)MeasureText(fft, 18)) /
+                           2.0f),
+                 (int)(l.fft_value.y + 10.0f), 18,
+                 (Color){ 235, 242, 246, 255 });
     }
 
     bool dc_checked = app->set.remove_dc;
@@ -330,8 +336,8 @@ void draw_settings(const struct app *app) {
                 &drift_checked);
 
     if (app->settings_error[0])
-        DrawText(app->settings_error, (int)panel.x + 28, (int)panel.y + 289,
-                 16, (Color){ 255, 105, 100, 255 });
+        DrawText(app->settings_error, (int)l.error.x, (int)l.error.y, 16,
+                 (Color){ 255, 105, 100, 255 });
     draw_button(l.cancel, "Cancel", 0);
     draw_button(l.apply, "Apply", 1);
 }
