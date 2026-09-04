@@ -1,6 +1,6 @@
 # 01 — Prove the FFT works at sizes it has never run at
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: (none)
 
 Nothing user-visible. This is the ground the other two stand on.
@@ -32,3 +32,24 @@ tone in the middle of a bin does not.
 
 This is the `.claude/skills/dsp-validation` case exactly. A transform subtly
 wrong at 8192 draws a spectrum that looks entirely plausible.
+
+## Comments
+
+**2026-09-04** — Done. `sdr_dsp_spectrum` takes its size; the buffers are
+sized to `SDR_DSP_FFT_MAX` (16384, 64 KB an array) rather than allocated; the
+Hann window and its sum are rebuilt when the size changes rather than scaling
+by the total of a window they are not.
+
+`SDR_DSP_FFT_SIZE` is still 2048, so every existing caller is unchanged in
+behaviour and in text apart from passing it explicitly. 13970 checks pass.
+
+**The transform does generalise.** A full-scale tone comes back at 0.00 dBFS
+in the right bin at 256, 512, 1024, 2048, 4096, 8192 and 16384, with no bin
+away from it above -40. So does a constant at bin zero, and a tone half a bin
+off splits between its two neighbours at each size. That was worth proving
+rather than assuming -- a radix-2 loop *ought* to generalise, and a
+bit-reversal right for one length and wrong for another draws a spectrum that
+looks entirely plausible.
+
+A size that is not a power of two, or outside the range, returns nothing
+rather than running and producing nonsense.
