@@ -64,6 +64,9 @@ void start_record(struct app *app);
 void gsm_tune_selected(struct app *app, int arfcn);
 Rectangle gsm_scan_rect(void);
 Rectangle gsm_waterfall_rect(void);
+Rectangle calibration_chart_rect(const struct app *app);
+Rectangle lte_waterfall_rect(void);
+Rectangle fm_waterfall_rect(const struct app *app);
 Rectangle gsm_burst_rect(void);
 
 /* LTE cell-search and broadcast view. */
@@ -185,8 +188,21 @@ int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);
 void render_waterfall(struct app *app);
 void update_waterfall(struct app *app);
 void update_scatter(struct app *app, double now, int insert);
+/*
+ * The window gestures for a decode view's waterfall: sync it against the
+ * current tuning, then take the drag, the zoom keys and the pan.
+ *
+ * `spacing_hz` is the channel spacing when the axis is channels and 0 when it
+ * is linear -- it sets how far in a zoom may go, because a window narrower
+ * than one channel can contain no channel centre and leaves the axis blank.
+ * `allow_retune` is false where a pan may not move the receiver.
+ */
+void view_window_input(struct app *app, struct chart_window *win,
+                       Rectangle rect, enum chart_key key, double spacing_hz,
+                       int allow_retune);
+
 void draw_waterfall_rect(const struct app *app, int calibration_mode,
-                         Rectangle rect, double zoom_center_hz);
+                         Rectangle rect, const struct chart_window *win);
 void draw_waterfall(const struct app *app);
 void draw_base_hud(const struct app *app, const struct slot_snapshot *snapshot);
 void draw_magnitude(const struct app *app);

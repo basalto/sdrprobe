@@ -920,7 +920,7 @@ void draw_fm(struct app *app) {
 
     if (fm_scan_showing(app))
         draw_scan_list(app, l.scan_list);
-    draw_waterfall_rect(app, 0, l.waterfall, 0.0);
+    draw_waterfall_rect(app, 0, l.waterfall, &app->fm.window);
     draw_signal_panel(app, l.signal_panel);
     draw_station_panel(app, l.station_panel);
     draw_funnel_panel(app, l.funnel_panel);
@@ -930,6 +930,12 @@ void draw_fm(struct app *app) {
    the digits do not also reach the view switcher. */
 int fm_editing(const struct app *app) {
     return app->fm.typing;
+}
+
+/* The scan list shares the row with the waterfall, so which rectangle the
+   waterfall gets depends on whether the list is showing. */
+Rectangle fm_waterfall_rect(const struct app *app) {
+    return fm_layout_now(fm_scan_showing(app)).waterfall;
 }
 
 void handle_fm_input(struct app *app) {
