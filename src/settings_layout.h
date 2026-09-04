@@ -54,6 +54,7 @@ struct settings_layout {
     Rectangle fft_value;
     Rectangle cancel;
     Rectangle apply;
+    Rectangle error;            /* the rejection message, beside the buttons */
 };
 
 static inline struct settings_layout settings_layout_for(float screen_width,
@@ -128,6 +129,13 @@ static inline struct settings_layout settings_layout_for(float screen_width,
                            SETTINGS_BUTTON_W, SETTINGS_BUTTON_H };
     l.cancel = (Rectangle){ l.apply.x - SETTINGS_BUTTON_W - 12.0f, l.apply.y,
                             SETTINGS_BUTTON_W, SETTINGS_BUTTON_H };
+    /* On the buttons' line, to their left. It used to be drawn at a fixed
+       offset from the panel's top, which put it on the resolution caption the
+       moment that row was added -- a message about a rejected frequency,
+       rendered over the caption of an unrelated control. */
+    l.error = (Rectangle){ l.panel.x + SETTINGS_MARGIN, l.apply.y + 9.0f,
+                           l.cancel.x - l.panel.x - SETTINGS_MARGIN * 2.0f,
+                           SETTINGS_CAPTION_H };
     return l;
 }
 
