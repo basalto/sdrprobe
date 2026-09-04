@@ -170,6 +170,11 @@ struct options {
     uint32_t survey_from_hz;
     uint32_t survey_to_hz;
     int survey_seen;
+    /* Pick the nth strongest candidate once a scripted sweep finishes, so the
+       detail panel and its Inspect button can be looked at -- otherwise that
+       screen exists only behind a mouse click and nothing can photograph it
+       (the rule in CLAUDE.md). 0 for none. */
+    int survey_select;
     double survey_dwell_seconds;  /* 0 = leave the view's own default */
 };
 
