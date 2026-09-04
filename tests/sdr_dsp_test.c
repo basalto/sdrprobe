@@ -650,6 +650,39 @@ static void test_sizes_it_will_not_do(void) {
     }
 }
 
+
+/*
+ * The sizes a reader is offered, and that every one of them is a size the
+ * transform will actually do -- a list offering a size that is refused is a
+ * control that does nothing.
+ */
+static void test_the_sizes_offered(void) {
+    int i, previous = 0;
+
+    check_int("the smallest offered is the smallest allowed",
+              sdr_dsp_fft_choice(0), SDR_DSP_FFT_MIN);
+    check_int("and the largest is the largest",
+              sdr_dsp_fft_choice(SDR_DSP_FFT_CHOICES - 1), SDR_DSP_FFT_MAX);
+    check_int("the default is one of them",
+              sdr_dsp_fft_choice_of(SDR_DSP_FFT_SIZE) >= 0, 1);
+
+    for (i = 0; i < SDR_DSP_FFT_CHOICES; i++) {
+        int size = sdr_dsp_fft_choice(i);
+        check_msg(sdr_dsp_fft_size_valid(size),
+                  "choice %d is %d, which the transform refuses\n", i, size);
+        check_msg(size > previous, "choice %d is not larger than the one "
+                  "before it\n", i);
+        check_msg(sdr_dsp_fft_choice_of(size) == i,
+                  "choice %d does not find itself again\n", i);
+        previous = size;
+    }
+    check_int("past the end is nothing",
+              sdr_dsp_fft_choice(SDR_DSP_FFT_CHOICES), 0);
+    check_int("and before the start", sdr_dsp_fft_choice(-1), 0);
+    check_int("a size not on the list is not on it",
+              sdr_dsp_fft_choice_of(3000), -1);
+}
+
 int main(void) {
     test_conversion();
     test_standard_block();
@@ -669,6 +702,7 @@ int main(void) {
     test_the_transform_at_every_size();
     test_the_awkward_bins();
     test_sizes_it_will_not_do();
+    test_the_sizes_offered();
 
     return check_report("generic DSP core");
 }

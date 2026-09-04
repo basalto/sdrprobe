@@ -285,6 +285,52 @@ static void test_antennas_survive_the_file(void) {
               written.antenna);
 }
 
+
+/*
+ * The Scope's transform size, kept because it describes how somebody likes to
+ * work rather than one run -- the test everything else in this file passes.
+ */
+static void test_the_transform_size(void) {
+    struct config config;
+    char text[2048];
+
+    config_defaults(&config);
+    check_int("nothing is remembered to begin with", config.fft_size, 0);
+    check_int("setting it says the file is worth writing",
+              config_set_fft_size(&config, 8192), 1);
+    check_int("and it is remembered", config.fft_size, 8192);
+    check_int("setting the same value again changes nothing",
+              config_set_fft_size(&config, 8192), 0);
+    check_int("a size the transform cannot do is refused",
+              config_set_fft_size(&config, 3000), 0);
+    check_int("leaving what was there", config.fft_size, 8192);
+
+    /* It survives a round trip through the file. */
+    check_true("it writes",
+               config_format(&config, text, sizeof(text)) > 0);
+    {
+        struct config read_back;
+        config_defaults(&read_back);
+        config_parse(text, &read_back);
+        check_int("and reads back", read_back.fft_size, 8192);
+    }
+
+    /*
+     * A file written by another version naming a size this build cannot do is
+     * dropped rather than carried: a transform that refuses its size draws
+     * nothing at all, and a config file is not a good place to learn that.
+     */
+    {
+        struct config odd;
+        config_defaults(&odd);
+        config_parse("fft_size 3000\n", &odd);
+        check_int("a size this build refuses is left at the default",
+                  odd.fft_size, 0);
+        config_parse("fft_size 1048576\n", &odd);
+        check_int("and so is an absurd one", odd.fft_size, 0);
+    }
+}
+
 int main(void) {
     test_defaults();
     test_reads_a_file();
@@ -305,6 +351,8 @@ int main(void) {
 
     test_remembered_antennas();
     test_antennas_survive_the_file();
+
+    test_the_transform_size();
 
     return check_report("the persisted installation");
 }

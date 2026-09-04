@@ -153,6 +153,17 @@ which the view makes up to three.
 See `docs/liquid-dsp-sdrprobe-assessment.md` for the numbers and for where the
 time would come from if it were ever needed.
 
+**Scope resolution** in the Settings panel steps the Scope's transform size
+through the powers of two from 256 to 16384, and says what each costs: a
+longer transform buys resolution and spends averaging, because the window
+count is `pair_count / size`. It is honoured **only while the Scope owns the
+spectrum** — `input_scope_owns_spectrum()`, asked every block rather than
+reset on a screen change, because the survey, both band scans and the
+calibration overlay read the same array and their floors were chosen against
+977 Hz bins. Calibration is an overlay, not a tab, so a test on the tab alone
+would hand it whatever the Scope had chosen. `--fft points` sets it from the
+command line and `fft_size` persists it in the config.
+
 `--analysis` opens a decode view on its charts rather than its data — one flag
 for all of them, since every decode view has the same two arrangements.
 `--view calibration` opens the calibration overlay, and `--calibrate lte`
