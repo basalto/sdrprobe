@@ -70,7 +70,7 @@ static const struct band_plan_entry entries[] = {
     { 76000000.0,  87500000.0, "VHF band II (Japan/OIRT edge)", NULL,
       BAND_PLAN_NONE },
     { 87500000.0, 108000000.0, "FM broadcast", "200 kHz raster, wideband FM",
-      BAND_PLAN_NONE },
+      BAND_PLAN_FM },
     { 108000000.0, 117975000.0, "Aeronautical navigation", "VOR, ILS",
       BAND_PLAN_NONE },
     { 117975000.0, 137000000.0, "VHF airband", "25 kHz channels, AM",
