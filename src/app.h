@@ -568,6 +568,11 @@ struct scope_view {
      * panning become retuning, which is the point at which carrying on is
      * impossible any other way.
      */
+    /* The transform size the two frequency charts ask for. Only honoured
+       while the Scope owns the spectrum (input_scope_owns_spectrum); the
+       survey, both band scans and calibration always get the default. */
+    int fft_size;
+
     struct freq_window freq;
     int freq_dragging;
     float freq_drag_from_x;
@@ -832,9 +837,16 @@ struct app {
     struct sdr_signal_stats signal_stats;
     int signal_stats_ready;
 
-    float spectrum_average[SDR_DSP_FFT_SIZE];
-    float spectrum_candidate[SDR_DSP_FFT_SIZE];
-    float spectrum_peak[SDR_DSP_FFT_SIZE];
+    /*
+     * One spectrum, sized to the largest transform the Scope may ask for.
+     * `spectrum_bins` is how many of them are currently filled -- everything
+     * that reads this must use that rather than the array's length, which is
+     * a capacity and not a count.
+     */
+    float spectrum_average[SDR_DSP_FFT_MAX];
+    float spectrum_candidate[SDR_DSP_FFT_MAX];
+    float spectrum_peak[SDR_DSP_FFT_MAX];
+    int spectrum_bins;
     int spectrum_windows;
     int spectrum_ready;
     int spectrum_peak_ready;
