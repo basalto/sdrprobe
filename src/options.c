@@ -79,7 +79,8 @@ void usage(const char *program) {
             "  --screenshot      write the last frame to a PNG before quitting,\n"
             "                    so a view can be looked at without a person;\n"
             "                    pair with --duration\n"
-            "  --list-devices    print the receivers found, and exit\n",
+            "  --list-devices    print the receivers found, and exit\n"
+            "  --version         print the version, and exit\n",
             program);
 }
 
@@ -547,6 +548,13 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->headless)
                 return -1;
             options->headless = 1;
+        } else if (strcmp(option, "--version") == 0) {
+            /* Reachable without a window, like every other answer this
+               program gives (ADR-0012): a version only in a corner of a
+               screenshot is not something a script can report. */
+            if (options->show_version)
+                return -1;
+            options->show_version = 1;
         } else if (strcmp(option, "--list-devices") == 0) {
             if (options->list_devices)
                 return -1;

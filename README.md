@@ -48,6 +48,32 @@ after dump1090's `modesInitRTLSDR()`.
   opt‑in periodic drift re‑check that retunes to the calibrated ARFCN and warns
   on drift.
 
+## Versioning
+
+`sdrprobe --version`, and the same string in the window's bottom-right corner.
+
+It follows [Semantic Versioning 2.0.0](https://semver.org). For an application
+rather than a library, the three numbers are read against the interfaces other
+people's work can break against, not against C symbols nobody links to:
+
+- **the command line** — flag names, their values, what they refuse;
+- **the headless reports** other programs parse — `--decode`, `--survey`,
+  `--lte-scan`, `--lte-chain`, `--calibrate`, and the `candidate` and `survey`
+  record lines behind `scripts/survey_tool.py`;
+- **the files kept between runs** — `~/.config/sdrprobe/config`, the survey
+  JSON under `surveys/`, `surveys/history-<site>.txt`, and capture sidecars.
+
+MAJOR when one of those breaks, MINOR when one gains something backwards
+compatible, PATCH when behaviour is corrected without either. The screens are
+not on that list: a new view or a moved panel is MINOR at most, because
+nothing can depend on them programmatically. And a decode that starts reading
+a field it previously got wrong is a PATCH — the wrong answer was never the
+contract.
+
+Still `0.x` deliberately, which under SemVer says the public surface may still
+move without a MAJOR bump. It has, recently. `docs/adr/0016` sets out what
+1.0.0 would be promising.
+
 ## Requirements
 
 - `librtlsdr` and `raylib` development headers

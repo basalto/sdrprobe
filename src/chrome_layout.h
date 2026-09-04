@@ -39,6 +39,15 @@ struct chrome_layout {
     Vector2 gsm_dot;
     Vector2 lte_dot;
     float status_left;     /* x where the buttons begin: text must stop here */
+    /*
+     * The signature, bottom right: who to write to and which build this is.
+     *
+     * A rectangle rather than two numbers because the corner is the one place
+     * on screen every view reaches -- the charts run to within about sixty
+     * pixels of the bottom -- so it is worth being able to check that nothing
+     * else is drawn into it.
+     */
+    Rectangle footer;
 };
 
 /*
@@ -65,7 +74,6 @@ static inline struct chrome_layout chrome_layout_for(float width,
     const float button_w = 108.0f;
     const float right_inset = 130.0f;  /* button_w plus the window margin */
 
-    (void)height;
     /* The numbered options start at the left margin now: the survey button
        that used to sit in front of them is a tab. */
     l.option_row_left = 22.0f;
@@ -81,6 +89,10 @@ static inline struct chrome_layout chrome_layout_for(float width,
     /* Status text stops a little short of the buttons rather than touching,
        and now short of the captions those dots carry too. */
     l.status_left = width - right_inset - 12.0f;
+    /* Bottom right, inside the window margin. The drawing right-aligns into
+       it, so the width only has to be enough for the longest signature. */
+    l.footer = (Rectangle){ width - 16.0f - 260.0f, height - 22.0f, 260.0f,
+                            16.0f };
     return l;
 }
 

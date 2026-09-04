@@ -66,6 +66,7 @@ struct options {
     /* Scripted runs: acquire, record and quit without anyone at the window. */
     int device_index;         /* receiver to open */
     int list_devices;         /* print the receivers and exit */
+    int show_version;         /* print the version and exit */
     int headless;             /* acquire with no window */
     double record_seconds;    /* 0 = do not record at startup */
     double duration_seconds;  /* 0 = run until quit */

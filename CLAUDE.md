@@ -529,6 +529,18 @@ about a ppm -- GSM ARFCN 113 gave -31.3 and LTE EARFCN 6200 gave -32.5.
   buffer — mixing centroid and FCCH residuals is the bug the gate exists to
   prevent (ADR-0004). Do not soften the gate without reading it.
 
+## Versioning
+
+`src/version.h` holds three numbers; the window's corner and `--version` are
+both built from them, so they cannot disagree. **Semantic Versioning 2.0.0,
+read against the command line, the headless reports and the file formats --
+not against the screens** (ADR-0016). A moved panel is MINOR; a decode
+corrected to read a field it previously got wrong is PATCH, because the wrong
+answer was never the contract.
+
+Bumping it is editing three numbers in that header. Nothing derives it from
+git: a build from a dirty tree would claim to be a tag it is not.
+
 ## Conventions
 
 - C, `-Wall -W` clean, 4-space indent, 80-ish column wrap, `/* ... */` comments.

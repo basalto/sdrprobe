@@ -21,6 +21,7 @@
 #include "options.h"
 #include "gsm_layout.h"
 #include "app.h"
+#include "version.h"
 #include "chrome_layout.h"
 #include "sdrgui.h"
 #include "view.h"
@@ -945,6 +946,17 @@ static void draw_header(const struct app *app) {
                             ? "h help   Esc scope"
                             : "Up/Down scale   h help   Esc scope",
                         "h help  Esc scope");
+    }
+
+    /* The corner, on every screen: who to write to and which build this is.
+       Dim enough to be ignorable and present enough to be quotable in a bug
+       report, which is the whole job. */
+    {
+        struct chrome_layout chrome = chrome_layout_now();
+        int w = MeasureText(SDRPROBE_SIGNATURE, 14);
+        DrawText(SDRPROBE_SIGNATURE,
+                 (int)(chrome.footer.x + chrome.footer.width - (float)w),
+                 (int)chrome.footer.y, 14, (Color){ 88, 108, 122, 255 });
     }
 
     draw_tab_bar(app);
@@ -2312,6 +2324,10 @@ int main(int argc, char **argv) {
     if (parse_options(argc, argv, &options) < 0) {
         usage(argv[0]);
         return 1;
+    }
+    if (options.show_version) {
+        printf("sdrprobe %s\n%s\n", SDRPROBE_VERSION, SDRPROBE_CONTACT);
+        return 0;
     }
     if (options.list_devices)
         return list_devices();
