@@ -332,7 +332,7 @@ int process_block(struct app *app, double now) {
     }
     int windows = sdr_dsp_spectrum(
         &app->dsp, spectrum_i, spectrum_q, app->pair_count,
-        app->spectrum_average, app->spectrum_candidate);
+        SDR_DSP_FFT_SIZE, app->spectrum_average, app->spectrum_candidate);
     if (windows > 0) {
         if (!app->spectrum_peak_ready) {
             memcpy(app->spectrum_peak, app->spectrum_candidate,

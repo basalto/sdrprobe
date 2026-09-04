@@ -56,16 +56,24 @@ compile.
 
 ## The shape that follows
 
-Keep computing the shared 2048-point spectrum exactly as now, and add a
-second, Scope-only transform at the chosen size -- **computed only when the
-chosen size is not 2048**, so the default costs nothing at all and nobody who
-does not use this pays for it.
+A second Scope-only array was the first plan. The better one, and the one
+adopted: **there is one spectrum, and its size is a function of what is on
+screen.** The consumers only ever read it while their own screen is up, so as
+long as the size is the default whenever one of them can run, they see exactly
+what they see today -- one array, one transform, no extra memory.
 
-That is more memory and one more pass, and it is the only arrangement where
-the survey's floor and the GSM scan's channel powers are provably untouched.
-Re-binning a variable spectrum back to a fixed grid for the consumers would
-be cleverer and would put a conversion between the receiver and every
-threshold in the program.
+The refinement that makes it safe: the size is **derived every block from the
+current screen, not reset when screens change**. Three separate bugs this week
+were a transition that stopped being taken when the survey became a tab, and
+"remember to put the size back" is the same shape of mistake waiting to
+happen. A predicate -- the Scope tab is up, showing a frequency chart, with no
+overlay over it -- answers it from state that is already true, and there is no
+transition to miss.
+
+The case a tab test alone would miss: **calibration is an overlay, not a
+view**. It can sit over the Scope tab and it measures a centroid and an FCCH
+tone in the spectrum, and so can the GSM channel scan inside it. Both are in
+the predicate.
 
 ## The risk worth naming before any of it
 
@@ -76,12 +84,10 @@ at a new size, a check has to put a synthetic tone through every offered size
 and assert it lands in the right bin at the right level. A transform that is
 subtly wrong at 8192 would show as a spectrum that looks plausible and is not.
 
-## One ambiguity to settle
+## The ambiguity, settled
 
-"Number of steps" could mean the FFT size or the number of windows averaged.
-Today they are one knob: choosing the size chooses both, inversely. Separating
-them means overlapping windows -- averaging 64 windows of 8192 points needs
-four times the samples a block holds, or an overlap, and an overlap changes
-what the average means. Exposing the size alone is assumed here; if the
-averaging is what is wanted independently, that is a different and larger
-piece of work.
+"Number of steps" meant the FFT size, confirmed 2026-09-04. The averaging
+follows from it and is not separately controlled: separating them needs
+overlapping windows -- averaging 64 windows of 8192 points needs four times
+the samples a block holds -- and an overlap changes what the average means.
+Not ruled out, not in scope.
