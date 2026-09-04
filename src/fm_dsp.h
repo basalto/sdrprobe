@@ -90,6 +90,13 @@ struct fm_pilot {
     double i_average, q_average;  /* the correlator arms, smoothed */
     double nominal;             /* radians per sample at exactly 19 kHz */
     double alpha, beta;         /* loop gains, from FM_PILOT_LOOP_BW_HZ */
+    /* A narrow resonator at 19 kHz, in front of the loop. The correlator
+       multiplies whatever it is given by its own oscillator, so on a stereo
+       station the difference subcarrier drags it -- measured at tens of ppm,
+       against a couple on a mono one. See fm_dsp.c. */
+    double band[3];
+    double band_a1, band_a2, band_b0;
+    double band_phase;   /* what the resonator turns the pilot by */
     /* The three smoother coefficients, worked out once. They were three
        exp() calls per sample, which at 2 MS/s is six million a second to
        recompute constants that never change. */
@@ -112,6 +119,8 @@ struct fm_pilot {
  * generous for that and narrow enough to reject the audio either side of it.
  */
 #define FM_PILOT_LOOP_BW_HZ 10.0
+/* How wide the resonator in front of the loop is. */
+#define FM_PILOT_BAND_HZ 400.0
 #define FM_PILOT_DAMPING 0.707
 /* Lock takes both: the pilot standing over the multiplex around it, and long
    enough fed that the loop's own transient has passed. A ratio alone calls a
@@ -166,9 +175,15 @@ int fm_pilot_locked(const struct fm_pilot *pilot);
 /* What the loop settled on, in hertz -- 19 kHz times the receiver's own error,
    which is why this is worth reading even when the RDS decode fails. */
 double fm_pilot_hz(const struct fm_pilot *pilot);
-/* The parts-per-million the pilot says this receiver is out by, or 0 when it
-   has not locked. A broadcast pilot is a better reference than the GSM FCCH
-   in one respect and worse in another -- see the note in fm_dsp.c. */
+/*
+ * How far the pilot sits from 19 kHz, in parts per million, or 0 when it has
+ * not locked.
+ *
+ * Mostly a fact about the transmitter rather than about this receiver: five
+ * stations measured here spread over 59 ppm while each repeated to about one,
+ * and a broadcast pilot is only held to +-2 Hz, which is +-105 ppm at 19 kHz.
+ * Not a frequency reference, and the note in fm_dsp.c says why at length.
+ */
 double fm_pilot_ppm(const struct fm_pilot *pilot);
 
 /*
