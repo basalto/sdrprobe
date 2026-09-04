@@ -81,6 +81,52 @@ void fm_pilot_init(struct fm_pilot *pilot, double sample_rate) {
     pilot->alpha = 4.0 * FM_PILOT_DAMPING * bw / denom;
     pilot->beta = 4.0 * bw * bw / denom;
 
+    /*
+     * A resonator on the way in, and the reason it is here rather than in a
+     * comment about future work.
+     *
+     * The correlator multiplies the whole multiplex by the loop's oscillator
+     * and smooths the result. That rejects most things, and not enough: a
+     * station broadcasting in stereo puts a subcarrier at 38 kHz carrying
+     * sidebands down to 23, and the loop came out tens of parts per million
+     * off. Measured on this receiver, same correction and minutes apart, a
+     * mono station read -12.9 ppm and a stereo one -59.2 -- a 46 ppm swing
+     * from nothing but what the station was broadcasting. Synthesised, the
+     * error goes from a couple of ppm to twenty-five.
+     *
+     * Two poles at the pilot, about 400 Hz wide. Wide enough for a receiver a
+     * hundred ppm out (which is two hertz at 19 kHz) and narrow enough that
+     * the nearest thing a broadcast multiplex carries is four kilohertz away.
+     *
+     * A two-pole resonator turns its input by about ninety degrees at
+     * resonance, and that phase is not this filter's business to keep -- it
+     * is tripled for the RDS subcarrier and doubled for the stereo
+     * difference, so ninety degrees here is a hundred and eighty there and
+     * the two audio channels come out swapped. They did. So the turn is
+     * worked out once and taken back off the phase the loop hands out, while
+     * the loop itself goes on tracking the filtered signal it can actually
+     * see.
+     */
+    {
+        double w = 2.0 * M_PI * FM_PILOT_HZ / pilot->sample_rate;
+        double r = 1.0 - M_PI * FM_PILOT_BAND_HZ / pilot->sample_rate;
+
+        if (r < 0.0)
+            r = 0.0;
+        pilot->band_a1 = 2.0 * r * cos(w);
+        pilot->band_a2 = -r * r;
+        pilot->band_b0 = 1.0 - r;
+        {
+            /* arg of 1 - a1 z^-1 - a2 z^-2 at z = e^jw; the filter turns its
+               input by minus that. */
+            double re = 1.0 - pilot->band_a1 * cos(w) -
+                        pilot->band_a2 * cos(2.0 * w);
+            double im = pilot->band_a1 * sin(w) +
+                        pilot->band_a2 * sin(2.0 * w);
+            pilot->band_phase = -atan2(im, re);
+        }
+    }
+
     pilot->average_k = 1.0 - exp(-1.0 / (FM_PILOT_AVERAGE_SECONDS *
                                          pilot->sample_rate));
     pilot->report_k = 1.0 - exp(-1.0 / (FM_PILOT_REPORT_SECONDS *
@@ -95,6 +141,18 @@ double fm_pilot_feed(struct fm_pilot *pilot, float sample) {
     if (!pilot)
         return 0.0;
     used = pilot->phase;
+
+    /* Through the resonator first: what reaches the correlator is the pilot
+       and its immediate neighbourhood, not the whole multiplex. */
+    {
+        double filtered = pilot->band_b0 * (double)sample +
+                          pilot->band_a1 * pilot->band[0] +
+                          pilot->band_a2 * pilot->band[1];
+        pilot->band[1] = pilot->band[0];
+        pilot->band[0] = filtered;
+        pilot->band[2] = (double)sample;   /* kept for the floor estimate */
+        sample = (float)filtered;
+    }
 
     /* Correlate this sample against the loop's own oscillator. The multiplex
        is real, so this is the usual two-quadrant mix: the in-phase arm is the
@@ -130,7 +188,10 @@ double fm_pilot_feed(struct fm_pilot *pilot, float sample) {
                                 pilot->q_average * pilot->q_average);
         /* How big the multiplex is, so the pilot can be compared against
            what it is sitting in. */
-        pilot->floor_estimate += a * (fabs((double)sample) -
+        /* Against the multiplex as it arrived, not as the resonator left it:
+           the presence test asks how big the pilot is compared with what it
+           is sitting in, and the resonator has already removed most of that. */
+        pilot->floor_estimate += a * (fabs(pilot->band[2]) -
                                       pilot->floor_estimate);
     }
     /*
@@ -190,6 +251,17 @@ double fm_pilot_feed(struct fm_pilot *pilot, float sample) {
         pilot->phase += 2.0 * M_PI;
     if (pilot->settled < (long)(pilot->sample_rate * 10.0))
         pilot->settled++;
+    /*
+     * The phase of the pilot as it arrived, not as the resonator left it.
+     * Callers triple this for the RDS subcarrier and double it for the stereo
+     * difference, so the filter's own turn has to come back off here or it is
+     * multiplied along with everything else.
+     */
+    used -= pilot->band_phase;
+    while (used >= 2.0 * M_PI)
+        used -= 2.0 * M_PI;
+    while (used < 0.0)
+        used += 2.0 * M_PI;
     return used;
 }
 
@@ -228,35 +300,40 @@ double fm_pilot_hz(const struct fm_pilot *pilot) {
 }
 
 /*
- * What the pilot says about this receiver's crystal.
+ * How far the pilot is from 19 kHz -- which is mostly a fact about the
+ * transmitter, not about this receiver.
  *
- * A broadcast pilot is a laboratory-grade reference -- the standard holds it
- * to +-2 Hz, which at 19 kHz is 105 ppm of the *pilot* but the pilot is not
- * what is being measured. What is measured is the ratio between the pilot the
- * transmitter sent and the one this receiver counted, and that ratio carries
- * the receiver's error whatever carrier it rode in on.
+ * This used to claim it measured the receiver's crystal, on the reasoning
+ * that the ratio between the pilot sent and the pilot counted carries the
+ * receiver's error whatever it rode in on. That reasoning is wrong, and the
+ * numbers say so plainly. Five stations, one receiver, one sample clock, each
+ * recorded twice within minutes:
  *
- * The catch, and the reason this is reported rather than fed to the
- * calibration gate: the error is measured at *baseband*, after the
- * discriminator, so it says how wrong the sample clock is and says nothing
- * about the tuner's local oscillator. The GSM FCCH and the LTE cell search
- * both measure an offset at the tuned frequency and so catch both.
+ *     89.5   +1.95 ppm        94.4   -57.3 ppm
+ *     93.2  -18.3            97.4   -16.0
+ *    100.3  -46.7
  *
- * Those two ought to be the same quantity, because one crystal feeds both.
- * On this receiver they are not, and by a lot. Measured on 2026-09-04 within
- * a few minutes: GSM says the tuner wants +36 with a residual of -0.63 ppm
- * over 831 measurements, LTE says +35 with +0.09 over 421, and this reads the
- * sample clock at -51 ppm with +35 applied and -91 with nothing applied.
+ * Repeatable to about a ppm within a station and spread over 59 between them.
+ * One clock cannot be five different amounts wrong, so the spread belongs to
+ * the transmitters -- and it is well within their rights: IEC 60244 holds a
+ * pilot to +-2 Hz, which at 19 kHz is +-105 ppm. The ratio carries *both*
+ * errors and cannot separate them.
  *
- * Two things are known and one is not. Applying a correction moves the sample
- * clock as well as the tuner -- 30 ppm of movement for a 35 ppm change --
- * because librtlsdr's set_freq_correction writes the RTL2832's resampler
- * ratio too. And this estimator is the imprecise one, good to about ten ppm
- * where the other two are good to a tenth. What is not known is why a gap of
- * fifty-five remains after both of those, which is .scratch/pilot-vs-tuner/.
+ * So this is the pilot's offset and not the receiver's. It is worth reporting
+ * -- a pilot hundreds of ppm out is a decode that has gone wrong rather than
+ * a transmitter that has -- and it is worth nothing at all as a frequency
+ * reference. The GSM FCCH and the LTE cell search measure a carrier whose
+ * frequency is held to a part in ten million, which is why they are what the
+ * calibration gate takes (ADR-0004).
  *
- * So: reported, never fed to the gate (ADR-0004), and not to be trusted
- * against the other two until that is settled.
+ * Two other things were learned finding that out, both worth keeping.
+ *
+ * Applying a correction moves the *sample clock* as well as the tuner: 30 ppm
+ * of movement for a 35 ppm change, because librtlsdr's set_freq_correction
+ * writes the RTL2832's resampler ratio as well as the tuner's divider.
+ *
+ * And the loop had a real bias of its own, on top of all this, which the
+ * resonator in fm_pilot_init now removes -- see the comment there.
  */
 double fm_pilot_ppm(const struct fm_pilot *pilot) {
     double measured;

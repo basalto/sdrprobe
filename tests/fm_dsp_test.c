@@ -189,9 +189,16 @@ static void test_the_pilot_locks(void) {
  * tolerance below what the thing can actually do is a check that fails on a
  * Tuesday for no reason anyone can find.
  *
- * Ten ppm is also why fm_pilot_ppm is reported and not fed to the calibration
- * gate, which wants a standard error under one (ADR-0004). The note in
- * fm_dsp.c gives the other, worse reason.
+ * Two ppm now, where it was ten. A resonator in front of the loop took the
+ * stereo subcarrier out of the correlator's way; before it, the same sweep
+ * with a 38 kHz subcarrier present ran from -24 to +21, and under loud audio
+ * reached +33. That is the bias that made this receiver look like it had two
+ * different crystals.
+ *
+ * It is still not a calibration reference, and no amount of estimator
+ * accuracy will make it one: a broadcast pilot is held to +-2 Hz, which at
+ * 19 kHz is +-105 ppm, and five stations measured here spread over 59. The
+ * note in fm_dsp.c has the numbers.
  */
 static void test_the_pilot_measures_the_sample_clock(void) {
     static const double offsets[] = { -60.0, -20.0, 0.0, 20.0, 60.0 };
@@ -214,7 +221,7 @@ static void test_the_pilot_measures_the_sample_clock(void) {
                   "%+.0f ppm under audio %.2f: no lock\n", offsets[o],
                   audio[a]);
         got = fm_pilot_ppm(&pilot);
-        check_msg(fabs(got - offsets[o]) <= 12.0,
+        check_msg(fabs(got - offsets[o]) <= 4.0,
                   "%+.0f ppm under audio %.2f: measured %+.2f\n", offsets[o],
                   audio[a], got);
         /* And the frequency it came from, in hertz, since that is what the
@@ -1031,6 +1038,68 @@ static void test_stereo_separates_the_channels(void) {
     (void)left; (void)right;
 }
 
+
+/*
+ * The stereo subcarrier must not drag the loop.
+ *
+ * This is the check the whole pilot-vs-tuner investigation produced. The
+ * correlator multiplies the entire multiplex by the loop's own oscillator, so
+ * a station broadcasting in stereo -- a subcarrier at 38 kHz with sidebands
+ * reaching down to 23 -- pulled the estimate by tens of ppm, and the pull
+ * grew with how loud the station was. Measured on air: a mono station read
+ * -12.9 ppm and a stereo one -59.2, same receiver, same correction, minutes
+ * apart. A resonator in front of the loop fixed it.
+ *
+ * The check is that the *same* multiplex, with and without the subcarrier,
+ * gives the same answer. Anything else measures the estimator against itself.
+ */
+static void test_stereo_does_not_drag_the_pilot(void) {
+    static const double offsets[] = { -90.0, -30.0, 30.0, 90.0 };
+    static const double audio[] = { 0.20, 0.55 };
+    unsigned o, a;
+
+    for (o = 0; o < sizeof(offsets) / sizeof(offsets[0]); o++)
+    for (a = 0; a < sizeof(audio) / sizeof(audio[0]); a++) {
+        double truth = FM_PILOT_HZ * (1.0 + offsets[o] * 1e-6);
+        double mono, with_stereo;
+        int stereo;
+
+        for (stereo = 0; stereo <= 1; stereo++) {
+            struct fm_pilot pilot;
+            double phase = 0.0;
+            size_t k, n;
+
+            for (k = 0; k < SAMPLES; k++) {
+                double t = (double)k / RATE;
+                double l = audio[a] * sin(2.0 * M_PI * 997.0 * t);
+                double r = audio[a] * sin(2.0 * M_PI * 3100.0 * t);
+                double m = 0.10 * cos(2.0 * M_PI * truth * t) + (l + r);
+
+                if (stereo)
+                    m += (l - r) * cos(2.0 * M_PI * 2.0 * truth * t);
+                phase += 2.0 * M_PI * 75000.0 * m / RATE;
+                iq_i[k] = (float)cos(phase);
+                iq_q[k] = (float)sin(phase);
+            }
+            n = fm_discriminate_f(iq_i, iq_q, SAMPLES, out, SAMPLES);
+            fm_pilot_init(&pilot, RATE);
+            for (k = 0; k < n; k++)
+                fm_pilot_feed(&pilot, out[k]);
+            check_msg(fm_pilot_locked(&pilot),
+                      "%+.0f ppm, audio %.2f, %s: no lock\n", offsets[o],
+                      audio[a], stereo ? "stereo" : "mono");
+            if (stereo)
+                with_stereo = fm_pilot_ppm(&pilot);
+            else
+                mono = fm_pilot_ppm(&pilot);
+        }
+        check_msg(fabs(with_stereo - mono) <= 3.0,
+                  "%+.0f ppm, audio %.2f: mono reads %+.2f and stereo %+.2f, "
+                  "a pull of %+.2f\n", offsets[o], audio[a], mono,
+                  with_stereo, with_stereo - mono);
+    }
+}
+
 int main(void) {
     test_the_discriminator();
     test_the_byte_path_matches();
@@ -1049,6 +1118,7 @@ int main(void) {
     test_the_audio_band_gets_through();
     test_the_pilot_does_not_reach_the_speaker();
     test_stereo_separates_the_channels();
+    test_stereo_does_not_drag_the_pilot();
     test_a_real_capture_decodes();
 
     return check_report("FM multiplex: pilot, subcarrier and soft bits");
