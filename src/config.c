@@ -1,4 +1,5 @@
 #include "config.h"
+#include "sdr_dsp.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -148,6 +149,14 @@ int config_parse(const char *text, struct config *config) {
         if (!strcmp(key, "antenna")) {
             copy_value(config->antenna, sizeof(config->antenna), value);
             recognised++;
+        } else if (!strcmp(key, "fft_size")) {
+            int size = atoi(value);
+            /* A size this build cannot do is dropped rather than carried:
+               the file may have been written by another version, and a
+               transform that refuses its size draws nothing at all. */
+            if (sdr_dsp_fft_size_valid(size))
+                config->fft_size = size;
+            recognised++;
         } else if (!strcmp(key, "site")) {
             copy_value(config->site, sizeof(config->site), value);
             recognised++;
@@ -206,6 +215,13 @@ int config_format(const struct config *config, char *out, size_t size) {
                        "antenna %s\n", config->antenna);
     if (written < 0 || (size_t)written >= size)
         return -1;
+    if (config->fft_size > 0) {
+        int more = snprintf(out + written, size - (size_t)written,
+                            "fft_size %d\n", config->fft_size);
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+    }
     if (config->site[0]) {
         int more = snprintf(out + written, size - (size_t)written,
                             "site %s\n", config->site);
@@ -319,4 +335,13 @@ int config_save(const struct config *config) {
     fwrite(text, 1, (size_t)length, file);
     fclose(file);
     return 0;
+}
+
+int config_set_fft_size(struct config *config, int size) {
+    if (!config || !sdr_dsp_fft_size_valid(size))
+        return 0;
+    if (config->fft_size == size)
+        return 0;
+    config->fft_size = size;
+    return 1;
 }

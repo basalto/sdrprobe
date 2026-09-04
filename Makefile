@@ -169,7 +169,7 @@ check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 # out, so it links nothing at all.
 # The antenna and site that persist between runs. Text in, text out.
 check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
-		$(SRC)/config.h
+		$(SRC)/config.h $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/config_test \
 		$(TESTS)/config_test.c $(SRC)/config.c -lm

@@ -352,6 +352,9 @@ struct settings_panel {
     int gain_choice;
     int remove_dc;
     int auto_drift;       /* Settings-panel working copy */
+    /* Which transform size the Scope's two frequency charts use. An index
+       into sdr_dsp_fft_choice, working copy until Apply. */
+    int fft_choice;
 };
 
 /*

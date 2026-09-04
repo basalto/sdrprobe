@@ -35,6 +35,33 @@ static inline int sdr_dsp_fft_size_valid(int size) {
     return size >= SDR_DSP_FFT_MIN && size <= SDR_DSP_FFT_MAX &&
            (size & (size - 1)) == 0;
 }
+
+/*
+ * The sizes offered to a reader, smallest first.
+ *
+ * Every power of two between the minimum and the maximum. Not a subset: the
+ * trade between resolution and averaging is smooth and there is no size in
+ * the range that is a bad idea, only sizes that suit different questions.
+ */
+#define SDR_DSP_FFT_CHOICES 7
+
+static inline int sdr_dsp_fft_choice(int index) {
+    int size = SDR_DSP_FFT_MIN << index;
+
+    if (index < 0 || index >= SDR_DSP_FFT_CHOICES)
+        return 0;
+    return size;
+}
+
+/* Which choice a size is, or -1. */
+static inline int sdr_dsp_fft_choice_of(int size) {
+    int i;
+
+    for (i = 0; i < SDR_DSP_FFT_CHOICES; i++)
+        if (sdr_dsp_fft_choice(i) == size)
+            return i;
+    return -1;
+}
 #define SDR_DSP_DBFS_FLOOR (-120.0f)
 
 struct sdr_dsp {
