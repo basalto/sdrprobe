@@ -70,10 +70,21 @@ int apply_settings(struct app *app) {
      */
     {
         int size = sdr_dsp_fft_choice(app->set.fft_choice);
-        if (size > 0 && size != app->sv.fft_size) {
+        if (size > 0) {
             app->sv.fft_size = size;
-            /* It describes how somebody likes to work rather than one run,
-               which is the test config.h applies. */
+            /*
+             * The only place a resolution is remembered between runs. It
+             * describes how somebody likes to work rather than one run, which
+             * is the test config.h applies -- and this panel is where that
+             * intent is expressed, because reaching it takes opening an
+             * overlay and pressing Apply.
+             *
+             * The Scope header has a stepper for the same value and it does
+             * not persist: one click, easily an accidental one, should not
+             * decide what the program opens with tomorrow. Applying here
+             * keeps whatever that stepper last chose, which is why this no
+             * longer skips when the size already matches.
+             */
             if (config_set_fft_size(&app->config, size))
                 config_save(&app->config);
         }
