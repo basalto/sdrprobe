@@ -1,5 +1,9 @@
 # One crystal, two answers
 
+**Resolved 2026-09-04. See issues/01 for the answer: a real estimator bias
+from the stereo subcarrier, and underneath it a question that had no answer
+because a broadcast pilot is not a frequency reference.**
+
 ## What was noticed
 
 Flagged while building the FM pilot loop and never filed, which is how it came

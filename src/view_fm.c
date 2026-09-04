@@ -367,9 +367,12 @@ static void draw_signal_panel(const struct app *app, Rectangle rect) {
         snprintf(text, sizeof(text), "%.2f Hz", fm_pilot_hz(&fm->front.pilot));
         draw_row(rect, y, "at", text, row_value);
         y += 20;
+        /* Not "sample clock": five stations here read between +2 and -57 ppm
+           on one receiver, so this is the transmitter's pilot far more than
+           it is this receiver's clock. */
         snprintf(text, sizeof(text), "%+.1f ppm",
                  fm_pilot_ppm(&fm->front.pilot));
-        draw_row(rect, y, "sample clock", text, row_value);
+        draw_row(rect, y, "pilot offset", text, row_value);
         y += 20;
     }
     snprintf(text, sizeof(text), "%.2f", fm->front.pilot.coherence);
