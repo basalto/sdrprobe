@@ -134,7 +134,7 @@ static void test_spectrum(void) {
     fill_tone(i, q, SDR_DSP_FFT_SIZE, 0.5f, TONE_BIN);
 
     check_size("spectrum window count",
-               (size_t)sdr_dsp_spectrum(&dsp, i, q, count,
+               (size_t)sdr_dsp_spectrum(&dsp, i, q, count, SDR_DSP_FFT_SIZE,
                                         average, maximum), WINDOWS);
 
     int shifted_bin = SDR_DSP_FFT_SIZE / 2 + TONE_BIN;
@@ -146,6 +146,7 @@ static void test_spectrum(void) {
     check_size("short spectrum",
                (size_t)sdr_dsp_spectrum(&dsp, i, q,
                                         SDR_DSP_FFT_SIZE - 1,
+                                        SDR_DSP_FFT_SIZE,
                                         average, maximum), 0);
 
     free(i);
@@ -509,6 +510,146 @@ static void test_characterise_carrier(void) {
     free(workspace);
 }
 
+
+/*
+ * The transform at every size it will be asked for.
+ *
+ * It has only ever run at 2048. It is a radix-2 loop and it ought to
+ * generalise, and "ought to" is what .claude/skills/dsp-validation exists to
+ * distrust: a bit-reversal or a butterfly that is right for one length and
+ * wrong for another draws a spectrum that looks entirely plausible.
+ *
+ * So a tone of known amplitude at a known bin, through every size, asserting
+ * it comes back in the right bin at the right level with its neighbours far
+ * below -- and the awkward cases beside it, because an off-by-one shows at
+ * bin zero and between two bins where it does not in the middle of one.
+ */
+static void test_the_transform_at_every_size(void) {
+    static const int sizes[] = { 256, 512, 1024, 2048, 4096, 8192, 16384 };
+    unsigned s;
+
+    for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+        int size = sizes[s];
+        size_t count = (size_t)size * 4;   /* four windows of it */
+        float *i = malloc(count * sizeof(float));
+        float *q = malloc(count * sizeof(float));
+        float *average = malloc((size_t)size * sizeof(float));
+        float *maximum = malloc((size_t)size * sizeof(float));
+        struct sdr_dsp dsp;
+        int bin = size / 8;          /* somewhere unremarkable */
+        int shifted = size / 2 + bin;
+        int windows, k, loud = 0;
+
+        if (!i || !q || !average || !maximum)
+            exit(2);
+        for (k = 0; k < (int)count; k++) {
+            double angle = 2.0 * M_PI * (double)bin * (double)k /
+                           (double)size;
+            i[k] = (float)(127.5 * cos(angle));
+            q[k] = (float)(127.5 * sin(angle));
+        }
+        sdr_dsp_init(&dsp);
+        windows = sdr_dsp_spectrum(&dsp, i, q, count, size, average, maximum);
+
+        check_msg(windows == 4, "size %d averaged %d windows, not 4\n", size,
+                  windows);
+        check_msg(fabsf(maximum[shifted]) < 0.05f,
+                  "size %d: a full-scale tone reads %.3f dBFS, not 0\n", size,
+                  maximum[shifted]);
+        /* And nothing else does. A transform that scrambles its output puts
+           energy where there is none, which a peak check alone misses. */
+        for (k = 0; k < size; k++) {
+            if (k >= shifted - 2 && k <= shifted + 2)
+                continue;
+            if (average[k] > -40.0f)
+                loud++;
+        }
+        check_msg(loud == 0,
+                  "size %d: %d bins away from the tone are above -40 dBFS\n",
+                  size, loud);
+
+        free(i); free(q); free(average); free(maximum);
+    }
+}
+
+/*
+ * The two places an off-by-one hides: a tone at bin zero, which after the
+ * shift is the middle of the array, and one exactly between two bins, which
+ * must split between them rather than land in one.
+ */
+static void test_the_awkward_bins(void) {
+    static const int sizes[] = { 512, 2048, 8192 };
+    unsigned s;
+
+    for (s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+        int size = sizes[s];
+        size_t count = (size_t)size * 2;
+        float *i = malloc(count * sizeof(float));
+        float *q = malloc(count * sizeof(float));
+        float *average = malloc((size_t)size * sizeof(float));
+        float *maximum = malloc((size_t)size * sizeof(float));
+        struct sdr_dsp dsp;
+        int k;
+
+        if (!i || !q || !average || !maximum)
+            exit(2);
+
+        /* Direct current: bin zero, which the shift puts in the middle. */
+        for (k = 0; k < (int)count; k++) {
+            i[k] = 127.5f;
+            q[k] = 0.0f;
+        }
+        sdr_dsp_init(&dsp);
+        sdr_dsp_spectrum(&dsp, i, q, count, size, average, maximum);
+        check_msg(fabsf(maximum[size / 2]) < 0.05f,
+                  "size %d: a constant reads %.3f dBFS at the middle bin\n",
+                  size, maximum[size / 2]);
+
+        /* Half a bin off: the energy must appear in both neighbours rather
+           than all in one. */
+        for (k = 0; k < (int)count; k++) {
+            double angle = 2.0 * M_PI * ((double)(size / 8) + 0.5) *
+                           (double)k / (double)size;
+            i[k] = (float)(127.5 * cos(angle));
+            q[k] = (float)(127.5 * sin(angle));
+        }
+        sdr_dsp_init(&dsp);
+        sdr_dsp_spectrum(&dsp, i, q, count, size, average, maximum);
+        {
+            int lower = size / 2 + size / 8;
+            check_msg(maximum[lower] > -6.0f && maximum[lower + 1] > -6.0f,
+                      "size %d: a tone between bins gave %.1f and %.1f dBFS "
+                      "either side\n", size, maximum[lower],
+                      maximum[lower + 1]);
+        }
+        free(i); free(q); free(average); free(maximum);
+    }
+}
+
+/* And a size the transform cannot do is refused rather than run. */
+static void test_sizes_it_will_not_do(void) {
+    check_true("a power of two inside the range",
+               sdr_dsp_fft_size_valid(2048));
+    check_true("the smallest", sdr_dsp_fft_size_valid(SDR_DSP_FFT_MIN));
+    check_true("and the largest", sdr_dsp_fft_size_valid(SDR_DSP_FFT_MAX));
+    check_true("not one that is not a power of two",
+               !sdr_dsp_fft_size_valid(3000));
+    check_true("nor one too large for the buffers",
+               !sdr_dsp_fft_size_valid(SDR_DSP_FFT_MAX * 2));
+    check_true("nor too small to mean anything",
+               !sdr_dsp_fft_size_valid(64));
+    check_true("nor zero", !sdr_dsp_fft_size_valid(0));
+    check_true("nor negative", !sdr_dsp_fft_size_valid(-2048));
+    {
+        struct sdr_dsp dsp;
+        static float i[4096], q[4096], average[4096], maximum[4096];
+        sdr_dsp_init(&dsp);
+        check_int("and a bad size returns nothing rather than nonsense",
+                  sdr_dsp_spectrum(&dsp, i, q, 4096, 3000, average, maximum),
+                  0);
+    }
+}
+
 int main(void) {
     test_conversion();
     test_standard_block();
@@ -524,6 +665,10 @@ int main(void) {
     test_measuring_a_carrier_close_to_its_noise();
     test_a_measurement_cannot_swallow_the_spectrum();
     test_characterise_carrier();
+
+    test_the_transform_at_every_size();
+    test_the_awkward_bins();
+    test_sizes_it_will_not_do();
 
     return check_report("generic DSP core");
 }

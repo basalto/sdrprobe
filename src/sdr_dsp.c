@@ -6,8 +6,7 @@
 
 #define PI_F 3.14159265358979323846f
 
-static void fft_forward(float *re, float *im) {
-    const unsigned int n = SDR_DSP_FFT_SIZE;
+static void fft_forward(float *re, float *im, unsigned int n) {
 
     for (unsigned int i = 1, j = 0; i < n; i++) {
         unsigned int bit = n >> 1;
@@ -52,13 +51,22 @@ static void fft_forward(float *re, float *im) {
     }
 }
 
-void sdr_dsp_init(struct sdr_dsp *dsp) {
+/* The window and its sum, for one size. Rebuilt when the size changes, which
+   is rare -- and never scaled by the sum of a window it is not. */
+static void sdr_dsp_build_hann(struct sdr_dsp *dsp, int size) {
+    int i;
+
     dsp->hann_sum = 0.0f;
-    for (int i = 0; i < SDR_DSP_FFT_SIZE; i++) {
+    for (i = 0; i < size; i++) {
         dsp->hann[i] = 0.5f - 0.5f * cosf(2.0f * PI_F * (float)i /
-                                         (float)(SDR_DSP_FFT_SIZE - 1));
+                                         (float)(size - 1));
         dsp->hann_sum += dsp->hann[i];
     }
+    dsp->hann_size = size;
+}
+
+void sdr_dsp_init(struct sdr_dsp *dsp) {
+    sdr_dsp_build_hann(dsp, SDR_DSP_FFT_SIZE);
 }
 
 size_t sdr_dsp_convert_iq(const uint8_t *bytes, size_t byte_count,
@@ -619,32 +627,35 @@ int sdr_dsp_corrected_ppm(int current_ppm, double measured_frequency_hz,
 
 int sdr_dsp_spectrum(struct sdr_dsp *dsp,
                      const float *i_samples, const float *q_samples,
-                     size_t pair_count, float *average_dbfs,
+                     size_t pair_count, int size, float *average_dbfs,
                      float *maximum_dbfs) {
     if (!dsp || !i_samples || !q_samples || !average_dbfs || !maximum_dbfs)
         return 0;
+    if (!sdr_dsp_fft_size_valid(size))
+        return 0;
+    if (dsp->hann_size != size)
+        sdr_dsp_build_hann(dsp, size);
 
-    size_t windows = pair_count / SDR_DSP_FFT_SIZE;
+    size_t windows = pair_count / (size_t)size;
     if (windows == 0)
         return 0;
 
-    for (int k = 0; k < SDR_DSP_FFT_SIZE; k++) {
+    for (int k = 0; k < size; k++) {
         average_dbfs[k] = 0.0f;
         maximum_dbfs[k] = 0.0f;
     }
 
     for (size_t window = 0; window < windows; window++) {
-        size_t offset = window * SDR_DSP_FFT_SIZE;
-        for (int n = 0; n < SDR_DSP_FFT_SIZE; n++) {
+        size_t offset = window * (size_t)size;
+        for (int n = 0; n < size; n++) {
             float scale = dsp->hann[n] / 127.5f;
             dsp->fft_re[n] = i_samples[offset + (size_t)n] * scale;
             dsp->fft_im[n] = q_samples[offset + (size_t)n] * scale;
         }
-        fft_forward(dsp->fft_re, dsp->fft_im);
+        fft_forward(dsp->fft_re, dsp->fft_im, (unsigned int)size);
 
-        for (int k = 0; k < SDR_DSP_FFT_SIZE; k++) {
-            int shifted = (k + SDR_DSP_FFT_SIZE / 2) %
-                          SDR_DSP_FFT_SIZE;
+        for (int k = 0; k < size; k++) {
+            int shifted = (k + size / 2) % size;
             float re = dsp->fft_re[k] / dsp->hann_sum;
             float im = dsp->fft_im[k] / dsp->hann_sum;
             float power = re * re + im * im;
@@ -655,7 +666,7 @@ int sdr_dsp_spectrum(struct sdr_dsp *dsp,
     }
 
     const float floor_power = powf(10.0f, SDR_DSP_DBFS_FLOOR / 10.0f);
-    for (int k = 0; k < SDR_DSP_FFT_SIZE; k++) {
+    for (int k = 0; k < size; k++) {
         float average_power = average_dbfs[k] / (float)windows;
         if (average_power < floor_power)
             average_power = floor_power;

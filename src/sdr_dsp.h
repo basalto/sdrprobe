@@ -12,14 +12,40 @@
  * Per-technology plugins (see gsm_dsp.h) build on top of these primitives.
  */
 
+/*
+ * The transform's default size, and the largest it will do.
+ *
+ * SDR_DSP_FFT_SIZE stays 2048 because it is what every caller but the Scope
+ * asks for and what their thresholds were chosen against: the survey's floor,
+ * the GSM and FM channel scans, the calibration centroid. The Scope may ask
+ * for another size; nothing else may, and nothing else has to change to keep
+ * getting the one it had.
+ *
+ * The working buffers are sized to the maximum rather than allocated. Sixteen
+ * thousand floats is 64 KB an array, which is not worth a lifetime to get
+ * wrong.
+ */
 #define SDR_DSP_FFT_SIZE 2048
+#define SDR_DSP_FFT_MIN 256
+#define SDR_DSP_FFT_MAX 16384
+
+/* Whether a size is one this can do: a power of two inside the range. The
+   transform is radix-2 and anything else would run and return nonsense. */
+static inline int sdr_dsp_fft_size_valid(int size) {
+    return size >= SDR_DSP_FFT_MIN && size <= SDR_DSP_FFT_MAX &&
+           (size & (size - 1)) == 0;
+}
 #define SDR_DSP_DBFS_FLOOR (-120.0f)
 
 struct sdr_dsp {
-    float hann[SDR_DSP_FFT_SIZE];
+    float hann[SDR_DSP_FFT_MAX];
+    /* The size hann[] was built for. The window and its sum both depend on
+       it, so a change rebuilds them rather than quietly scaling by the wrong
+       total. */
+    int hann_size;
     float hann_sum;
-    float fft_re[SDR_DSP_FFT_SIZE];
-    float fft_im[SDR_DSP_FFT_SIZE];
+    float fft_re[SDR_DSP_FFT_MAX];
+    float fft_im[SDR_DSP_FFT_MAX];
 };
 
 struct sdr_signal_stats {
@@ -133,9 +159,15 @@ int sdr_dsp_estimate_channel_center(const float *spectrum_dbfs,
 int sdr_dsp_corrected_ppm(int current_ppm, double measured_frequency_hz,
                           double expected_frequency_hz);
 
+/*
+ * `size` is the transform's length and must satisfy sdr_dsp_fft_size_valid.
+ * The output arrays hold that many bins, and the number of windows averaged
+ * is pair_count / size -- so a longer transform buys resolution and spends
+ * averaging, which is the whole of the trade.
+ */
 int sdr_dsp_spectrum(struct sdr_dsp *dsp,
                      const float *i_samples, const float *q_samples,
-                     size_t pair_count, float *average_dbfs,
+                     size_t pair_count, int size, float *average_dbfs,
                      float *maximum_dbfs);
 
 /*
