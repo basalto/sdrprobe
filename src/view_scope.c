@@ -87,7 +87,7 @@ int recreate_waterfall(struct app *app, Rectangle plot,
     if (!app->sv.waterfall_dbfs || height > app->sv.waterfall_capacity) {
         float *history = realloc(
             app->sv.waterfall_dbfs,
-            (size_t)height * SDR_DSP_FFT_SIZE * sizeof(*history));
+            (size_t)height * SDR_DSP_FFT_MAX * sizeof(*history));
         if (!history) {
             fprintf(stderr, "Failed to allocate %d waterfall history rows.\n",
                     height);
@@ -156,16 +156,20 @@ void render_waterfall(struct app *app) {
     int rows = app->sv.waterfall_rows < app->sv.waterfall_height
                    ? app->sv.waterfall_rows
                    : app->sv.waterfall_height;
+    /* How many bins a row holds now. Rows are stored a maximum apart so the
+       stride never changes, but only this many of each are filled. */
+    int bins = app->spectrum_bins > 0 ? app->spectrum_bins
+                                      : SDR_DSP_FFT_SIZE;
     for (int y = 0; y < rows; y++) {
         const float *row = app->sv.waterfall_dbfs +
-                           (size_t)y * SDR_DSP_FFT_SIZE;
+                           (size_t)y * SDR_DSP_FFT_MAX;
         for (int x = 0; x < app->sv.waterfall_width; x++) {
             float position = app->sv.waterfall_width == 1
                                  ? 0.0f
-                                 : (float)x * (SDR_DSP_FFT_SIZE - 1) /
+                                 : (float)x * (bins - 1) /
                                        (float)(app->sv.waterfall_width - 1);
             int lower = (int)position;
-            int upper = lower < SDR_DSP_FFT_SIZE - 1 ? lower + 1 : lower;
+            int upper = lower < bins - 1 ? lower + 1 : lower;
             float fraction = position - lower;
             float dbfs = row[lower] * (1.0f - fraction) +
                          row[upper] * fraction;
@@ -185,12 +189,13 @@ void update_waterfall(struct app *app) {
                        ? app->sv.waterfall_rows
                        : app->sv.waterfall_capacity - 1;
     if (retained > 0)
-        memmove(app->sv.waterfall_dbfs + SDR_DSP_FFT_SIZE,
+        memmove(app->sv.waterfall_dbfs + SDR_DSP_FFT_MAX,
                 app->sv.waterfall_dbfs,
-                (size_t)retained * SDR_DSP_FFT_SIZE *
+                (size_t)retained * SDR_DSP_FFT_MAX *
                     sizeof(*app->sv.waterfall_dbfs));
     memcpy(app->sv.waterfall_dbfs, app->spectrum_average,
-           SDR_DSP_FFT_SIZE * sizeof(*app->sv.waterfall_dbfs));
+           (size_t)app->spectrum_bins *
+           sizeof(*app->sv.waterfall_dbfs));
     if (app->sv.waterfall_rows < app->sv.waterfall_height)
         app->sv.waterfall_rows++;
     render_waterfall(app);
@@ -421,7 +426,7 @@ void draw_spectrum(const struct app *app) {
     params.ready = app->spectrum_ready;
     params.average = app->spectrum_average;
     params.peak = app->spectrum_peak;
-    params.bins = SDR_DSP_FFT_SIZE;
+    params.bins = app->spectrum_bins;
     params.lower_dbfs = app->sv.spectrum_lower_dbfs;
     params.top_dbfs = SPECTRUM_TOP_DBFS;
     params.windows = app->spectrum_windows;
@@ -473,7 +478,7 @@ void decay_spectrum_peak(struct app *app, double now) {
     if (elapsed <= 0.0)
         return;
     float decay = (float)elapsed * PEAK_DECAY_DB_PER_SECOND;
-    for (int i = 0; i < SDR_DSP_FFT_SIZE; i++)
+    for (int i = 0; i < app->spectrum_bins; i++)
         app->spectrum_peak[i] = fmaxf(SDR_DSP_DBFS_FLOOR,
                                      app->spectrum_peak[i] - decay);
     app->spectrum_peak_time = now;
@@ -502,6 +507,7 @@ void adjust_active_scale(struct app *app, int zoom_in) {
 
 /* The scales each view starts at. */
 void view_scope_defaults(struct app *app) {
+    app->sv.fft_size = SDR_DSP_FFT_SIZE;
     app->sv.magnitude_lower = 0.0f;
     app->sv.magnitude_upper = 64.0f;
     app->sv.spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;

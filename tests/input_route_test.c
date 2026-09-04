@@ -492,6 +492,84 @@ static void test_what_escape_does(void) {
     }
 }
 
+
+/*
+ * Who owns the spectrum.
+ *
+ * One array, five readers, and only one of them may change the transform's
+ * size: the other four had their floors and thresholds chosen against 977 Hz
+ * bins and would not fail if handed something else -- they would quietly
+ * measure differently, which is worse.
+ *
+ * The case worth the check is the one a tab test would miss: calibration is
+ * an overlay, not a tab, and it measures a centroid and an FCCH tone in that
+ * very array while sitting over the Scope.
+ */
+static void test_who_owns_the_spectrum(void) {
+    struct input_state s;
+
+    s = state_of(0, 0, 0, 0, TAB_SCOPE, 0);
+    s.view = VIEW_KIND_SPECTRUM;
+    check_true("the spectrum view owns it", input_scope_owns_spectrum(&s));
+    s.view = VIEW_KIND_WATERFALL;
+    check_true("and the waterfall", input_scope_owns_spectrum(&s));
+
+    /* The other Scope views do not read it, so they do not get to change it. */
+    s.view = 0;
+    check_true("not the magnitude view", !input_scope_owns_spectrum(&s));
+    s.view = 2;
+    check_true("nor the scatter", !input_scope_owns_spectrum(&s));
+
+    /* The four consumers, each while its own screen is up. */
+    s = state_of(0, 0, 0, 0, TAB_SURVEY, 0);
+    check_true("not while the survey is sweeping into it",
+               !input_scope_owns_spectrum(&s));
+    s = state_of(0, 0, 0, 0, TAB_DECODE, 0);
+    check_true("nor while a decode view is up",
+               !input_scope_owns_spectrum(&s));
+
+    /*
+     * And the two that are overlays rather than tabs, which is the whole
+     * reason this is not a test on app->tab.
+     */
+    s = state_of(0, 0, 1, 0, TAB_SCOPE, 0);
+    s.view = VIEW_KIND_SPECTRUM;
+    check_true("not with calibration open over it",
+               !input_scope_owns_spectrum(&s));
+    s = state_of(0, 0, 1, 1, TAB_SCOPE, 0);
+    s.view = VIEW_KIND_WATERFALL;
+    check_true("nor the channel scan inside it",
+               !input_scope_owns_spectrum(&s));
+    check_true("and no state owns nothing", !input_scope_owns_spectrum(NULL));
+
+    /*
+     * The property: over every screen there is, the Scope owns it only when
+     * none of the four consumers could possibly be running. Spelled out here
+     * rather than derived from the function, so it is a claim and not a
+     * restatement.
+     */
+    {
+        int tab, view, bits, wrong = 0;
+
+        for (tab = 0; tab < TAB_COUNT; tab++)
+        for (view = 0; view < 4; view++)
+        for (bits = 0; bits < 4; bits++) {
+            struct input_state screen = state_of(0, 0, bits & 1,
+                                                 (bits >> 1) & 1, tab, 0);
+            int consumer_could_run;
+
+            screen.view = view;
+            consumer_could_run = tab != TAB_SCOPE || screen.calibration_open ||
+                                 screen.scan_open;
+            if (consumer_could_run && input_scope_owns_spectrum(&screen))
+                wrong++;
+        }
+        check_msg(wrong == 0,
+                  "%d screens let the Scope resize a spectrum a consumer "
+                  "could be reading\n", wrong);
+    }
+}
+
 int main(void) {
     test_the_tabs();
     test_the_precedence();
@@ -505,6 +583,7 @@ int main(void) {
     test_decode_keys_yield_to_a_field();
     test_the_scale_keys_reach_every_chart();
     test_what_escape_does();
+    test_who_owns_the_spectrum();
 
     return check_report("input precedence");
 }

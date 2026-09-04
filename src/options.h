@@ -184,6 +184,8 @@ struct options {
     /* Open the Scope's frequency charts zoomed to this range, which a drag
        would otherwise be the only way to reach -- and a drag cannot be
        photographed. 0 for the whole span. */
+    /* The Scope's transform size. 0 leaves the default. */
+    int fft_size;
     uint32_t zoom_from_hz;
     uint32_t zoom_to_hz;
     double survey_dwell_seconds;  /* 0 = leave the view's own default */
