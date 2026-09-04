@@ -41,6 +41,58 @@ were plain in a picture:
 So: geometry checks for where things are, a screenshot for whether the screen
 is right. Neither substitutes for the other.
 
+## The commonest fault here: a correct decision nobody consumes
+
+Four of these shipped in one week, and none was an arithmetic error. In every
+case the decision was right, the value reached the drawing, and the drawing
+ignored it -- so the code reads correctly at both ends and does nothing in the
+middle.
+
+- **A flag from another feature gating it.** The waterfall's zoom was
+  conditional on `calibration_mode`. The overlay was the only caller that
+  zoomed for as long as that went unnoticed; when the Scope's window arrived
+  and asked properly, it was discarded. The drag worked throughout.
+- **The consumer reading a different rectangle.** The hit test mapped the
+  pointer across the rectangle the chart was *handed* while the trace is drawn
+  inside a caption strip and a label gutter -- every drag about 50 kHz left of
+  where it looked. The highlight used the same wrong mapping, so the two
+  agreed with each other and only disagreed with the chart.
+- **Nothing drawing it at all.** The waterfall had no drag fields, so it
+  zoomed on release with no feedback on the way.
+- **A threshold never reached.** The FM band scan visits a carrier for 0.7 s
+  and the RDS decode works in chunks of about 1.7 s of baseband, so every
+  visit gathered a quarter of a chunk, decoded none of it, and reported all of
+  band II as carrying no RDS -- while the panel below the list was reading a
+  station by name.
+
+**Before believing a value is used, find its consumer.** `grep` for the field,
+not for the function that sets it. A field that is written and never read
+compiles, tests green, and draws nothing.
+
+**Then make it unrepresentable rather than fixed.** One function both sides
+call beats two correct copies: `sdrgui_spectrum_area()` and
+`sdrgui_waterfall_area()` are called by the drawing *and* the hit test, so
+they cannot disagree.
+
+## When something "does not work", instrument the funnel
+
+Which stage stops is the diagnosis. Guessing costs a day; a funnel line costs
+one run.
+
+The LTE chain prints one per stage already. The FM band scan did not, and
+adding it -- baseband gathered, baseband consumed, bits, blocks matched,
+groups -- turned a day of suspects into a single line reading `bb 8947
+consumed 0 bits 0`, which named the fault outright.
+
+Split the question the same way the headless paths do. `fm_rds_tsf.bin`
+decoding correctly while a live station read nothing halved the search
+immediately: the subcarrier recovery, timing search, synchroniser and group
+parser were all intact, so the fault was between a live receiver and that
+chain, or in the view driving it. **Know what the headless run does not rule
+out**: file playback is lossless and unpaced, so it proves the chain with
+every block present and no deadline -- the two guarantees a receiver does not
+give.
+
 
 ## The debug log says what actually arrived
 
@@ -150,6 +202,18 @@ Truncated captions mean the tile was small, not that the drawing is wrong.
 
 The resize needs Hyprland. Without `hyprctl` the script still captures, at
 whatever size the layout gave it.
+
+**The script is flaky and fails visibly.** It sometimes prints `no sdrprobe
+window appeared; capturing unsized` and writes nothing, or writes a capture a
+few hundred pixels wide -- a PNG of 3 KB rather than several hundred. Check
+the reported size and the file size, and re-run; it usually succeeds the
+second time. A tiny capture is the harness, not the drawing.
+
+**A run can click your program.** Twice in one session an automated capture
+left a stepper pressed and a changed value written to
+`~/.config/sdrprobe/config`. If a persisted setting looks wrong after a batch
+of captures, suspect this before suspecting the code, and check the config
+before drawing conclusions from a screenshot of it.
 
 ## A window someone already has open
 
