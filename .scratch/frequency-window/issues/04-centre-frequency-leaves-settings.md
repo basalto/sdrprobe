@@ -36,3 +36,19 @@ remaining work, and it wants doing alongside `overlay-layouts/01`, which
 gives that panel a layout header: removing a row from a panel whose geometry
 is written out twice, once in the input handler and once in the draw, is
 exactly the edit that goes wrong.
+
+## Decision
+
+**Remove it from the Settings panel.** One home, one parser.
+
+The counter-argument was that the survey and decode tabs have no header field,
+so retuning from them would mean switching to the Scope first. That is
+accepted rather than dismissed: those tabs already retune by their own means
+-- the survey by picking a candidate or a band, the decode views by choosing a
+channel -- and typing a raw frequency at them is not how either is used. The
+Settings panel was never a good home for it; it was where the field went
+because nothing else had a place for it, and now something does.
+
+Do this **after** `overlay-layouts/01`. Removing a row from a panel whose ten
+rectangles are each written out twice, once in the input handler and once in
+the draw, is precisely the edit that leaves one copy behind.

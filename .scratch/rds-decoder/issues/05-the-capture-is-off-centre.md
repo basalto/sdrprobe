@@ -1,6 +1,6 @@
 # 05 — The TSF capture is tuned 100 kHz off the station
 
-Status: needs-triage
+Status: ready-for-agent
 Blocked by: (none)
 
 `testfiles/fm_rds_tsf.bin` was recorded at 89.6 MHz. The band scan later put
@@ -23,3 +23,24 @@ two seconds), and update the sidecar and `fm_rds_tsf.json`'s notes.
 
 Not worth doing on its own. Replacing a capture that works costs a review of
 every check that reads it.
+
+## Decision
+
+**Re-record it, tuned to 89.5.**
+
+The capture should mean what its filename and its sidecar say. As it stands
+the 100 kHz offset is load-bearing by accident: it is exercising the
+decoder's tolerance of an offset, and doing so silently, so a future change
+that lost that tolerance would fail here for a reason nobody had written down.
+
+Needs the receiver and needs TSF still on air at 89.5 here -- check before
+assuming, since two of the three GSM captures went off the air with the
+operator's refarming and cannot be re-recorded.
+
+Keep the invariants `check-pipelines` already asserts: identification 0x8343,
+the name `TSF`, and the programme type. The programme type is not decoration
+-- it lives in a different block of every group, and the name alone would pass
+with the differential sense backwards.
+
+If TSF has gone, say so and close this rather than substituting another
+station: the checks name this one.
