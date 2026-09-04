@@ -1,6 +1,6 @@
 # 05 — The TSF capture is tuned 100 kHz off the station
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: (none)
 
 `testfiles/fm_rds_tsf.bin` was recorded at 89.6 MHz. The band scan later put
@@ -44,3 +44,31 @@ with the differential sense backwards.
 
 If TSF has gone, say so and close this rather than substituting another
 station: the checks name this one.
+
+## Comments
+
+Resolved. Re-recorded at 89.5, three seconds, and TSF was still there.
+
+Two things were checked rather than assumed, and both changed the answer.
+
+**On-centre had to be shown to be no worse.** An FM carrier at 0 Hz sits
+exactly where the receiver's own DC spike is, which is a real reason to tune
+off a station deliberately -- so the old offset might have been a technique
+rather than a slip. Two three-second captures of TSF minutes apart settled it:
+89.5 read 19 groups agreeing, 89.6 read 18. No penalty for being on the
+station, so the offset was a slip after all.
+
+**Two seconds was a coin flip, and the old capture had been winning it.** The
+first re-recording, at two seconds, decoded the identification and *not* the
+name. A name is four two-character segments seen whole twice and agreeing --
+one pass through four segments can be four segments of two different names --
+so whether two seconds is enough depends on where the segment cycle happens to
+fall. One second of the final capture names nothing; two seconds of it does;
+a separate two-second recording minutes earlier did not. `check-pipelines` has
+been asserting the name against a capture that had got lucky. Three seconds is
+margin instead, at the cost of four megabytes.
+
+`check-pipelines` now also asserts the tuning: `station 0x8343 at 89.500 MHz`.
+The old capture was tuned 100 kHz off for three days with nothing able to
+notice, which is the whole complaint this ticket was filed about, and the
+assertion is what stops it recurring silently.
