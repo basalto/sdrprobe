@@ -124,11 +124,13 @@ static inline struct survey_layout survey_layout_for(float width,
        left, then sweep it. */
     l.band_button = (Rectangle){ 450.0f, 128.0f, 130.0f, 30.0f };
     l.sweep_button = (Rectangle){ 596.0f, 128.0f, 110.0f, 30.0f };
+    l.reset_button = (Rectangle){ 722.0f, 128.0f, 130.0f, 30.0f };
     /* Stop is drawn beside Sweep, not instead of it, so it needs a place of
-       its own -- and next to the button it stops rather than at the far end
-       of the row. */
-    l.stop_button = (Rectangle){ 722.0f, 128.0f, 80.0f, 30.0f };
-    l.reset_button = (Rectangle){ 818.0f, 128.0f, 130.0f, 30.0f };
+       its own. Last, because it is the only control on the row that is not
+       always there -- a gap that opens and closes in the middle of a row
+       moves everything after it, and nothing should move while a sweep is
+       running. */
+    l.stop_button = (Rectangle){ 868.0f, 128.0f, 80.0f, 30.0f };
     /* The second row. A survey saved without a site cannot be compared with
        anything, so the field is here in front of the reader rather than in a
        configuration file they have never opened. */
