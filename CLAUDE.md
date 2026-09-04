@@ -207,7 +207,7 @@ way to see whether a change to the DSP helped or hurt:
 ./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode --once
 ./sdrprobe --file testfiles/adsb_cpr_pair.bin --headless --technology adsb --decode --once
 ./sdrprobe --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
-    --frequency 89.6M --headless --technology fm --decode --once
+    --frequency 89.5M --headless --technology fm --decode --once
 ./sdrprobe --headless --record-seconds 2 --technology adsb   # live capture + sidecar
 ```
 
@@ -572,10 +572,17 @@ git: a build from a dirty tree would claim to be a tag it is not.
   numbers that increase and track the burst timeline. The three BCCs are the
   point of having three: the BCC picks the training sequence every normal
   burst is found by, so hardcoding one passes ARFCN 69 and fails 113.
-  `fm_rds_tsf.bin` is at **2.048 MS/s** and must keep reading identification
-  0x8343 and the name `TSF`; the name alone would pass with the differential
-  sense backwards, so `check-pipelines` asserts the programme type as well,
-  which lives in a different block of every group.
+  `fm_rds_tsf.bin` is at **2.048 MS/s**, tuned to 89.5 where TSF is, and
+  three seconds long. It must keep reading identification 0x8343 and the name
+  `TSF`; the name alone would pass with the differential sense backwards, so
+  `check-pipelines` asserts the programme type as well, which lives in a
+  different block of every group -- and the tuning, because the capture it
+  replaced was tuned 89.6 against a station at 89.5 and nothing said so.
+  **Three seconds rather than two is margin, not generosity**: a name is four
+  segments seen whole twice and agreeing, one second of this capture names
+  nothing, and two seconds names it only depending on where the segment cycle
+  falls -- a separate two-second recording of the same station minutes earlier
+  did not. The old capture was on the lucky side of that.
   `gsm_arfcn_113.bin` is the only one whose cell is still on air — 69 and 73
   went off the air with the operator's refarming, so they are historical and
   cannot be re-recorded. Those real-signal

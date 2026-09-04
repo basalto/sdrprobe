@@ -98,7 +98,7 @@ check_gsm testfiles/gsm_arfcn_69.bin 69 59
 printf '  FM RDS decode\n'
 checked
 fm=$(run --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
-         --frequency 89.6M --headless --technology fm --decode --once)
+         --frequency 89.5M --headless --technology fm --decode --once)
 if ! printf '%s\n' "$fm" | grep -q "^FM   station 0x8343"; then
     fail "fm_rds_tsf did not identify TSF; got: $(printf '%s\n' "$fm" |
          grep '^FM ' | head -1)"
@@ -113,13 +113,21 @@ if ! printf '%s\n' "$fm" | grep -q "news, carries traffic announcements"; then
     fail "fm_rds_tsf did not read the programme type; got: $(
          printf '%s\n' "$fm" | grep '^RDS ' | head -1)"
 fi
-report "fm_rds_tsf.bin" "station 0x8343, TSF, news"
+# And it says which frequency it read the station at, which is how a capture
+# tuned somewhere other than its sidecar claims would show up. The last one
+# was tuned 100 kHz off the station for three days without anything noticing.
+checked
+if ! printf '%s\n' "$fm" | grep -q "^FM   station 0x8343  89.500 MHz"; then
+    fail "fm_rds_tsf is not tuned to the station; got: $(printf '%s\n' "$fm" |
+         grep '^FM ' | head -1)"
+fi
+report "fm_rds_tsf.bin" "station 0x8343 at 89.500, TSF, news"
 
 # And the same capture twice gives the same answer, which a chain carrying
 # state across blocks is the natural place to lose.
 checked
 fm2=$(run --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
-          --frequency 89.6M --headless --technology fm --decode --once)
+          --frequency 89.5M --headless --technology fm --decode --once)
 if [ "$fm" != "$fm2" ]; then
     fail "fm_rds_tsf decoded differently the second time"
 fi
