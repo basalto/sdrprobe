@@ -415,6 +415,83 @@ static void test_the_scale_keys_reach_every_chart(void) {
     }
 }
 
+
+/*
+ * What Escape does, on every screen.
+ *
+ * This is the check the bug asked for, and the bug has now happened twice by
+ * the same route. The FM view shipped with no Escape handler at all. Then the
+ * survey lost its when it stopped being a Scope view and became a tab: the
+ * Scope branch of the frame loop carried the quit and the survey had been
+ * inheriting it. Neither failed anything -- a key simply did nothing, which
+ * is invisible to every test that does not name the key.
+ *
+ * So the rule is a table, and this walks every screen past it.
+ */
+static void test_what_escape_does(void) {
+    struct input_state s;
+
+    /* The two screens that are the top of their own stack. */
+    s = state_of(0, 0, 0, 0, TAB_SURVEY, 0);
+    check_int("the survey is where the program opens, so Escape leaves it",
+              input_escape(&s), INPUT_ESCAPE_QUIT);
+    s = state_of(0, 0, 0, 0, TAB_SCOPE, 0);
+    check_int("and the Scope views the same", input_escape(&s),
+              INPUT_ESCAPE_QUIT);
+
+    /* A decode view is one level in. */
+    s = state_of(0, 0, 0, 0, TAB_DECODE, 0);
+    check_int("a decode view goes back to Scope", input_escape(&s),
+              INPUT_ESCAPE_TO_SCOPE);
+
+    /* Nearer the surface first: a field, then a list over it. */
+    s = state_of(0, 0, 0, 0, TAB_SURVEY, 0);
+    s.text_focus = 1;
+    check_int("a focused field is left before the screen is",
+              input_escape(&s), INPUT_ESCAPE_LEAVE_FIELD);
+    s.menu_open = 1;
+    check_int("and a list over it before that", input_escape(&s),
+              INPUT_ESCAPE_CLOSE_MENU);
+    s.text_focus = 0;
+    check_int("a list on its own too", input_escape(&s),
+              INPUT_ESCAPE_CLOSE_MENU);
+
+    /* An overlay owns the key: its own handler knows what step it is on, and
+       two things deciding would be two things acting. */
+    s = state_of(1, 0, 0, 0, TAB_SURVEY, 0);
+    check_int("help keeps it", input_escape(&s), INPUT_ESCAPE_NOTHING);
+    s = state_of(0, 1, 0, 0, TAB_SCOPE, 0);
+    check_int("so does the settings panel", input_escape(&s),
+              INPUT_ESCAPE_NOTHING);
+    s = state_of(0, 0, 1, 0, TAB_DECODE, 0);
+    check_int("and calibration, which has two steps of its own",
+              input_escape(&s), INPUT_ESCAPE_NOTHING);
+    check_int("no state is no answer", input_escape(NULL),
+              INPUT_ESCAPE_NOTHING);
+
+    /*
+     * The property, over every screen there is: Escape always does
+     * *something*. A key that silently does nothing is how both of these bugs
+     * reached an operator.
+     */
+    {
+        int tab, bits, silent = 0;
+
+        for (tab = 0; tab < TAB_COUNT; tab++)
+        for (bits = 0; bits < 4; bits++) {
+            struct input_state screen = state_of(0, 0, 0, 0, tab, 0);
+
+            screen.text_focus = bits & 1;
+            screen.menu_open = (bits >> 1) & 1;
+            if (input_escape(&screen) == INPUT_ESCAPE_NOTHING)
+                silent++;
+        }
+        check_msg(silent == 0,
+                  "%d screens with no overlay leave Escape doing nothing\n",
+                  silent);
+    }
+}
+
 int main(void) {
     test_the_tabs();
     test_the_precedence();
@@ -427,6 +504,7 @@ int main(void) {
     test_where_back_goes();
     test_decode_keys_yield_to_a_field();
     test_the_scale_keys_reach_every_chart();
+    test_what_escape_does();
 
     return check_report("input precedence");
 }
