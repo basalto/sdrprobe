@@ -120,6 +120,38 @@ static inline int freq_window_pan(struct freq_window *w, double fraction,
 }
 
 /*
+ * Pan, and say how much of the movement the data could not absorb.
+ *
+ * The window can only move inside what exists. On a survey that is the end of
+ * it: the sweep covered what it covered and there is nothing either side. On
+ * a live receiver there is -- the tuner can be pointed somewhere else -- so
+ * running out of data is not a wall, it is the point at which panning has to
+ * become retuning if it is to carry on.
+ *
+ * So the leftover is returned in hertz rather than swallowed, and a caller
+ * with a tuner moves it by that much. A caller without one ignores it and
+ * gets the old behaviour, which is why the survey did not have to change.
+ */
+static inline double freq_window_pan_overflow(struct freq_window *w,
+                                              double fraction,
+                                              double min_span) {
+    double span, wanted, moved;
+
+    if (w->view_upper_hz <= w->view_lower_hz)
+        freq_window_reset(w);
+    span = w->view_upper_hz - w->view_lower_hz;
+    wanted = span * fraction;
+    {
+        double before = w->view_lower_hz;
+        w->view_lower_hz += wanted;
+        w->view_upper_hz += wanted;
+        freq_window_clamp(w, min_span);
+        moved = w->view_lower_hz - before;
+    }
+    return wanted - moved;
+}
+
+/*
  * What Sweep will sweep: the window when it is narrower than the data it sits
  * on, the whole data range otherwise. Returns 1 when that narrows the sweep,
  * which is when the survey being replaced is worth keeping a copy of.

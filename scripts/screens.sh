@@ -34,6 +34,7 @@ fm=testfiles/fm_rds_tsf.bin
 set -- \
     "magnitude:--file $gsm --view magnitude --duration 5" \
     "spectrum:--file $gsm --view spectrum --duration 5" \
+    "spectrum-zoom:--file $gsm --frequency 948.4M --view spectrum --zoom 948.2M:948.7M --duration 5" \
     "scatter:--file $gsm --view scatter --duration 5" \
     "waterfall:--file $gsm --view waterfall --duration 20" \
     "survey:--file $gsm --frequency 948.4M --view survey --duration 6" \
