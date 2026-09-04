@@ -110,12 +110,22 @@ const char *rds_pty_name(int pty) {
     return PTY_NAMES[pty];
 }
 
-/* RDS carries a character set of its own; everything printable in the basic
-   table agrees with ASCII, and what does not is replaced rather than passed
-   through to a terminal that would make a mess of it. */
+/*
+ * RDS carries a character set of its own; everything printable in the basic
+ * table agrees with ASCII, and what does not is replaced rather than passed
+ * through to a terminal that would make a mess of it.
+ *
+ * With one exception, and it was a bug before it was an exception: a carriage
+ * return is how a station ends a radio text shorter than sixty-four
+ * characters, and this function was turning it into a space before the code
+ * that looks for it ever saw one. So a short message waited for all sixteen
+ * segments and, on a station that only ever sends three, waited for ever.
+ */
 static char rds_character(unsigned code) {
     if (code >= 0x20 && code < 0x7F)
         return (char)code;
+    if (code == 0x0D)
+        return '\r';
     return ' ';
 }
 
@@ -264,6 +274,18 @@ int rds_station_apply(struct rds_station *station, const struct rds_group *g) {
             if (end < 64 || station->rt_segments == 0xFFFFu) {
                 memcpy(station->rt, station->rt_pending, 64);
                 station->rt[end < 64 ? end : 64] = '\0';
+                /*
+                 * The padding is not information. A station with less than
+                 * sixty-four characters to say fills the rest with spaces --
+                 * ANTENA 2 sends "Cultura em antena2.rtp.pt" and thirty-nine
+                 * blanks -- and passing those on makes every reader trim
+                 * them, or forget to.
+                 */
+                {
+                    int last = (int)strlen(station->rt);
+                    while (last > 0 && station->rt[last - 1] == ' ')
+                        station->rt[--last] = '\0';
+                }
                 station->rt_valid = 1;
                 changed = 1;
             }

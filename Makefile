@@ -236,6 +236,14 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 # The candidate list: how many rows fit, which one the pointer is over, and
 # how far the list is scrolled. Needs raylib's headers for Rectangle, not the
 # library.
+# Where a line of text breaks when a panel is narrower than it. Pure
+# arithmetic; how wide a line may be is the caller's font question.
+check-text-wrap: $(TESTS)/text_wrap_test.c $(TESTS)/check.h $(SRC)/text_wrap.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/text_wrap_test \
+		$(TESTS)/text_wrap_test.c -lm
+	$(Q)./$(BUILD)/text_wrap_test
+
 check-row-list: $(TESTS)/row_list_test.c $(TESTS)/check.h \
 		$(SRC)/row_list.h
 	@mkdir -p $(BUILD)
@@ -363,7 +371,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
-	check-row-list check-survey-bands \
+	check-row-list check-survey-bands check-text-wrap \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally
 

@@ -402,6 +402,131 @@ static void test_a_real_station(void) {
               8);
 }
 
+
+/* Group 2A block 2: type 2, version A, TP, PTY, the A/B flag and the segment
+   address. Blocks 3 and 4 carry four characters between them. */
+static uint16_t group2a_b2(int pty, int ab, int address) {
+    return (uint16_t)((2 << 12) | (0 << 11) | (0 << 10) |
+                      ((pty & 0x1F) << 5) | ((ab & 1) << 4) | (address & 0xF));
+}
+
+static void radiotext_chars(const char *text, int address, uint16_t *b3,
+                            uint16_t *b4) {
+    int at = address * 4;
+    *b3 = (uint16_t)(((unsigned char)text[at] << 8) |
+                     (unsigned char)text[at + 1]);
+    *b4 = (uint16_t)(((unsigned char)text[at + 2] << 8) |
+                     (unsigned char)text[at + 3]);
+}
+
+/*
+ * Radio text, which is the same rule as the name over sixteen times the
+ * distance: nothing is shown until the whole of it has arrived.
+ *
+ * A real station confirms the conventions these checks share with the
+ * encoder. Thirty seconds of ANTENA 2 gives "Cultura em antena2.rtp.pt" --
+ * readable Portuguese and a working address, which a wrong character
+ * placement would have scrambled into neither.
+ */
+static void test_radio_text_assembles(void) {
+    static float soft[16384];
+    struct rds_station station;
+    static uint16_t b2[16], b3[16], b4[16];
+    /* Exactly sixty-four, the way a station pads a short message. */
+    const char *sent =
+        "Cultura em antena2.rtp.pt                                       ";
+    size_t bits;
+    int g;
+
+    check_size("the fixture is a full text", strlen(sent), 64);
+    for (g = 0; g < 16; g++) {
+        b2[g] = group2a_b2(14, 0, g);
+        radiotext_chars(sent, g, &b3[g], &b4[g]);
+    }
+    bits = build_groups(soft, 16384, 0x8202, b2, b3, b4, 16, 19);
+    rds_decode(soft, bits, &station, NULL, 0);
+
+    check_true("the text arrived", station.rt_valid);
+    /* Trimmed: the padding is not information, and passing it on makes every
+       reader strip it or forget to. */
+    check_str("and its trailing blanks are gone", station.rt,
+              "Cultura em antena2.rtp.pt");
+}
+
+static void test_half_a_text_is_not_shown(void) {
+    static float soft[16384];
+    struct rds_station station;
+    static uint16_t b2[8], b3[8], b4[8];
+    const char *sent =
+        "Cultura em antena2.rtp.pt                                       ";
+    size_t bits;
+    int g;
+
+    /* Eight of the sixteen segments. Half a message is a different message. */
+    for (g = 0; g < 8; g++) {
+        b2[g] = group2a_b2(14, 0, g);
+        radiotext_chars(sent, g, &b3[g], &b4[g]);
+    }
+    bits = build_groups(soft, 16384, 0x8202, b2, b3, b4, 8, 7);
+    rds_decode(soft, bits, &station, NULL, 0);
+    check_true("half a text is not offered", !station.rt_valid);
+}
+
+/*
+ * A carriage return ends it early, which is how a station sends something
+ * short without waiting for all sixteen segments to be believed.
+ */
+static void test_a_carriage_return_ends_it(void) {
+    static float soft[16384];
+    struct rds_station station;
+    static uint16_t b2[4], b3[4], b4[4];
+    const char *sent = "Radio 1\r                                        ";
+    size_t bits;
+    int g;
+
+    for (g = 0; g < 3; g++) {
+        b2[g] = group2a_b2(10, 0, g);
+        radiotext_chars(sent, g, &b3[g], &b4[g]);
+    }
+    bits = build_groups(soft, 16384, 0x1234, b2, b3, b4, 3, 11);
+    rds_decode(soft, bits, &station, NULL, 0);
+    check_true("a short text ends at the carriage return", station.rt_valid);
+    check_str("and the return is not part of it", station.rt, "Radio 1");
+}
+
+/*
+ * The A/B flag flipping means the station has changed what it is saying, and
+ * everything collected belongs to the old message. Splicing the two gives a
+ * sentence neither station sent.
+ */
+static void test_the_ab_flag_clears_the_text(void) {
+    static float soft[32768];
+    struct rds_station station;
+    static uint16_t b2[32], b3[32], b4[32];
+    const char *first =
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const char *second =
+        "Now playing something else                                      ";
+    size_t bits;
+    int g;
+
+    /* Eight segments of one message, then all sixteen of another. */
+    for (g = 0; g < 8; g++) {
+        b2[g] = group2a_b2(10, 0, g);
+        radiotext_chars(first, g, &b3[g], &b4[g]);
+    }
+    for (g = 0; g < 16; g++) {
+        b2[8 + g] = group2a_b2(10, 1, g);
+        radiotext_chars(second, g, &b3[8 + g], &b4[8 + g]);
+    }
+    bits = build_groups(soft, 32768, 0x1234, b2, b3, b4, 24, 5);
+    rds_decode(soft, bits, &station, NULL, 0);
+
+    check_true("the second message arrived", station.rt_valid);
+    check_str("whole, and not spliced onto the first", station.rt,
+              "Now playing something else");
+}
+
 int main(void) {
     test_the_block_code();
     test_the_search_has_a_floor();
@@ -409,6 +534,10 @@ int main(void) {
     test_a_half_name_is_not_shown();
     test_a_changed_name_is_not_spliced();
     test_version_b_repeats_the_identification();
+    test_radio_text_assembles();
+    test_half_a_text_is_not_shown();
+    test_a_carriage_return_ends_it();
+    test_the_ab_flag_clears_the_text();
     test_it_refuses_nonsense();
     test_a_real_station();
 
