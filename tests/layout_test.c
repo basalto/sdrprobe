@@ -500,8 +500,8 @@ static const struct survey_case survey_cases[] = {
         { "to_field", 218.00f, 128.00f, 120.00f, 30.00f },
         { "dwell_field", 354.00f, 128.00f, 80.00f, 30.00f },
         { "sweep_button", 596.00f, 128.00f, 110.00f, 30.00f },
-        { "reset_button", 818.00f, 128.00f, 130.00f, 30.00f },
-        { "stop_button", 722.00f, 128.00f, 80.00f, 30.00f },
+        { "reset_button", 722.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 868.00f, 128.00f, 80.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
@@ -521,8 +521,8 @@ static const struct survey_case survey_cases[] = {
         { "to_field", 218.00f, 128.00f, 120.00f, 30.00f },
         { "dwell_field", 354.00f, 128.00f, 80.00f, 30.00f },
         { "sweep_button", 596.00f, 128.00f, 110.00f, 30.00f },
-        { "reset_button", 818.00f, 128.00f, 130.00f, 30.00f },
-        { "stop_button", 722.00f, 128.00f, 80.00f, 30.00f },
+        { "reset_button", 722.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 868.00f, 128.00f, 80.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
@@ -542,8 +542,8 @@ static const struct survey_case survey_cases[] = {
         { "to_field", 218.00f, 128.00f, 120.00f, 30.00f },
         { "dwell_field", 354.00f, 128.00f, 80.00f, 30.00f },
         { "sweep_button", 596.00f, 128.00f, 110.00f, 30.00f },
-        { "reset_button", 818.00f, 128.00f, 130.00f, 30.00f },
-        { "stop_button", 722.00f, 128.00f, 80.00f, 30.00f },
+        { "reset_button", 722.00f, 128.00f, 130.00f, 30.00f },
+        { "stop_button", 868.00f, 128.00f, 80.00f, 30.00f },
         { "site_field", 82.00f, 180.00f, 164.00f, 30.00f },
         { "site_menu_button", 248.00f, 180.00f, 26.00f, 30.00f },
         { "antenna_field", 288.00f, 180.00f, 180.00f, 30.00f },
@@ -588,7 +588,7 @@ static void check_survey(void) {
          * using.
          */
         {
-            Rectangle last = l.reset_button;
+            Rectangle last = l.stop_button;
             check_msg(last.x + last.width <= w->width,
                       "%.0fx%.0f the controls row runs off the side by "
                       "%.0f px\n", w->width, w->height,
@@ -643,12 +643,13 @@ static void check_survey(void) {
         /*
          * The controls row, in the order it is read and used: three fields,
          * then the band that fills them in, then the sweep it starts, then
-         * stopping that sweep, then backing out of a zoom. Left to right with
-         * no overlaps.
+         * backing out of a zoom -- and Stop last, because it is the only one
+         * that is not always drawn and a gap opening in the middle of a row
+         * would shift everything after it while a sweep was running.
          */
         Rectangle row[7] = { l.from_field, l.to_field, l.dwell_field,
-                             l.band_button, l.sweep_button, l.stop_button,
-                             l.reset_button };
+                             l.band_button, l.sweep_button, l.reset_button,
+                             l.stop_button };
         for (int i = 1; i < 7; i++) {
             check_msg(row[i].x >= row[i - 1].x + row[i - 1].width,
                       "%.0fx%.0f control %d overlaps the one before\n",
