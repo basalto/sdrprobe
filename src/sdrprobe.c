@@ -1172,6 +1172,8 @@ static int run_gui(struct app *app) {
      * three overlapping regions because there was no way to look at it, and
      * three analysis screens had no way either.
      */
+    if (app->config.fft_size > 0)
+        app->sv.fft_size = app->config.fft_size;
     if (app->options.fft_size)
         app->sv.fft_size = app->options.fft_size;
     if (app->options.zoom_to_hz > app->options.zoom_from_hz) {

@@ -27,6 +27,12 @@ void open_settings(struct app *app) {
              app->applied_ppm);
     app->set.ppm_length = (int)strlen(app->set.ppm);
     app->set.focus = 0;
+    {
+        int choice = sdr_dsp_fft_choice_of(app->sv.fft_size);
+        app->set.fft_choice = choice >= 0
+                                  ? choice
+                                  : sdr_dsp_fft_choice_of(SDR_DSP_FFT_SIZE);
+    }
     app->set.gain_choice = 0;
     if (app->receiver_mode && app->applied_manual_gain) {
         for (int i = 0; i < app->supported_gain_count; i++)
@@ -54,6 +60,21 @@ int apply_settings(struct app *app) {
     }
 
     app->auto_drift_check = app->set.auto_drift;
+    /*
+     * The transform size, which needs no receiver and so is applied before
+     * anything that can fail: a rejected frequency should not also lose a
+     * resolution the reader had just chosen.
+     */
+    {
+        int size = sdr_dsp_fft_choice(app->set.fft_choice);
+        if (size > 0 && size != app->sv.fft_size) {
+            app->sv.fft_size = size;
+            /* It describes how somebody likes to work rather than one run,
+               which is the test config.h applies. */
+            if (config_set_fft_size(&app->config, size))
+                config_save(&app->config);
+        }
+    }
     /* A manual PPM change is no longer FCCH-backed: drop to grey. */
     if (app->gsm_cal_valid && ppm != app->gsm_cal_ppm) {
         app->gsm_cal_valid = 0;
@@ -156,7 +177,9 @@ int apply_settings(struct app *app) {
 
 static Rectangle settings_panel(void) {
     float width = 520.0f;
-    float height = 380.0f;
+    /* 420 rather than 380: the resolution row went in above the buttons and
+       a panel that did not grow would have put it under them. */
+    float height = 420.0f;
     return (Rectangle){ ((float)GetScreenWidth() - width) * 0.5f,
                         ((float)GetScreenHeight() - height) * 0.5f,
                         width, height };
@@ -176,6 +199,14 @@ void handle_settings_input(struct app *app) {
                             22.0f, 22.0f };
     Rectangle drift_toggle = { panel.x + 28.0f, panel.y + 250.0f,
                                22.0f, 22.0f };
+    /* Clear of the drift checkbox above, which runs to y + 272. The first
+       attempt put the caption at 262 and it landed on it -- this panel
+       computes its rectangles inline with no layout header, so nothing but a
+       screenshot could have said so. */
+    Rectangle fft_previous = { panel.x + 28.0f, panel.y + 300.0f,
+                               42.0f, 38.0f };
+    Rectangle fft_next = { panel.x + panel.width - 70.0f,
+                           panel.y + 300.0f, 42.0f, 38.0f };
     Rectangle cancel = { panel.x + panel.width - 224.0f,
                          panel.y + panel.height - 55.0f, 92.0f, 34.0f };
     Rectangle apply = { panel.x + panel.width - 120.0f,
@@ -227,6 +258,19 @@ void handle_settings_input(struct app *app) {
         if (app->set.gain_choice > app->supported_gain_count)
             app->set.gain_choice = 0;
     }
+    /* Wraps at both ends, the way the gain stepper does: seven choices and
+       two arrows, and a reader who has gone one too far should not have to
+       walk back through all of them. */
+    if (clicked(fft_previous)) {
+        app->set.fft_choice--;
+        if (app->set.fft_choice < 0)
+            app->set.fft_choice = SDR_DSP_FFT_CHOICES - 1;
+    }
+    if (clicked(fft_next)) {
+        app->set.fft_choice++;
+        if (app->set.fft_choice >= SDR_DSP_FFT_CHOICES)
+            app->set.fft_choice = 0;
+    }
     if (clicked(dc_toggle))
         app->set.remove_dc = !app->set.remove_dc;
     if (clicked(drift_toggle))
@@ -257,6 +301,14 @@ void draw_settings(const struct app *app) {
                             22.0f, 22.0f };
     Rectangle drift_toggle = { panel.x + 28.0f, panel.y + 250.0f,
                                22.0f, 22.0f };
+    /* Clear of the drift checkbox above, which runs to y + 272. The first
+       attempt put the caption at 262 and it landed on it -- this panel
+       computes its rectangles inline with no layout header, so nothing but a
+       screenshot could have said so. */
+    Rectangle fft_previous = { panel.x + 28.0f, panel.y + 300.0f,
+                               42.0f, 38.0f };
+    Rectangle fft_next = { panel.x + panel.width - 70.0f,
+                           panel.y + 300.0f, 42.0f, 38.0f };
     Rectangle cancel = { panel.x + panel.width - 224.0f,
                          panel.y + panel.height - 55.0f, 92.0f, 34.0f };
     Rectangle apply = { panel.x + panel.width - 120.0f,
@@ -295,6 +347,33 @@ void draw_settings(const struct app *app) {
     DrawText(gain,
              (int)(panel.x + (panel.width - MeasureText(gain, 20)) / 2.0f),
              (int)panel.y + 173, 20, (Color){ 235, 242, 246, 255 });
+
+    /*
+     * The transform size, and what it costs. Both numbers, because it is a
+     * trade rather than an improvement: a longer transform buys resolution
+     * and spends averaging, and a reader who picks 16384 should be told they
+     * have gone from 64 averages to 8 rather than discover it as a trace that
+     * suddenly looks worse.
+     */
+    {
+        char fft[96];
+        int size = sdr_dsp_fft_choice(app->set.fft_choice);
+        double rate = (double)app->applied_sample_rate;
+        int windows = size > 0 ? (int)(SAMPLE_BLOCK_PAIRS / (size_t)size) : 0;
+
+        DrawText("Scope resolution", (int)panel.x + 28, (int)panel.y + 282, 16,
+                 (Color){ 157, 180, 194, 255 });
+        if (size > 0 && rate > 0.0)
+            snprintf(fft, sizeof(fft), "%d points   %.0f Hz bins   %d averaged",
+                     size, rate / size, windows);
+        else
+            snprintf(fft, sizeof(fft), "%d points", size);
+        draw_button(fft_previous, "<", 0);
+        draw_button(fft_next, ">", 0);
+        DrawText(fft,
+                 (int)(panel.x + (panel.width - MeasureText(fft, 18)) / 2.0f),
+                 (int)panel.y + 310, 18, (Color){ 235, 242, 246, 255 });
+    }
 
     bool dc_checked = app->set.remove_dc;
     GuiCheckBox(dc_toggle, "Remove DC spike from spectrum and waterfall",

@@ -60,6 +60,10 @@ struct config_site {
 
 struct config {
     char antenna[CONFIG_VALUE_MAX];
+    /* The Scope's transform size. Kept here because it describes how somebody
+       likes to work rather than one run of the program, which is the test
+       everything else in this file passes. 0 means the built-in default. */
+    int fft_size;
     /* Where the receiver is. Empty until the operator says, because there is
        no default that could be right and a wrong one is worse than none: two
        sweeps both labelled "unknown" would compare as the same place. */
@@ -101,6 +105,8 @@ int config_site_ppm(const struct config *config, const char *site);
 /* Record one against a site, remembering the site if it is new. Returns 1 when
    the value changed and the file is worth writing. */
 int config_set_site_ppm(struct config *config, const char *site, int ppm);
+/* Returns non-zero when the value changed and the file is worth writing. */
+int config_set_fft_size(struct config *config, int size);
 
 /* Text in, settings out. Returns the number of keys recognised. */
 int config_parse(const char *text, struct config *config);

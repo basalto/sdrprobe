@@ -1,6 +1,6 @@
 # 03 — The control, and saying what it costs
 
-Status: needs-triage
+Status: resolved
 Blocked by: 02
 
 ## Where it goes
