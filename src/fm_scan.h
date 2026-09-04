@@ -150,4 +150,57 @@ static inline double fm_scan_visit_seconds(int candidates) {
                                  FM_SCAN_VISIT_SECONDS);
 }
 
+/*
+ * How much baseband to turn into bits, and when not to bother.
+ *
+ * The RDS decode works in fixed non-overlapping chunks: one timing search and
+ * one axis per chunk, its bits appended, the baseband it came from discarded.
+ * The fixed size is what lets *consecutive* chunks agree about which absolute
+ * symbol an index means, which radio text needs because it arrives in sixteen
+ * segments over twenty-five seconds.
+ *
+ * `flush` says there will be no next chunk -- the scan is leaving this
+ * carrier -- so a short one is decoded rather than discarded unread. It is as
+ * valid as a full chunk and simply carries fewer bits; there is nothing left
+ * for it to have to agree with.
+ *
+ * This function exists because its absence was a bug with no symptom anybody
+ * could see. A scan visit is under a second and a full chunk is seconds of
+ * baseband, so every visit accumulated a fraction of a chunk, decoded none of
+ * it, and the scan reported all of band II as carrying no RDS -- while the
+ * panel below the list was decoding a station by name. Nothing was wrong with
+ * the decoder, and nothing in a check could see the mismatch, because the
+ * length was a comparison inside a draw-adjacent update rather than a
+ * decision with a name (ADR-0012).
+ */
+#define FM_RDS_CHUNK_SAMPLES 32768
+/*
+ * The shortest run of baseband still worth a timing search, for when there
+ * will not be a full chunk: about 250 symbols, which is ten blocks against
+ * the four in the offset order that synchronisation needs.
+ *
+ * It exists because the band scan visits a carrier for less than a second and
+ * a full chunk is several seconds of baseband. The scan therefore accumulated
+ * a quarter of a chunk per station, decoded none of it, and reported every
+ * station in band II as carrying no RDS -- including the one it was decoding
+ * at the time.
+ */
+#define FM_RDS_MIN_CHUNK_SAMPLES 4096
+
+static inline size_t fm_rds_chunk_length(size_t available, int flush) {
+    if (available >= FM_RDS_CHUNK_SAMPLES)
+        return FM_RDS_CHUNK_SAMPLES;
+    if (!flush || available < FM_RDS_MIN_CHUNK_SAMPLES)
+        return 0;
+    return available;
+}
+
+/* Whether a visit of this many seconds can gather a chunk at all, at a given
+   baseband rate. The scan's visit is deliberately shorter than a full chunk;
+   this is what says so out loud. */
+static inline int fm_scan_visit_fills_chunk(double visit_seconds,
+                                            double baseband_rate) {
+    return visit_seconds * baseband_rate >= (double)FM_RDS_CHUNK_SAMPLES;
+}
+
 #endif
