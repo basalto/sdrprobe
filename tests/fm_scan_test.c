@@ -157,12 +157,75 @@ static void test_what_it_costs(void) {
     }
 }
 
+/*
+ * How much baseband becomes bits.
+ *
+ * The bug this is for: a scan visit is under a second, a full chunk is
+ * seconds of baseband, so every visit gathered a fraction of a chunk and
+ * decoded none of it. The scan reported all of band II as carrying no RDS
+ * while the panel below the list was reading a station by name. Nothing was
+ * wrong with the decoder; the length was a comparison buried in an update
+ * rather than a decision anything could ask about.
+ */
+static void test_chunk_length(void) {
+    /* A full chunk is taken whole, flush or not: a chunk that shortened
+       itself whenever asked would stop consecutive chunks agreeing about
+       which absolute symbol an index means, which is what radio text needs. */
+    check_size("a full chunk is a full chunk",
+               fm_rds_chunk_length(FM_RDS_CHUNK_SAMPLES, 0),
+               FM_RDS_CHUNK_SAMPLES);
+    check_size("and stays one when flushing",
+               fm_rds_chunk_length(FM_RDS_CHUNK_SAMPLES, 1),
+               FM_RDS_CHUNK_SAMPLES);
+    check_size("more than one is still one",
+               fm_rds_chunk_length(FM_RDS_CHUNK_SAMPLES * 3, 0),
+               FM_RDS_CHUNK_SAMPLES);
+
+    /* Short of one, nothing is decoded until somebody says there will be no
+       more -- which is the whole difference between the two callers. */
+    check_size("a partial chunk waits",
+               fm_rds_chunk_length(FM_RDS_CHUNK_SAMPLES - 1, 0), 0);
+    check_size("and is taken when the tuning is ending",
+               fm_rds_chunk_length(FM_RDS_CHUNK_SAMPLES - 1, 1),
+               FM_RDS_CHUNK_SAMPLES - 1);
+
+    /* Below the floor it is not worth a timing search even when flushing. */
+    check_size("too little to search",
+               fm_rds_chunk_length(FM_RDS_MIN_CHUNK_SAMPLES - 1, 1), 0);
+    check_size("just enough",
+               fm_rds_chunk_length(FM_RDS_MIN_CHUNK_SAMPLES, 1),
+               FM_RDS_MIN_CHUNK_SAMPLES);
+    check_size("nothing at all", fm_rds_chunk_length(0, 1), 0);
+
+    /* The floor is worth more than the four blocks synchronisation needs.
+       RDS runs at 1187.5 bits a second against a baseband of about 19 kHz,
+       so roughly sixteen samples a bit and twenty-six bits a block. */
+    {
+        double bits = (double)FM_RDS_MIN_CHUNK_SAMPLES / 16.0;
+        check_true("the floor holds more than four blocks",
+                   bits / 26.0 > 4.0);
+    }
+
+    /*
+     * And the fact that made the bug: a visit cannot fill a chunk. This is
+     * asserted rather than assumed, because if the visit ever grows past a
+     * chunk the flush stops mattering and somebody should find that out here
+     * rather than by deleting it.
+     */
+    check_true("a scan visit is shorter than a chunk",
+               !fm_scan_visit_fills_chunk(FM_SCAN_VISIT_SECONDS, 19000.0));
+    check_true("a station parked on for ten seconds is not",
+               fm_scan_visit_fills_chunk(10.0, 19000.0));
+}
+
 int main(void) {
     test_the_raster();
     test_snapping_to_the_raster();
     test_the_coarse_sweep_covers_the_band();
     test_what_counts_as_a_carrier();
     test_what_it_costs();
+
+    test_chunk_length();
 
     return check_report("band II scan: raster, coverage and cost");
 }
