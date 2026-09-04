@@ -1233,12 +1233,22 @@ static int run_gui(struct app *app) {
         set_tab(app, TAB_DECODE);
         fm_scan_begin(app);
     }
-    if (app->options.analysis) {
-        app->fm.analysis_mode = 1;
-        app->adsb.analysis_mode = 1;
-        app->lte.analysis_mode = 1;
-        app->gsm_analysis_mode = 1;
-    }
+    /*
+     * Assigned, not merely set, and after set_decode has already run.
+     *
+     * enter_gsm() turns the analysis arrangement on whenever it enters with a
+     * channel already chosen, which is what inspecting one from the scan or
+     * the survey should do. It also happens on the way in from the command
+     * line, where it made --analysis a no-op for GSM and left that view's
+     * waterfall arrangement unreachable without a window -- and every screen
+     * has to be reachable from the command line for the same reason every
+     * decision does (ADR-0012). At startup nothing has been inspected yet, so
+     * the flag is whatever was asked for.
+     */
+    app->fm.analysis_mode = app->options.analysis;
+    app->adsb.analysis_mode = app->options.analysis;
+    app->lte.analysis_mode = app->options.analysis;
+    app->gsm_analysis_mode = app->options.analysis;
 
     /* A recording asked for on the command line starts as soon as the worker
        is up, exactly as the button's does. */
