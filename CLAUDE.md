@@ -162,7 +162,15 @@ reset on a screen change, because the survey, both band scans and the
 calibration overlay read the same array and their floors were chosen against
 977 Hz bins. Calibration is an overlay, not a tab, so a test on the tab alone
 would hand it whatever the Scope had chosen. `--fft points` sets it from the
-command line and `fft_size` persists it in the config.
+command line.
+
+**The Scope header has a stepper for the same value and it changes this run
+only; the Settings panel is the one that persists it** to `fft_size` in the
+config. One click on a chart is easily an accidental one and should not decide
+what the program opens with tomorrow, whereas reaching Settings takes an
+overlay and an Apply. Applying in Settings keeps whatever the header last
+chose, so the two never fight -- and `config_set_fft_size()` has exactly one
+caller, which is what keeps that true.
 
 `--analysis` opens a decode view on its charts rather than its data — one flag
 for all of them, since every decode view has the same two arrangements.

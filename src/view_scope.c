@@ -854,10 +854,20 @@ int scope_header_input(struct app *app) {
                          SDR_DSP_FFT_CHOICES;
                 size = sdr_dsp_fft_choice(choice);
                 if (size > 0) {
+                    /*
+                     * This run only. The stepper is here to try a resolution
+                     * against the chart in front of you, which is a single
+                     * click and easily an accidental one -- and an accidental
+                     * click should not change what the program opens with
+                     * tomorrow. The Settings panel is where a resolution is
+                     * committed, because it has an Apply.
+                     *
+                     * The panel's working copy follows along, so opening
+                     * Settings shows the resolution actually in use and its
+                     * Apply keeps it rather than reverting it.
+                     */
                     sv->fft_size = size;
                     app->set.fft_choice = choice;
-                    if (config_set_fft_size(&app->config, size))
-                        config_save(&app->config);
                 }
             }
         }
