@@ -344,11 +344,11 @@ struct calibration {
  * applied_* fields; until then this is the panel's own draft.
  */
 struct settings_panel {
-    char frequency[32];
-    int frequency_length;
+    /* PPM is the only text field here. The centre frequency was beside it
+       until the Scope header grew one, and a value with two homes has two
+       parsers. */
     char ppm[16];
     int ppm_length;
-    int focus;
     int gain_choice;
     int remove_dc;
     int auto_drift;       /* Settings-panel working copy */

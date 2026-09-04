@@ -1128,7 +1128,7 @@ static void check_settings_panel(void) {
         { 1500.0f, 950.0f }, { 1920.0f, 1080.0f }
     };
     static const char *names[] = {
-        "frequency", "ppm", "gain_previous", "gain_value", "gain_next",
+        "ppm", "gain_previous", "gain_value", "gain_next",
         "dc_toggle", "drift_toggle", "fft_previous", "fft_value", "fft_next",
         "cancel", "apply"
     };
@@ -1137,10 +1137,9 @@ static void check_settings_panel(void) {
     for (n = 0; n < sizeof(sizes) / sizeof(sizes[0]); n++) {
         float width = sizes[n].width, height = sizes[n].height;
         struct settings_layout l = settings_layout_for(width, height);
-        Rectangle all[12];
+        Rectangle all[11];
         int count = 0, a, b;
 
-        all[count++] = l.frequency;
         all[count++] = l.ppm;
         all[count++] = l.gain_previous;
         all[count++] = l.gain_value;
@@ -1185,17 +1184,15 @@ static void check_settings_panel(void) {
          * nothing draws into.
          */
         {
-            Rectangle captioned[4];
-            const char *captioned_names[4] = { "frequency", "ppm", "gain",
-                                               "resolution" };
+            Rectangle captioned[3];
+            const char *captioned_names[3] = { "ppm", "gain", "resolution" };
             int c;
 
-            captioned[0] = l.frequency;
-            captioned[1] = l.ppm;
-            captioned[2] = l.gain_previous;
-            captioned[3] = l.fft_previous;
+            captioned[0] = l.ppm;
+            captioned[1] = l.gain_previous;
+            captioned[2] = l.fft_previous;
 
-            for (c = 0; c < 4; c++) {
+            for (c = 0; c < 3; c++) {
                 Rectangle caption = settings_caption_of(captioned[c]);
                 check_msg(caption.y >= l.panel.y,
                           "%.0fx%.0f '%s' caption is above the panel\n",
