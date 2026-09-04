@@ -358,6 +358,14 @@ Tabs are presentation only, not the boundary (ADR-0010).
   hands over the RDS subcarrier hands this over: no loop, no ambiguity. Both
   channels are the sum until the pilot locks. **Play** opens the device on
   first press.
+  A resonator sits in front of the pilot loop, and it is load-bearing: the
+  correlator sees the whole multiplex, so a stereo station's own 38 kHz
+  subcarrier was dragging the loop it is demodulated from. Taking it out moved
+  **stereo separation from 23 dB to 65** — the pilot's phase is doubled to
+  reach the subcarrier, so noise on it arrives twice as large. `fm_pilot_ppm`
+  is the **transmitter's** pilot offset, not this receiver's clock: five
+  stations here spread over 59 ppm while each repeated to one, and a pilot is
+  only held to ±2 Hz (±105 ppm at 19 kHz).
   The pilot's lock takes **coherence and presence together** — coherence says
   it is a tone, and on a clean signal carrying no pilot at all the loop finds
   a coherent scrap at 19 kHz and reads 0.74; the pilot's size against the
