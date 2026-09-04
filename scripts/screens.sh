@@ -37,6 +37,7 @@ set -- \
     "scatter:--file $gsm --view scatter --duration 5" \
     "waterfall:--file $gsm --view waterfall --duration 20" \
     "survey:--file $gsm --frequency 948.4M --view survey --duration 6" \
+    "survey-bands:--file $gsm --frequency 948.4M --view survey --survey-bands --duration 5" \
     "gsm:--file $gsm --view gsm --arfcn 69 --duration 8" \
     "adsb:--file $adsb --view adsb --duration 8" \
     "adsb-charts:--file $adsb --view adsb --analysis --duration 8" \
