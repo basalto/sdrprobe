@@ -223,7 +223,27 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
  * to draw a waterfall anywhere but where a layout put it.
  */
 void draw_waterfall(const struct app *app) {
-    draw_waterfall_rect(app, 0, app->plot, 0.0);
+    const struct freq_window *w = &app->sv.freq;
+    double span = w->view_upper_hz - w->view_lower_hz;
+    double data = w->data_upper_hz - w->data_lower_hz;
+    struct sdrgui_waterfall_params params = {
+        app->plot, app->sv.waterfall, (double)app->applied_frequency,
+        (double)app->applied_sample_rate, 0, 0,
+        0.0, 0.0,
+        app->sv.waterfall_rows, app->sv.waterfall_height, app->pair_count,
+        SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
+        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
+        "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900"
+    };
+
+    /* The component already knows how to draw part of its span -- the
+       calibration overlay has always used it to hold one channel on screen.
+       A zoomed window is the same request with different numbers. */
+    if (span > 0.0 && data > 0.0 && span < data - 1.0) {
+        params.zoom_center_hz = (w->view_lower_hz + w->view_upper_hz) / 2.0;
+        params.zoom_half_width_hz = span / 2.0;
+    }
+    sdrgui_waterfall(&params);
 }
 
 void update_scatter(struct app *app, double now, int insert) {
@@ -389,12 +409,37 @@ void draw_magnitude(const struct app *app) {
 }
 
 void draw_spectrum(const struct app *app) {
-    struct sdrgui_spectrum_params params = {
-        app->plot, (double)app->applied_frequency,
-        (double)app->applied_sample_rate, app->spectrum_ready,
-        app->spectrum_average, app->spectrum_peak, SDR_DSP_FFT_SIZE,
-        app->sv.spectrum_lower_dbfs, SPECTRUM_TOP_DBFS, app->spectrum_windows
-    };
+    const struct freq_window *w = &app->sv.freq;
+    struct sdrgui_spectrum_params params;
+    double span = w->view_upper_hz - w->view_lower_hz;
+    double data = w->data_upper_hz - w->data_lower_hz;
+
+    memset(&params, 0, sizeof(params));
+    params.plot = app->plot;
+    params.center_hz = (double)app->applied_frequency;
+    params.sample_rate = (double)app->applied_sample_rate;
+    params.ready = app->spectrum_ready;
+    params.average = app->spectrum_average;
+    params.peak = app->spectrum_peak;
+    params.bins = SDR_DSP_FFT_SIZE;
+    params.lower_dbfs = app->sv.spectrum_lower_dbfs;
+    params.top_dbfs = SPECTRUM_TOP_DBFS;
+    params.windows = app->spectrum_windows;
+    if (span > 0.0 && data > 0.0 && span < data - 1.0) {
+        params.view_lower_hz = w->view_lower_hz;
+        params.view_upper_hz = w->view_upper_hz;
+    }
+    /* The region being dragged out, drawn over the trace so a reader can see
+       what they are about to select rather than what they selected. */
+    if (app->sv.freq_dragging) {
+        double a = freq_window_hz_at(w, app->plot.x, app->plot.width,
+                                     app->sv.freq_drag_from_x);
+        double b = freq_window_hz_at(w, app->plot.x, app->plot.width,
+                                     app->sv.freq_drag_to_x);
+        params.drag_active = 1;
+        params.drag_lower_hz = a < b ? a : b;
+        params.drag_upper_hz = a < b ? b : a;
+    }
     sdrgui_spectrum(&params);
 }
 
@@ -507,4 +552,118 @@ void view_scope_release(struct app *app) {
     app->sv.waterfall_pixels = NULL;
     free(app->sv.waterfall_dbfs);
     app->sv.waterfall_dbfs = NULL;
+}
+
+/*
+ * The frequency window the spectrum and the waterfall share.
+ *
+ * `data` is what is arriving -- the tuning plus or minus half the sample rate
+ * -- and it moves whenever the receiver does, so it is re-anchored here
+ * rather than remembered. `view` is the part of it drawn.
+ */
+void scope_freq_sync(struct app *app) {
+    struct scope_view *sv = &app->sv;
+    double half = (double)app->applied_sample_rate / 2.0;
+    double lower = (double)app->applied_frequency - half;
+    double upper = (double)app->applied_frequency + half;
+
+    if (sv->freq_anchor_hz != app->applied_frequency ||
+        sv->freq_anchor_rate != app->applied_sample_rate) {
+        /*
+         * The receiver moved. Keep the *width* the reader chose and carry it
+         * to the new tuning rather than throwing the zoom away: retuning is
+         * how panning continues past the edge of the span, and a zoom that
+         * reset itself every time would make that unusable.
+         */
+        double span = sv->freq.view_upper_hz - sv->freq.view_lower_hz;
+        double centre = (sv->freq.view_upper_hz + sv->freq.view_lower_hz) / 2.0;
+        double shift = (double)app->applied_frequency -
+                       (double)sv->freq_anchor_hz;
+
+        sv->freq.data_lower_hz = lower;
+        sv->freq.data_upper_hz = upper;
+        if (sv->freq_anchor_rate == 0 || span <= 0.0 ||
+            span >= (double)sv->freq_anchor_rate) {
+            freq_window_reset(&sv->freq);
+        } else {
+            centre += shift;
+            sv->freq.view_lower_hz = centre - span / 2.0;
+            sv->freq.view_upper_hz = centre + span / 2.0;
+            freq_window_clamp(&sv->freq, SCOPE_FREQ_MIN_SPAN_HZ);
+        }
+        sv->freq_anchor_hz = app->applied_frequency;
+        sv->freq_anchor_rate = app->applied_sample_rate;
+        return;
+    }
+    sv->freq.data_lower_hz = lower;
+    sv->freq.data_upper_hz = upper;
+    if (sv->freq.view_upper_hz <= sv->freq.view_lower_hz)
+        freq_window_reset(&sv->freq);
+}
+
+/* What the two charts are showing, for the header to say and for anything
+   that draws against it. */
+void scope_freq_range(const struct app *app, double *lower, double *upper) {
+    if (lower)
+        *lower = app->sv.freq.view_lower_hz;
+    if (upper)
+        *upper = app->sv.freq.view_upper_hz;
+}
+
+/*
+ * Drag to zoom, Left and Right to pan, 0 to put it back.
+ *
+ * Returns non-zero when the receiver has to move -- which happens only when a
+ * pan has run out of received span, never from a drag. Looking closer at
+ * something already arriving cannot cost you the samples either side of it.
+ */
+int scope_freq_input(struct app *app, Rectangle plot) {
+    struct scope_view *sv = &app->sv;
+    Vector2 mouse = GetMousePosition();
+    int retune = 0;
+
+    scope_freq_sync(app);
+
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+        CheckCollisionPointRec(mouse, plot)) {
+        sv->freq_dragging = 1;
+        sv->freq_drag_from_x = mouse.x;
+        sv->freq_drag_to_x = mouse.x;
+    } else if (sv->freq_dragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        sv->freq_drag_to_x = mouse.x;
+    } else if (sv->freq_dragging) {
+        double lower = 0.0, upper = 0.0;
+
+        sv->freq_dragging = 0;
+        if (freq_window_drag(&sv->freq, plot.x, plot.width,
+                             sv->freq_drag_from_x, sv->freq_drag_to_x,
+                             SCOPE_FREQ_MIN_SPAN_HZ, &lower, &upper)) {
+            sv->freq.view_lower_hz = lower;
+            sv->freq.view_upper_hz = upper;
+            freq_window_clamp(&sv->freq, SCOPE_FREQ_MIN_SPAN_HZ);
+        }
+    }
+
+    if (IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT) ||
+        IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) {
+        double direction = (IsKeyPressed(KEY_RIGHT) ||
+                            IsKeyPressedRepeat(KEY_RIGHT)) ? 1.0 : -1.0;
+        double over = freq_window_pan_overflow(&sv->freq,
+                                               direction * SCOPE_FREQ_PAN,
+                                               SCOPE_FREQ_MIN_SPAN_HZ);
+        if (over != 0.0 && app->receiver_mode) {
+            double want = (double)app->applied_frequency + over;
+            if (want > 0.0 &&
+                retune_receiver(app, (uint32_t)llround(want),
+                                app->applied_ppm) == 0)
+                retune = 1;
+        }
+    }
+    return retune;
+}
+
+/* Back to the whole of what is arriving. */
+void scope_freq_reset(struct app *app) {
+    scope_freq_sync(app);
+    freq_window_reset(&app->sv.freq);
 }

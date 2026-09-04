@@ -24,6 +24,7 @@ void usage(const char *program) {
             "          [--record-seconds n] [--technology gsm|adsb|lte|fm|raw]\n"
             "          [--debug-log FILE|-] [--analysis] [--fm-scan] [--fm-play]\n"
             "          [--survey-select n] [--survey-bands] [--survey-band n]\n"
+            "          [--zoom from:to]\n"
             "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
@@ -415,6 +416,23 @@ int parse_options(int argc, char **argv, struct options *options) {
             options->fm_play = 1;
         } else if (strcmp(option, "--fm-scan") == 0) {
             options->fm_scan = 1;
+        } else if (strcmp(option, "--zoom") == 0) {
+            /* "from:to", split into a buffer of our own -- argv belongs to
+               the caller and writing a terminator into it is not ours to do. */
+            char range[64];
+            char *colon;
+
+            if (options->zoom_to_hz || i + 1 >= argc)
+                return -1;
+            snprintf(range, sizeof(range), "%s", argv[++i]);
+            colon = strchr(range, ':');
+            if (!colon)
+                return -1;
+            *colon = '\0';
+            if (parse_frequency(range, &options->zoom_from_hz) < 0 ||
+                parse_frequency(colon + 1, &options->zoom_to_hz) < 0 ||
+                options->zoom_to_hz <= options->zoom_from_hz)
+                return -1;
         } else if (strcmp(option, "--survey-band") == 0) {
             if (options->survey_band || i + 1 >= argc)
                 return -1;

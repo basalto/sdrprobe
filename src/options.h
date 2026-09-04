@@ -181,6 +181,11 @@ struct options {
     /* Choose the nth band from that list, 1-based, without sweeping it --
        which is what clicking a row does, and had no scripted equivalent. */
     int survey_band;
+    /* Open the Scope's frequency charts zoomed to this range, which a drag
+       would otherwise be the only way to reach -- and a drag cannot be
+       photographed. 0 for the whole span. */
+    uint32_t zoom_from_hz;
+    uint32_t zoom_to_hz;
     double survey_dwell_seconds;  /* 0 = leave the view's own default */
 };
 
