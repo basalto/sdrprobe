@@ -143,6 +143,8 @@ void adjust_active_scale(struct app *app, int zoom_in);
    floor, and measure whichever candidate is selected. */
 void view_survey_defaults(struct app *app);
 void view_survey_enter(struct app *app);
+/* Point the range fields at the nth offerable band, 1-based. */
+int survey_choose_band(struct app *app, int nth);
 void view_survey_leave(struct app *app);
 /* `spectrum_updated` says a fresh averaged spectrum arrived this frame.
    The confirmation pass counts blocks, not frames: counting frames gave it

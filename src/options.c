@@ -23,7 +23,7 @@ void usage(const char *program) {
             "                  calibration|settings|help]\n"
             "          [--record-seconds n] [--technology gsm|adsb|lte|fm|raw]\n"
             "          [--debug-log FILE|-] [--analysis] [--fm-scan] [--fm-play]\n"
-            "          [--survey-select n] [--survey-bands]\n"
+            "          [--survey-select n] [--survey-bands] [--survey-band n]\n"
             "          [--antenna name] [--site name]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
@@ -415,6 +415,12 @@ int parse_options(int argc, char **argv, struct options *options) {
             options->fm_play = 1;
         } else if (strcmp(option, "--fm-scan") == 0) {
             options->fm_scan = 1;
+        } else if (strcmp(option, "--survey-band") == 0) {
+            if (options->survey_band || i + 1 >= argc)
+                return -1;
+            if (parse_int(argv[++i], &options->survey_band) < 0 ||
+                options->survey_band < 1)
+                return -1;
         } else if (strcmp(option, "--survey-bands") == 0) {
             options->survey_bands = 1;
         } else if (strcmp(option, "--survey-select") == 0) {
