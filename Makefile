@@ -99,6 +99,16 @@ check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
 		$(TESTS)/fm_dsp_test.c $(SRC)/fm_dsp.c -lm
 	$(Q)./$(BUILD)/fm_dsp_test
 
+# Which allocations the survey offers to sweep, what range each means, and
+# the dwell that comes with it. Reads the band plan, links no receiver.
+check-survey-bands: $(TESTS)/survey_bands_test.c $(TESTS)/check.h \
+		$(SRC)/survey_bands.h $(SRC)/band_plan.c $(SRC)/band_plan.h \
+		$(SRC)/survey_sweep.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_bands_test \
+		$(TESTS)/survey_bands_test.c $(SRC)/band_plan.c -lm
+	$(Q)./$(BUILD)/survey_bands_test
+
 check-band-plan: $(TESTS)/band_plan_test.c $(TESTS)/check.h $(SRC)/band_plan.c $(SRC)/band_plan.h $(SRC)/band_plan_view.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/band_plan_test \
@@ -353,7 +363,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
-	check-row-list \
+	check-row-list check-survey-bands \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input
 TALLY=$(BUILD)/check-tally
 

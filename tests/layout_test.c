@@ -580,6 +580,32 @@ static void check_survey(void) {
                       fabsf(l.header_right - w->header_right) <= 0.01f,
                   "%.0fx%.0f survey header bounds moved\n", w->width,
                   w->height);
+        /*
+         * The band selector, checked as a property rather than pinned: it
+         * sits on the controls row and must not land on anything already
+         * there, nor run off the narrowest window this program is asked to
+         * draw on.
+         */
+        {
+            Rectangle row[] = { l.from_field, l.to_field, l.dwell_field,
+                                l.sweep_button, l.reset_button };
+            const char *row_names[] = { "from", "to", "dwell", "sweep",
+                                        "reset" };
+            unsigned r;
+
+            for (r = 0; r < sizeof(row) / sizeof(row[0]); r++)
+                check_msg(!overlaps(l.band_button, row[r]),
+                          "%.0fx%.0f the band selector lands on '%s'\n",
+                          w->width, w->height, row_names[r]);
+            check_msg(l.band_button.x + l.band_button.width <= w->width,
+                      "%.0fx%.0f the band selector runs off the side\n",
+                      w->width, w->height);
+            check_msg(l.band_button.width > 0.0f &&
+                      l.band_button.height > 0.0f,
+                      "%.0fx%.0f the band selector has no area\n", w->width,
+                      w->height);
+        }
+
         /* The properties the numbers protect. */
         check_msg(l.peak_list.x + l.peak_list.width <= l.detail.x + 0.01f,
                   "%.0fx%.0f peak_list runs into detail\n", w->width,

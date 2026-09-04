@@ -616,6 +616,10 @@ struct survey_view {
        to before. Spelling an existing site differently is how one place
        quietly becomes two, and the list is the cheapest guard against it. */
     int site_menu_open;
+    /* The band list, which is long enough to need scrolling where the site
+       and antenna lists are not -- row_list.h holds that arithmetic. */
+    int band_menu_open;
+    int band_scroll;
     int antenna_menu_open;
     /*
      * What this site heard before, and how this sweep compares.

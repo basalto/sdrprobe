@@ -255,6 +255,14 @@ The site and the antenna are combos over lists the configuration keeps
 one antenna named two ways is two of them and levels only compare within one of
 each. The antenna defaults to `telescopic`.
 
+**Band...** beside the range fields fills them in from the band plan rather
+than from memory: the 54 allocations this tuner can reach, with the ones that
+have a decoder behind them picked out, and a dwell chosen to suit the width —
+half a second for anything under about fifty megahertz, down to the default
+for the whole tuner. `src/survey_bands.h` is the arithmetic and
+`check-survey-bands` asserts that nothing offered is out of the tuner's reach
+and nothing reachable is left off.
+
 A sweep's peaks are grouped into signals by `src/survey_carrier.h` before
 anything reads them: two maxima are one carrier when the power between them
 never drops far below the lower of the two, and each carrier's extent runs to

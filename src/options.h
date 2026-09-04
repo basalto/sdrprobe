@@ -175,6 +175,9 @@ struct options {
        screen exists only behind a mouse click and nothing can photograph it
        (the rule in CLAUDE.md). 0 for none. */
     int survey_select;
+    /* Open the band list on arrival. A dropdown exists only while a pointer
+       holds it open, so without this there is no way to photograph it. */
+    int survey_bands;
     double survey_dwell_seconds;  /* 0 = leave the view's own default */
 };
 
