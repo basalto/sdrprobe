@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "settings_layout.h"
 #include "chrome_layout.h"
 #include "view.h"
 #include "sdrgui.h"
@@ -175,42 +176,9 @@ int apply_settings(struct app *app) {
     return 0;
 }
 
-static Rectangle settings_panel(void) {
-    float width = 520.0f;
-    /* 420 rather than 380: the resolution row went in above the buttons and
-       a panel that did not grow would have put it under them. */
-    float height = 420.0f;
-    return (Rectangle){ ((float)GetScreenWidth() - width) * 0.5f,
-                        ((float)GetScreenHeight() - height) * 0.5f,
-                        width, height };
-}
-
 void handle_settings_input(struct app *app) {
-    Rectangle panel = settings_panel();
-    Rectangle frequency = { panel.x + 28.0f, panel.y + 83.0f,
-                            300.0f, 38.0f };
-    Rectangle ppm = { panel.x + 342.0f, panel.y + 83.0f,
-                      panel.width - 370.0f, 38.0f };
-    Rectangle gain_previous = { panel.x + 28.0f, panel.y + 164.0f,
-                                42.0f, 38.0f };
-    Rectangle gain_next = { panel.x + panel.width - 70.0f,
-                            panel.y + 164.0f, 42.0f, 38.0f };
-    Rectangle dc_toggle = { panel.x + 28.0f, panel.y + 218.0f,
-                            22.0f, 22.0f };
-    Rectangle drift_toggle = { panel.x + 28.0f, panel.y + 250.0f,
-                               22.0f, 22.0f };
-    /* Clear of the drift checkbox above, which runs to y + 272. The first
-       attempt put the caption at 262 and it landed on it -- this panel
-       computes its rectangles inline with no layout header, so nothing but a
-       screenshot could have said so. */
-    Rectangle fft_previous = { panel.x + 28.0f, panel.y + 300.0f,
-                               42.0f, 38.0f };
-    Rectangle fft_next = { panel.x + panel.width - 70.0f,
-                           panel.y + 300.0f, 42.0f, 38.0f };
-    Rectangle cancel = { panel.x + panel.width - 224.0f,
-                         panel.y + panel.height - 55.0f, 92.0f, 34.0f };
-    Rectangle apply = { panel.x + panel.width - 120.0f,
-                        panel.y + panel.height - 55.0f, 92.0f, 34.0f };
+    struct settings_layout l = settings_layout_for(
+        (float)GetScreenWidth(), (float)GetScreenHeight());
 
     int character;
     while ((character = GetCharPressed()) != 0) {
@@ -243,17 +211,17 @@ void handle_settings_input(struct app *app) {
         if (app->set.focus == 1 && app->set.ppm_length > 0)
             app->set.ppm[--app->set.ppm_length] = '\0';
     }
-    if (clicked(frequency))
+    if (clicked(l.frequency))
         app->set.focus = 0;
-    if (clicked(ppm))
+    if (clicked(l.ppm))
         app->set.focus = 1;
 
-    if (app->receiver_mode && clicked(gain_previous)) {
+    if (app->receiver_mode && clicked(l.gain_previous)) {
         app->set.gain_choice--;
         if (app->set.gain_choice < 0)
             app->set.gain_choice = app->supported_gain_count;
     }
-    if (app->receiver_mode && clicked(gain_next)) {
+    if (app->receiver_mode && clicked(l.gain_next)) {
         app->set.gain_choice++;
         if (app->set.gain_choice > app->supported_gain_count)
             app->set.gain_choice = 0;
@@ -261,58 +229,36 @@ void handle_settings_input(struct app *app) {
     /* Wraps at both ends, the way the gain stepper does: seven choices and
        two arrows, and a reader who has gone one too far should not have to
        walk back through all of them. */
-    if (clicked(fft_previous)) {
+    if (clicked(l.fft_previous)) {
         app->set.fft_choice--;
         if (app->set.fft_choice < 0)
             app->set.fft_choice = SDR_DSP_FFT_CHOICES - 1;
     }
-    if (clicked(fft_next)) {
+    if (clicked(l.fft_next)) {
         app->set.fft_choice++;
         if (app->set.fft_choice >= SDR_DSP_FFT_CHOICES)
             app->set.fft_choice = 0;
     }
-    if (clicked(dc_toggle))
+    if (clicked(l.dc_toggle))
         app->set.remove_dc = !app->set.remove_dc;
-    if (clicked(drift_toggle))
+    if (clicked(l.drift_toggle))
         app->set.auto_drift = !app->set.auto_drift;
-    if (clicked(cancel)) {
+    if (clicked(l.cancel)) {
         app->settings_open = 0;
         return;
     }
-    if (clicked(apply) || IsKeyPressed(KEY_ENTER)) {
+    if (clicked(l.apply) || IsKeyPressed(KEY_ENTER)) {
         if (apply_settings(app) == 0)
             app->settings_open = 0;
     }
 
-    (void)frequency;
+    (void)l.frequency;
 }
 
 void draw_settings(const struct app *app) {
-    Rectangle panel = settings_panel();
-    Rectangle frequency = { panel.x + 28.0f, panel.y + 83.0f,
-                            300.0f, 38.0f };
-    Rectangle ppm = { panel.x + 342.0f, panel.y + 83.0f,
-                      panel.width - 370.0f, 38.0f };
-    Rectangle gain_previous = { panel.x + 28.0f, panel.y + 164.0f,
-                                42.0f, 38.0f };
-    Rectangle gain_next = { panel.x + panel.width - 70.0f,
-                            panel.y + 164.0f, 42.0f, 38.0f };
-    Rectangle dc_toggle = { panel.x + 28.0f, panel.y + 218.0f,
-                            22.0f, 22.0f };
-    Rectangle drift_toggle = { panel.x + 28.0f, panel.y + 250.0f,
-                               22.0f, 22.0f };
-    /* Clear of the drift checkbox above, which runs to y + 272. The first
-       attempt put the caption at 262 and it landed on it -- this panel
-       computes its rectangles inline with no layout header, so nothing but a
-       screenshot could have said so. */
-    Rectangle fft_previous = { panel.x + 28.0f, panel.y + 300.0f,
-                               42.0f, 38.0f };
-    Rectangle fft_next = { panel.x + panel.width - 70.0f,
-                           panel.y + 300.0f, 42.0f, 38.0f };
-    Rectangle cancel = { panel.x + panel.width - 224.0f,
-                         panel.y + panel.height - 55.0f, 92.0f, 34.0f };
-    Rectangle apply = { panel.x + panel.width - 120.0f,
-                        panel.y + panel.height - 55.0f, 92.0f, 34.0f };
+    struct settings_layout l = settings_layout_for(
+        (float)GetScreenWidth(), (float)GetScreenHeight());
+    Rectangle panel = l.panel;
     char gain[64];
 
     DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
@@ -321,14 +267,14 @@ void draw_settings(const struct app *app) {
     DrawRectangleLinesEx(panel, 2.0f, (Color){ 111, 139, 154, 255 });
     DrawText("Acquisition settings", (int)panel.x + 28, (int)panel.y + 22,
              24, (Color){ 235, 242, 246, 255 });
-    DrawText("Center frequency (Hz or K/M/G)", (int)frequency.x,
-             (int)frequency.y - 23,
+    DrawText("Center l.frequency (Hz or K/M/G)", (int)l.frequency.x,
+             (int)l.frequency.y - 23,
              17, (Color){ 166, 188, 201, 255 });
-    sdrgui_text_field(frequency, app->set.frequency,
+    sdrgui_text_field(l.frequency, app->set.frequency,
                       app->set.focus == 0);
-    DrawText("PPM", (int)ppm.x, (int)ppm.y - 23, 17,
+    DrawText("PPM", (int)l.ppm.x, (int)l.ppm.y - 23, 17,
              (Color){ 166, 188, 201, 255 });
-    sdrgui_text_field(ppm, app->set.ppm, app->set.focus == 1);
+    sdrgui_text_field(l.ppm, app->set.ppm, app->set.focus == 1);
 
     DrawText("Gain", (int)panel.x + 28, (int)panel.y + 137, 17,
              (Color){ 166, 188, 201, 255 });
@@ -341,8 +287,8 @@ void draw_settings(const struct app *app) {
                  app->supported_gains[app->set.gain_choice - 1] / 10.0);
     }
     if (app->receiver_mode) {
-        draw_button(gain_previous, "<", 0);
-        draw_button(gain_next, ">", 0);
+        draw_button(l.gain_previous, "<", 0);
+        draw_button(l.gain_next, ">", 0);
     }
     DrawText(gain,
              (int)(panel.x + (panel.width - MeasureText(gain, 20)) / 2.0f),
@@ -368,26 +314,26 @@ void draw_settings(const struct app *app) {
                      size, rate / size, windows);
         else
             snprintf(fft, sizeof(fft), "%d points", size);
-        draw_button(fft_previous, "<", 0);
-        draw_button(fft_next, ">", 0);
+        draw_button(l.fft_previous, "<", 0);
+        draw_button(l.fft_next, ">", 0);
         DrawText(fft,
                  (int)(panel.x + (panel.width - MeasureText(fft, 18)) / 2.0f),
                  (int)panel.y + 310, 18, (Color){ 235, 242, 246, 255 });
     }
 
     bool dc_checked = app->set.remove_dc;
-    GuiCheckBox(dc_toggle, "Remove DC spike from spectrum and waterfall",
+    GuiCheckBox(l.dc_toggle, "Remove DC spike from spectrum and waterfall",
                 &dc_checked);
 
     bool drift_checked = app->set.auto_drift;
-    GuiCheckBox(drift_toggle, "Auto GSM drift check (periodic re-tune)",
+    GuiCheckBox(l.drift_toggle, "Auto GSM drift check (periodic re-tune)",
                 &drift_checked);
 
     if (app->settings_error[0])
         DrawText(app->settings_error, (int)panel.x + 28, (int)panel.y + 289,
                  16, (Color){ 255, 105, 100, 255 });
-    draw_button(cancel, "Cancel", 0);
-    draw_button(apply, "Apply", 1);
+    draw_button(l.cancel, "Cancel", 0);
+    draw_button(l.apply, "Apply", 1);
 }
 
 Rectangle settings_button(void) {
