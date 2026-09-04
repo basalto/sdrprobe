@@ -1,6 +1,6 @@
 # 02 — Zoom, pan and select on the spectrum and the waterfall
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 01
 
 The two Scope charts with a frequency axis, and the header fields that say
@@ -21,3 +21,34 @@ two answers to one question.
 The pixel-to-frequency mapping and what a drag means (01 provides them), and
 the rule that decides zoom from retune -- that one especially, because it is
 the only place where looking at something can change what is being received.
+
+## Comments
+
+Resolved. Every clause of it shipped, though not in one go and not without
+finding that the hardest part was not the arithmetic.
+
+The window, the drag, the pan and the retune-at-the-edge came first. The
+header fields -- start, centre and end, in the order they appear on the axis
+-- came later, with the resolution stepper beside them; a field nobody is
+typing into follows the window, so the row and the axis can never disagree.
+Both charts read one `app->sv.freq`, so zooming one zooms the other.
+
+Three bugs were in the way, and none of them were in the mapping this ticket
+was worried about:
+
+- The waterfall discarded the window entirely. Its zoom was gated on
+  `calibration_mode`, a flag naming a *screen*, and the overlay was the only
+  caller that zoomed for as long as that went unnoticed. The drag worked
+  throughout; nothing drew.
+- The hit test mapped across the outer rectangle while the trace is drawn
+  inside a caption strip and a label gutter, so every drag landed about
+  50 kHz left of where it looked. The highlight was computed the same wrong
+  way, so the two agreed with each other and only disagreed with the chart.
+- The waterfall never drew the band being dragged, so a reader learned what
+  they had selected after selecting it.
+
+What the ticket asked to be checkable is: `freq_window_*`, the drag,
+`sdrgui_waterfall_span()` and `sdrgui_drag_band_at()`. The lesson worth
+carrying to 03 is that the arithmetic was never the risk -- every one of these
+was a wiring fault between a correct decision and the drawing that ignored it,
+and only a screenshot could see any of them until the decision had a name.
