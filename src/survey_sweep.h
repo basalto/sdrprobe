@@ -7,7 +7,7 @@
  * What a sweep is, step by step, and what a measurement of one candidate adds
  * up to. Plain doubles: no raylib, no receiver, no clock.
  *
- * The window arithmetic next door in survey_window.h was extracted after two
+ * The window arithmetic next door in freq_window.h was extracted after two
  * of its decisions shipped wrong. This is the other half of the same view, and
  * the same argument applies with more force, because none of it is visible
  * even when it is wrong: a step plan that leaves a gap between steps hides

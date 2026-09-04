@@ -27,7 +27,7 @@ APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/config.c $(SRC)/site_histor
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/debug_log.c
 APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h \
-	$(SRC)/survey_layout.h $(SRC)/survey_window.h $(SRC)/survey_sweep.h \
+	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h $(SRC)/app.h $(SRC)/view.h
@@ -351,11 +351,12 @@ check-survey-sweep: $(TESTS)/survey_sweep_test.c $(TESTS)/check.h \
 # No raylib, no receiver, no window -- which is the point. Every one of these
 # decisions previously had to be checked by building an instrumented binary and
 # running it against the dongle, and two of them shipped wrong.
-check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_window.h
+check-freq-window: $(TESTS)/freq_window_test.c $(TESTS)/check.h \
+		$(SRC)/freq_window.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_window_test \
-		$(TESTS)/survey_window_test.c -lm
-	$(Q)./$(BUILD)/survey_window_test
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/freq_window_test \
+		$(TESTS)/freq_window_test.c -lm
+	$(Q)./$(BUILD)/freq_window_test
 
 # One command that says whether the tree is sound, for agents and for people.
 # ADR-0012: every decision must be reachable by a check that needs no window,
@@ -367,7 +368,7 @@ check-survey: $(TESTS)/survey_window_test.c $(TESTS)/check.h $(SRC)/survey_windo
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
 CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-lte-scan check-band-plan \
-	check-options check-survey check-survey-sweep check-suspect \
+	check-options check-freq-window check-survey-sweep check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
@@ -469,4 +470,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-survey probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp screens clean
+.PHONY: all check hooks check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp screens clean

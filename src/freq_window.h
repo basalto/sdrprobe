@@ -1,14 +1,18 @@
-#ifndef SURVEY_WINDOW_H
-#define SURVEY_WINDOW_H
+#ifndef FREQ_WINDOW_H
+#define FREQ_WINDOW_H
 
 /*
- * The band survey's window arithmetic: which part of a swept range is on
- * screen, how zooming and panning move it, and what pressing Sweep would
- * therefore sweep.
+ * Which part of a frequency range is on screen, how zooming and panning move
+ * it, and what a region dragged with a pointer means.
+ *
+ * Written for the band survey, where the window is also what a sweep will
+ * cover. Nothing in it was ever specific to that: a data range that exists, a
+ * view range inside it, and the arithmetic between them is the same question
+ * every chart with a frequency along the bottom asks.
  *
  * It lives in a header of its own, as plain doubles with no receiver, no
  * raylib and no application state, for the reason survey_layout.h does:
- * tests/survey_window_test.c can then exercise it without opening a window.
+ * tests/freq_window_test.c can then exercise it without opening a window.
  * That matters more here than for geometry. Every one of these decisions had
  * to be checked by hand -- building an instrumented binary, running it against
  * the receiver, reading a printf -- because synthetic clicks and keys do not
@@ -27,33 +31,33 @@
  * screen. The window is never wider than the data and never narrower than
  * min_span.
  */
-struct survey_window {
+struct freq_window {
     double data_lower_hz;
     double data_upper_hz;
     double view_lower_hz;
     double view_upper_hz;
 };
 
-static inline int survey_window_has_data(const struct survey_window *w) {
+static inline int freq_window_has_data(const struct freq_window *w) {
     return w->data_upper_hz > w->data_lower_hz;
 }
 
-static inline void survey_window_reset(struct survey_window *w) {
+static inline void freq_window_reset(struct freq_window *w) {
     w->view_lower_hz = w->data_lower_hz;
     w->view_upper_hz = w->data_upper_hz;
 }
 
 /* Keep the window inside the data and no narrower than min_span. */
-static inline void survey_window_clamp(struct survey_window *w,
+static inline void freq_window_clamp(struct freq_window *w,
                                        double min_span) {
     double span;
 
-    if (!survey_window_has_data(w)) {
-        survey_window_reset(w);
+    if (!freq_window_has_data(w)) {
+        freq_window_reset(w);
         return;
     }
     if (w->view_upper_hz <= w->view_lower_hz)
-        survey_window_reset(w);
+        freq_window_reset(w);
     span = w->view_upper_hz - w->view_lower_hz;
     if (span < min_span)
         span = min_span;
@@ -71,7 +75,7 @@ static inline void survey_window_clamp(struct survey_window *w,
  * otherwise about the middle of the window. Anchoring exists so that zooming
  * in keeps a selected candidate in sight instead of walking off the edge.
  */
-static inline void survey_window_zoom(struct survey_window *w, double factor,
+static inline void freq_window_zoom(struct freq_window *w, double factor,
                                       double anchor_hz, int has_anchor,
                                       double min_span) {
     double span;
@@ -80,7 +84,7 @@ static inline void survey_window_zoom(struct survey_window *w, double factor,
     double next;
 
     if (w->view_upper_hz <= w->view_lower_hz)
-        survey_window_reset(w);
+        freq_window_reset(w);
     span = w->view_upper_hz - w->view_lower_hz;
     if (span <= 0.0)
         return;
@@ -94,24 +98,24 @@ static inline void survey_window_zoom(struct survey_window *w, double factor,
         next = min_span;
     w->view_lower_hz = anchor - next * fraction;
     w->view_upper_hz = w->view_lower_hz + next;
-    survey_window_clamp(w, min_span);
+    freq_window_clamp(w, min_span);
 }
 
 /* Walk the window by a fraction of its span. Returns 0 when it could not move,
    which is what a window already covering the whole range should report rather
    than looking like a dead key. */
-static inline int survey_window_pan(struct survey_window *w, double fraction,
+static inline int freq_window_pan(struct freq_window *w, double fraction,
                                     double min_span) {
     double before;
     double span;
 
     if (w->view_upper_hz <= w->view_lower_hz)
-        survey_window_reset(w);
+        freq_window_reset(w);
     before = w->view_lower_hz;
     span = w->view_upper_hz - w->view_lower_hz;
     w->view_lower_hz += span * fraction;
     w->view_upper_hz += span * fraction;
-    survey_window_clamp(w, min_span);
+    freq_window_clamp(w, min_span);
     return w->view_lower_hz != before;
 }
 
@@ -125,10 +129,10 @@ static inline int survey_window_pan(struct survey_window *w, double fraction,
  * sweep to already exist made the first sweep of a freshly opened survey
  * ignore the region just selected.
  */
-static inline int survey_window_sweep_target(const struct survey_window *w,
+static inline int freq_window_sweep_target(const struct freq_window *w,
                                              double *from, double *to) {
     if (w->view_upper_hz <= w->view_lower_hz ||
-        !survey_window_has_data(w)) {
+        !freq_window_has_data(w)) {
         *from = w->data_lower_hz;
         *to = w->data_upper_hz;
         return 0;
@@ -139,7 +143,7 @@ static inline int survey_window_sweep_target(const struct survey_window *w,
 }
 
 /* The frequency at the middle of a bin, given how many bins cover the data. */
-static inline double survey_window_bin_hz(const struct survey_window *w,
+static inline double freq_window_bin_hz(const struct freq_window *w,
                                           int bins, int bin) {
     if (bins <= 0)
         return w->data_lower_hz;
@@ -148,14 +152,77 @@ static inline double survey_window_bin_hz(const struct survey_window *w,
 }
 
 /* Is that bin's frequency on screen? The candidate list shows only what is. */
-static inline int survey_window_bin_visible(const struct survey_window *w,
+static inline int freq_window_bin_visible(const struct freq_window *w,
                                             int bins, int bin) {
     double hz;
 
     if (w->view_upper_hz <= w->view_lower_hz)
         return 1;
-    hz = survey_window_bin_hz(w, bins, bin);
+    hz = freq_window_bin_hz(w, bins, bin);
     return hz >= w->view_lower_hz && hz <= w->view_upper_hz;
+}
+
+/*
+ * Pixels, which is the half a sweep never needed.
+ *
+ * A chart draws its window across a rectangle, so a pointer at an x maps to a
+ * frequency and a frequency maps back to an x. Both here rather than in each
+ * chart, because a drag is measured by one and drawn by the other, and two
+ * copies of this arithmetic is how a selection ends up landing somewhere
+ * other than where it was drawn.
+ */
+static inline double freq_window_hz_at(const struct freq_window *w,
+                                       float plot_x, float plot_width,
+                                       float x) {
+    double span;
+
+    if (!w || plot_width <= 0.0f)
+        return 0.0;
+    span = w->view_upper_hz - w->view_lower_hz;
+    return w->view_lower_hz +
+           span * (double)((x - plot_x) / plot_width);
+}
+
+static inline float freq_window_x_at(const struct freq_window *w,
+                                     float plot_x, float plot_width,
+                                     double hz) {
+    double span;
+
+    if (!w)
+        return plot_x;
+    span = w->view_upper_hz - w->view_lower_hz;
+    if (span <= 0.0)
+        return plot_x;
+    return plot_x + (float)((hz - w->view_lower_hz) / span) *
+                        plot_width;
+}
+
+/*
+ * What a drag between two pixels asks for.
+ *
+ * Either order -- dragging right to left means the same as left to right, and
+ * a reader who does it backwards has not made a mistake. Returns 0 and leaves
+ * the outputs alone when the drag is narrower than `min_span`, which is not a
+ * failure either: it is a click, or a hand that moved while clicking, and
+ * zooming to a few hertz because of one is worse than doing nothing.
+ */
+static inline int freq_window_drag(const struct freq_window *w,
+                                   float plot_x, float plot_width,
+                                   float from_x, float to_x, double min_span,
+                                   double *lower_hz, double *upper_hz) {
+    double a, b, lower, upper;
+
+    if (!w || !lower_hz || !upper_hz)
+        return 0;
+    a = freq_window_hz_at(w, plot_x, plot_width, from_x);
+    b = freq_window_hz_at(w, plot_x, plot_width, to_x);
+    lower = a < b ? a : b;
+    upper = a < b ? b : a;
+    if (upper - lower < min_span)
+        return 0;
+    *lower_hz = lower;
+    *upper_hz = upper;
+    return 1;
 }
 
 #endif
