@@ -1000,20 +1000,28 @@ static void test_stereo_separates_the_channels(void) {
     check_true("the left channel carries its own tone", l_at_1k > 100.0);
     check_true("and the right carries its own", r_at_3k > 100.0);
     /*
-     * Separation. Ten times is 20 dB, which is poor for a broadcast receiver
-     * and is what this arrangement gives: three one-pole sections have a
-     * phase response, the sum and the difference travel through separate
-     * copies of them, and a difference in group delay between the two paths
-     * is exactly what leaks one channel into the other. It is enough to hear
-     * a stereo image, and saying so is better than claiming a number this
-     * does not reach.
+     * Separation, and the number is worth pinning tightly because it moved a
+     * long way for a reason worth not undoing.
+     *
+     * It was 23 to 28 dB, which is poor for a broadcast receiver. The pilot's
+     * phase is *doubled* to reach the 38 kHz subcarrier, so whatever noise is
+     * on it arrives twice as large on the difference signal -- and the loop
+     * was being shoved about by the very subcarrier it was demodulating. The
+     * resonator in front of it took separation to 64-66 dB, which is better
+     * than most receivers anyone owns.
+     *
+     * A hundred times is 40 dB: comfortably under what it now achieves and
+     * comfortably over what it used to, so a regression that puts the loop
+     * back in the multiplex fails here rather than being noticed by ear.
      */
-    check_msg(l_at_1k > l_at_3k * 10.0,
-              "the left channel has %.0f of its own tone and %.0f of the "
-              "right's\n", l_at_1k, l_at_3k);
-    check_msg(r_at_3k > r_at_1k * 10.0,
-              "the right channel has %.0f of its own tone and %.0f of the "
-              "left's\n", r_at_3k, r_at_1k);
+    check_msg(l_at_1k > l_at_3k * 100.0,
+              "left separation is %.1f dB: %.0f of its own tone against "
+              "%.0f of the right's\n", 20.0 * log10(l_at_1k / l_at_3k),
+              l_at_1k, l_at_3k);
+    check_msg(r_at_3k > r_at_1k * 100.0,
+              "right separation is %.1f dB: %.0f of its own tone against "
+              "%.0f of the left's\n", 20.0 * log10(r_at_3k / r_at_1k),
+              r_at_3k, r_at_1k);
 
     /*
      * And the fallback that matters just as much: a station with no pilot has
