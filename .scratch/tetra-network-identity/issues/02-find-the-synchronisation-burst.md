@@ -1,6 +1,6 @@
 # 02 — Find the synchronisation burst
 
-Status: needs-triage
+Status: ready-for-agent
 Blocked by: 01
 
 A TETRA downlink is continuous, so there is no silence to find a burst against

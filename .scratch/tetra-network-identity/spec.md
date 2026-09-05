@@ -52,10 +52,15 @@ the surrounding floor:
 | `testfiles/fm_rds_tsf.bin` | FM broadcast, a control | 0.79 |
 
 The line tracks the carriers and dies away off them, and an FM station shows
-nothing. **That is consistent with TETRA and inconsistent with analogue FM, and
-it is not conclusive**: the statistic's own floor in this capture is 2 to 4 and
-the carrier reads 9.95, a factor of three to five rather than the order of
-magnitude that would settle it. Ticket 01 settles it properly, by demodulating.
+nothing. That was consistent with TETRA and not conclusive -- the statistic's
+own floor in this capture is 2 to 4 against the carrier's 9.95.
+
+**Ticket 01 settled it at a factor of sixty**, by demodulating. The carrier
+locks at 0.80 to 0.83 where empty spectrum and an FM station both sit under
+0.035, and its symbol timing drifts *monotonically* at 35 ppm where both
+controls scatter -- which is the site's own crystal error, measured by a route
+with nothing in common with this one. It is pi/4-DQPSK at 18 000 symbols per
+second, and nothing else in that allocation is.
 
 An envelope fold at TETRA's 56.67 ms frame and DMR's 30 ms was tried first and
 is recorded here as the wrong instrument, so nobody repeats it: a TETRA base

@@ -28,6 +28,7 @@ make check-adsb-analysis # trace latching, the message log, the funnel
 make check-gsm-continuity # whether consecutive SCH decodes hang together
 make check-gsm-bcch   # four bursts to a System Information message
 make check-lte-transport # CRC-24A, the fillers, and the circular buffer
+make check-tetra-dsp  # a TETRA carrier to dibits
 make check-acquisition # the block slot, both its modes, and its shutdown
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
@@ -427,6 +428,22 @@ Tabs are presentation only, not the boundary (ADR-0010).
   exactly when f1 is coprime with K and every prime factor of K divides f2,
   and a CRC register fed its own polynomial must leave no remainder. A wrong
   table that both sides share round-trips perfectly and fails only on air.
+- `src/tetra_dsp.{c,h}` (`tetra_`) — TETRA, one 25 kHz carrier down to dibits
+  (`.scratch/tetra-network-identity/`). Two things here are unlike everything
+  else: **the symbol rate does not divide the sample rate** — 18 000 into
+  2 000 000 is 111.11 samples per symbol, where `fm_dsp` gets to pick a whole
+  decimation because a station transmits its pilot precisely so a receiver
+  needs no blind loop — so the timing is recovered from the symbol-rate line in
+  the squared magnitude (Oerder-Meyr), which is the *same statistic* that says
+  the carrier is TETRA at all. And **the modulation is differential, so
+  absolute phase is irrelevant and a residual frequency offset is still
+  fatal**: the four legal phase steps are 90 degrees apart, so a rotation does
+  not blur the constellation, it turns every dibit cleanly into a different
+  one. It is measured coarse then fine, the fine stage by taking the fourth
+  power — every legal step is an odd multiple of pi/4, so four times any of
+  them is -1 whatever was sent, and the data cancels itself.
+  `lock` is the answer to "is this TETRA": 0.80 on the carrier here against
+  under 0.035 for empty spectrum *and* for an FM station.
 - `src/fm_dsp.{c,h}` (`fm_`) — FM broadcast: discriminator, a coherent 19 kHz
   pilot, and the RDS subcarrier down to soft symbols. **Every rate in the
   multiplex is a whole multiple of the pilot** — the subcarrier is three times
