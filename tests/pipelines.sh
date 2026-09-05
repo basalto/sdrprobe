@@ -290,17 +290,27 @@ candidates=$(printf '%s\n' "$survey" | grep -c "^candidate ")
 carriers=$(printf '%s\n' "$survey" | sed -n 's/^survey carriers \([0-9]*\)$/\1/p')
 centre=$(printf '%s\n' "$survey" | grep "^candidate " | head -1 | cut -d' ' -f5)
 
+# The second carrier is ARFCN 63, and it is not taken on trust: the cell's own
+# System Information 2, decoded from the same capture by an entirely different
+# chain, lists 63 among its neighbours. Two subsystems agreeing on a channel is
+# corroboration a survey cannot give itself.
+neighbour=$(printf '%s\n' "$survey" | grep "^candidate " |
+            awk '$2 > 947500000 && $2 < 947750000 {print $2}' | head -1)
+
 if [ "$candidates" -lt 1 ]; then
     fail "the GSM capture surveyed to no candidates at all"
-elif [ "${carriers:-0}" -ne 1 ]; then
-    fail "ARFCN 69's carrier came back as ${carriers:-no} carriers, not one"
+elif [ "${carriers:-0}" -ne 2 ]; then
+    fail "the capture came back as ${carriers:-no} carriers, not two"
 elif [ "$centre" -lt 948700000 ] || [ "$centre" -gt 948900000 ]; then
     fail "the measured centre $centre Hz is not ARFCN 69's 948.8 MHz"
+elif [ -z "$neighbour" ]; then
+    fail "ARFCN 63 at 947.6 MHz is missing, though the cell names it a"\
+         "neighbour"
 elif ! printf '%s\n' "$survey" | grep -q "GSM 900 / LTE B8 downlink"; then
     fail "the survey did not look the carrier up in the band plan"
 else
     report "gsm_arfcn_69.bin" \
-        "$candidates candidates, 1 carrier at $centre Hz"
+        "$candidates candidates, ARFCN 69 at $centre Hz and 63 at $neighbour Hz"
 fi
 
 # Byte for byte the same, twice. A survey an agent cannot diff against
@@ -312,15 +322,27 @@ else
     report "run twice" "identical output"
 fi
 
-# A capture with no carrier in it must survey to nothing, and say so, rather
-# than inventing a candidate out of the noise floor. Mode S is pulses: there
-# is no carrier standing above anything.
+# A Mode S capture surveys to a signal at 1090 MHz, because that is what is in
+# it. This used to assert the opposite -- "no carrier, because Mode S is
+# pulses" -- which was the old peak finder's behaviour written up as a fact
+# about physics. A train of pulses is amplitude modulation on a carrier and
+# puts real energy where that carrier is: the same capture yields six decoded
+# frames, so something is plainly there. What was really being asserted is that
+# the survey does not invent candidates, and that is asserted here by where the
+# candidate lands rather than by there being none.
 checked
-if ! run --file testfiles/adsb_cpr_pair.bin --headless --survey --once |
-     grep -q "^survey candidates 0 "; then
-    fail "a capture of Mode S pulses produced carrier candidates"
+adsb_survey=$(run --file testfiles/adsb_cpr_pair.bin --headless --survey --once)
+adsb_hz=$(printf '%s\n' "$adsb_survey" | grep "^carrier " | head -1 |
+          cut -d' ' -f2)
+adsb_carriers=$(printf '%s\n' "$adsb_survey" |
+                sed -n 's/^survey carriers \([0-9]*\)$/\1/p')
+if [ "${adsb_carriers:-0}" -ne 1 ]; then
+    fail "the Mode S capture surveyed to ${adsb_carriers:-no} carriers, not one"
+elif [ "${adsb_hz:-0}" -lt 1089500000 ] || [ "${adsb_hz:-0}" -gt 1090500000 ]; then
+    fail "the Mode S capture's carrier came back at ${adsb_hz:-no} Hz, which is"\
+         "not 1090 MHz"
 else
-    report "adsb_cpr_pair.bin" "no carriers, as there are none"
+    report "adsb_cpr_pair.bin" "one carrier, at $adsb_hz Hz"
 fi
 
 # --- Recording: the file and the sidecar that explains it -----------------

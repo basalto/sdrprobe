@@ -133,11 +133,13 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   operator-set range (default 24-1766 MHz, the R820T's span) in 1.6 MHz steps,
   charts the power across it, and marks the peaks standing 8 dB above their
   local floor by topographic prominence -- not height above a floor, which
-  reports a strong carrier's shoulder as a signal. The reported *above floor*
-  figure is a different measure from the gate (ADR-0013), and where the two
-  contradict each other the peak is dropped: a maximum whose median local floor
-  is above it is the floor of a notch between two carriers, and reporting it
-  produced a candidate at 1603.219 MHz standing -3.0 dB above its own noise. Selecting a candidate, by
+  reports a strong carrier's shoulder as a signal. A candidate clears **two** bars, and
+  they are two different measurements (ADR-0017): the descent above, and how
+  far it stands above the median level around it. Both are 8 dB, so the
+  reported *above floor* figure cannot contradict the gate -- it used to, and a
+  whole-tuner sweep reported a candidate at 7.3 dB. The floor is measured
+  outward from the hump's edges, which is why a ripple on a DVB-T multiplex is
+  no longer described as a signal 25 dB above the noise outside it. Selecting a candidate, by
   click or with Up/Down, retunes 300 kHz off it (never onto the DC spike) and
   measures occupied bandwidth, duty and frequency stability over two seconds,
   then names the allocation from `src/band_plan.c` and offers to point a

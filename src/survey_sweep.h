@@ -45,7 +45,63 @@
 #define SURVEY_DWELL_MIN 0.02
 #define SURVEY_DWELL_MAX 10.0
 #define SURVEY_MEASURE_SECONDS 2.0
+/* The descent a maximum must make before it can reach higher ground. This is
+   what rejects the shoulder of a strong carrier, and it is not a noise
+   threshold -- see SURVEY_FLOOR_THRESHOLD_DB below for that one. */
 #define SURVEY_MIN_PROMINENCE_DB 8.0f
+
+/*
+ * How far above the level around it a candidate has to stand: the same bar it
+ * had to clear to be a candidate at all.
+ *
+ * ADR-0013's complaint was that the gate and the reported figure are different
+ * measurements, so a candidate could clear the first and report much less of
+ * the second -- and that the filtering which should have been the second was
+ * being done by accident, by an unbounded width walk, at an effective 20 dB
+ * nobody chose. Holding both to one number is what makes the *above floor*
+ * column mean what the help text says it means.
+ *
+ * The ADR expected this to need a threshold derived from the dwell, on the
+ * grounds that 8 dB is below what peak-held noise reaches -- 16 dB at one
+ * block, falling to 8.3 dB at sixteen. That is not what this program's noise
+ * does, and `make probe-survey-threshold` is the measurement: pure noise
+ * through the real transform and the real fold gives a survey array with a
+ * standard deviation of 0.2 to 0.5 dB and a biggest bin-to-bin step of 2.7 dB,
+ * at every fold depth from 1 to 218, and **not one candidate at any bar down
+ * to zero**. The reason is the averaging inside sdr_dsp_spectrum(): each
+ * transform bin is the mean of every Hann window in the block, 64 of them, and
+ * the peak hold over a few hundred such means barely moves. The ADR's table
+ * has to have been measuring an unaveraged periodogram, where an exponential
+ * per bin does reach 16 dB.
+ *
+ * So there is nothing for a dwell-dependent bar to track. One number, equal to
+ * the gate, and the probe is what says so.
+ */
+#define SURVEY_FLOOR_THRESHOLD_DB SURVEY_MIN_PROMINENCE_DB
+
+/* How deeply a sweep peak-held into one of its bins: transform bins per survey
+   bin, times blocks folded. Not a threshold any more -- the probe above found
+   nothing for it to predict -- but it is what that probe sweeps over, and what
+   a future claim about noise would have to be a function of. */
+static inline double survey_fold_depth(double bin_hz, double fft_bin_hz,
+                                       int blocks) {
+    double per_bin = fft_bin_hz > 0.0 ? bin_hz / fft_bin_hz : 1.0;
+
+    if (per_bin < 1.0)
+        per_bin = 1.0;
+    if (blocks < 1)
+        blocks = 1;
+    return per_bin * (double)blocks;
+}
+
+/* How many blocks a dwell is worth. At least one: a step always folds
+   something before it moves on. */
+#define SURVEY_BLOCK_SECONDS 0.0655
+static inline int survey_blocks_in(double dwell_seconds) {
+    int blocks = (int)(dwell_seconds / SURVEY_BLOCK_SECONDS);
+    return blocks < 1 ? 1 : blocks;
+}
+
 #define SURVEY_BANDWIDTH_DB 20.0f
 #define SURVEY_SENTINEL_DBFS (-300.0f)
 #define SURVEY_OFFSET_HZ 300000.0 /* keep a candidate off the DC spike */

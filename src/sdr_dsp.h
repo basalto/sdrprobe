@@ -129,8 +129,32 @@ struct sdr_peak {
 };
 
 /*
- * Find local maxima standing at least min_prominence_db above a robust local
- * floor, strongest first, and return how many were written.
+ * The bars a candidate has to clear.
+ *
+ * Two of them, because "how far this stands out" is two different
+ * measurements and they do not agree. `topographic_db` is the descent needed
+ * before higher ground can be reached, which is what rejects the shoulder of a
+ * strong carrier; `floor_db` is height above the median level around it, which
+ * is what rejects a bump in the noise. A shoulder clears the second and not
+ * the first; a noise excursion clears the first and not the second. Both are
+ * needed and neither is the other.
+ *
+ * They were one number for a long time, checked against the first and reported
+ * as the second, with the filtering that should have been the second done by
+ * accident instead -- ADR-0013 is the whole story, and this struct is what
+ * closes it. Two floats side by side in an argument list would be swappable
+ * without a compiler complaint, and swapping them silently turns the gate into
+ * something else that still runs.
+ */
+struct sdr_peak_gate {
+    float topographic_db;  /* the descent to reach anything higher */
+    float floor_db;        /* height above the median level around it */
+    float bandwidth_db;    /* how far down its occupied width is taken */
+};
+
+/*
+ * Find local maxima clearing both bars, strongest first, and return how many
+ * were written.
  *
  * The floor is a median of the bins either side, not a mean: beside a strong
  * carrier a mean is dragged up far enough to hide a weaker neighbour, which is
@@ -138,10 +162,17 @@ struct sdr_peak {
  * measured; they bound a hump rather than joining it, so an unswept gap cannot
  * merge two candidates into one.
  *
+ * Both walks -- the occupied width and the floor window around it -- are
+ * bounded to the same span the topographic test judges over. Unbounded, a
+ * candidate with no -bandwidth_db point ran to the ends of the array and was
+ * then discarded for having no floor left to measure, which did the filtering
+ * an explicit threshold should do and made the effective bar depend on how
+ * ragged the noise happened to be.
+ *
  * sort_workspace must hold at least `count` floats.
  */
 int sdr_dsp_find_peaks(const float *power_dbfs, int count, float sentinel,
-                       float min_prominence_db, float bandwidth_db,
+                       const struct sdr_peak_gate *gate,
                        float *sort_workspace, struct sdr_peak *peaks,
                        int max_peaks);
 

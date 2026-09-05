@@ -149,6 +149,16 @@ is LTE (a burst every 5 ms) or 5G NR (every 20, and none at 5), and whether it
 runs at 15 or 30 kHz. It is how band 28 was found to be carrying NR rather than
 a weak LTE cell.
 
+`probe-survey-threshold` answers a different kind of question: what a survey of
+*nothing* reports. Pure noise through the real transform and the real fold, at
+every fold depth a sweep can have, and the answer is no candidates at any bar
+down to zero -- which is what ADR-0017 rests on and what ADR-0013 assumed the
+opposite of.
+
+```sh
+make probe-survey-threshold                 # and DRAWS=12 for more of them
+```
+
 What the DSP costs, against the 65.5 ms of signal one block covers:
 
 ```sh
