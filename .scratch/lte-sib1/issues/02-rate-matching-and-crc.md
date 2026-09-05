@@ -82,4 +82,21 @@ Two deliberate choices worth knowing before ticket 03 uses this:
   those are parity, and parity over known bits is still whatever the encoder's
   state made it.
 
-Ticket 03 is unblocked.
+**Ticket 03 is not unblocked after all**, and not for a reason this ticket
+could have known: SIB1 does not fit the receiver. The cell is 50 resource
+blocks and 1.92 MS/s sees six, so the control message that locates SIB1 cannot
+be assembled. The spec carries the measurement and 03 and 04 are wontfix.
+
+So this module has no consumer today. The code is correct and checked and the
+work was not wasted in the sense that it is wrong -- turbo coding and CRC-24
+are the transport layer of every LTE shared channel, so anything that ever
+reaches one needs them -- but it was built for a message that cannot be
+received here, and the check that would have caught that costs one command:
+
+```
+$ ./sdrprobe --headless --lte-chain --earfcn 6200 --lte-chain-seconds 20
+chain 1 mib ports 2 prb 50 ...
+```
+
+"Does it fit the receiver" is the first of the two gates the `rf-environment`
+skill names, and it was skipped because the spec asserted the answer.

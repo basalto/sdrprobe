@@ -37,6 +37,58 @@ It is also the least private thing on the air. A cell broadcasts SIB1
 unencrypted to every handset in range, precisely so they can decide whether to
 camp on it.
 
+## It does not fit the receiver, and this spec said it did
+
+**2026-09-05.** The sentence above about the sample rate is wrong, and it is
+the sentence the whole feature rests on.
+
+`LTE already runs on its own grid at 1.92 MS/s` is true of the Master
+Information Block and of nothing else. 1.92 MS/s is 128 subcarriers, which is
+**six resource blocks, 1.08 MHz of usable grid** (ADR-0014). The MIB fits
+because it is 72 subcarriers about DC, always, whatever the cell's bandwidth --
+that is why the LTE chain works here at all.
+
+The cell this was to be built on is **50 resource blocks, 9 MHz occupied**,
+measured both ways:
+
+```
+$ ./sdrprobe --headless --lte-chain --earfcn 6200 --lte-chain-seconds 20
+chain 1 mib ports 2 prb 50 phich normal 1/6 sfn 808 quarter 0 combining 1
+$ ./sdrprobe --file testfiles/lte_b20_pci28.bin --headless \
+      --technology lte --sample-rate 1920000 --decode --once
+MIB  50 blocks (9.00 MHz)  PHICH normal 1/6  SFN 441  2 antenna ports
+```
+
+The control region is not central and not narrow. It occupies the first one to
+three symbols **across the whole system bandwidth**, and its resource-element
+groups are interleaved across every resource block on purpose, for frequency
+diversity. Six blocks of fifty is twelve per cent of it, and a control channel
+element is nine groups that the interleaver has scattered the length of the
+band -- so not one of them can be assembled, let alone a downlink control
+message decoded from it. SIB1's own resource blocks are then allocated by that
+message anywhere in the fifty, commonly distributed.
+
+Covering 9 MHz needs a sample rate above 10 MS/s. The R820T tops out near
+2.4 MS/s and unreliably at 3.2. This is the same permanent failure the spec
+above records for DVB-T at 8 MHz and for 5G NR's 3.81 MHz synchronisation
+block, and it should have been the first thing checked rather than an
+assumption inherited from the MIB.
+
+**What would unblock it: a cell of six resource blocks**, 1.4 MHz, whose whole
+bandwidth fits. Nothing else, and nothing here is known to be one:
+
+| band | cell | bandwidth |
+| --- | --- | --- |
+| 20, EARFCN 6200 | PCI 28 | **50 blocks**, measured on air and on the capture |
+| 8, EARFCN 3475 | PCI 330 | unknown -- 216 cells found in 219 blocks at PSS 0.9, and **not one MIB decodes**, so its bandwidth cannot be read |
+| 28 | none | no LTE cell; band 28 here carries 5G NR (`probe-periodicity`) |
+
+So the honest statement is narrower than "nothing here fits": the only cell
+whose bandwidth can be read is five times too wide, and the only other LTE cell
+at this site will not give up its Master Information Block. A 1.4 MHz carrier
+is in any case an unusual deployment -- narrowband IoT and rural refarming
+rather than a macro cell.
+
 ## The chain, and where it is unlike the MIB
 
 The MIB is convolutional, 40 bits, and lands on fixed resource elements the

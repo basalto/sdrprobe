@@ -413,9 +413,12 @@ Tabs are presentation only, not the boundary (ADR-0010).
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →
   CRC-16 masked by the antenna-port count → a Master Information Block.
   `src/lte_gold.h` holds the length-31 Gold sequence both sides need.
-- `src/lte_turbo.{c,h}` and `src/lte_transport.{c,h}` — the chain above the
-  MIB, being built for System Information Block 1
-  (`.scratch/lte-sib1/`). The turbo code is rate 1/3 with a quadratic
+- `src/lte_turbo.{c,h}` and `src/lte_transport.{c,h}` — the transport layer
+  above the MIB. Built for System Information Block 1 and **with no consumer**:
+  SIB1 does not fit this receiver, because the cell is 50 resource blocks and
+  1.92 MS/s sees six of them, so the control message that locates it cannot be
+  assembled (`.scratch/lte-sib1/spec.md`). Kept because turbo coding and
+  CRC-24 are the transport layer of every LTE shared channel. The turbo code is rate 1/3 with a quadratic
   permutation polynomial between its two encoders, decoded max-log-MAP;
   `lte_transport` is the layer between that codeword and the air — CRC-24A,
   the filler bits, the 32-column sub-block interleaver and the circular
