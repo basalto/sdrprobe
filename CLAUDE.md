@@ -29,6 +29,7 @@ make check-gsm-continuity # whether consecutive SCH decodes hang together
 make check-gsm-bcch   # four bursts to a System Information message
 make check-lte-transport # CRC-24A, the fillers, and the circular buffer
 make check-tetra-dsp  # a TETRA carrier to dibits
+make check-tetra-sync # descramble, depuncture, Viterbi, and the parity
 make check-acquisition # the block slot, both its modes, and its shutdown
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
@@ -454,6 +455,17 @@ Tabs are presentation only, not the boundary (ADR-0010).
   *fundamental*, since anything with a period of 255 repeats as well at 510 and
   1020, and it needs contiguous symbols — a stream stitched from chunks that
   each began at their own timing phase smears every burst position together.
+- `src/tetra_sync.{c,h}` — one layer further, Decoder side: 120 scrambled bits
+  → descramble → (120,11) de-interleave → depuncture and Viterbi over a
+  16-state rate-1/4 mother code punctured to 2/3 → a (76,60) CRC-CCITT → a
+  60-bit SYNC PDU. On `captures/` it reads **MCC 268, MNC 3, colour code 17**
+  with the slot, frame and multiframe counters advancing, on **202 of 202**
+  bursts. MCC 268 is what `gsm_bcch` reads from a different technology on a
+  different band. Every constant is transcribed from ETSI EN 300 392-2, and the
+  scrambler's seed was one slot out at first — the chain round-tripped
+  perfectly anyway, because a wrong scrambling sequence is its own inverse just
+  as a right one is. **The parity passing on air is the only check that could
+  have caught it**, and it is the only one that establishes any of this.
 - `src/fm_dsp.{c,h}` (`fm_`) — FM broadcast: discriminator, a coherent 19 kHz
   pilot, and the RDS subcarrier down to soft symbols. **Every rate in the
   multiplex is a whole multiple of the pilot** — the subcarrier is three times
