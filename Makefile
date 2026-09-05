@@ -196,7 +196,7 @@ check-site-history: $(TESTS)/site_history_test.c $(TESTS)/check.h \
 
 # Asking again about what a sweep called new or missing.
 check-survey-confirm: $(TESTS)/survey_confirm_test.c $(TESTS)/check.h \
-		$(SRC)/survey_confirm.h
+		$(SRC)/survey_confirm.h $(SRC)/survey_sweep.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_confirm_test \
 		$(TESTS)/survey_confirm_test.c -lm

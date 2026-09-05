@@ -322,6 +322,7 @@ static int survey_confirm_begin(struct app *app) {
     s->confirm.count = count;
     s->confirm.index = 0;
     s->confirm.confirmed = 0;
+    s->confirm.intermittent = 0;
     s->confirm.refuted = 0;
     s->confirm.running = 1;
     s->confirm.return_frequency = app->applied_frequency;
@@ -349,41 +350,67 @@ static int survey_confirm_begin(struct app *app) {
  * whatever happened to be up at the end.
  */
 void survey_confirm_begin_target(struct app *app) {
-    app->survey.confirm.held = 0;
-}
-
-void survey_confirm_look(struct app *app) {
-    struct survey_view *s = &app->survey;
-    int i;
-
-    for (i = 0; i < SDR_DSP_FFT_SIZE; i++)
-        s->confirm.spectrum[i] =
-            s->confirm.held ? survey_fold_hold(s->confirm.spectrum[i],
-                                               app->spectrum_average[i])
-                            : app->spectrum_average[i];
-    s->confirm.held = 1;
+    app->survey.confirm.measured = 0;
+    app->survey.confirm.hits = 0;
+    app->survey.confirm.looks = 0;
 }
 
 /*
- * Read the answer out of the hold and fill in the verdict. Returns whether the
- * carrier was there; `report` is left with the measurement when it was, and
- * untouched otherwise, so a caller can say how far above the floor it stood.
+ * One look: measure this block on its own, and keep it if it is the best yet.
+ *
+ * Per block, because that is the only way to count *how often* the signal was
+ * there, which is the difference between a transmitter and a burst. And the
+ * best single look rather than a peak-held spectrum, because holding raises
+ * the noise floor along with the signal: a burst present in two blocks of six
+ * measured 4.7 dB against the hold, under the 6 dB bar it had cleared twice,
+ * so the reported number contradicted the verdict beside it.
+ *
+ * The best look is also the right one to report. "How far above the floor did
+ * it stand" means when it was transmitting, not averaged over the silence.
+ */
+void survey_confirm_look(struct app *app, double hz) {
+    struct survey_view *s = &app->survey;
+    struct sdr_carrier_report block;
+
+    s->confirm.looks++;
+    if (!sdr_dsp_characterise_carrier(
+            app->spectrum_average, SDR_DSP_FFT_SIZE,
+            (double)app->applied_frequency,
+            (double)app->applied_sample_rate, hz, 200000.0, 20.0f,
+            app->magnitude_sorted, &block))
+        return;
+    if (survey_confirm_present(block.prominence_db))
+        s->confirm.hits++;
+    /* Kept even when it did not clear the bar: a refuted target saying how
+       close it came is worth more than one saying nothing. */
+    if (!s->confirm.measured ||
+        block.prominence_db > s->confirm.best.prominence_db) {
+        s->confirm.best = block;
+        s->confirm.measured = 1;
+    }
+}
+
+/*
+ * Read the answer out and fill in the verdict. Returns whether the carrier was
+ * measurable at all; `report` is left with the best look when it was.
+ *
+ * The verdict comes from the count of looks and the level from the best of
+ * them. A signal up in one look of six is intermittent however loud that look
+ * was, and one up in all six is continuous however quiet.
  */
 int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
                           struct sdr_carrier_report *report) {
     struct survey_view *s = &app->survey;
-    int measured = s->confirm.held &&
-                   sdr_dsp_characterise_carrier(
-                       s->confirm.spectrum, SDR_DSP_FFT_SIZE,
-                       (double)app->applied_frequency,
-                       (double)app->applied_sample_rate, target->hz, 200000.0,
-                       20.0f, app->magnitude_sorted, report);
-    int present = measured && survey_confirm_present(report->prominence_db);
 
-    target->prominence_db = measured ? report->prominence_db : 0.0f;
-    target->verdict = (signed char)survey_confirm_verdict(target->claim,
-                                                          present);
-    return measured;
+    if (s->confirm.measured)
+        *report = s->confirm.best;
+    target->hits = s->confirm.hits;
+    target->looks = s->confirm.looks;
+    target->prominence_db = s->confirm.measured
+                                ? s->confirm.best.prominence_db : 0.0f;
+    target->verdict = (signed char)survey_confirm_verdict_from(
+        target->claim, s->confirm.hits, s->confirm.looks);
+    return s->confirm.measured;
 }
 
 /* Fold what the closer look found back into what the site remembers, then
@@ -401,26 +428,33 @@ static void survey_confirm_finish(struct app *app) {
      */
     if (s->confirm.printed) {
         int i;
-        printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db>\n");
+        printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
+               "<hits>/<looks>\n");
         for (i = 0; i < s->confirm.count; i++) {
             const struct survey_confirm_target *target = &s->confirm.target[i];
-            printf("confirm %.0f %s %s %.1f\n", target->hz,
+            printf("confirm %.0f %s %s %.1f %d/%d\n", target->hz,
                    target->claim == SURVEY_CLAIM_NEW ? "new" : "missing",
-                   target->verdict == SURVEY_VERDICT_CONFIRMED ? "confirmed"
-                                                               : "refuted",
-                   (double)target->prominence_db);
+                   survey_verdict_name(target->verdict),
+                   (double)target->prominence_db, target->hits,
+                   target->looks);
         }
-        printf("confirm-summary asked %d confirmed %d refuted %d\n",
-               s->confirm.count, s->confirm.confirmed, s->confirm.refuted);
+        printf("confirm-summary asked %d confirmed %d intermittent %d "
+               "refuted %d\n", s->confirm.count, s->confirm.confirmed,
+               s->confirm.intermittent, s->confirm.refuted);
         fflush(stdout);
         s->confirm.printed = 0;
     }
     snprintf(s->status, sizeof(s->status),
-             "Asked again about %d: %d held up, %d did not. %s",
-             s->confirm.count, s->confirm.confirmed, s->confirm.refuted,
-             s->confirm.refuted
-                 ? "A sweep step is a tenth of a second; this was six blocks."
-                 : "The sweep had them right.");
+             "Asked again about %d: %d held up, %d came and went, %d did not."
+             "  %s",
+             s->confirm.count, s->confirm.confirmed, s->confirm.intermittent,
+             s->confirm.refuted,
+             s->confirm.intermittent
+                 ? "Bursty is a finding, not a mistake."
+                 : (s->confirm.refuted
+                        ? "A sweep step is a tenth of a second; this was six "
+                          "blocks."
+                        : "The sweep had them right."));
 }
 
 static void survey_confirm_step(struct app *app, double now, int have_block) {
@@ -439,8 +473,7 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
         return;
     }
     if (have_block) {
-        survey_confirm_look(app);
-        s->confirm.looks++;
+        survey_confirm_look(app, target->hz);   /* counts the look too */
         if (s->confirm.looks < SURVEY_CONFIRM_LOOKS)
             return;
     } else if (now - s->confirm.started_at < 3.0) {
@@ -456,6 +489,8 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
 
         if (target->verdict == SURVEY_VERDICT_CONFIRMED)
             s->confirm.confirmed++;
+        else if (target->verdict == SURVEY_VERDICT_INTERMITTENT)
+            s->confirm.intermittent++;
         else
             s->confirm.refuted++;
 
@@ -912,6 +947,7 @@ static int survey_start(struct app *app) {
        frequencies, which is a claim nobody made. */
     s->confirm.count = 0;
     s->confirm.confirmed = 0;
+    s->confirm.intermittent = 0;
     s->confirm.refuted = 0;
     view_survey_enter(app);
 
