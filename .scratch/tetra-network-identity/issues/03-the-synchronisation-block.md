@@ -1,6 +1,6 @@
 # 03 — Descramble, decode, and check the synchronisation block
 
-Status: needs-triage
+Status: needs-info
 Blocked by: 02
 
 From a located burst to a block worth believing: descrambling, the
@@ -32,3 +32,21 @@ the right number of bits, and only the parity notices.
 
 Anything that fails the parity. A colour code with no check behind it is a
 number, not a finding.
+
+## Comments
+
+**2026-09-05 — needs-info: blocked on the standard, not on work.**
+
+Everything this ticket needs is a constant from ETSI EN 300 392-2 -- the
+scrambling sequence, the RCPC puncturing pattern, the interleaving, and where
+the fields sit inside the 510 bits -- and the document is not available here.
+
+None of it can be measured out of the signal the way ticket 02 measured the
+burst grid. A grid is a *structure* and shows itself; a puncturing pattern is a
+*convention* and does not. Guessing one produces a decoder that round-trips
+perfectly against its own encoder and reads nothing off the air, which is the
+failure mode this repository has already paid for twice.
+
+So: get the document, or leave this closed. `tetra_burst_find()` and the
+demodulator underneath it are done and checked either way, and ticket 02's
+comment records what they found.

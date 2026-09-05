@@ -444,6 +444,17 @@ Tabs are presentation only, not the boundary (ADR-0010).
   them is -1 whatever was sent, and the data cancels itself.
   `lock` is the answer to "is this TETRA": 0.80 on the carrier here against
   under 0.035 for empty spectrum *and* for an FM station.
+  `tetra_burst_find()` then finds the burst grid **from the symbols**, not by
+  correlating for a training sequence — that sequence is a constant from a
+  standard this repository does not have, and a wrong one correlates perfectly
+  with an encoder sharing it while finding nothing on air. A burst is instead
+  recognised by its shape: some positions repeat every period and the rest do
+  not. On air it returns 255 symbols — one TETRA timeslot — in every chunk, at
+  0.80 against a runner-up of 0.36, with about 180 of the 255 positions fixed;
+  empty spectrum and FM return nothing and their best lag wanders. It takes the
+  *fundamental*, since anything with a period of 255 repeats as well at 510 and
+  1020, and it needs contiguous symbols — a stream stitched from chunks that
+  each began at their own timing phase smears every burst position together.
 - `src/fm_dsp.{c,h}` (`fm_`) — FM broadcast: discriminator, a coherent 19 kHz
   pilot, and the RDS subcarrier down to soft symbols. **Every rate in the
   multiplex is a whole multiple of the pilot** — the subcarrier is three times
