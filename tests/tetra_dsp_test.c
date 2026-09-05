@@ -293,12 +293,93 @@ static void test_noise_does_not_lock(void) {
               "whether a channel carries TETRA\n", (double)got.lock);
 }
 
+/*
+ * The burst grid, found from the symbols rather than from a transcribed
+ * training sequence.
+ *
+ * The synthetic case is a stream built the way a burst is: some positions the
+ * same every period, the rest random. That is the *shape* the finder looks
+ * for, and it is checkable without knowing a single bit of any real sequence.
+ */
+static void test_the_burst_grid(void) {
+    static unsigned char stream[40000];
+    static struct tetra_burst_sync sync;
+    const int period = TETRA_SLOT_SYMBOLS;
+    static unsigned char fixed_part[TETRA_SLOT_SYMBOLS];
+    static int is_fixed[TETRA_SLOT_SYMBOLS];
+    int k, n, fixed_wanted = 0;
+
+    for (k = 0; k < period; k++) {
+        fixed_part[k] = (unsigned char)((int)(uniform() * 4.0) & 3);
+        /* Roughly two positions in three fixed, which is close to what the
+           real capture turned out to be: 181 of 255. */
+        is_fixed[k] = uniform() < 0.7;
+        if (is_fixed[k])
+            fixed_wanted++;
+    }
+    for (n = 0; n < 40000; n++) {
+        int phase = n % period;
+        stream[n] = is_fixed[phase] ? fixed_part[phase]
+                                    : (unsigned char)((int)(uniform() * 4.0) & 3);
+    }
+
+    check_true("a burst grid is found",
+               tetra_burst_find(stream, 40000, 200, 1200, &sync) == 1);
+    check_int("at the right period", sync.period, period);
+    check_msg(sync.repeat > sync.runner_up * 1.4f,
+              "the period stands at %.3f against a runner-up of %.3f, which "
+              "is not standing clear\n", (double)sync.repeat,
+              (double)sync.runner_up);
+    /* Fixed positions plus a quarter of the rest: that is what the overall
+       match must come to, and it is arithmetic rather than a fitted number. */
+    {
+        double expected = (double)fixed_wanted / period +
+                          0.25 * (1.0 - (double)fixed_wanted / period);
+        check_close("the match is the fixed fraction plus chance on the rest",
+                    sync.repeat, expected, 0.05);
+    }
+    check_msg(sync.fixed >= fixed_wanted - 8 && sync.fixed <= fixed_wanted + 8,
+              "found %d fixed positions, built %d\n", sync.fixed,
+              fixed_wanted);
+    check_true("and the rest look like data", sync.varying > 30);
+}
+
+/*
+ * Noise has no burst grid, and this is the half that matters: a finder that
+ * reports the best of a thousand lags always reports something.
+ */
+static void test_noise_has_no_grid(void) {
+    static unsigned char stream[40000];
+    static struct tetra_burst_sync sync;
+    int n;
+
+    for (n = 0; n < 40000; n++)
+        stream[n] = (unsigned char)((int)(uniform() * 4.0) & 3);
+    check_int("noise has no period", tetra_burst_find(stream, 40000, 200, 1200,
+                                                      &sync), 0);
+    check_msg(sync.repeat < 0.30f,
+              "noise matched itself at %.3f, which should be near a quarter\n",
+              (double)sync.repeat);
+
+    /* And a stream that is entirely fixed is not a burst structure either --
+       it is a stuck receiver, and the profile says so. */
+    for (n = 0; n < 40000; n++)
+        stream[n] = (unsigned char)(n % TETRA_SLOT_SYMBOLS % 4);
+    if (tetra_burst_find(stream, 40000, 200, 1200, &sync)) {
+        check_msg(sync.varying == 0,
+                  "a wholly repeating stream should have no varying "
+                  "positions, found %d\n", sync.varying);
+    }
+}
+
 int main(void) {
     test_the_phase_steps();
     test_round_trips();
     test_the_fine_offset();
     test_it_refuses_a_rate_it_cannot_use();
     test_noise_does_not_lock();
+    test_the_burst_grid();
+    test_noise_has_no_grid();
 
     return check_report("TETRA: a carrier to symbols");
 }
