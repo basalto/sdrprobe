@@ -2,7 +2,8 @@
 
 ## Status
 
-superseded by ADR-0017
+superseded by ADR-0017, which keeps this decision and corrects
+the noise measurement it rests on
 
 ## Context
 

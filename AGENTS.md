@@ -137,9 +137,11 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   they are two different measurements (ADR-0017): the descent above, and how
   far it stands above the median level around it. Both are 8 dB, so the
   reported *above floor* figure cannot contradict the gate -- it used to, and a
-  whole-tuner sweep reported a candidate at 7.3 dB. The floor is measured
-  outward from the hump's edges, which is why a ripple on a DVB-T multiplex is
-  no longer described as a signal 25 dB above the noise outside it. Selecting a candidate, by
+  whole-tuner sweep reported a candidate at 7.3 dB. In a busy band the bar that
+  actually binds is neither: a candidate with no -20 dB point of its own has no
+  measurable extent and is dropped, which is what stops every ripple on a DVB-T
+  multiplex becoming a carrier, and what also loses weak isolated carriers.
+  ADR-0017 has the measurements and `.scratch/survey-extent/` is the way out. Selecting a candidate, by
   click or with Up/Down, retunes 300 kHz off it (never onto the DC spike) and
   measures occupied bandwidth, duty and frequency stability over two seconds,
   then names the allocation from `src/band_plan.c` and offers to point a
