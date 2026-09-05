@@ -249,7 +249,7 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
     struct survey_carrier carriers[SURVEY_CARRIER_MAX];
     struct slot_snapshot snapshot;
     uint32_t home = app->applied_frequency;
-    int carrier_count, i, asked, confirmed = 0, refuted = 0;
+    int carrier_count, i, asked, confirmed = 0, intermittent = 0, refuted = 0;
 
     carrier_count = survey_carriers_now(plan, peaks, count, carriers,
                                         SURVEY_CARRIER_MAX);
@@ -261,11 +261,11 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
         targets[i].prominence_db = 0.0f;
     }
     memset(&snapshot, 0, sizeof(snapshot));
-    printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db>\n");
+    printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
+           "<hits>/<looks>\n");
     for (i = 0; i < asked && !stop_requested(); i++) {
         struct sdr_carrier_report report;
         double started;
-        int looks = 0;
         int settled = 0;
 
         if (retune_receiver(app, (uint32_t)llround(targets[i].hz),
@@ -276,7 +276,8 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
         }
         survey_confirm_begin_target(app);
         started = monotonic_seconds();
-        while (looks < SURVEY_CONFIRM_LOOKS && !stop_requested()) {
+        while (app->survey.confirm.looks < SURVEY_CONFIRM_LOOKS &&
+               !stop_requested()) {
             double elapsed = monotonic_seconds() - started;
 
             int got = next_block(app, &snapshot);
@@ -287,8 +288,7 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
                 continue;          /* still the previous target's spectrum */
             settled = 1;
             if (got > 0) {
-                survey_confirm_look(app);
-                looks++;
+                survey_confirm_look(app, targets[i].hz);
             } else if (elapsed > SURVEY_CONFIRM_SETTLE_SECONDS + 3.0) {
                 break;             /* the blocks stopped coming */
             }
@@ -296,16 +296,18 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
         survey_confirm_decide(app, &targets[i], &report);
         if (targets[i].verdict == SURVEY_VERDICT_CONFIRMED)
             confirmed++;
+        else if (targets[i].verdict == SURVEY_VERDICT_INTERMITTENT)
+            intermittent++;
         else
             refuted++;
-        printf("confirm %.0f %s %s %.1f\n", targets[i].hz,
+        printf("confirm %.0f %s %s %.1f %d/%d\n", targets[i].hz,
                targets[i].claim == SURVEY_CLAIM_MISSING ? "missing" : "new",
-               targets[i].verdict == SURVEY_VERDICT_CONFIRMED ? "confirmed"
-                                                              : "refuted",
-               (double)targets[i].prominence_db);
+               survey_verdict_name(targets[i].verdict),
+               (double)targets[i].prominence_db, targets[i].hits,
+               targets[i].looks);
     }
-    printf("confirm-summary asked %d confirmed %d refuted %d\n", asked,
-           confirmed, refuted);
+    printf("confirm-summary asked %d confirmed %d intermittent %d refuted "
+           "%d\n", asked, confirmed, intermittent, refuted);
     fflush(stdout);
     /* A sweep that found nothing still says so: "asked 0" is a pass that had
        nothing to ask about, and no summary line at all is a pass that did not

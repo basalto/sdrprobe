@@ -1,6 +1,6 @@
 # 01 — Tell a burst from a mistake: a third verdict
 
-Status: needs-triage
+Status: resolved
 
 The confirmation pass has two answers and needs three. "It was there", "it was
 not", and "it was there some of the time" are different findings, and the third
@@ -51,3 +51,60 @@ carrier heard in two of six looks and again in two of the next six is bursty; a
 single hit that never recurs is not. `SURVEY_CONFIRM_LOOKS` is six today and
 that may be too few to tell those apart; measuring where it stops being able to
 is part of the ticket, not an afterthought (`does-it-help`).
+
+## Comments
+
+**2026-09-05 — resolved, with one limit found and left open.**
+
+Each look is now measured on its own block and the hits are counted;
+`survey_confirm_presence()` turns the count into a verdict using
+`survey_measure_duty_label()`'s own boundary rather than a new constant, so a
+duty the rest of the program calls continuous is not called intermittent here.
+`intermittent` does not invert between "new" and "missing" — a signal heard in
+two looks of six came and went whichever the sweep had said about it, and that
+is deliberate, since a third value doubles the ways the inversion can go wrong.
+
+`survey_confirm_should_record()` records it, which is the half that mattered: a
+refuted "new" is never written down, so before this the next sweep called it
+new again, the next pass refuted it again, and the mobile-satellite
+allocations could not enter the history however many sweeps heard them.
+
+Measured on air. The band the ticket is about, three passes over 1600-1670 MHz:
+
+| pass | asked | confirmed | intermittent | refuted |
+| --- | --- | --- | --- | --- |
+| 1 | 0 | -- | -- | -- |
+| 2 | 9 | 1 | 2 (1/6, 1/6) | 6 |
+| 3 | 7 | 1 | 4 (1/6, 2/6, 3/6, 3/6) | 2 |
+
+Six signals that were refuted before are now recorded as heard. The controls
+hold: band II gives 24 of 24 confirmed at 6/6 every time, so the strict
+boundary does not demote a continuous station, and 120.0 MHz -- the continuous
+air-band carrier -- reads 6/6 at 42 dB while its neighbours come and go.
+
+**The level is the best single look, not the hold.** Peak-holding was the first
+implementation and it is the wrong instrument: holding raises the noise floor
+along with the signal, so 129.839 MHz -- present in two looks of six -- came
+back at 4.7 dB, under the 6 dB bar it had cleared twice, with the number
+contradicting the verdict printed beside it. `struct survey_view.confirm` no
+longer carries a spectrum at all.
+
+### The limit, which the ticket half-anticipated
+
+Six consecutive blocks span about 0.4 s, so `intermittent` only sees signals
+that switch on a sub-second timescale. That is Iridium, whose bursts are
+milliseconds -- which is why the table above works. It is **not** the
+phenomenon the spec opened with: candidates that appear in one sweep and not
+the next vary over *minutes*, and within any single 0.4 s visit such a signal
+is wholly present or wholly absent, so it still reads confirmed or refuted.
+
+Air-band traffic shows it plainly. Transmissions last seconds, so three passes
+over 118-137 MHz gave 6/6 and 0/6 and almost nothing between; the one
+intermittent reading there, 129.839 MHz at 2/6, was a signal keying inside the
+window rather than a talking aircraft.
+
+Telling minute-scale variation from noise needs the pass to *revisit*, not to
+look longer in one place -- which is `--survey-watch`'s territory and the
+history's, not this pass's. Worth its own ticket if it is worth doing;
+`site_history_seen()` already distinguishes on/off from by-hour, and now that
+bursts reach the history at all it has something to work with.

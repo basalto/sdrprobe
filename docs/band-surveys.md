@@ -113,15 +113,33 @@ steps some will be wrong -- a transmitter between bursts reads as missing, a
 moment of noise reads as new.
 
 **Ask again** revisits each of them. It tunes to the frequency, takes six
-looks and **peak-holds them into one spectrum**, and sees. A handful of targets
+looks, **measures each on its own block**, and counts. A handful of targets
 takes seconds against a sweep that ran for minutes, which is the same bargain
 the LTE band scan's confirmation pass makes and for the same reason: a wide
 search has to be generous, so something narrower must have the last word.
 
-The hold is what makes six looks worth more than one. Averaging or overwriting
-them would answer about the last block, and the signals this pass exists to
-settle are largely bursty -- so the one block the transmitter was up in is
-exactly the one that must not be thrown away.
+The count is what makes six looks worth more than one, and it gives three
+answers rather than two:
+
+| looks it was up in | verdict |
+| --- | --- |
+| all of them | `confirmed` |
+| some of them | `intermittent` |
+| none | `refuted` |
+
+**Intermittent is a finding, not a failure**, and it is most of what the
+mobile-satellite bands are. One pass over 1600-1670 MHz put four of seven
+signals there -- at one, two, three and three looks of six -- and with two
+verdicts every one of them was `refuted`. That mattered beyond the label: a
+refuted "new" is never written to the history, so the next sweep called it new
+again and the next pass refuted it again, and those allocations could never
+become known however many sweeps heard them.
+
+The level reported is the **best single look**, not an average and not a
+peak-held spectrum. Holding was tried first: it raises the noise floor along
+with the signal, so a burst present in two looks of six came back at 4.7 dB --
+under the 6 dB bar it had cleared twice -- and the number contradicted the
+verdict beside it.
 
 What it finds goes into the history, rather than what the sweep guessed. A
 "new" signal that does not hold up is never remembered -- once it is in, the
@@ -131,14 +149,16 @@ From a script, `--survey-confirm` runs it as soon as a sweep finishes, and
 prints the verdicts:
 
 ```
-confirm 94728027 new refuted 2.9
-confirm 95706500 missing refuted 47.8
-confirm 96900000 missing confirmed 3.1
-confirm-summary asked 11 confirmed 9 refuted 2
+confirm 94728027 new refuted 2.9 0/6
+confirm 95706500 missing refuted 47.8 6/6
+confirm 1617030029 new intermittent 6.0 1/6
+confirm-summary asked 11 confirmed 8 intermittent 1 refuted 2
 ```
 
-The middle line is why the pass exists: the sweep called that frequency missing,
-and a proper look found it 47.8 dB above the floor.
+The trailing figure is the count: how many of the looks it was up in, and how
+many there were. The second line is why the pass exists at all -- the sweep
+called that frequency missing and a proper look found it 47.8 dB above the
+floor -- and the third is why it needed a third answer.
 
 **The window and a script ask about different things, deliberately.** The
 window has a site history to lean on, so it revisits only what changed -- what
@@ -271,10 +291,11 @@ Two conventions worth knowing before comparing anything:
   them and neither does this, because removing a peak would hide a real
   transmitter that happens to sit on a harmonic (ADR-0015). `report` and `diff`
   set them aside and count them; they stay in the file.
-- **`confirmed` says whether anybody went back and looked**, and its three
-  values are three different facts: `confirmed` means a closer look agreed,
-  `refuted` means it did not, and `unconfirmed` means no pass asked about this
-  frequency. Writing the last two the same way is what leaves a reader unable
+- **`confirmed` says whether anybody went back and looked**, and its four
+  values are four different facts: `confirmed` means it was there every time
+  the pass looked, `intermittent` that it was there some of the times,
+  `refuted` that it was not there at all, and `unconfirmed` that no pass asked
+  about this frequency. Writing the last two the same way is what leaves a reader unable
   to tell a signal that failed a second look from one nobody checked. A
   candidate takes the verdict of the carrier it is a maximum of, since that is
   what the pass tuned to.

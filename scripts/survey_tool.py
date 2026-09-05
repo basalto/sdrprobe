@@ -49,8 +49,8 @@ def parse(text):
         # Whether anybody asked again, and what they found. Written even when
         # no pass ran: "asked 0" and a missing block are different facts, and
         # a reader has to tell a signal that held up from one nobody checked.
-        "confirmation": {"asked": 0, "confirmed": 0, "refuted": 0,
-                         "targets": []},
+        "confirmation": {"asked": 0, "confirmed": 0, "intermittent": 0,
+                         "refuted": 0, "targets": []},
         "candidates": [],
         "carriers": [],
     }
@@ -107,15 +107,22 @@ def parse(text):
             if "settling" in f:
                 out["sweep"]["settling"] = int(f[f.index("settling") + 1])
         elif line.startswith("confirm ") and len(f) >= 5:
-            out["confirmation"]["targets"].append({
+            target = {
                 "hz": int(float(f[1])),
                 "claim": f[2],
                 "verdict": f[3],
                 "prominence_db": float(f[4]),
-            })
+            }
+            # hits/looks: the count behind the verdict, so a reader can tell
+            # one burst in six from five. Optional, because sweeps recorded
+            # before the third verdict existed do not carry it.
+            if len(f) >= 6 and "/" in f[5]:
+                hits, _, looks = f[5].partition("/")
+                target["hits"], target["looks"] = int(hits), int(looks)
+            out["confirmation"]["targets"].append(target)
         elif f[:1] == ["confirm-summary"]:
             pairs = dict(zip(f[1::2], f[2::2]))
-            for key in ("asked", "confirmed", "refuted"):
+            for key in ("asked", "confirmed", "intermittent", "refuted"):
                 if key in pairs:
                     out["confirmation"][key] = int(pairs[key])
         elif f[:2] == ["survey", "candidates"]:
@@ -265,8 +272,9 @@ def cmd_report(args):
     # anybody went back and looked belongs beside the count, not buried.
     confirmation = record.get("confirmation") or {}
     if confirmation.get("asked"):
-        print("  asked again about %d: %d held up, %d did not"
+        print("  asked again about %d: %d held up, %d came and went, %d did not"
               % (confirmation["asked"], confirmation.get("confirmed", 0),
+                 confirmation.get("intermittent", 0),
                  confirmation.get("refuted", 0)))
     else:
         print("  ! nobody asked again. Every signal here is one sweep's word;"

@@ -762,14 +762,22 @@ struct survey_view {
         double started_at;
         uint32_t return_frequency;
         int confirmed;
+        int intermittent;
         int refuted;
         int printed;      /* report the verdicts on stdout when done */
         struct survey_confirm_target target[SURVEY_CONFIRM_MAX];
-        /* The looks at one target, peak-held into one spectrum. A single
-           block is what the sweep already had; holding is what turns six
-           blocks into a better answer than one. */
-        float spectrum[SDR_DSP_FFT_MAX];
-        int held;
+        /*
+         * The best of this target's looks, and how many of them it was up in.
+         *
+         * Every look is measured on its own block. A held spectrum was tried
+         * first and is the wrong instrument: peak-holding raises the noise
+         * floor along with the signal, so a burst present in two blocks of six
+         * came back reading 4.7 dB -- below the bar it had cleared twice --
+         * and the verdict contradicted the number beside it.
+         */
+        struct sdr_carrier_report best;
+        int measured;   /* whether `best` holds anything at all */
+        int hits;
     } confirm;
     int focus;                  /* 0 from, 1 to, 2 dwell, 3 site, 4 antenna */
     double dwell_seconds;       /* parsed at the start of a sweep */

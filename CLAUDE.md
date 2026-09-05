@@ -321,8 +321,13 @@ measured against whatever reference a place offers, so arriving somewhere the
 receiver has been calibrated restores that calibration rather than the last one
 measured anywhere. A sweep's marks are claims from a tenth of a second each;
 **Ask again**, or `--survey-confirm` on a scripted sweep, revisits each with six
-blocks peak-held on the frequency and prints a verdict, which the saved JSON
-records per signal as `confirmed`, `refuted` or `unconfirmed`. The window asks
+blocks on the frequency, each measured on its own, and prints a verdict with
+the count behind it -- `confirmed` when it was up in every look, `refuted` when
+in none, and **`intermittent`** in between, which the saved JSON records per
+signal alongside `unconfirmed` for anything nobody asked about. Intermittent is
+the answer the mobile-satellite bands need: on 1600-1670 MHz a pass put four of
+seven signals there, and every one of them would previously have been refuted
+and barred from the site history for ever. The window asks
 only about what changed, since it has a history to lean on; a headless sweep
 asks about **every signal it found**, because its output is the report. Above
 1.5 GHz that is most of the answer -- one 1400-1766 MHz sweep found ten signals
