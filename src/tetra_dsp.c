@@ -8,14 +8,28 @@
 #endif
 
 /*
- * The four phase steps, as quarter-turns of pi/4: dibit 0 sends +pi/4, 1 sends
- * +3pi/4, 2 sends -3pi/4, 3 sends -pi/4.
+ * The four phase steps, in quarter-turns of pi/4, indexed by the dibit
+ * B(2k-1),B(2k) read as a two-bit number.
  *
- * Read the note in the header before trusting the *assignment*. What is safe
- * to rely on here is the shape -- four distinct odd multiples of pi/4 -- which
- * is what makes the constellation four-cornered and is all ticket 01 needs.
+ * ETSI EN 300 392-2 V3.8.1 (2016-08) table 5.1:
+ *
+ *     B(2k-1)  B(2k)   Dphi(k)
+ *        0       0      +pi/4
+ *        0       1     +3pi/4
+ *        1       0      -pi/4
+ *        1       1     -3pi/4
+ *
+ * This was guessed before the document was to hand, and the guess had the last
+ * two the other way round -- dibit 2 as -3pi/4 and dibit 3 as -pi/4. The
+ * synthetic round trip passed anyway, every time, because the encoder and the
+ * decoder shared the mistake. That is the whole of why the header used to say
+ * this table was not to be believed until a parity check passed over real
+ * symbols, and it is the same failure as a conjugated primary sequence and a
+ * scattered SCH field layout. The fix is a transcription from the standard,
+ * and the check that catches a transcription error is the training sequence
+ * below: known bits, on air, in a known place.
  */
-static const int step_quarters[TETRA_PHASE_STEPS] = { 1, 3, -3, -1 };
+static const int step_quarters[TETRA_PHASE_STEPS] = { 1, 3, -1, -3 };
 
 double tetra_step_for_dibit(int dibit) {
     if (dibit < 0 || dibit >= TETRA_PHASE_STEPS)
@@ -450,4 +464,56 @@ int tetra_burst_find(const unsigned char *dibits, int count, int low, int high,
         }
     }
     return 1;
+}
+
+/*
+ * The synchronization training sequence, EN 300 392-2 V3.8.1 equation (9.11):
+ *
+ *   (y1..y38) = 1,1, 0,0, 0,0, 0,1, 1,0, 0,1, 1,1, 0,0, 1,1,
+ *               1,0, 1,0, 0,1, 1,1, 0,0, 0,0, 0,1, 1,0, 0,1, 1,1
+ *
+ * as the nineteen dibits it modulates to. It sits at bits 215 to 252 of the
+ * synchronization continuous downlink burst (table 9.9), which is symbols 108
+ * to 126 of the 255 -- bit 2n-1 and bit 2n are symbol n.
+ */
+static const unsigned char sync_word[TETRA_SYNC_SYMBOLS] = {
+    3, 0, 0, 1, 2, 1, 3, 0, 3, 2, 2, 1, 3, 0, 0, 1, 2, 1, 3
+};
+
+int tetra_sync_dibits(const unsigned char **dibits) {
+    if (dibits)
+        *dibits = sync_word;
+    return TETRA_SYNC_SYMBOLS;
+}
+
+int tetra_find_sync(const unsigned char *dibits, int count, int *matched) {
+    int at, best = -1, best_hits = 0;
+
+    if (matched)
+        *matched = 0;
+    if (!dibits || count < TETRA_SYNC_SYMBOLS)
+        return -1;
+    for (at = 0; at + TETRA_SYNC_SYMBOLS <= count; at++) {
+        int hits = 0, k;
+        for (k = 0; k < TETRA_SYNC_SYMBOLS; k++)
+            if (dibits[at + k] == sync_word[k])
+                hits++;
+        if (hits > best_hits) {
+            best_hits = hits;
+            best = at;
+        }
+    }
+    if (matched)
+        *matched = best_hits;
+    /*
+     * Sixteen of nineteen, and the number is measured rather than picked.
+     *
+     * Chance is a quarter, so thirteen comes up about once in a hundred
+     * thousand positions -- which sounds ample and is not: a block holds a few
+     * thousand positions and a capture holds several blocks, and at thirteen
+     * an empty channel produced a fourteen-of-nineteen "match" on the second
+     * chunk tried. Sixteen is another two orders of magnitude down, and costs
+     * nothing: the real signal matches nineteen of nineteen in every chunk.
+     */
+    return best_hits >= 16 ? best : -1;
 }

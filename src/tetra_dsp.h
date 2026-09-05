@@ -73,6 +73,12 @@
  */
 #define TETRA_PHASE_STEPS 4
 
+/* The synchronization training sequence is 38 bits, which is 19 symbols. */
+#define TETRA_SYNC_SYMBOLS 19
+/* Where it sits in the synchronization continuous downlink burst: bits 215 to
+   252 of 510, which is symbols 108 to 126 of 255 (EN 300 392-2 table 9.9). */
+#define TETRA_SYNC_AT_SYMBOL 107
+
 /*
  * What one block of samples turned into.
  *
@@ -201,6 +207,19 @@ struct tetra_burst_sync {
  */
 int tetra_burst_find(const unsigned char *dibits, int count, int low, int high,
                      struct tetra_burst_sync *out);
+
+/*
+ * The synchronization training sequence as dibits, and where it best matches in
+ * a run of them.
+ *
+ * `tetra_find_sync` returns the symbol index of the best match, or -1 when
+ * nothing reaches two thirds of the nineteen. It is the check that a
+ * transcription is right: known bits, on air, in a place the burst layout
+ * predicts. A round trip cannot do that job, which is why the phase table was
+ * wrong here for a day and every synthetic test passed.
+ */
+int tetra_sync_dibits(const unsigned char **dibits);
+int tetra_find_sync(const unsigned char *dibits, int count, int *matched);
 
 /* The phase step a dibit is sent as, and the dibit a step nearest to. Exposed
    so a check can assert the table is a bijection without an encoder. */
