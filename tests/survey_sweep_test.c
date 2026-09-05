@@ -364,6 +364,33 @@ static void test_measurement_spread(void) {
               "the spread of an unmoving carrier is not a number\n");
 }
 
+/*
+ * When a step is over.
+ *
+ * Two conditions, and the second is the one that was missing. The dwell is a
+ * floor on how long to listen, not a promise that anything was heard: blocks
+ * arrive every 65.5 ms, the settle takes the first of them, and a step can
+ * pass through both phases having folded nothing at all. Its bins would then
+ * be left unmeasured, which is indistinguishable on the chart from a band
+ * with nothing in it.
+ */
+static void test_leaving_a_step(void) {
+    check_true("not while the tuner is settling",
+               !survey_step_may_advance(SURVEY_STEP_SETTLING, 0));
+    check_true("not even with a block already folded",
+               !survey_step_may_advance(SURVEY_STEP_SETTLING, 3));
+    check_true("nor during the dwell",
+               !survey_step_may_advance(SURVEY_STEP_DWELLING, 3));
+    check_true("and not when the dwell is over with nothing measured",
+               !survey_step_may_advance(SURVEY_STEP_NEXT, 0));
+    check_true("the last step is no exception",
+               !survey_step_may_advance(SURVEY_STEP_FINISHED, 0));
+    check_true("but yes once the dwell is over and a block was folded",
+               survey_step_may_advance(SURVEY_STEP_NEXT, 1));
+    check_true("and yes at the end of the sweep",
+               survey_step_may_advance(SURVEY_STEP_FINISHED, 1));
+}
+
 int main(void) {
     test_full_tuner_sweep();
     test_every_frequency_is_covered();
@@ -373,6 +400,7 @@ int main(void) {
     test_fold_discards_the_edges();
     test_fold_holds_the_peak();
     test_step_phases();
+    test_leaving_a_step();
     test_a_whole_sweep_walks_the_range();
     test_measurement_duty();
     test_up_is_relative_to_the_first_sighting();

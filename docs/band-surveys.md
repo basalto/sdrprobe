@@ -112,18 +112,23 @@ enough to be sure of one. So the marks below are claims, and over three hundred
 steps some will be wrong -- a transmitter between bursts reads as missing, a
 moment of noise reads as new.
 
-**Ask again** revisits each of them. It tunes to the frequency, folds six
-blocks into one spectrum, and sees. A handful of targets takes seconds against
-a sweep that ran for minutes, which is the same bargain the LTE band scan's
-confirmation pass makes and for the same reason: a wide search has to be
-generous, so something narrower must have the last word.
+**Ask again** revisits each of them. It tunes to the frequency, takes six
+looks and **peak-holds them into one spectrum**, and sees. A handful of targets
+takes seconds against a sweep that ran for minutes, which is the same bargain
+the LTE band scan's confirmation pass makes and for the same reason: a wide
+search has to be generous, so something narrower must have the last word.
+
+The hold is what makes six looks worth more than one. Averaging or overwriting
+them would answer about the last block, and the signals this pass exists to
+settle are largely bursty -- so the one block the transmitter was up in is
+exactly the one that must not be thrown away.
 
 What it finds goes into the history, rather than what the sweep guessed. A
 "new" signal that does not hold up is never remembered -- once it is in, the
 next sweep calls it missing and the noise becomes a permanent ghost.
 
-From a script, `--survey-confirm` runs it as soon as a `--survey-range` sweep
-finishes, and prints the verdicts:
+From a script, `--survey-confirm` runs it as soon as a sweep finishes, and
+prints the verdicts:
 
 ```
 confirm 94728027 new refuted 2.9
@@ -134,6 +139,20 @@ confirm-summary asked 11 confirmed 9 refuted 2
 
 The middle line is why the pass exists: the sweep called that frequency missing,
 and a proper look found it 47.8 dB above the floor.
+
+**The window and a script ask about different things, deliberately.** The
+window has a site history to lean on, so it revisits only what changed -- what
+this site has never heard, and what it has heard and did not this time. A
+headless sweep may be the first this site has ever taken, and its output *is*
+the report, so `--headless --survey ... --survey-confirm` revisits **every
+signal the sweep found**, strongest first, up to twenty-four.
+
+That is what tells a standing transmitter from a moment of noise, and above
+1.5 GHz the difference is most of the list. One 1400-1766 MHz sweep found ten
+signals and the pass confirmed **one**; the same flag over band II confirmed
+all twenty-four broadcast stations. Refuted entries are still reported and
+still written down -- the verdict goes beside the signal, never in place of it
+(ADR-0015).
 
 ## What the site remembers
 
@@ -228,12 +247,13 @@ these: what is known, what is new, and what is worth measuring next.
 
 ## What is in a file
 
-`schema`, `recorded_at`, `range_hz`, `sweep` (steps, bins, dwell, blocks),
-`receiver` (tuner, antenna, gain_db), `site` (label, fingerprint), `totals`,
-`candidates` -- each with `hz`, `dbfs`, `prominence_db`, `centre_hz`,
-`width_hz`, `flags` and `allocation` -- and `carriers`, each with `centre_hz`,
-`power_centre_hz`, `lower_hz`, `upper_hz`, `width_hz`, `dbfs`,
-`prominence_db`, `maxima` and `allocation`.
+`schema`, `recorded_at`, `range_hz`, `sweep` (steps, bins, dwell, blocks,
+settling), `receiver` (tuner, antenna, gain_db), `site` (label, fingerprint),
+`totals`, `confirmation` (asked, confirmed, refuted), `candidates` -- each with
+`hz`, `dbfs`, `prominence_db`, `centre_hz`, `width_hz`, `flags`, `confirmed`
+and `allocation` -- and `carriers`, each with `centre_hz`, `power_centre_hz`,
+`lower_hz`, `upper_hz`, `width_hz`, `dbfs`, `prominence_db`, `maxima`,
+`confirmed` and `allocation`.
 
 Two conventions worth knowing before comparing anything:
 
@@ -243,6 +263,17 @@ Two conventions worth knowing before comparing anything:
   them and neither does this, because removing a peak would hide a real
   transmitter that happens to sit on a harmonic (ADR-0015). `report` and `diff`
   set them aside and count them; they stay in the file.
+- **`confirmed` says whether anybody went back and looked**, and its three
+  values are three different facts: `confirmed` means a closer look agreed,
+  `refuted` means it did not, and `unconfirmed` means no pass asked about this
+  frequency. Writing the last two the same way is what leaves a reader unable
+  to tell a signal that failed a second look from one nobody checked. A
+  candidate takes the verdict of the carrier it is a maximum of, since that is
+  what the pass tuned to.
+- **`settling` counts the blocks a sweep threw away** after each retune,
+  because they were captured while the tuner was still moving. It is not
+  waste: folding them writes the previous step's signal into this step's bins.
+  At a 0.10 s settle and a 0.10 s dwell it is about a third of what arrives.
 - **`allocation` is a lookup, not an identification.** It says which
   allocation the frequency falls in, and nothing about what is actually
   transmitting there. Band 28 in the 2026-09-02 sweep is labelled "LTE band 28

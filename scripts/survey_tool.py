@@ -46,6 +46,11 @@ def parse(text):
         "receiver": {},
         "site": {},
         "totals": {},
+        # Whether anybody asked again, and what they found. Written even when
+        # no pass ran: "asked 0" and a missing block are different facts, and
+        # a reader has to tell a signal that held up from one nobody checked.
+        "confirmation": {"asked": 0, "confirmed": 0, "refuted": 0,
+                         "targets": []},
         "candidates": [],
         "carriers": [],
     }
@@ -96,6 +101,23 @@ def parse(text):
             out["totals"]["carriers"] = int(f[2])
         elif f[:2] == ["survey", "blocks"]:
             out["sweep"]["blocks"] = int(f[2])
+            # Blocks dropped because the tuner was still settling. Worth
+            # keeping: it is a third of a short dwell, and a sweep that folded
+            # them measured the previous step at this step's frequencies.
+            if "settling" in f:
+                out["sweep"]["settling"] = int(f[f.index("settling") + 1])
+        elif line.startswith("confirm ") and len(f) >= 5:
+            out["confirmation"]["targets"].append({
+                "hz": int(float(f[1])),
+                "claim": f[2],
+                "verdict": f[3],
+                "prominence_db": float(f[4]),
+            })
+        elif f[:1] == ["confirm-summary"]:
+            pairs = dict(zip(f[1::2], f[2::2]))
+            for key in ("asked", "confirmed", "refuted"):
+                if key in pairs:
+                    out["confirmation"][key] = int(pairs[key])
         elif f[:2] == ["survey", "candidates"]:
             pairs = dict(zip(f[1::2], f[2::2]))
             for key in ("candidates", "suspicious"):
@@ -239,6 +261,16 @@ def cmd_report(args):
         print("  grouped into %d signals%s" % (
             len(carriers),
             ", %d of them holding several maxima" % merged if merged else ""))
+    # A sweep step is a tenth of a second, so its marks are claims. Whether
+    # anybody went back and looked belongs beside the count, not buried.
+    confirmation = record.get("confirmation") or {}
+    if confirmation.get("asked"):
+        print("  asked again about %d: %d held up, %d did not"
+              % (confirmation["asked"], confirmation.get("confirmed", 0),
+                 confirmation.get("refuted", 0)))
+    else:
+        print("  ! nobody asked again. Every signal here is one sweep's word;"
+              " re-run with --survey-confirm.")
     print("")
     groups = by_allocation({"candidates": clean})
     print("  %-38s %4s %10s %10s  %s" % ("allocation", "n", "best dBFS",

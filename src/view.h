@@ -228,6 +228,20 @@ void view_survey_leave(struct app *app);
    six looks in a tenth of a second and it measured a spectrum from before
    the receiver had retuned. */
 void update_survey(struct app *app, double now, int spectrum_updated);
+/*
+ * The two halves of one confirmation look, shared with the headless sweep so
+ * the window and a script cannot answer the same question differently.
+ *
+ * `begin` forgets the last target's spectrum, `look` peak-holds this block's
+ * into it, and `decide` reads the answer out and fills in the verdict. The
+ * hold is what makes six looks worth more than one: a bursty transmitter is
+ * absent from most blocks, and averaging or overwriting throws away the one
+ * block it was up in.
+ */
+void survey_confirm_begin_target(struct app *app);
+void survey_confirm_look(struct app *app);
+int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
+                          struct sdr_carrier_report *report);
 void handle_survey_input(struct app *app);
 void draw_survey(struct app *app);
 /* True while a range field is taking typed input, so the frame loop leaves the

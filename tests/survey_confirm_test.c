@@ -80,11 +80,70 @@ static void test_how_long_it_takes(void) {
                SURVEY_CONFIRM_LOOKS >= 4);
 }
 
+/*
+ * Which target speaks for a frequency, which is how a saved sweep says per
+ * signal whether anybody asked again.
+ */
+static void test_matching_a_target_to_a_frequency(void) {
+    struct survey_confirm_target targets[3];
+    const struct survey_confirm_target *found;
+
+    memset(targets, 0, sizeof(targets));
+    targets[0].hz = 94400000.0;
+    targets[0].verdict = SURVEY_VERDICT_CONFIRMED;
+    targets[1].hz = 94410000.0;
+    targets[1].verdict = SURVEY_VERDICT_REFUTED;
+    targets[2].hz = 100000000.0;
+    targets[2].verdict = SURVEY_VERDICT_CONFIRMED;
+
+    found = survey_confirm_for(targets, 3, 94400500.0, 20000.0);
+    check_true("the nearest target answers, not the first in the list",
+               found == &targets[0]);
+    /* Both are within the tolerance of this one; the closer must win, or a
+       candidate in a crowded band inherits its neighbour's verdict. */
+    found = survey_confirm_for(targets, 3, 94408000.0, 20000.0);
+    check_true("and when two are in reach, the closer of them",
+               found == &targets[1]);
+    check_true("nothing within reach is nothing",
+               survey_confirm_for(targets, 3, 96000000.0, 20000.0) == NULL);
+    check_true("an empty pass answers for nothing",
+               survey_confirm_for(targets, 0, 94400000.0, 20000.0) == NULL);
+
+    /*
+     * A frequency nobody asked about reads as unconfirmed rather than as
+     * refuted. The two are different findings: one says a closer look
+     * disagreed, the other says there was no closer look, and writing them
+     * the same way is what leaves a reader unable to tell a carrier that held
+     * up from one that was never checked.
+     */
+    check_str("asked and found",
+              survey_verdict_name(survey_confirm_verdict_at(targets, 3,
+                                                            94400000.0,
+                                                            20000.0)),
+              "confirmed");
+    check_str("asked and not found",
+              survey_verdict_name(survey_confirm_verdict_at(targets, 3,
+                                                            94410000.0,
+                                                            20000.0)),
+              "refuted");
+    check_str("never asked",
+              survey_verdict_name(survey_confirm_verdict_at(targets, 3,
+                                                            96000000.0,
+                                                            20000.0)),
+              "unconfirmed");
+    check_str("and no pass at all leaves everything unconfirmed",
+              survey_verdict_name(survey_confirm_verdict_at(NULL, 0,
+                                                            94400000.0,
+                                                            20000.0)),
+              "unconfirmed");
+}
+
 int main(void) {
     test_the_sense_of_a_verdict();
     test_what_gets_remembered();
     test_presence();
     test_how_long_it_takes();
+    test_matching_a_target_to_a_frequency();
 
     return check_report("asking again about what changed");
 }

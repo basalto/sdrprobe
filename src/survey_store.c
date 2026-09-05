@@ -152,12 +152,17 @@ static void put_string(FILE *file, const char *indent, const char *key,
 int survey_store_write(const struct app *app, const struct survey_plan *plan,
                        const struct survey_candidate *candidates, int count,
                        const struct survey_carrier *carriers,
-                       int carrier_count, char *path_out, size_t path_size) {
+                       int carrier_count,
+                       const struct survey_confirm_target *targets,
+                       int target_count, char *path_out, size_t path_size) {
     char name[64], path[256];
     time_t now = time(NULL);
     struct tm when;
     FILE *file;
-    int i, suspicious = 0;
+    int i, suspicious = 0, confirmed = 0, refuted = 0;
+    /* How far a reported frequency can sit from the truth: half a bin, which
+       is the quantisation the sweep put on it. */
+    double match_hz = plan ? plan->bin_hz / 2.0 : 0.0;
 
     if (!app || !plan)
         return -1;
@@ -199,6 +204,12 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
     for (i = 0; i < count; i++)
         if (survey_suspect_warns(candidates[i].suspect))
             suspicious++;
+    for (i = 0; i < target_count; i++) {
+        if (targets[i].verdict == SURVEY_VERDICT_CONFIRMED)
+            confirmed++;
+        else if (targets[i].verdict == SURVEY_VERDICT_REFUTED)
+            refuted++;
+    }
 
     fprintf(file, "{\n");
     fprintf(file, "  \"schema\": 1,\n");
@@ -231,6 +242,13 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
     }
     fprintf(file, "  \"totals\": {\"candidates\": %d, \"suspicious\": %d},\n",
             count, suspicious);
+    /*
+     * Whether anybody asked again, before the lists that answer to it. An
+     * empty pass is written as asked 0 rather than left out: a reader has to
+     * be able to tell "nothing held up" from "nothing was checked".
+     */
+    fprintf(file, "  \"confirmation\": {\"asked\": %d, \"confirmed\": %d, "
+                  "\"refuted\": %d},\n", target_count, confirmed, refuted);
     fprintf(file, "  \"candidates\": [\n");
     for (i = 0; i < count; i++) {
         const struct survey_candidate *c = &candidates[i];
@@ -258,7 +276,24 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
                 from = comma ? comma + 1 : from + length;
             }
         }
-        fprintf(file, "], \"allocation\": ");
+        /*
+         * A candidate takes the verdict of the carrier it belongs to. The
+         * pass asks about carriers, and a carrier's shoulders are maxima of
+         * the same signal a few bins away -- reading each of those as "never
+         * asked" would leave most of a confirmed station's own list marked
+         * unconfirmed.
+         */
+        {
+            int holder = survey_carrier_holding(carriers, carrier_count,
+                                                c->found_hz);
+            double asked_at = holder >= 0 ? carriers[holder].centre_hz
+                                          : c->found_hz;
+
+            fprintf(file, "], \"confirmed\": \"%s\", \"allocation\": ",
+                    survey_verdict_name(
+                        survey_confirm_verdict_at(targets, target_count,
+                                                  asked_at, match_hz)));
+        }
         if (c->allocation) {
             if (survey_json_escape(c->allocation, escaped, sizeof(escaped)) < 0)
                 escaped[0] = '\0';
@@ -285,10 +320,13 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
                       "\"lower_hz\": %.0f, \"upper_hz\": %.0f, "
                       "\"width_hz\": %.0f, \"dbfs\": %.1f, "
                       "\"prominence_db\": %.1f, \"maxima\": %d, "
-                      "\"allocation\": ",
+                      "\"confirmed\": \"%s\", \"allocation\": ",
                 c->centre_hz, c->power_centre_hz, c->lower_hz, c->upper_hz,
                 c->width_hz, (double)c->peak_dbfs, (double)c->prominence_db,
-                c->peaks);
+                c->peaks,
+                survey_verdict_name(
+                    survey_confirm_verdict_at(targets, target_count,
+                                              c->centre_hz, match_hz)));
         if (entry) {
             if (survey_json_escape(entry->name, escaped, sizeof(escaped)) < 0)
                 escaped[0] = '\0';

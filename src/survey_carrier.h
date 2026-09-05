@@ -144,6 +144,35 @@ struct survey_carrier {
 };
 
 /*
+ * Which carrier's extent holds `hz`, or -1 for none.
+ *
+ * The narrowest that does, when extents overlap. Two carriers can share a
+ * boundary bin, and a maximum on it belongs to the one it is a maximum *of* --
+ * which is the tighter of the two, since a wide carrier reaching that far has
+ * its own peak somewhere else entirely.
+ *
+ * What it is for: a confirmation pass asks about carriers, and the candidate
+ * list is the maxima those carriers were made of. Without this, a shoulder of
+ * a carrier that was asked about and confirmed reads as never asked, because
+ * its own frequency is a bin or two from the centre the pass tuned to.
+ */
+static inline int survey_carrier_holding(const struct survey_carrier *carriers,
+                                         int count, double hz) {
+    int best = -1;
+    int i;
+
+    if (!carriers)
+        return -1;
+    for (i = 0; i < count; i++) {
+        if (hz < carriers[i].lower_hz || hz > carriers[i].upper_hz)
+            continue;
+        if (best < 0 || carriers[i].width_hz < carriers[best].width_hz)
+            best = i;
+    }
+    return best;
+}
+
+/*
  * Group `peaks` into carriers. `power` is the array they were found in,
  * `first_bin_hz` the centre of bin 0 and `bin_hz` the spacing.
  *

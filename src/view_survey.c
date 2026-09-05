@@ -261,8 +261,12 @@ static void survey_save_sweep(struct app *app) {
                            s->plan.bin_hz, survey_hour_now());
         site_history_save(&s->history);
     }
+    /* Whatever "Ask again" has already settled about this sweep. Cleared when
+       a sweep starts, so a save can never carry the previous sweep's
+       verdicts under this one's frequencies. */
     if (survey_store_write(app, &s->plan, candidates, count, s->carriers,
-                           s->carrier_count, path, sizeof(path)) < 0) {
+                           s->carrier_count, s->confirm.target,
+                           s->confirm.count, path, sizeof(path)) < 0) {
         snprintf(s->status, sizeof(s->status),
                  "Could not write the survey; see the terminal.");
         return;
@@ -329,7 +333,57 @@ static int survey_confirm_begin(struct app *app) {
     s->confirm.settled = 0;
     s->confirm.looks = 0;
     s->confirm.started_at = GetTime();
+    survey_confirm_begin_target(app);
     return 0;
+}
+
+/*
+ * One target's looks, held rather than averaged.
+ *
+ * This used to read `spectrum_average` straight, and `spectrum_average` is
+ * rebuilt from scratch by every block -- so "six blocks folded into one
+ * spectrum" was in fact the sixth block alone. That is the wrong instrument
+ * for the thing the pass exists to settle: the candidates that do not
+ * reproduce are largely bursty, and a burst is in one block of the six. Held,
+ * the pass sees whatever was up at any point in the look; overwritten, it sees
+ * whatever happened to be up at the end.
+ */
+void survey_confirm_begin_target(struct app *app) {
+    app->survey.confirm.held = 0;
+}
+
+void survey_confirm_look(struct app *app) {
+    struct survey_view *s = &app->survey;
+    int i;
+
+    for (i = 0; i < SDR_DSP_FFT_SIZE; i++)
+        s->confirm.spectrum[i] =
+            s->confirm.held ? survey_fold_hold(s->confirm.spectrum[i],
+                                               app->spectrum_average[i])
+                            : app->spectrum_average[i];
+    s->confirm.held = 1;
+}
+
+/*
+ * Read the answer out of the hold and fill in the verdict. Returns whether the
+ * carrier was there; `report` is left with the measurement when it was, and
+ * untouched otherwise, so a caller can say how far above the floor it stood.
+ */
+int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
+                          struct sdr_carrier_report *report) {
+    struct survey_view *s = &app->survey;
+    int measured = s->confirm.held &&
+                   sdr_dsp_characterise_carrier(
+                       s->confirm.spectrum, SDR_DSP_FFT_SIZE,
+                       (double)app->applied_frequency,
+                       (double)app->applied_sample_rate, target->hz, 200000.0,
+                       20.0f, app->magnitude_sorted, report);
+    int present = measured && survey_confirm_present(report->prominence_db);
+
+    target->prominence_db = measured ? report->prominence_db : 0.0f;
+    target->verdict = (signed char)survey_confirm_verdict(target->claim,
+                                                          present);
+    return measured;
 }
 
 /* Fold what the closer look found back into what the site remembers, then
@@ -385,6 +439,7 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
         return;
     }
     if (have_block) {
+        survey_confirm_look(app);
         s->confirm.looks++;
         if (s->confirm.looks < SURVEY_CONFIRM_LOOKS)
             return;
@@ -393,20 +448,12 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
     }
 
     {
-        /* The averaged spectrum has had every block of this dwell folded into
-           it, so the question is simply whether a carrier stands above the
-           local floor here. */
+        /* Every block of this look, peak-held into one spectrum, so the
+           question is simply whether a carrier stands above the local floor
+           here at any point during it. */
         struct sdr_carrier_report report;
-        int measured = sdr_dsp_characterise_carrier(
-            app->spectrum_average, SDR_DSP_FFT_SIZE,
-            (double)app->applied_frequency,
-            (double)app->applied_sample_rate, target->hz, 200000.0, 20.0f,
-            app->magnitude_sorted, &report);
-        int present = measured && survey_confirm_present(report.prominence_db);
+        int measured = survey_confirm_decide(app, target, &report);
 
-        target->prominence_db = measured ? report.prominence_db : 0.0f;
-        target->verdict = (signed char)survey_confirm_verdict(target->claim,
-                                                              present);
         if (target->verdict == SURVEY_VERDICT_CONFIRMED)
             s->confirm.confirmed++;
         else
@@ -452,6 +499,7 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
     s->confirm.settled = 0;
     s->confirm.looks = 0;
     s->confirm.started_at = now;
+    survey_confirm_begin_target(app);
 }
 
 /*
@@ -859,6 +907,12 @@ static int survey_start(struct app *app) {
     s->step = 0;
     s->step_folded = 0;
     s->sweeping = 1;
+    /* A new sweep has not been asked about yet. Leaving the last one's
+       verdicts here would attach them to whatever this sweep finds at those
+       frequencies, which is a claim nobody made. */
+    s->confirm.count = 0;
+    s->confirm.confirmed = 0;
+    s->confirm.refuted = 0;
     view_survey_enter(app);
 
     double first = survey_plan_step_centre(&s->plan, 0);
@@ -925,23 +979,42 @@ static void survey_find_peaks(struct app *app) {
        changed with them. */
     survey_history_refresh(app);
     /*
-     * A sweep asked for on the command line can ask again by itself, which is
-     * the only way the pass is reachable without somebody to click it
-     * (ADR-0012). Once: a second sweep is a new question, not a repeat.
+     * A watch asked for on the command line arms itself, and it has to be
+     * armed here rather than at the end: the sweep's last frame is what folds
+     * the sweep into the history, and it only does that while watching.
      */
     if (app->options.survey_watch > 0 && !app->survey.watching &&
         app->survey.watch_sweeps == 0 && app->config.site[0]) {
         app->survey.watching = 1;
         app->survey.watch_started_at = GetTime();
     }
-    if (app->options.survey_confirm && !app->survey.confirm.running) {
-        app->options.survey_confirm = 0;
-        /* The caller writes its own "swept N steps" line after this returns,
-           so there is no point announcing the pass here; it announces itself
-           on the button and reports when it is done. */
-        if (survey_confirm_begin(app) == 0)
-            app->survey.confirm.printed = 1;
-    }
+}
+
+/*
+ * A sweep asked for on the command line asks again by itself, which is the
+ * only way the pass is reachable without somebody to click it (ADR-0012).
+ *
+ * At the end of the sweep, and this used to be inside survey_find_peaks()
+ * where it looked equivalent and was not: that runs on every block of every
+ * dwell, so the trigger fired on the first block of the first step, with seven
+ * bins of eight thousand measured and nothing yet to call new. It found no
+ * targets, cleared the flag -- once, deliberately, so a second sweep is not a
+ * repeat -- and the pass never ran again. `--survey-confirm` was accepted and
+ * did nothing for the rest of the run, which is what a transcript in
+ * .scratch/phantom-candidates/ shows and nobody could read from it.
+ */
+static void survey_confirm_if_asked(struct app *app) {
+    if (!app->options.survey_confirm || app->survey.confirm.running)
+        return;
+    app->options.survey_confirm = 0;
+    /* The caller writes its own "swept N steps" line after this returns, so
+       there is no point announcing the pass here; it announces itself on the
+       button and reports when it is done. */
+    if (survey_confirm_begin(app) == 0)
+        app->survey.confirm.printed = 1;
+    else
+        fprintf(stderr, "Nothing to ask again about: the sweep found nothing "
+                        "this site has not heard before.\n");
 }
 
 /*
@@ -1163,6 +1236,7 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
         if (phase == SURVEY_STEP_FINISHED) {
             s->sweeping = 0;
             survey_find_peaks(app);
+            survey_confirm_if_asked(app);
             snprintf(s->status, sizeof(s->status),
                      "Swept %.3f - %.3f MHz in %d steps; %d candidates%s."
                      "   Up/Down or click to inspect one.",

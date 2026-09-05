@@ -85,6 +85,65 @@ static inline double survey_confirm_seconds(int count) {
                             SURVEY_CONFIRM_LOOKS * 0.0655);
 }
 
+/*
+ * Which target spoke for this frequency, or NULL when the pass never asked
+ * about it.
+ *
+ * The saved sweep has to say, per signal, whether a closer look agreed --
+ * otherwise a reader cannot tell a carrier that held up from one nobody
+ * checked, and both look like findings. The pass asks about carriers and the
+ * file lists candidates as well, so the match is by frequency: the nearest
+ * target within `tolerance_hz`, which the caller sets from the sweep's own bin
+ * width because that is how far from the truth a reported frequency can be.
+ *
+ * Nearest rather than first: two targets can both be within a bin of a
+ * candidate in a crowded band, and taking whichever came first in the list
+ * would hand a candidate the verdict of its neighbour.
+ */
+static inline const struct survey_confirm_target *
+survey_confirm_for(const struct survey_confirm_target *targets, int count,
+                   double hz, double tolerance_hz) {
+    const struct survey_confirm_target *best = 0;
+    double closest = 0.0;
+    int i;
+
+    if (!targets || count <= 0 || !(tolerance_hz >= 0.0))
+        return 0;
+    for (i = 0; i < count; i++) {
+        double away = targets[i].hz - hz;
+
+        if (away < 0.0)
+            away = -away;
+        if (away > tolerance_hz)
+            continue;
+        if (!best || away < closest) {
+            best = &targets[i];
+            closest = away;
+        }
+    }
+    return best;
+}
+
+/* The verdict a pass reached about `hz`, or SURVEY_VERDICT_PENDING when it
+   never asked -- which is what "unconfirmed" means in the saved file. */
+static inline int survey_confirm_verdict_at(
+    const struct survey_confirm_target *targets, int count, double hz,
+    double tolerance_hz) {
+    const struct survey_confirm_target *target =
+        survey_confirm_for(targets, count, hz, tolerance_hz);
+
+    return target ? target->verdict : SURVEY_VERDICT_PENDING;
+}
+
+/* The word for a verdict, as the reports and the saved file both spell it. */
+static inline const char *survey_verdict_name(int verdict) {
+    switch (verdict) {
+    case SURVEY_VERDICT_CONFIRMED: return "confirmed";
+    case SURVEY_VERDICT_REFUTED:   return "refuted";
+    default:                       return "unconfirmed";
+    }
+}
+
 /* What the pass changes about the history: a refuted "new" was noise and
    should not be remembered, and a refuted "missing" was heard after all. Both
    are the opposite of what the sweep alone would have recorded. */

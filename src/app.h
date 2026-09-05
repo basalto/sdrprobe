@@ -765,6 +765,11 @@ struct survey_view {
         int refuted;
         int printed;      /* report the verdicts on stdout when done */
         struct survey_confirm_target target[SURVEY_CONFIRM_MAX];
+        /* The looks at one target, peak-held into one spectrum. A single
+           block is what the sweep already had; holding is what turns six
+           blocks into a better answer than one. */
+        float spectrum[SDR_DSP_FFT_MAX];
+        int held;
     } confirm;
     int focus;                  /* 0 from, 1 to, 2 dwell, 3 site, 4 antenna */
     double dwell_seconds;       /* parsed at the start of a sweep */

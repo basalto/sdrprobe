@@ -206,6 +206,27 @@ survey_step_phase_at(double elapsed, double dwell_seconds, int step,
 }
 
 /*
+ * Whether the sweep may leave this step yet.
+ *
+ * The dwell being over is not enough: it is a floor on how long to listen, not
+ * a promise that anything was heard. Blocks arrive every 65.5 ms at the house
+ * rate and the settle takes the first of them, so a step whose dwell is short
+ * can pass through both phases having folded nothing -- and the bins it was
+ * responsible for are then left unmeasured, which draws as a gap in the sweep
+ * and reads as a band with nothing in it. Staying until one block has been
+ * folded costs at most a block and removes that silence.
+ *
+ * The caller still has to stop when the source ends, or a receiver that has
+ * died would hold the sweep on its first step for ever.
+ */
+static inline int survey_step_may_advance(enum survey_step_phase phase,
+                                          int folded_this_step) {
+    if (phase == SURVEY_STEP_SETTLING || phase == SURVEY_STEP_DWELLING)
+        return 0;
+    return folded_this_step > 0;
+}
+
+/*
  * What repeatedly measuring one candidate adds up to: how often it was there,
  * and how much its centre moved while it was.
  */
