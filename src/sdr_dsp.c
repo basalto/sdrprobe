@@ -424,6 +424,33 @@ int sdr_dsp_find_peaks(const float *power_dbfs, int count, float sentinel,
                                            sort_workspace);
         if (!isfinite(candidate.floor_dbfs))
             continue;
+        /*
+         * A maximum below its own floor is not a candidate.
+         *
+         * local_floor() leaves out the peak's own hump and nothing else, so
+         * inside a busy stretch it measures the *neighbours*. A peak sitting
+         * in a notch between two carriers passes the topographic gate --
+         * there is a real descent either side of it -- and then has its floor
+         * taken from the carriers, which are above it. A survey of 24-1766 MHz
+         * reported one such entry at 1603.219 MHz standing -3.0 dB above its
+         * floor, and a second sweep two days later reported the same bin at
+         * -3.4 dB: reproducible, and an arithmetic impossibility for the
+         * quantity the column claims, which is how far the peak stands above
+         * the noise either side of it.
+         *
+         * Dropping it rather than clamping the number to zero, because there
+         * is nothing here a reader wanted: the carriers whose level became
+         * this "floor" are themselves in the list, a bin or two away. This is
+         * not a level threshold -- it says nothing about how strong a peak has
+         * to be, only that it has to be above its own surroundings -- and it
+         * removed 1 candidate of 289 in the survey above.
+         *
+         * The wider fault is the one ADR-0013 names: the gate and the reported
+         * figure are different measures of prominence, and this is where they
+         * contradict each other outright rather than merely disagreeing.
+         */
+        if (candidate.floor_dbfs >= candidate.power_dbfs)
+            continue;
         candidate.prominence_db = candidate.power_dbfs - candidate.floor_dbfs;
 
         if (found < max_peaks) {

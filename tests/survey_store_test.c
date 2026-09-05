@@ -181,8 +181,10 @@ static void test_the_file_it_writes(void) {
 
     {
         /* One carrier holding both maxima, which is what the window would
-           have worked out from them. */
+           have worked out from them -- and a confirmation pass that asked
+           about it and found it still there. */
         struct survey_carrier carrier;
+        struct survey_confirm_target target;
         memset(&carrier, 0, sizeof(carrier));
         carrier.centre_hz = 94400000.0;
         carrier.power_centre_hz = 94410000.0;
@@ -192,8 +194,14 @@ static void test_the_file_it_writes(void) {
         carrier.peak_dbfs = -7.7f;
         carrier.prominence_db = 35.9f;
         carrier.peaks = 2;
+        memset(&target, 0, sizeof(target));
+        target.hz = 94400000.0;
+        target.claim = SURVEY_CLAIM_NEW;
+        target.verdict = SURVEY_VERDICT_CONFIRMED;
+        target.prominence_db = 33.0f;
         check_int("it writes", survey_store_write(app, &plan, c, 2, &carrier,
-                                                  1, path, sizeof(path)), 0);
+                                                  1, &target, 1, path,
+                                                  sizeof(path)), 0);
     }
     file = fopen(path, "rb");
     check_true("and the file is there", file != NULL);
@@ -234,6 +242,21 @@ static void test_the_file_it_writes(void) {
         check_true("the identity and the power centre are both kept",
                    strstr(text, "\"centre_hz\": 94400000") != NULL &&
                    strstr(text, "\"power_centre_hz\": 94410000") != NULL);
+        /*
+         * And whether anybody asked again. A sweep's candidate list is a set
+         * of claims from a tenth of a second each; without this a reader
+         * cannot tell one that held up from one nobody checked.
+         */
+        check_true("the file says a pass ran and what it found",
+                   strstr(text, "\"confirmation\": {\"asked\": 1, "
+                                "\"confirmed\": 1, \"refuted\": 0}") != NULL);
+        check_true("the carrier it asked about carries the verdict",
+                   strstr(text, "\"maxima\": 2, \"confirmed\": \"confirmed\"")
+                       != NULL);
+        /* The far candidate was never asked about, and says so rather than
+           borrowing the verdict of the one that was. */
+        check_true("a candidate nobody asked about is unconfirmed",
+                   strstr(text, "\"confirmed\": \"unconfirmed\"") != NULL);
     }
     if (chdir(cwd) != 0)
         exit(2);

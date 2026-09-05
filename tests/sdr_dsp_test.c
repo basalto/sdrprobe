@@ -360,6 +360,51 @@ static void test_peak_beside_a_strong_neighbour(void) {
     }
 }
 
+/*
+ * A maximum below its own local floor is not a candidate.
+ *
+ * The shape is a notch inside a busy stretch: a run of carriers with one deep
+ * gap in it, and a small maximum on the floor of that gap. It passes the
+ * topographic gate, because there is a real descent either side of it before
+ * the ground rises. Then the width walk stops inside the notch, so the hump
+ * local_floor() leaves out is one bin wide, and the median it takes instead
+ * comes off the carriers -- which are 12 dB above the peak.
+ *
+ * Reported, that is a peak standing -12.7 dB above the noise either side of
+ * it, which is not a weak signal but an impossibility. A survey of
+ * 24-1766 MHz produced one at 1603.219 MHz reading -3.0 dB, and a sweep two
+ * days later put the same bin at -3.4 dB.
+ */
+static void test_a_maximum_below_its_own_floor(void) {
+    static float power[SURVEY_BINS];
+    static float workspace[SURVEY_BINS];
+    struct sdr_peak peaks[8];
+    int i, found;
+
+    for (i = 0; i < SURVEY_BINS; i++)
+        power[i] = -72.0f;
+    for (i = 90; i <= 125; i++)
+        power[i] = -35.0f;
+    power[105] = -70.0f;
+    power[106] = -47.7f;
+    power[107] = -70.0f;
+
+    found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, 8.0f,
+                               20.0f, workspace, peaks, 8);
+    for (i = 0; i < found; i++) {
+        check_msg(peaks[i].index != 106,
+                  "the floor of a notch was reported as a peak, %.1f dB "
+                  "above a floor measured on its neighbours\n",
+                  peaks[i].prominence_db);
+        check_msg(peaks[i].prominence_db > 0.0f,
+                  "peak at bin %d stands %.1f dB above its floor\n",
+                  peaks[i].index, peaks[i].prominence_db);
+    }
+    /* The carriers either side of the notch are still found: what was removed
+       is the gap between them, not a level of signal. */
+    check_int("the carriers either side survive", found, 2);
+}
+
 /* Unswept bins bound a hump instead of joining it, so a gap in the sweep
    cannot fuse two candidates into one. */
 static void test_sentinel_splits_humps(void) {
@@ -694,6 +739,7 @@ int main(void) {
     test_percentiles_without_sorting();
     test_find_peaks();
     test_peak_beside_a_strong_neighbour();
+    test_a_maximum_below_its_own_floor();
     test_sentinel_splits_humps();
     test_measuring_a_carrier_close_to_its_noise();
     test_a_measurement_cannot_swallow_the_spectrum();

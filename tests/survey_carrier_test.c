@@ -332,6 +332,45 @@ static void test_a_carrier_at_fine_resolution(void) {
               survey_carrier_notch_bins(213000.0), 1);
 }
 
+/*
+ * Which carrier a frequency belongs to, which is how a candidate inherits the
+ * verdict of the signal it is a maximum of.
+ */
+static void test_which_carrier_holds_a_frequency(void) {
+    struct survey_carrier carriers[3];
+
+    memset(carriers, 0, sizeof(carriers));
+    carriers[0].centre_hz = 94.4e6;
+    carriers[0].lower_hz = 94.3e6;
+    carriers[0].upper_hz = 94.5e6;
+    carriers[0].width_hz = 200e3;
+    carriers[1].centre_hz = 95.7e6;
+    carriers[1].lower_hz = 95.6e6;
+    carriers[1].upper_hz = 95.8e6;
+    carriers[1].width_hz = 200e3;
+    /* A narrow one sharing the first's upper edge: a tone sitting on the
+       shoulder of a broadcast station. */
+    carriers[2].centre_hz = 94.49e6;
+    carriers[2].lower_hz = 94.48e6;
+    carriers[2].upper_hz = 94.50e6;
+    carriers[2].width_hz = 20e3;
+
+    check_int("a maximum inside the first",
+              survey_carrier_holding(carriers, 3, 94.35e6), 0);
+    check_int("its own centre too",
+              survey_carrier_holding(carriers, 3, 94.4e6), 0);
+    check_int("a maximum inside the second",
+              survey_carrier_holding(carriers, 3, 95.75e6), 1);
+    /* Both the wide one and the narrow one reach here; the narrow one is what
+       this is a maximum of. */
+    check_int("where two overlap, the narrower one owns it",
+              survey_carrier_holding(carriers, 3, 94.49e6), 2);
+    check_int("the gap between them belongs to neither",
+              survey_carrier_holding(carriers, 3, 95.0e6), -1);
+    check_int("and an empty list holds nothing",
+              survey_carrier_holding(carriers, 0, 94.4e6), -1);
+}
+
 int main(void) {
     test_one_carrier_many_maxima();
     test_two_carriers_stay_two();
@@ -343,6 +382,8 @@ int main(void) {
     test_refuses_nonsense();
 
     test_shape_from_width();
+
+    test_which_carrier_holds_a_frequency();
 
     return check_report("peaks to carriers");
 }

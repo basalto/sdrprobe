@@ -121,7 +121,9 @@ struct sdr_peak {
     int   index;           /* bin of the peak in the array searched */
     float power_dbfs;
     float floor_dbfs;      /* robust local floor either side of it */
-    float prominence_db;   /* power - floor */
+    /* power - floor, and always above zero: see the note on the floor being
+       measured on a neighbour in sdr_dsp_find_peaks(). */
+    float prominence_db;
     int   lower_index;     /* where it falls bandwidth_db below the peak */
     int   upper_index;
 };

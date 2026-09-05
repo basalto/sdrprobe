@@ -24,3 +24,4 @@
 # later sweep is compared with an earlier one, and they are nobody else's
 # baseline. docs/band-surveys.md documents the format; the data stays here.
 /surveys/
+__pycache__/

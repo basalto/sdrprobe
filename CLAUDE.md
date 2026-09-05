@@ -308,7 +308,13 @@ measured against whatever reference a place offers, so arriving somewhere the
 receiver has been calibrated restores that calibration rather than the last one
 measured anywhere. A sweep's marks are claims from a tenth of a second each;
 **Ask again**, or `--survey-confirm` on a scripted sweep, revisits each with six
-blocks on the frequency and prints a verdict. The site is a combo: type a new
+blocks peak-held on the frequency and prints a verdict, which the saved JSON
+records per signal as `confirmed`, `refuted` or `unconfirmed`. The window asks
+only about what changed, since it has a history to lean on; a headless sweep
+asks about **every signal it found**, because its output is the report. Above
+1.5 GHz that is most of the answer -- one 1400-1766 MHz sweep found ten signals
+and the pass confirmed one, while the same flag over band II confirmed all
+twenty-four broadcast stations. The site is a combo: type a new
 one, or pick one this receiver has been to before, from the list `config_remember_site()` keeps -- spelling one place two
 ways makes it two places and nothing downstream can tell. Saving also folds the
 sweep into `surveys/history-<site>.txt` (`src/site_history.c`), which is what
@@ -322,6 +328,12 @@ in `src/survey_store.c`, so what a candidate *is* -- where it was found, what
 it measured to, whether it resembles the receiver, which allocation it falls in
 -- is decided once. It used to be decided inside a `printf` loop, where the two
 could have disagreed about the same peak with nothing to say so.
+
+A sweep also throws away every block that arrives before a step's settle is
+over -- it was in the pipeline while the tuner was moving, so it holds the
+previous step's samples, and folding it writes that step's signal into this
+step's bins. `survey blocks 270 settling 135` says how many; at a 0.10 s settle
+and a 0.10 s dwell it is about a third of what arrives.
 
 One record per line, keyword first, integer hertz, the band-plan allocation
 last because it is the only field that can contain a space. `candidate` rows
