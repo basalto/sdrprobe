@@ -146,6 +146,62 @@ int tetra_demodulate(const float *i_samples, const float *q_samples,
                      size_t pairs, double coarse_offset_hz,
                      struct tetra_symbols *out);
 
+/*
+ * The burst grid: 255 symbols to a timeslot, four slots to a frame, eighteen
+ * frames to a multiframe. 255 symbols at 18 000 is 14.167 ms and a frame is
+ * 56.67 ms.
+ */
+#define TETRA_SLOT_SYMBOLS 255
+#define TETRA_FRAME_SLOTS 4
+#define TETRA_MULTIFRAME_FRAMES 18
+
+/*
+ * What repeats, and how strongly.
+ *
+ * Found from the symbols themselves rather than by correlating for a training
+ * sequence, and that is a deliberate choice rather than a shortcut. The
+ * sequence is a constant out of ETSI EN 300 392-2; a constant transcribed
+ * wrongly still correlates with an encoder that shares the mistake and finds
+ * nothing on air, which is the failure this repository has met twice. A burst
+ * grid measured from the signal needs nothing transcribed at all -- and it
+ * finds the grid whether or not the guess about which technology this is was
+ * right.
+ *
+ * `profile[k]` is how often the symbol at position k of the period equals the
+ * one a period earlier. A burst is a mixture: the training sequence and any
+ * static filler sit near 1, the data near 0.25, and it is that *mixture* which
+ * says a burst structure is there. A flat profile at 0.25 is noise; a flat
+ * profile at 1.0 is a stuck receiver.
+ */
+struct tetra_burst_sync {
+    int period;                            /* symbols, 0 when none stands out */
+    float repeat;                          /* matches at that period, 0.25 up */
+    float runner_up;                       /* the best other period */
+    int fixed;                             /* positions above 0.9 */
+    int varying;                           /* positions below 0.4 */
+    float profile[TETRA_SLOT_SYMBOLS];
+};
+
+/*
+ * Find the burst period in a run of dibits, searching `low` to `high`.
+ *
+ * Returns 1 when one period stands clear of the rest. The profile is only
+ * filled in when the period found is TETRA_SLOT_SYMBOLS, since that is the
+ * only length it is sized for.
+ *
+ * Refuses unless `count` is at least four times `high`, so every lag in the
+ * range is judged on the same amount of evidence; the struct is zeroed either
+ * way, so a refusal reads as a period of 0 rather than as leftovers.
+ *
+ * The caller must hand in symbols that were demodulated **contiguously**: this
+ * counts matches at a fixed lag, so a stream stitched from chunks that each
+ * began at their own timing phase has a discontinuity at every join, and the
+ * profile smears every burst position together. That mistake was made while
+ * writing this and is why the warning is here rather than in a comment.
+ */
+int tetra_burst_find(const unsigned char *dibits, int count, int low, int high,
+                     struct tetra_burst_sync *out);
+
 /* The phase step a dibit is sent as, and the dibit a step nearest to. Exposed
    so a check can assert the table is a bijection without an encoder. */
 double tetra_step_for_dibit(int dibit);
