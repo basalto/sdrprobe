@@ -321,8 +321,9 @@ static void test_find_peaks(void) {
     place_hump(power, 300, 8, -55.0f, -95.0f);
     place_hump(power, 450, 2, -70.0f, -95.0f);
 
-    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, 6.0f,
-                                   20.0f, workspace, peaks, 8);
+    struct sdr_peak_gate gate = { 6.0f, 0.0f, 20.0f };
+    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &gate,
+                                   workspace, peaks, 8);
     check_int("peaks found", found, 3);
     if (found == 3) {
         check_int("strongest peak bin", peaks[0].index, 100);
@@ -351,8 +352,9 @@ static void test_peak_beside_a_strong_neighbour(void) {
     place_hump(power, 200, 10, -35.0f, -95.0f);
     place_hump(power, 240, 3, -72.0f, -95.0f);
 
-    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, 6.0f,
-                                   20.0f, workspace, peaks, 8);
+    struct sdr_peak_gate gate = { 6.0f, 0.0f, 20.0f };
+    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &gate,
+                                   workspace, peaks, 8);
     check_int("both neighbours found", found, 2);
     if (found == 2) {
         check_int("the strong one leads", peaks[0].index, 200);
@@ -389,8 +391,11 @@ static void test_a_maximum_below_its_own_floor(void) {
     power[106] = -47.7f;
     power[107] = -70.0f;
 
-    found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, 8.0f,
-                               20.0f, workspace, peaks, 8);
+    {
+        struct sdr_peak_gate gate = { 8.0f, 0.0f, 20.0f };
+        found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &gate,
+                                   workspace, peaks, 8);
+    }
     for (i = 0; i < found; i++) {
         check_msg(peaks[i].index != 106,
                   "the floor of a notch was reported as a peak, %.1f dB "
@@ -403,6 +408,102 @@ static void test_a_maximum_below_its_own_floor(void) {
     /* The carriers either side of the notch are still found: what was removed
        is the gap between them, not a level of signal. */
     check_int("the carriers either side survive", found, 2);
+}
+
+/*
+ * The two bars are two different measurements, and the reported one is now
+ * held to the same figure as the gate (ADR-0013).
+ *
+ * The shape is what a survey of a television band is full of: a wide flat
+ * multiplex with ripple on top. Each ripple is a genuine local maximum with a
+ * genuine descent either side, so it clears the topographic bar -- but it
+ * stands a decibel above the multiplex it is sitting on, not twenty above the
+ * noise. Measured on air, a 470-690 MHz sweep reported fourteen such bumps at
+ * 19 to 27 dB "above their floor", every one of them inside a DVB-T channel's
+ * 8 MHz, because the floor came from outside the multiplex.
+ */
+static void test_a_ripple_on_a_multiplex_is_not_a_signal(void) {
+    static float power[SURVEY_BINS];
+    static float workspace[SURVEY_BINS];
+    struct sdr_peak peaks[16];
+    struct sdr_peak_gate gate = { 8.0f, 8.0f, 20.0f };
+    struct sdr_peak_gate ungated = { 8.0f, 0.0f, 20.0f };
+    int i, found;
+
+    /*
+     * A band full of multiplexes, not one alone in quiet spectrum: UHF
+     * television here runs from 474 to 690 MHz in contiguous 8 MHz channels,
+     * and a ripple inside one has no quiet spectrum within reach in either
+     * direction. That is the case, and an isolated multiplex is not -- a
+     * ripple on one really does stand forty decibels above the noise outside
+     * it.
+     */
+    for (i = 0; i < SURVEY_BINS; i++)
+        power[i] = -50.0f;
+    /* Ripple on it, deep enough to be a local maximum with a real descent. */
+    for (i = 20; i <= 580; i += 20) {
+        power[i - 1] = -62.0f;
+        power[i] = -49.0f;
+        power[i + 1] = -62.0f;
+    }
+
+    found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &gate,
+                               workspace, peaks, 16);
+    for (i = 0; i < found; i++)
+        check_msg(peaks[i].prominence_db >= gate.floor_db,
+                  "candidate at bin %d reports %.1f dB against a bar of "
+                  "%.1f\n", peaks[i].index, peaks[i].prominence_db,
+                  gate.floor_db);
+    check_int("the ripple is not a list of signals", found, 0);
+
+    /* And the bar is what removed them, not the bounded walk: without it they
+       are all still found, each standing about a decibel above the multiplex
+       it sits on. */
+    found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &ungated,
+                               workspace, peaks, 16);
+    check_true("without a floor bar they come back", found > 0);
+    for (i = 0; i < found; i++)
+        check_msg(peaks[i].prominence_db < 8.0f,
+                  "a ripple on a multiplex reported %.1f dB above its own "
+                  "floor\n", peaks[i].prominence_db);
+}
+
+/*
+ * The floor is measured near the candidate, not wherever the walk stopped.
+ *
+ * A weak carrier alone in quiet spectrum has no -20 dB point of its own, so
+ * the width walk used to run to the ends of the array; local_floor() was then
+ * left nothing outside the "hump" to take a median of and returned
+ * not-a-number, on which the candidate was discarded. That put the real bar
+ * near 20 dB, moving with how ragged the noise happened to be, and it is why
+ * the same band gave nothing at fine bins and a cluster at coarse ones.
+ */
+static void test_a_weak_carrier_alone_is_still_found(void) {
+    static float power[SURVEY_BINS];
+    static float workspace[SURVEY_BINS];
+    struct sdr_peak peaks[8];
+    struct sdr_peak_gate gate = { 8.0f, 8.0f, 20.0f };
+    int i, found;
+
+    for (i = 0; i < SURVEY_BINS; i++)
+        power[i] = -95.0f;
+    /* Twelve decibels above the noise: over both bars, under the 20 dB the
+       width walk looks for, and so invisible before the walk was bounded. */
+    place_hump(power, 300, 5, -83.0f, -95.0f);
+
+    found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &gate,
+                               workspace, peaks, 8);
+    check_int("a carrier with no -20 dB point of its own is a candidate",
+              found, 1);
+    if (found == 1) {
+        check_int("at the right bin", peaks[0].index, 300);
+        check_close("standing where it actually stands",
+                    peaks[0].prominence_db, 12.0, 1.0);
+        check_msg(peaks[0].upper_index - peaks[0].lower_index < SURVEY_BINS - 2,
+                  "its width ran to %d bins of %d, so the walk reached the "
+                  "ends of the array after all\n",
+                  peaks[0].upper_index - peaks[0].lower_index, SURVEY_BINS);
+    }
 }
 
 /* Unswept bins bound a hump instead of joining it, so a gap in the sweep
@@ -419,8 +520,9 @@ static void test_sentinel_splits_humps(void) {
     for (int i = 118; i <= 122; i++)
         power[i] = SURVEY_SENTINEL;
 
-    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, 6.0f,
-                                   20.0f, workspace, peaks, 8);
+    struct sdr_peak_gate gate = { 6.0f, 0.0f, 20.0f };
+    int found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &gate,
+                                   workspace, peaks, 8);
     check_int("humps either side of a gap stay separate", found, 2);
 }
 
@@ -740,6 +842,8 @@ int main(void) {
     test_find_peaks();
     test_peak_beside_a_strong_neighbour();
     test_a_maximum_below_its_own_floor();
+    test_a_ripple_on_a_multiplex_is_not_a_signal();
+    test_a_weak_carrier_alone_is_still_found();
     test_sentinel_splits_humps();
     test_measuring_a_carrier_close_to_its_noise();
     test_a_measurement_cannot_swallow_the_spectrum();

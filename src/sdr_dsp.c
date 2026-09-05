@@ -264,30 +264,41 @@ int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
     return 1;
 }
 
-/* The median level of the bins within `window` either side of `centre`,
-   skipping the hump itself (lower..upper) and any bin never measured. A median
-   rather than a mean because the neighbour of a strong carrier is exactly
-   where a mean floor goes wrong: it rises toward the carrier and buries the
-   weaker signal beside it, which is the one a survey exists to show. Returns
-   NAN when there is nothing to measure a floor from. */
+/*
+ * The median level of the `reach` bins beyond each end of the hump
+ * (lower..upper), skipping any bin never measured.
+ *
+ * Outward from the hump's edges, not a window centred on the peak. Centred, it
+ * had two failure modes that look like nothing: a window narrower than the
+ * hump gathers no bins at all and returns not-a-number, on which the candidate
+ * is silently discarded -- which is how the survey came to filter at an
+ * effective 20 dB nobody chose (ADR-0013) -- and a window barely wider than
+ * the hump gathers a handful of bins off the carrier's own skirt and calls
+ * that the noise. Measured from the edges outward, the span is always there
+ * and it is always outside the thing being measured.
+ *
+ * A median rather than a mean because the neighbour of a strong carrier is
+ * exactly where a mean floor goes wrong: it rises toward the carrier and
+ * buries the weaker signal beside it, which is the one a survey exists to
+ * show. Returns NAN only when the hump reaches both ends of the array, or
+ * everything around it was never swept.
+ */
 static float local_floor(const float *power_dbfs, int count, float sentinel,
-                         int centre, int lower, int upper, int window,
-                         float *workspace) {
+                         int lower, int upper, int reach, float *workspace) {
     int gathered = 0;
-    int from = centre - window;
-    int to = centre + window;
+    int from = lower - reach;
+    int to = upper + reach;
 
     if (from < 0)
         from = 0;
     if (to > count - 1)
         to = count - 1;
-    for (int i = from; i <= to; i++) {
-        if (i >= lower && i <= upper)
-            continue;
-        if (power_dbfs[i] <= sentinel)
-            continue;
-        workspace[gathered++] = power_dbfs[i];
-    }
+    for (int i = from; i < lower; i++)
+        if (power_dbfs[i] > sentinel)
+            workspace[gathered++] = power_dbfs[i];
+    for (int i = upper + 1; i <= to; i++)
+        if (power_dbfs[i] > sentinel)
+            workspace[gathered++] = power_dbfs[i];
     if (gathered == 0)
         return NAN;
     qsort(workspace, (size_t)gathered, sizeof(*workspace), compare_float);
@@ -358,13 +369,13 @@ static void widen(const float *power_dbfs, int count, float sentinel,
 }
 
 int sdr_dsp_find_peaks(const float *power_dbfs, int count, float sentinel,
-                       float min_prominence_db, float bandwidth_db,
+                       const struct sdr_peak_gate *gate,
                        float *sort_workspace, struct sdr_peak *peaks,
                        int max_peaks) {
     int found = 0;
     int window = count / 4;
 
-    if (!power_dbfs || !sort_workspace || !peaks || count <= 2 ||
+    if (!power_dbfs || !sort_workspace || !peaks || !gate || count <= 2 ||
         max_peaks <= 0)
         return 0;
     if (window > 1024)
@@ -380,47 +391,46 @@ int sdr_dsp_find_peaks(const float *power_dbfs, int count, float sentinel,
               power_dbfs[i] > power_dbfs[i + 1]))
             continue;
         if (topographic_prominence(power_dbfs, count, sentinel, i, window) <
-            min_prominence_db)
+            gate->topographic_db)
             continue;
 
         struct sdr_peak candidate;
         candidate.index = i;
         candidate.power_dbfs = power_dbfs[i];
         /*
-         * Out to the -bandwidth_db points, stopping where the sweep did.
+         * Out to the -bandwidth_db points, stopping where the sweep did and
+         * no further than the span the topographic test judged over.
          *
-         * Deliberately unbounded, which has a consequence worth knowing: a
-         * candidate standing less than bandwidth_db above its own noise has no
-         * -bandwidth_db point, so this runs to the ends of the array, the
-         * floor window below is left nothing to measure, and the candidate is
-         * dropped. The effective prominence needed is therefore nearer 20 dB
-         * than the 8 dB asked for, and it varies with how ragged the noise is.
-         *
-         * That was measured and left alone on purpose. Bounding the walk makes
-         * the 8 dB real, and 8 dB is below what noise reaches: peak-held over
-         * one block, pure noise produces candidates with prominences up to
-         * 16 dB. On a live 470-690 MHz sweep the bounded version found 74
-         * candidates against 38, half of them under 10 dB. The accident is
-         * doing the filtering an explicit threshold should do -- see the note
-         * in ADR-0013 if that is ever addressed properly.
+         * The bound is the point. Unbounded, a candidate standing less than
+         * bandwidth_db above its own noise has no -bandwidth_db point, so this
+         * ran to the ends of the array, local_floor() was left nothing outside
+         * the "hump" to take a median of, and the candidate was dropped for
+         * having no floor. That put the real bar nearer 20 dB than the 8 dB
+         * asked for, moving with how ragged the noise was, and it is why the
+         * same band gave no candidates at 26 kHz bins and a cluster of them at
+         * 213 kHz. The filtering is an explicit threshold now (gate->floor_db),
+         * measured rather than inherited -- see ADR-0013.
          */
-        float threshold = power_dbfs[i] - bandwidth_db;
-        candidate.lower_index = i;
-        while (candidate.lower_index > 0 &&
-               power_dbfs[candidate.lower_index - 1] > sentinel &&
-               power_dbfs[candidate.lower_index - 1] >= threshold)
-            candidate.lower_index--;
-        candidate.upper_index = i;
-        while (candidate.upper_index < count - 1 &&
-               power_dbfs[candidate.upper_index + 1] > sentinel &&
-               power_dbfs[candidate.upper_index + 1] >= threshold)
-            candidate.upper_index++;
+        widen(power_dbfs, count, sentinel, i,
+              power_dbfs[i] - gate->bandwidth_db, window,
+              &candidate.lower_index, &candidate.upper_index);
 
         int width = candidate.upper_index - candidate.lower_index + 1;
-        int floor_window = width * 8 < 16 ? 16 : width * 8;
-        candidate.floor_dbfs = local_floor(power_dbfs, count, sentinel, i,
+        /*
+         * How far beyond the hump to look for the noise: a few times its own
+         * width, so a wide carrier is judged against spectrum well clear of
+         * its skirt and a narrow one against what is actually beside it, and
+         * never further than the span the topographic test judged over -- a
+         * floor gathered from megahertz away is not this candidate's floor.
+         */
+        int reach = width * 4;
+        if (reach < 16)
+            reach = 16;
+        if (reach > window)
+            reach = window;
+        candidate.floor_dbfs = local_floor(power_dbfs, count, sentinel,
                                            candidate.lower_index,
-                                           candidate.upper_index, floor_window,
+                                           candidate.upper_index, reach,
                                            sort_workspace);
         if (!isfinite(candidate.floor_dbfs))
             continue;
@@ -452,6 +462,10 @@ int sdr_dsp_find_peaks(const float *power_dbfs, int count, float sentinel,
         if (candidate.floor_dbfs >= candidate.power_dbfs)
             continue;
         candidate.prominence_db = candidate.power_dbfs - candidate.floor_dbfs;
+        /* And the second bar, which is the one the caller can reason about:
+           how far this stands above the level around it. */
+        if (candidate.prominence_db < gate->floor_db)
+            continue;
 
         if (found < max_peaks) {
             peaks[found++] = candidate;
@@ -520,10 +534,10 @@ int sdr_dsp_characterise_carrier(const float *spectrum_dbfs, size_t bin_count,
           threshold, reach, &lower, &upper);
 
     int width = upper - lower + 1;
-    int window = width * 8 < 32 ? 32 : width * 8;
+    int floor_reach = width * 4 < 32 ? 32 : width * 4;
     float floor_dbfs = local_floor(spectrum_dbfs, (int)bin_count,
-                                   SDR_DSP_DBFS_FLOOR - 1.0f, peak, lower,
-                                   upper, window, sort_workspace);
+                                   SDR_DSP_DBFS_FLOOR - 1.0f, lower, upper,
+                                   floor_reach, sort_workspace);
     /* No floor to measure against means the "carrier" is the whole window --
        a flat spectrum, in other words, in which there is nothing to report. */
     if (!isfinite(floor_dbfs))

@@ -137,8 +137,11 @@ int main(int argc, char **argv) {
         survey[i] = -40.0f;
     start = now_ms();
     for (int r = 0; r < runs; r++)
-        sdr_dsp_find_peaks(survey, SURVEY_BINS, -300.0f, 8.0f, 20.0f,
-                           workspace, found, 512);
+        {
+            struct sdr_peak_gate gate = { 8.0f, 8.0f, 20.0f };
+            sdr_dsp_find_peaks(survey, SURVEY_BINS, -300.0f, &gate,
+                               workspace, found, 512);
+        }
     report("survey peak search (8192 bins)", now_ms() - start, runs);
 
     /* GSM is a different capture and only runs in its own view. */

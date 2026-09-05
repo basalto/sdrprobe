@@ -454,6 +454,17 @@ BENCH_ARCH ?=
 # and a conclusion, for a signal nothing here can demodulate.
 FILE_PERIODICITY?=testfiles/lte_b20_pci28.bin
 RATE_PERIODICITY?=1920000
+# Where a survey's noise floor reaches, so the candidate threshold can be
+# chosen rather than inherited (ADR-0013). Pure noise through the real
+# transform and the real fold; a survey of nothing should report nothing.
+DRAWS ?= 6
+probe-survey-threshold: scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c \
+		$(SRC)/sdr_dsp.h $(SRC)/survey_sweep.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_threshold_probe \
+		scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/survey_threshold_probe $(DRAWS)
+
 probe-periodicity: scripts/signal_periodicity.c
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -o $(BUILD)/signal_periodicity \
@@ -491,4 +502,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity bench-dsp screens clean
+.PHONY: all check hooks check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity probe-survey-threshold bench-dsp screens clean
