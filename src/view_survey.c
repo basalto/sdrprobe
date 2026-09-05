@@ -961,11 +961,15 @@ static void survey_fold_block(struct app *app) {
 
 static void survey_find_peaks(struct app *app) {
     struct survey_view *s = &app->survey;
+    struct sdr_peak_gate gate;
 
+    /* Two bars, and the second is chosen from how deeply this sweep folded
+       into each bin rather than from a constant (ADR-0013). */
+    gate.topographic_db = SURVEY_MIN_PROMINENCE_DB;
+    gate.floor_db = SURVEY_FLOOR_THRESHOLD_DB;
+    gate.bandwidth_db = SURVEY_BANDWIDTH_DB;
     s->peak_count = sdr_dsp_find_peaks(s->power, s->bins, SURVEY_SENTINEL_DBFS,
-                                       SURVEY_MIN_PROMINENCE_DB,
-                                       SURVEY_BANDWIDTH_DB,
-                                       app->magnitude_sorted, s->peaks,
+                                       &gate, app->magnitude_sorted, s->peaks,
                                        SURVEY_MAX_PEAKS);
     /* Maxima into signals, before anything asks what changed: a carrier's
        shoulders are not separate things to notice. */

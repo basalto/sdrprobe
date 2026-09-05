@@ -385,6 +385,7 @@ static int survey_capture(struct app *app) {
     struct survey_plan plan;
     struct slot_snapshot snapshot;
     struct sdr_peak peaks[SURVEY_MAX_PEAKS];
+    struct sdr_peak_gate gate;
     double rate = (double)app->applied_sample_rate;
     double centre = (double)app->applied_frequency;
     double usable = rate * SURVEY_USABLE_SPAN;
@@ -417,9 +418,14 @@ static int survey_capture(struct app *app) {
     printf("survey range %.0f %.0f\n", plan.lower_hz, plan.upper_hz);
     printf("survey steps %d bins %d bin_hz %.1f blocks %d\n", plan.step_count,
            plan.bins, plan.bin_hz, folded);
+    /* The bar noise has to clear here, which depends on how deeply this
+       capture's blocks were peak-held into each bin (ADR-0013). */
+    gate.topographic_db = SURVEY_MIN_PROMINENCE_DB;
+    gate.floor_db = SURVEY_FLOOR_THRESHOLD_DB;
+    gate.bandwidth_db = SURVEY_BANDWIDTH_DB;
+    printf("survey floor_bar %.1f\n", (double)gate.floor_db);
     count = sdr_dsp_find_peaks(survey_power, plan.bins, SURVEY_SENTINEL_DBFS,
-                               SURVEY_MIN_PROMINENCE_DB, SURVEY_BANDWIDTH_DB,
-                               app->magnitude_sorted, peaks,
+                               &gate, app->magnitude_sorted, peaks,
                                SURVEY_MAX_PEAKS);
     report_candidates(app, &plan, peaks, count, held_spectrum);
     if (app->options.survey_save)
@@ -435,6 +441,7 @@ static int survey_receiver(struct app *app) {
     struct survey_plan plan;
     struct slot_snapshot snapshot;
     struct sdr_peak peaks[SURVEY_MAX_PEAKS];
+    struct sdr_peak_gate gate;
     double dwell = options->survey_dwell_seconds > 0.0
                        ? options->survey_dwell_seconds
                        : SURVEY_DWELL_DEFAULT;
@@ -524,9 +531,15 @@ static int survey_receiver(struct app *app) {
 
     printf("survey blocks %d settling %d%s\n", folded, discarded,
            ended ? " incomplete" : "");
+    /* Chosen from the fold, not from a constant: a bin holding 218 transform
+       bins over two blocks reaches further into the noise than one holding 27
+       (ADR-0013). */
+    gate.topographic_db = SURVEY_MIN_PROMINENCE_DB;
+    gate.floor_db = SURVEY_FLOOR_THRESHOLD_DB;
+    gate.bandwidth_db = SURVEY_BANDWIDTH_DB;
+    printf("survey floor_bar %.1f\n", (double)gate.floor_db);
     count = sdr_dsp_find_peaks(survey_power, plan.bins, SURVEY_SENTINEL_DBFS,
-                               SURVEY_MIN_PROMINENCE_DB, SURVEY_BANDWIDTH_DB,
-                               app->magnitude_sorted, peaks,
+                               &gate, app->magnitude_sorted, peaks,
                                SURVEY_MAX_PEAKS);
     /* No spectrum to measure from: it belongs to the last step only. Widths
        come back as "-" rather than as a number about the wrong signal. */
