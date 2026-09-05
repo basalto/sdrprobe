@@ -1,6 +1,6 @@
 # 02 — Rate matching, and the 24-bit parity
 
-Status: needs-triage
+Status: resolved
 Blocked by: 01
 
 Between the turbo code and the air: sub-block interleaving of the three
@@ -26,3 +26,60 @@ one and not the same as CRC-24B used for code block segmentation.
 - CRC-24A against a fixed vector, and that it is distinguishable from
   CRC-24B -- two 24-bit polynomials in the same document is how the wrong one
   gets used.
+
+## Comments
+
+**2026-09-05 — resolved.** `src/lte_transport.{c,h}`, checked by
+`check-lte-transport`.
+
+Both things transcribed from the standard are pinned against properties rather
+than against their own use, because a wrong constant that the matcher and the
+dematcher share round-trips perfectly and fails only on air -- which is how a
+conjugated primary sequence and a scattered SCH field layout each stayed green
+here for months.
+
+- **The polynomials.** A CRC register shifting in a message computes
+  `M(D)·D^24 mod g(D)`, so feeding it the twenty-five bits of `g(D)` itself
+  must leave no remainder. That holds for the right constant and for no other,
+  and it catches the two being swapped: CRC-24A does not divide CRC-24B's
+  polynomial or the other way round. No external test vector was available and
+  none was invented; a value this file computed and then asserted would have
+  pinned the implementation rather than the standard.
+- **The column permutation.** The 32 entries are the bit reversal of the
+  five-bit column index, so the table is checked against that rather than
+  copied into the test twice.
+
+The rest is arithmetic over the buffer and is checked as such: at K = 40, 128,
+512, 1024 and 6144, every one of the `3(K+4)` encoded bits reaches the circular
+buffer exactly once and nothing else does, and the only holes are the
+interleaver's padding. With fillers the holes are the padding plus `2F`, and
+**stream 2 stays complete** -- nulling all three would drop parity that was
+really transmitted.
+
+Round trips run through the real turbo encoder and decoder, because a rate
+matcher that is subtly wrong still produces the right *number* of bits and only
+the decoder notices: whole codewords at K = 40 and 512, fillers at K = 128 with
+F = 4 and F = 12, a doubly-repeated allocation at K = 256, and redundancy
+version 1.
+
+The checks found one bug, which is the reason the repetition case is in there.
+When the allocation is longer than the codeword the buffer wraps, and the
+repeat was indexed by how many *steps* the walk took rather than by how many
+positions it *found* -- the two differ by exactly the holes, so the first
+repeat read the slot it was about to write. Uninitialised memory, showing up as
+two bits of a doubly-repeated block arriving once instead of twice: a 3 dB loss
+on those bits, and nothing a clean unrepeated round trip would ever have seen.
+
+Two deliberate choices worth knowing before ticket 03 uses this:
+
+- `lte_rate_dematch()` **accumulates** into the three streams rather than
+  assigning. That is where the repetition gain comes from, and assigning would
+  keep only the last copy.
+- It also sets the filler positions of stream 0 to a certainty
+  (`LTE_RM_KNOWN_LLR`) rather than leaving them erased. The standard defines
+  those bits as zero, so telling the decoder is free and starting it from the
+  truth is better than making it infer them. Stream 1's fillers stay erased:
+  those are parity, and parity over known bits is still whatever the encoder's
+  state made it.
+
+Ticket 03 is unblocked.
