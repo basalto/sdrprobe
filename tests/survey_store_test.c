@@ -249,7 +249,8 @@ static void test_the_file_it_writes(void) {
          */
         check_true("the file says a pass ran and what it found",
                    strstr(text, "\"confirmation\": {\"asked\": 1, "
-                                "\"confirmed\": 1, \"refuted\": 0}") != NULL);
+                                "\"confirmed\": 1, \"intermittent\": 0, "
+                                "\"refuted\": 0}") != NULL);
         check_true("the carrier it asked about carries the verdict",
                    strstr(text, "\"maxima\": 2, \"confirmed\": \"confirmed\"")
                        != NULL);

@@ -43,10 +43,29 @@ enum survey_claim {
     SURVEY_CLAIM_MISSING       /* this site has heard it, but not this time */
 };
 
+/*
+ * Three answers, because a closer look has three things it can find.
+ *
+ * "It was there" and "it was not" are the two the pass started with, and they
+ * are not enough for anything that transmits in bursts. Five identical sweeps
+ * of 1550-1766 MHz minutes apart found 0, 6, 6, 2 and 2 candidates at 30 dB
+ * and more above their floors, at fifteen frequencies and no frequency twice:
+ * Iridium and the mobile-satellite uplinks, which are short bursts on channels
+ * that move. Asked once, six blocks each, the pass refuted nine of ten of
+ * them.
+ *
+ * That is the expensive direction to be wrong in, and this file already said
+ * so about the threshold: refuting a real signal "teaches the site that a real
+ * transmitter is noise". Worse, it teaches it permanently -- a refuted "new"
+ * is never recorded, so the next sweep calls it new again and the next pass
+ * refutes it again, and the mobile-satellite allocations can never enter the
+ * history however many sweeps hear them.
+ */
 enum survey_verdict {
     SURVEY_VERDICT_PENDING = 0,
-    SURVEY_VERDICT_CONFIRMED,  /* the closer look agreed */
-    SURVEY_VERDICT_REFUTED     /* it did not */
+    SURVEY_VERDICT_CONFIRMED,    /* there every time the pass looked */
+    SURVEY_VERDICT_INTERMITTENT, /* there some of the times it looked */
+    SURVEY_VERDICT_REFUTED       /* not there at all */
 };
 
 struct survey_confirm_target {
@@ -54,7 +73,31 @@ struct survey_confirm_target {
     signed char claim;         /* enum survey_claim */
     signed char verdict;       /* enum survey_verdict */
     float prominence_db;       /* what the closer look measured */
+    /* How many of the looks it was up in, and how many there were. The
+       verdict is the decision; this is the measurement behind it, and it is
+       what a reader needs to tell one burst in six from five. */
+    int hits;
+    int looks;
 };
+
+/*
+ * Was it there, and how often?
+ *
+ * The thresholds are survey_measure_duty_label()'s, not new ones: a signal up
+ * in more than nine looks in ten is continuous, and anything less that is
+ * still up sometimes is intermittent. Reusing them is deliberate -- the survey
+ * already describes a candidate's duty in those words when it measures one for
+ * two seconds, and a pass that used different boundaries would print
+ * "intermittent" for a duty the rest of the program calls continuous.
+ */
+static inline enum survey_verdict survey_confirm_presence(int hits,
+                                                          int looks) {
+    if (looks <= 0 || hits <= 0)
+        return SURVEY_VERDICT_REFUTED;
+    if ((double)hits / (double)looks > 0.9)
+        return SURVEY_VERDICT_CONFIRMED;
+    return SURVEY_VERDICT_INTERMITTENT;
+}
 
 /*
  * Did the closer look agree with the claim?
@@ -62,13 +105,32 @@ struct survey_confirm_target {
  * "New" is confirmed by finding it and refuted by not; "missing" is the other
  * way round. Writing it out rather than inlining the two cases because getting
  * the sense backwards for one of them would produce a pass that looks like it
- * is working and quietly inverts half the answers.
+ * is working and quietly inverts half the answers -- and a third value doubles
+ * the ways that can happen, which is why `intermittent` is deliberately its
+ * own answer rather than a claim about the claim: a signal heard in two looks
+ * of six is intermittent whether the sweep called it new or called it missing.
  */
 static inline enum survey_verdict survey_confirm_verdict(int claim,
                                                          int present) {
     if (claim == SURVEY_CLAIM_MISSING)
         return present ? SURVEY_VERDICT_REFUTED : SURVEY_VERDICT_CONFIRMED;
     return present ? SURVEY_VERDICT_CONFIRMED : SURVEY_VERDICT_REFUTED;
+}
+
+/*
+ * The verdict from a count of looks, which is the one the pass uses now.
+ * Intermittent belongs to the signal rather than to the claim, so it survives
+ * the inversion that "new" and "missing" put on the other two.
+ */
+static inline enum survey_verdict survey_confirm_verdict_from(int claim,
+                                                              int hits,
+                                                              int looks) {
+    enum survey_verdict presence = survey_confirm_presence(hits, looks);
+
+    if (presence == SURVEY_VERDICT_INTERMITTENT)
+        return SURVEY_VERDICT_INTERMITTENT;
+    return survey_confirm_verdict(claim,
+                                  presence == SURVEY_VERDICT_CONFIRMED);
 }
 
 /* Whether a measured prominence counts as the signal being there. */
@@ -138,16 +200,27 @@ static inline int survey_confirm_verdict_at(
 /* The word for a verdict, as the reports and the saved file both spell it. */
 static inline const char *survey_verdict_name(int verdict) {
     switch (verdict) {
-    case SURVEY_VERDICT_CONFIRMED: return "confirmed";
-    case SURVEY_VERDICT_REFUTED:   return "refuted";
-    default:                       return "unconfirmed";
+    case SURVEY_VERDICT_CONFIRMED:    return "confirmed";
+    case SURVEY_VERDICT_INTERMITTENT: return "intermittent";
+    case SURVEY_VERDICT_REFUTED:      return "refuted";
+    default:                          return "unconfirmed";
     }
 }
 
-/* What the pass changes about the history: a refuted "new" was noise and
-   should not be remembered, and a refuted "missing" was heard after all. Both
-   are the opposite of what the sweep alone would have recorded. */
+/*
+ * What the pass changes about the history: a refuted "new" was noise and
+ * should not be remembered, and a refuted "missing" was heard after all. Both
+ * are the opposite of what the sweep alone would have recorded.
+ *
+ * And an intermittent one was heard, whichever the claim was. That is the
+ * whole point of the third verdict: what the history needs to know is whether
+ * the site heard it, not whether it was up the whole time the pass was
+ * listening. Left out, a bursty transmitter is refuted on every sweep for
+ * ever and the history never learns it exists.
+ */
 static inline int survey_confirm_should_record(int claim, int verdict) {
+    if (verdict == SURVEY_VERDICT_INTERMITTENT)
+        return 1;
     if (claim == SURVEY_CLAIM_NEW)
         return verdict == SURVEY_VERDICT_CONFIRMED;
     /* A missing entry that turned up is worth recording as heard. */

@@ -1,6 +1,9 @@
 #include "check.h"
 
 #include "survey_confirm.h"
+/* For survey_measure_duty_label(): the boundary between continuous and
+   intermittent is that function's, and this asserts the two agree. */
+#include "survey_sweep.h"
 
 /*
  * Asking again about what a sweep called new or missing.
@@ -138,12 +141,103 @@ static void test_matching_a_target_to_a_frequency(void) {
               "unconfirmed");
 }
 
+/*
+ * The third verdict, and the count behind it.
+ *
+ * Two answers cannot describe a burst. Measured on air: five identical sweeps
+ * of 1550-1766 MHz found 0, 6, 6, 2 and 2 candidates, fifteen frequencies and
+ * no frequency twice, all at 30 dB and more -- Iridium and the
+ * mobile-satellite uplinks. Asked once each, the pass refuted nine of ten.
+ */
+static void test_intermittent_is_its_own_answer(void) {
+    check_int("up in every look is continuous",
+              survey_confirm_presence(6, 6), SURVEY_VERDICT_CONFIRMED);
+    check_int("up in none of them is not there",
+              survey_confirm_presence(0, 6), SURVEY_VERDICT_REFUTED);
+    check_int("one look in six is intermittent",
+              survey_confirm_presence(1, 6), SURVEY_VERDICT_INTERMITTENT);
+    check_int("and so is five",
+              survey_confirm_presence(5, 6), SURVEY_VERDICT_INTERMITTENT);
+    /* The boundary is survey_measure_duty_label()'s, not a new one: the rest
+       of the program calls a duty over 0.9 continuous and this must agree, or
+       the same signal is described two ways in one window. */
+    check_str("and the words match the ones the survey already uses",
+              survey_measure_duty_label(1.0), "continuous");
+    check_str("five in six", survey_measure_duty_label(5.0 / 6.0),
+              "intermittent");
+    check_int("nothing looked at cannot be intermittent",
+              survey_confirm_presence(0, 0), SURVEY_VERDICT_REFUTED);
+
+    /*
+     * Intermittent belongs to the signal, not to the claim. "New" and
+     * "missing" invert the other two verdicts between them, and a third value
+     * doubles the ways that inversion can go wrong -- so this one does not
+     * invert: a signal heard in two looks of six came and went, whichever the
+     * sweep had said about it.
+     */
+    check_int("a new signal, up sometimes",
+              survey_confirm_verdict_from(SURVEY_CLAIM_NEW, 2, 6),
+              SURVEY_VERDICT_INTERMITTENT);
+    check_int("a missing one, up sometimes",
+              survey_confirm_verdict_from(SURVEY_CLAIM_MISSING, 2, 6),
+              SURVEY_VERDICT_INTERMITTENT);
+    /* And the two that do invert still do. */
+    check_int("a new signal, up every time",
+              survey_confirm_verdict_from(SURVEY_CLAIM_NEW, 6, 6),
+              SURVEY_VERDICT_CONFIRMED);
+    check_int("a new signal, never up",
+              survey_confirm_verdict_from(SURVEY_CLAIM_NEW, 0, 6),
+              SURVEY_VERDICT_REFUTED);
+    check_int("a missing one that stayed missing",
+              survey_confirm_verdict_from(SURVEY_CLAIM_MISSING, 0, 6),
+              SURVEY_VERDICT_CONFIRMED);
+    check_int("a missing one that turned up every time",
+              survey_confirm_verdict_from(SURVEY_CLAIM_MISSING, 6, 6),
+              SURVEY_VERDICT_REFUTED);
+
+    check_str("and it has a word of its own",
+              survey_verdict_name(SURVEY_VERDICT_INTERMITTENT),
+              "intermittent");
+}
+
+/*
+ * What the history is told, which is the half that decides whether a bursty
+ * transmitter can ever be known at all.
+ *
+ * A refuted "new" is never recorded, so before this the next sweep called it
+ * new again, the next pass refuted it again, and the mobile-satellite
+ * allocations could not enter the history however many sweeps heard them.
+ */
+static void test_a_burst_is_recorded(void) {
+    check_int("a new signal heard some of the time is heard",
+              survey_confirm_should_record(SURVEY_CLAIM_NEW,
+                                           SURVEY_VERDICT_INTERMITTENT), 1);
+    check_int("and so is a missing one that came back sometimes",
+              survey_confirm_should_record(SURVEY_CLAIM_MISSING,
+                                           SURVEY_VERDICT_INTERMITTENT), 1);
+    /* The two that were already right stay right. */
+    check_int("a new signal that held up",
+              survey_confirm_should_record(SURVEY_CLAIM_NEW,
+                                           SURVEY_VERDICT_CONFIRMED), 1);
+    check_int("a new signal that was noise",
+              survey_confirm_should_record(SURVEY_CLAIM_NEW,
+                                           SURVEY_VERDICT_REFUTED), 0);
+    check_int("a missing one that really is gone",
+              survey_confirm_should_record(SURVEY_CLAIM_MISSING,
+                                           SURVEY_VERDICT_CONFIRMED), 0);
+    check_int("a missing one that turned up",
+              survey_confirm_should_record(SURVEY_CLAIM_MISSING,
+                                           SURVEY_VERDICT_REFUTED), 1);
+}
+
 int main(void) {
     test_the_sense_of_a_verdict();
     test_what_gets_remembered();
     test_presence();
     test_how_long_it_takes();
     test_matching_a_target_to_a_frequency();
+    test_intermittent_is_its_own_answer();
+    test_a_burst_is_recorded();
 
     return check_report("asking again about what changed");
 }

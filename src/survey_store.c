@@ -168,7 +168,7 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
     time_t now = time(NULL);
     struct tm when;
     FILE *file;
-    int i, suspicious = 0, confirmed = 0, refuted = 0;
+    int i, suspicious = 0, confirmed = 0, intermittent = 0, refuted = 0;
     /* How far a reported frequency can sit from the truth: half a bin, which
        is the quantisation the sweep put on it. */
     double match_hz = plan ? plan->bin_hz / 2.0 : 0.0;
@@ -216,6 +216,8 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
     for (i = 0; i < target_count; i++) {
         if (targets[i].verdict == SURVEY_VERDICT_CONFIRMED)
             confirmed++;
+        else if (targets[i].verdict == SURVEY_VERDICT_INTERMITTENT)
+            intermittent++;
         else if (targets[i].verdict == SURVEY_VERDICT_REFUTED)
             refuted++;
     }
@@ -257,7 +259,8 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
      * be able to tell "nothing held up" from "nothing was checked".
      */
     fprintf(file, "  \"confirmation\": {\"asked\": %d, \"confirmed\": %d, "
-                  "\"refuted\": %d},\n", target_count, confirmed, refuted);
+                  "\"intermittent\": %d, \"refuted\": %d},\n", target_count,
+            confirmed, intermittent, refuted);
     fprintf(file, "  \"candidates\": [\n");
     for (i = 0; i < count; i++) {
         const struct survey_candidate *c = &candidates[i];

@@ -532,10 +532,14 @@ survey view remembers what each site has heard (`src/site_history.c`) and
 marks the next sweep against it -- new signals, absent ones, and the history
 under the cursor. Those marks are claims from a tenth of a second each, so
 **Ask again** (`src/survey_confirm.h`, or `--survey-confirm` from a script)
-revisits every one with six blocks *peak-held* on the frequency -- held, because
-what does not reproduce is largely bursty and averaging throws away the block
-the transmitter was up in -- and records what it finds rather than what the
-sweep guessed. The verdict goes into the saved file per candidate and per
+revisits every one with six blocks on the frequency, **each measured on its
+own**, and records what it finds rather than what the sweep guessed. Per block
+because the count is the answer: up in every look is a transmitter, up in none
+is noise, and up in some is `intermittent`, which is what the mobile-satellite
+bands actually are and what the pass used to call refuted -- barring them from
+the history permanently, since a refuted "new" is never recorded. A peak-held
+spectrum was tried first and understates a burst, because holding raises the
+noise floor along with the signal. The verdict goes into the saved file per candidate and per
 carrier, so a reader can tell a signal that held up from one nobody checked.
 The window asks only about what the site history calls new or missing; a
 headless sweep asks about every signal it found, strongest first. Each site also keeps its own tuning

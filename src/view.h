@@ -239,7 +239,7 @@ void update_survey(struct app *app, double now, int spectrum_updated);
  * block it was up in.
  */
 void survey_confirm_begin_target(struct app *app);
-void survey_confirm_look(struct app *app);
+void survey_confirm_look(struct app *app, double hz);
 int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
                           struct sdr_carrier_report *report);
 void handle_survey_input(struct app *app);
