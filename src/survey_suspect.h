@@ -41,6 +41,42 @@
 #define RECEIVER_COMB_HZ (RECEIVER_REFERENCE_HZ / 2.0)
 
 /*
+ * And the comb underneath that one, which is nine times finer.
+ *
+ * 14.4 MHz is real and it is every ninth tone. The spacing is 1.6 MHz, which
+ * is 28.8/18, and three things say so. Sweeping the same air with the step
+ * grid deliberately moved -- lower edges of 240.0, 239.2 and 239.5 MHz, so the
+ * boundaries fall in three different places -- puts the candidates at the same
+ * absolute frequencies every time, on step boundaries in one and step centres
+ * in the next, so the sweep is not making them. With `--ppm 0` they land on
+ * exact multiples, within 2.5 kHz of a 3.7 kHz bin, and with this site's
+ * +35 ppm correction applied they read about +35 ppm high: a spur divided down
+ * from the crystal that clocks both the tuner and the ADC keeps its ratio to
+ * the nominal grid, and a transmitter moves the other way. And every ninth
+ * tone -- 244.8 = 17 x 14.4, 259.2 = 18 x 14.4 -- is on the comb the unplug
+ * test already established.
+ *
+ * Across the whole-tuner sweep of 2026-09-03, 43% of 289 candidates sit within
+ * half a bin of a 1.6 MHz multiple against 13% by chance. On 240-270 MHz it is
+ * 11 of 14, of which the old test flagged the two that are also multiples of
+ * 14.4.
+ */
+#define RECEIVER_FINE_COMB_HZ (RECEIVER_REFERENCE_HZ / 18.0)
+
+/*
+ * The widest a comb test may reach before the flag is guessing.
+ *
+ * A real signal lands within `tolerance` of a multiple by chance
+ * 2*tolerance/spacing of the time. At 14.4 MHz spacing even a full-tuner
+ * sweep's 106 kHz half-bin is 1.5%. At 1.6 MHz the same tolerance is 13% --
+ * one candidate in eight flagged by luck -- so the finer comb is only tested
+ * when the sweep can place a candidate to a fortieth of its spacing, which is
+ * 40 kHz, which is a sweep no wider than about 650 MHz. Wider than that, this
+ * says nothing rather than saying something one time in eight.
+ */
+#define RECEIVER_COMB_MAX_FRACTION (1.0 / 40.0)
+
+/*
  * How far a comb tone's *reported* frequency can sit from the multiple it
  * really is on.
  *
@@ -92,25 +128,41 @@ enum survey_suspicion {
     SURVEY_SUSPECT_UNRESOLVED = 1 << 2
 };
 
+/* Which tone of a comb spaced `spacing_hz` the frequency sits on, or 0. */
+static inline int survey_comb_harmonic(double hz, double spacing_hz,
+                                       double tolerance_hz) {
+    double harmonic;
+    double nearest;
+
+    if (!(hz > 0.0) || !(spacing_hz > 0.0) || !(tolerance_hz >= 0.0))
+        return 0;
+    /* Beyond this the flag is chance rather than evidence. */
+    if (tolerance_hz > spacing_hz * RECEIVER_COMB_MAX_FRACTION)
+        return 0;
+    harmonic = floor(hz / spacing_hz + 0.5);
+    if (harmonic < 1.0)
+        return 0;
+    nearest = harmonic * spacing_hz;
+    if (fabs(hz - nearest) > tolerance_hz)
+        return 0;
+    return (int)harmonic;
+}
+
 /*
- * Which harmonic of the reference comb `hz` sits on, or 0 for none. The
+ * Which harmonic of the coarse reference comb `hz` sits on, or 0 for none. The
  * tolerance should be about half a survey bin: a candidate is reported at its
  * bin's centre, so that is how far from the truth it can be before it has been
  * measured.
  */
 static inline int survey_reference_harmonic(double hz, double tolerance_hz) {
-    double harmonic;
-    double nearest;
+    return survey_comb_harmonic(hz, RECEIVER_COMB_HZ, tolerance_hz);
+}
 
-    if (!(hz > 0.0) || !(tolerance_hz >= 0.0))
-        return 0;
-    harmonic = floor(hz / RECEIVER_COMB_HZ + 0.5);
-    if (harmonic < 1.0)
-        return 0;
-    nearest = harmonic * RECEIVER_COMB_HZ;
-    if (fabs(hz - nearest) > tolerance_hz)
-        return 0;
-    return (int)harmonic;
+/* And of the fine one, which needs a tighter tolerance to mean anything --
+   survey_comb_harmonic() refuses rather than guessing when it does not have
+   one. */
+static inline int survey_fine_harmonic(double hz, double tolerance_hz) {
+    return survey_comb_harmonic(hz, RECEIVER_FINE_COMB_HZ, tolerance_hz);
 }
 
 /* Whether `hz` sits where a survey step was tuned, within `tolerance_hz`. */
@@ -132,11 +184,35 @@ static inline int survey_at_step_centre(const struct survey_plan *plan,
     return 0;
 }
 
-/* Whether a measured bandwidth is at the floor of what the FFT can resolve.
+/*
+ * The narrowest thing this *sweep* can tell apart, which is not the same as
+ * what the transform can.
+ *
+ * A swept survey's bins are usually coarser than the transform's -- 3.7 kHz
+ * against 977 Hz on a 30 MHz range -- and a candidate's width comes out of the
+ * survey array, so it is quantised to survey bins. Judging it against the
+ * transform's resolution calls every tone in a swept survey "resolved", which
+ * is how the narrowness observation came to be unavailable in exactly the case
+ * it is needed.
+ */
+static inline double survey_tone_width_hz(double bin_hz, double sample_rate,
+                                          int fft_size) {
+    double fine;
+
+    /* No transform means nothing was measured with anything; answering with
+       the survey's bin width alone would be claiming a resolution from a
+       configuration that cannot have produced a measurement. */
+    if (fft_size <= 0 || !(sample_rate > 0.0))
+        return 0.0;
+    fine = sample_rate / (double)fft_size;
+    return RECEIVER_TONE_BINS * (bin_hz > fine ? bin_hz : fine);
+}
+
+/* Whether a measured bandwidth is at the floor of what this sweep can resolve.
    A quarter of slack: the measurement is itself a few bins wide. */
-static inline int survey_is_unresolved(double bandwidth_hz, double sample_rate,
-                                       int fft_size) {
-    double floor_hz = survey_resolution_hz(sample_rate, fft_size);
+static inline int survey_is_unresolved(double bandwidth_hz, double bin_hz,
+                                       double sample_rate, int fft_size) {
+    double floor_hz = survey_tone_width_hz(bin_hz, sample_rate, fft_size);
 
     if (!(floor_hz > 0.0) || !(bandwidth_hz > 0.0))
         return 0;
@@ -181,14 +257,34 @@ static inline unsigned survey_suspect(const struct survey_plan *plan, double hz,
                                       double bandwidth_hz, double sample_rate,
                                       int fft_size, int dc_filtered) {
     double tolerance = survey_suspect_tolerance(plan, sample_rate, fft_size);
+    double comb = survey_comb_tolerance(plan, sample_rate, fft_size);
+    int bare = survey_is_unresolved(bandwidth_hz, plan->bin_hz, sample_rate,
+                                    fft_size);
     unsigned flags = SURVEY_SUSPECT_NONE;
 
-    if (survey_reference_harmonic(hz, survey_comb_tolerance(plan, sample_rate,
-                                                            fft_size)))
+    if (survey_reference_harmonic(hz, comb))
+        flags |= SURVEY_SUSPECT_REFERENCE;
+    /*
+     * The fine comb needs the narrowness as well, and this is the one place
+     * the file's own remark about narrowness "making the two above worth
+     * believing" is load-bearing rather than decorative.
+     *
+     * 1.6 MHz is sixteen times the 100 kHz raster broadcast services sit on,
+     * so one FM channel in sixteen falls on the comb exactly -- including
+     * 94.4 MHz, the loudest station at this site, confirmed at 46 dB. Flagged
+     * candidates are set aside from a report's per-allocation bests, so a
+     * frequency test alone would hide a real transmitter, which is worse than
+     * the fault it fixes. The width settles it and the gap is not close: on a
+     * 240-270 MHz sweep the comb tones measure one or two survey bins and on
+     * an 88-108 MHz sweep the stations measure twenty-three to seventy-four.
+     * The one narrow candidate in band II is 102.4 MHz, which is 64 x 1.6 and
+     * six bins wide, and is a comb tone sitting in the broadcast band.
+     */
+    if (bare && survey_fine_harmonic(hz, comb))
         flags |= SURVEY_SUSPECT_REFERENCE;
     if (!dc_filtered && survey_at_step_centre(plan, hz, tolerance))
         flags |= SURVEY_SUSPECT_STEP_CENTRE;
-    if (survey_is_unresolved(bandwidth_hz, sample_rate, fft_size))
+    if (bare)
         flags |= SURVEY_SUSPECT_UNRESOLVED;
     return flags;
 }

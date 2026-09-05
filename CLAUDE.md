@@ -153,7 +153,10 @@ a weak LTE cell.
 *nothing* reports. Pure noise through the real transform and the real fold, at
 every fold depth a sweep can have, and the answer is no candidates at any bar
 down to zero -- which is what ADR-0017 rests on and what ADR-0013 assumed the
-opposite of.
+opposite of. It is also a warning about where that leads: knowing noise is not
+the constraint is not the same as knowing what is, and ADR-0017 records three
+replacements for the candidate threshold that were built, measured on air, and
+put back.
 
 ```sh
 make probe-survey-threshold                 # and DRAWS=12 for more of them

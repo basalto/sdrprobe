@@ -36,6 +36,16 @@ struct survey_candidate {
     double found_hz;          /* where the sweep found it */
     double centre_hz;         /* what measuring refined it to; 0 if unmeasured */
     double width_hz;          /* occupied bandwidth; 0 if unmeasured */
+    /*
+     * How wide it is in the survey array, from the peak's own -20 dB extent.
+     * Coarser than `width_hz` and always available, which is the point: a
+     * swept survey has no spectrum to measure a candidate out of, and without
+     * this it could say nothing at all about the shape of what it found. Big
+     * and meaningless when the extent walk hit its bound, which happens to a
+     * candidate with no -20 dB point of its own -- that reads as "not narrow",
+     * which is the safe way for it to be wrong.
+     */
+    double extent_hz;
     float power_dbfs;
     float prominence_db;
     int measured;
