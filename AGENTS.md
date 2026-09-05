@@ -133,7 +133,11 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   operator-set range (default 24-1766 MHz, the R820T's span) in 1.6 MHz steps,
   charts the power across it, and marks the peaks standing 8 dB above their
   local floor by topographic prominence -- not height above a floor, which
-  reports a strong carrier's shoulder as a signal. Selecting a candidate, by
+  reports a strong carrier's shoulder as a signal. The reported *above floor*
+  figure is a different measure from the gate (ADR-0013), and where the two
+  contradict each other the peak is dropped: a maximum whose median local floor
+  is above it is the floor of a notch between two carriers, and reporting it
+  produced a candidate at 1603.219 MHz standing -3.0 dB above its own noise. Selecting a candidate, by
   click or with Up/Down, retunes 300 kHz off it (never onto the DC spike) and
   measures occupied bandwidth, duty and frequency stability over two seconds,
   then names the allocation from `src/band_plan.c` and offers to point a
@@ -524,8 +528,13 @@ survey view remembers what each site has heard (`src/site_history.c`) and
 marks the next sweep against it -- new signals, absent ones, and the history
 under the cursor. Those marks are claims from a tenth of a second each, so
 **Ask again** (`src/survey_confirm.h`, or `--survey-confirm` from a script)
-revisits every one with six blocks on the frequency and records what it finds
-rather than what the sweep guessed. Each site also keeps its own tuning
+revisits every one with six blocks *peak-held* on the frequency -- held, because
+what does not reproduce is largely bursty and averaging throws away the block
+the transmitter was up in -- and records what it finds rather than what the
+sweep guessed. The verdict goes into the saved file per candidate and per
+carrier, so a reader can tell a signal that held up from one nobody checked.
+The window asks only about what the site history calls new or missing; a
+headless sweep asks about every signal it found, strongest first. Each site also keeps its own tuning
 correction, since one measured elsewhere is not the one that applies here. It saves a finished sweep with a button, and the headless
 `--survey` path prints one to be piped through `scripts/survey_tool.py ingest`;
 both write the same file. `surveys/` keeps one JSON per band survey so sweeps

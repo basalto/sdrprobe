@@ -51,7 +51,7 @@ void usage(const char *program) {
             "  --survey-save     write the sweep to surveys/ and fold it into\n"
             "                    what the site has heard, as Save does\n"
             "  --survey-confirm  after a --survey-range sweep, ask again about\n"
-            "                    every signal it called new or missing\n"
+            "                    every signal it found, and say which held up\n"
             "  --antenna         name the antenna in use; saved, and reported\n"
             "                    by a survey so two sweeps can be compared\n"
             "  --site            name where the receiver is; saved likewise. A\n"

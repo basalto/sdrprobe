@@ -6,6 +6,7 @@
 
 #include "sdr_dsp.h"
 #include "survey_carrier.h"
+#include "survey_confirm.h"
 #include "survey_sweep.h"
 
 /*
@@ -83,10 +84,17 @@ int survey_json_escape(const char *in, char *out, size_t size);
 /*
  * Write the sweep to `surveys/`, creating the directory if need be. The path
  * written is copied into `path_out`. Returns 0, or -1 with a reason on stderr.
+ *
+ * `targets` is what a confirmation pass asked about, or NULL when none ran.
+ * It is written down because the archive's job is to be comparable later, and
+ * "found in one sweep" and "found in one sweep and still there when asked
+ * again" are different claims that used to be written identically.
  */
 int survey_store_write(const struct app *app, const struct survey_plan *plan,
                        const struct survey_candidate *candidates, int count,
                        const struct survey_carrier *carriers, int carrier_count,
+                       const struct survey_confirm_target *targets,
+                       int target_count,
                        char *path_out, size_t path_size);
 
 #endif
