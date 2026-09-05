@@ -1,6 +1,6 @@
 # 03 — Descramble, decode, and check the synchronisation block
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 02
 
 From a located burst to a block worth believing: descrambling, the
@@ -71,3 +71,64 @@ here: a puncturing pattern is a *convention*, so a transcription error
 round-trips perfectly and reads nothing. The phase table was wrong for a day
 under exactly those conditions. Check the transcriptions against something
 outside them -- the CRC passing on air is the only real one.
+
+## Comments
+
+**2026-09-06 — resolved. `src/tetra_sync.{c,h}`, checked by
+`check-tetra-sync`. 202 of 202 synchronization bursts decode with the parity
+checking.**
+
+The chain, clause 8.3.1.2 read backwards: descramble (8.2.5, extended colour
+code all zeros for this channel), (120,11) de-interleave (8.2.4.1), depuncture
+and Viterbi over the 16-state rate-1/4 mother code punctured to 2/3
+(8.2.3.1), drop the four tail bits, and check the (76,60) CRC-CCITT
+(8.2.3.3).
+
+### The bug, and why nothing synthetic could have found it
+
+The scrambler's seed was one slot out. Equation (8.42) sets p(-31) and p(-30)
+to one, which are the *last two* of the thirty-two history slots, and they went
+into the last-but-one and last-but-two.
+
+The whole chain round-tripped perfectly on the first run. It would: **a wrong
+scrambling sequence is its own inverse exactly as a right one is**, so an
+encoder and a decoder sharing the mistake agree completely. On air it gave 202
+synchronization bursts found and not one passing parity -- which is the only
+symptom it has, and it is indistinguishable from a dozen other faults until you
+look. Fixed by reading (8.42) again rather than by trying variants.
+
+That is the fourth time in this repository: a conjugated LTE primary sequence,
+a scattered GSM SCH field layout, the pi/4-DQPSK phase table yesterday, and
+this. The pattern is identical every time and the lesson has not changed.
+
+### What it reads, and the corroboration
+
+Every burst of the three-second capture, with the counters advancing:
+
+```
+sys 2  colour 17  slot 3  frame 17  multiframe 14  sharing 0   MCC 268  MNC 3
+sys 2  colour 17  slot 4  frame 17  multiframe 14  sharing 0   MCC 268  MNC 3
+sys 2  colour 17  slot 1  frame 18  multiframe 14  sharing 0   MCC 268  MNC 3
+```
+
+- The slot number wraps 4 to 1 as the frame increments, and frames wrap into
+  multiframes 14, 15, 16, 17. Counters that advance coherently across 202
+  independent CRC-verified decodes cannot be an accident.
+- **Sharing mode 0 is "continuous transmission"**, which is the transmitter
+  confirming in its own words what the physical layer measured yesterday: the
+  downlink is continuous, which is why an envelope fold at the frame period
+  found nothing and why the burst grid showed up at the slot.
+- **MCC 268 is Portugal**, and `gsm_bcch` reads 268 from an entirely different
+  technology on a different band. Two independent chains agreeing on a country
+  code is the corroboration `dsp-validation` asks for and a round trip cannot
+  give.
+- Colour code 17, system code 2 and MCC/MNC are constant across every burst,
+  as per-network constants must be.
+
+### Ticket 04 is largely answered here
+
+The SYNC PDU's last 29 bits are the D-MLE-SYNC, which carries MCC (10 bits) and
+MNC (14). So "whose network is this" is answered by block 1 alone: **MCC 268,
+MNC 3, colour code 17**. What is left for 04 is the location area and the
+service details, which live in the D-MLE-SYSINFO on the broadcast network
+channel -- block 2 and the 30 broadcast bits of the same burst.
