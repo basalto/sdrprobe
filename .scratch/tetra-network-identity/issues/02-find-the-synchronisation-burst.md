@@ -92,3 +92,47 @@ What can be done without it, if anything is wanted next: the *boundary* of the
 burst within the 255 is visible in the profile as the pattern of fixed and
 varying positions, and a longer capture would sharpen it. That is not a decoder,
 but it would narrow what the layout can be.
+
+**2026-09-06 — and then the document turned up, so the ticket got its original
+answer too.**
+
+ETSI publishes its deliverables free of charge; EN 300 392-2 V3.8.1 (2016-08)
+downloads from etsi.org with a browser user-agent. So the correlator this
+ticket asked for could be written after all, and it is the strongest evidence
+in the whole effort.
+
+Table 9.9 puts the synchronization training sequence at bits 215 to 252 of the
+510-bit synchronization continuous downlink burst -- symbols 108 to 126 of the
+255 -- and equation (9.11) gives the 38 bits. On the capture:
+
+| chunk | matched | position in the 255-symbol slot |
+| --- | --- | --- |
+| 0 | **19 of 19** | 188 |
+| 1 | **19 of 19** | 143 |
+| 2 | **19 of 19** | 98 |
+| 3 | **19 of 19** | 53 |
+| 4 | **19 of 19** | 8 |
+| 5 | **19 of 19** | 218 |
+| 6 | **19 of 19** | 173 |
+| 7 | **19 of 19** | 128 |
+
+Every symbol, every chunk. And the position walks by exactly 45 symbols per
+chunk and wraps cleanly through 255 -- 8 to 218 is -45 modulo 255 -- which is
+the chunk stride against the slot length and could not be regular if the timing
+were slipping.
+
+Empty spectrum reaches 12 to 14 of 19, never 16.
+
+**This also found a bug the round trip could not.** The phase transition table
+was guessed before the document was to hand, and the guess had dibits 2 and 3
+swapped: table 5.1 gives B(2k-1),B(2k) of 1,0 as -pi/4 and 1,1 as -3pi/4, and
+the guess had those the other way round. Every synthetic test passed anyway,
+every time, because the encoder and the decoder shared the mistake -- which is
+precisely what ticket 01's header warned would happen and why it refused to
+claim the mapping. With the table corrected the sequence matches 19 of 19; with
+the old one it could not have.
+
+The match threshold moved too, and from measurement rather than taste. Thirteen
+of nineteen is one in a hundred thousand per position, which sounded ample and
+is not: a block holds a few thousand positions, and an empty channel produced a
+fourteen. Sixteen costs nothing, since the real signal gives nineteen.

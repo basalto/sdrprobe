@@ -444,10 +444,9 @@ Tabs are presentation only, not the boundary (ADR-0010).
   them is -1 whatever was sent, and the data cancels itself.
   `lock` is the answer to "is this TETRA": 0.80 on the carrier here against
   under 0.035 for empty spectrum *and* for an FM station.
-  `tetra_burst_find()` then finds the burst grid **from the symbols**, not by
-  correlating for a training sequence — that sequence is a constant from a
-  standard this repository does not have, and a wrong one correlates perfectly
-  with an encoder sharing it while finding nothing on air. A burst is instead
+  `tetra_burst_find()` finds the burst grid **from the symbols alone**, which
+  is worth keeping even though the standard is now to hand: it needs nothing
+  transcribed, so it works before anybody knows which technology this is. A burst is instead
   recognised by its shape: some positions repeat every period and the rest do
   not. On air it returns 255 symbols — one TETRA timeslot — in every chunk, at
   0.80 against a runner-up of 0.36, with about 180 of the 255 positions fixed;

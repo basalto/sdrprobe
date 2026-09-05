@@ -114,3 +114,15 @@ The dibit *mapping* is still unverified and must not be believed until a parity
 check passes over real symbols. What is established is the shape -- four
 distinct odd multiples of pi/4 -- and that is all ticket 02 needs to correlate
 for a training sequence.
+
+**2026-09-06 — the mapping this ticket refused to claim was wrong, and is now
+fixed.**
+
+The header said the dibit mapping must not be believed until a parity check
+passed over real symbols. It should not have been: EN 300 392-2 table 5.1 gives
+1,0 as -pi/4 and 1,1 as -3pi/4, and the guess here had those two swapped. Every
+synthetic round trip passed regardless, because both sides shared it.
+
+Corrected, and confirmed the only way it could be -- the standard's 38-bit
+synchronization training sequence now matches 19 of 19 on air, in every chunk
+of the capture. See ticket 02.
