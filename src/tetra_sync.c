@@ -18,7 +18,8 @@
 static const int scramble_taps[] = { 1, 2, 4, 5, 7, 8, 10, 11, 12, 16, 22, 23,
                                      26, 32 };
 
-static void scramble_sequence(uint8_t *out, int count) {
+static void scramble_sequence(uint8_t *out, int count,
+                              const uint8_t *colour) {
     /* history[i] holds p(k - 1 - i), so history[0] is the most recent. */
     uint8_t history[32];
     int k, t;
@@ -37,6 +38,14 @@ static void scramble_sequence(uint8_t *out, int count) {
      */
     history[30] = 1;
     history[31] = 1;
+    /* p(k) = e(1-k) for k = -29..0, so e(1) is history[0] and e(30) is
+       history[29]. All zero for the synchronization block, and the network's
+       own for everything else. */
+    if (colour) {
+        int i;
+        for (i = 0; i < TETRA_COLOUR_BITS; i++)
+            history[i] = (uint8_t)(colour[i] & 1);
+    }
     for (k = 0; k < count; k++) {
         unsigned int bit = 0;
         for (t = 0; t < (int)(sizeof(scramble_taps) / sizeof(*scramble_taps));
@@ -48,29 +57,55 @@ static void scramble_sequence(uint8_t *out, int count) {
     }
 }
 
-void tetra_sb_descramble(uint8_t bits[TETRA_SB_SCRAMBLED_BITS]) {
-    uint8_t p[TETRA_SB_SCRAMBLED_BITS];
+void tetra_descramble(uint8_t *bits, int count,
+                      const uint8_t colour[TETRA_COLOUR_BITS]) {
+    static uint8_t p[TETRA_BNCH_SCRAMBLED_BITS];
     int k;
 
-    scramble_sequence(p, TETRA_SB_SCRAMBLED_BITS);
-    for (k = 0; k < TETRA_SB_SCRAMBLED_BITS; k++)
+    if (!bits || count <= 0 || count > TETRA_BNCH_SCRAMBLED_BITS)
+        return;
+    scramble_sequence(p, count, colour);
+    for (k = 0; k < count; k++)
         bits[k] ^= p[k];
+}
+
+void tetra_sb_descramble(uint8_t bits[TETRA_SB_SCRAMBLED_BITS]) {
+    tetra_descramble(bits, TETRA_SB_SCRAMBLED_BITS, NULL);
+}
+
+void tetra_extended_colour(int mcc, int mnc, int colour,
+                           uint8_t out[TETRA_COLOUR_BITS]) {
+    int i, at = 0;
+
+    if (!out)
+        return;
+    for (i = 9; i >= 0; i--)
+        out[at++] = (uint8_t)((mcc >> i) & 1);
+    for (i = 13; i >= 0; i--)
+        out[at++] = (uint8_t)((mnc >> i) & 1);
+    for (i = 5; i >= 0; i--)
+        out[at++] = (uint8_t)((colour >> i) & 1);
+}
+
+void tetra_deinterleave(const uint8_t *in, uint8_t *out, int count,
+                        int stride) {
+    int i;
+
+    /* b4(k) = b3(i) with k = 1 + ((a * i) mod K), one-based throughout the
+       standard and zero-based here, which is the usual place to go wrong. */
+    for (i = 1; i <= count; i++)
+        out[i - 1] = in[(1 + ((stride * i) % count)) - 1];
 }
 
 void tetra_sb_deinterleave(const uint8_t in[TETRA_SB_SCRAMBLED_BITS],
                            uint8_t out[TETRA_SB_SCRAMBLED_BITS]) {
-    int i;
-
-    /* b4(k) = b3(i) with k = 1 + ((11 * i) mod 120), one-based throughout the
-       standard and zero-based here, which is the usual place to go wrong. */
-    for (i = 1; i <= TETRA_SB_SCRAMBLED_BITS; i++) {
-        int k = 1 + ((TETRA_SB_INTERLEAVE_STRIDE * i) %
-                     TETRA_SB_SCRAMBLED_BITS);
-        out[i - 1] = in[k - 1];
-    }
+    tetra_deinterleave(in, out, TETRA_SB_SCRAMBLED_BITS,
+                       TETRA_SB_INTERLEAVE_STRIDE);
 }
 
 int tetra_rcpc_puncture_index(int j) {
+    /* The pattern repeats every three output bits and does not depend on the
+       block length, so the same function serves both chains. */
     /*
      * Clause 8.2.3.1.2 and 8.2.3.1.3: b3(j) = V(k) with
      * k = 8 * ((i-1) div t) + P(i - t * ((i-1) div t)), t = 3, i = j, and
@@ -82,7 +117,7 @@ int tetra_rcpc_puncture_index(int j) {
     static const int p[3] = { 1, 2, 5 };
     int group, within;
 
-    if (j < 1 || j > TETRA_SB_SCRAMBLED_BITS)
+    if (j < 1 || j > TETRA_BNCH_SCRAMBLED_BITS)
         return -1;
     group = (j - 1) / 3;
     within = j - 3 * group;         /* 1, 2 or 3 */
@@ -115,25 +150,24 @@ static int next_state(int state, int input) {
     return ((state << 1) | input) & (TETRA_RCPC_STATES - 1);
 }
 
-void tetra_rcpc_decode(const uint8_t mother[4 * TETRA_SB_TYPE2_BITS],
-                       const uint8_t erased[4 * TETRA_SB_TYPE2_BITS],
-                       uint8_t out[TETRA_SB_TYPE2_BITS]) {
+void tetra_rcpc_decode(const uint8_t *mother, const uint8_t *erased,
+                       int type2_bits, uint8_t *out) {
     /*
      * Hard-decision Viterbi over a terminated code: the four tail bits are
      * zero, so the survivor to take at the end is the one ending in state 0
      * rather than the best of the sixteen. Taking the best would throw away
      * the only thing the tail is for.
      */
-    static int cost[TETRA_SB_TYPE2_BITS + 1][TETRA_RCPC_STATES];
-    static uint8_t from[TETRA_SB_TYPE2_BITS + 1][TETRA_RCPC_STATES];
-    static uint8_t bit[TETRA_SB_TYPE2_BITS + 1][TETRA_RCPC_STATES];
+    static int cost[TETRA_BNCH_TYPE2_BITS + 1][TETRA_RCPC_STATES];
+    static uint8_t from[TETRA_BNCH_TYPE2_BITS + 1][TETRA_RCPC_STATES];
+    static uint8_t bit[TETRA_BNCH_TYPE2_BITS + 1][TETRA_RCPC_STATES];
     const int big = 1 << 24;
     int k, s, u, state;
 
     for (s = 0; s < TETRA_RCPC_STATES; s++)
         cost[0][s] = big;
     cost[0][0] = 0;
-    for (k = 0; k < TETRA_SB_TYPE2_BITS; k++) {
+    for (k = 0; k < type2_bits; k++) {
         for (s = 0; s < TETRA_RCPC_STATES; s++)
             cost[k + 1][s] = big;
         for (s = 0; s < TETRA_RCPC_STATES; s++) {
@@ -160,7 +194,7 @@ void tetra_rcpc_decode(const uint8_t mother[4 * TETRA_SB_TYPE2_BITS],
         }
     }
     state = 0;                      /* terminated by the four zero tail bits */
-    for (k = TETRA_SB_TYPE2_BITS; k > 0; k--) {
+    for (k = type2_bits; k > 0; k--) {
         out[k - 1] = bit[k][state];
         state = from[k][state];
     }
@@ -184,46 +218,69 @@ unsigned int tetra_sb_crc(const uint8_t *bits, int count) {
     return (~reg) & 0xffffu;
 }
 
-int tetra_sync_block_decode(const unsigned char *dibits,
-                            uint8_t message[TETRA_SB_MESSAGE_BITS]) {
-    uint8_t scrambled[TETRA_SB_SCRAMBLED_BITS];
-    uint8_t interleaved[TETRA_SB_SCRAMBLED_BITS];
-    uint8_t type3[TETRA_SB_SCRAMBLED_BITS];
-    uint8_t mother[4 * TETRA_SB_TYPE2_BITS];
-    uint8_t erased[4 * TETRA_SB_TYPE2_BITS];
-    uint8_t type2[TETRA_SB_TYPE2_BITS];
+/*
+ * One chain, both channels. The differences are all lengths and one colour
+ * code, so writing it twice would mean two places to get the scrambler seed
+ * wrong instead of one -- and it was wrong once already.
+ */
+static int decode_block(const unsigned char *dibits, int scrambled_bits,
+                        int type2_bits, int message_bits, int stride,
+                        const uint8_t *colour, uint8_t *message) {
+    static uint8_t bits[TETRA_BNCH_SCRAMBLED_BITS];
+    static uint8_t type3[TETRA_BNCH_SCRAMBLED_BITS];
+    static uint8_t mother[4 * TETRA_BNCH_TYPE2_BITS];
+    static uint8_t erased[4 * TETRA_BNCH_TYPE2_BITS];
+    static uint8_t type2[TETRA_BNCH_TYPE2_BITS];
     unsigned int expected, carried = 0;
     int k;
 
     if (!dibits || !message)
         return 0;
-    /* Sixty dibits are 120 bits: B(2k-1) is the high bit of the dibit and
-       B(2k) the low one, which is how table 5.1 reads them. */
-    for (k = 0; k < TETRA_SB_SCRAMBLED_BITS / 2; k++) {
-        scrambled[2 * k] = (uint8_t)((dibits[k] >> 1) & 1);
-        scrambled[2 * k + 1] = (uint8_t)(dibits[k] & 1);
+    /* B(2k-1) is the high bit of the dibit and B(2k) the low one, which is how
+       table 5.1 reads them. */
+    for (k = 0; k < scrambled_bits / 2; k++) {
+        bits[2 * k] = (uint8_t)((dibits[k] >> 1) & 1);
+        bits[2 * k + 1] = (uint8_t)(dibits[k] & 1);
     }
-    tetra_sb_descramble(scrambled);
-    memcpy(interleaved, scrambled, sizeof(interleaved));
-    tetra_sb_deinterleave(interleaved, type3);
-
-    memset(mother, 0, sizeof(mother));
-    memset(erased, 1, sizeof(erased));
-    for (k = 1; k <= TETRA_SB_SCRAMBLED_BITS; k++) {
+    tetra_descramble(bits, scrambled_bits, colour);
+    {
+        static uint8_t copy[TETRA_BNCH_SCRAMBLED_BITS];
+        memcpy(copy, bits, (size_t)scrambled_bits);
+        tetra_deinterleave(copy, type3, scrambled_bits, stride);
+    }
+    memset(mother, 0, (size_t)(4 * type2_bits));
+    memset(erased, 1, (size_t)(4 * type2_bits));
+    for (k = 1; k <= scrambled_bits; k++) {
         int at = tetra_rcpc_puncture_index(k);
-        if (at < 0 || at >= (int)sizeof(mother))
+        if (at < 0 || at >= 4 * type2_bits)
             continue;
         mother[at] = type3[k - 1];
         erased[at] = 0;
     }
-    tetra_rcpc_decode(mother, erased, type2);
+    tetra_rcpc_decode(mother, erased, type2_bits, type2);
 
-    expected = tetra_sb_crc(type2, TETRA_SB_MESSAGE_BITS);
+    expected = tetra_sb_crc(type2, message_bits);
     for (k = 0; k < TETRA_SB_CRC_BITS; k++)
-        carried = (carried << 1) |
-                  (unsigned int)(type2[TETRA_SB_MESSAGE_BITS + k] & 1u);
+        carried = (carried << 1) | (unsigned int)(type2[message_bits + k] & 1u);
     if (carried != expected)
         return 0;
-    memcpy(message, type2, TETRA_SB_MESSAGE_BITS);
+    memcpy(message, type2, (size_t)message_bits);
     return 1;
+}
+
+int tetra_bnch_decode(const unsigned char *dibits,
+                      const uint8_t colour[TETRA_COLOUR_BITS],
+                      uint8_t message[TETRA_BNCH_MESSAGE_BITS]) {
+    return decode_block(dibits, TETRA_BNCH_SCRAMBLED_BITS,
+                        TETRA_BNCH_TYPE2_BITS, TETRA_BNCH_MESSAGE_BITS,
+                        TETRA_BNCH_INTERLEAVE_STRIDE, colour, message);
+}
+
+int tetra_sync_block_decode(const unsigned char *dibits,
+                            uint8_t message[TETRA_SB_MESSAGE_BITS]) {
+    /* All zeros: the synchronization block is the one a terminal must read
+       before it knows the network's colour code. */
+    return decode_block(dibits, TETRA_SB_SCRAMBLED_BITS, TETRA_SB_TYPE2_BITS,
+                        TETRA_SB_MESSAGE_BITS, TETRA_SB_INTERLEAVE_STRIDE,
+                        NULL, message);
 }

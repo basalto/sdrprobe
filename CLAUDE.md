@@ -458,9 +458,14 @@ Tabs are presentation only, not the boundary (ADR-0010).
 - `src/tetra_sync.{c,h}` — one layer further, Decoder side: 120 scrambled bits
   → descramble → (120,11) de-interleave → depuncture and Viterbi over a
   16-state rate-1/4 mother code punctured to 2/3 → a (76,60) CRC-CCITT → a
-  60-bit SYNC PDU. On `captures/` it reads **MCC 268, MNC 3, colour code 17**
-  with the slot, frame and multiframe counters advancing, on **202 of 202**
-  bursts. MCC 268 is what `gsm_bcch` reads from a different technology on a
+  60-bit SYNC PDU. The same chain at different lengths — (140,124) over 144
+  type-2 bits, a (216,101) interleaver — reads the broadcast network channel
+  out of block 2 of the same burst, which unlike the synchronization block is
+  scrambled with the network's **own** extended colour code and so cannot be
+  read until the synchronization block has given it up. On `captures/` it reads
+  **MCC 268 (Portugal), MNC 3, colour code 17, location area 4375**, with the
+  slot, frame and multiframe counters advancing, on **202 of 202**
+  synchronization blocks and 190 of 202 broadcast blocks. MCC 268 is what `gsm_bcch` reads from a different technology on a
   different band. Every constant is transcribed from ETSI EN 300 392-2, and the
   scrambler's seed was one slot out at first — the chain round-tripped
   perfectly anyway, because a wrong scrambling sequence is its own inverse just
