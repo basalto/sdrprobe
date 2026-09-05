@@ -1,6 +1,6 @@
 # 03 — Descramble, decode, and check the synchronisation block
 
-Status: needs-info
+Status: ready-for-agent
 Blocked by: 02
 
 From a located burst to a block worth believing: descrambling, the
@@ -50,3 +50,24 @@ failure mode this repository has already paid for twice.
 So: get the document, or leave this closed. `tetra_burst_find()` and the
 demodulator underneath it are done and checked either way, and ticket 02's
 comment records what they found.
+
+**2026-09-06 — unblocked. The document is available.**
+
+ETSI publishes free of charge and EN 300 392-2 V3.8.1 (2016-08) downloads from
+etsi.org. Everything this ticket was waiting on is in it: clause 8 for the
+scrambling, clause 8.2 for the channel coding and the RCPC puncturing, and
+table 9.9 for where the fields sit in the 510 bits of the synchronization
+burst -- 12 bits of normal training sequence 3, 2 phase adjustment, 80
+frequency correction, **120 scrambled synchronization block 1**, 38
+synchronization training sequence, 30 scrambled broadcast, 216 scrambled block
+2, 2 phase adjustment, 10 normal training sequence 3.
+
+The burst position is already known on air to the symbol: the training sequence
+matches 19 of 19 at symbols 108 to 126 of the slot, so block 1 is the 120 bits
+immediately before it and the broadcast bits the 30 immediately after.
+
+One warning carried forward from ticket 02, since it applies with more force
+here: a puncturing pattern is a *convention*, so a transcription error
+round-trips perfectly and reads nothing. The phase table was wrong for a day
+under exactly those conditions. Check the transcriptions against something
+outside them -- the CRC passing on air is the only real one.

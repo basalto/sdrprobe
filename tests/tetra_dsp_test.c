@@ -372,6 +372,68 @@ static void test_noise_has_no_grid(void) {
     }
 }
 
+/*
+ * The synchronization training sequence, and the phase table under it.
+ *
+ * These are transcriptions from ETSI EN 300 392-2 V3.8.1 -- table 5.1 for the
+ * phase transitions, equation (9.11) for the sequence -- and a transcription
+ * is exactly what a round trip cannot check. So what is checked here is the
+ * arithmetic relating them, and the *real* check is on air: the sequence
+ * matches 19 of 19 in every chunk of the capture, which a wrong phase table
+ * could not do. That is recorded in ticket 02 rather than here, because
+ * captures/ is gitignored until ticket 05 commits one.
+ */
+static void test_the_sync_word(void) {
+    const unsigned char *word = NULL;
+    static unsigned char stream[4000];
+    int n, count, at, matched;
+
+    count = tetra_sync_dibits(&word);
+    check_int("nineteen symbols, which is thirty-eight bits", count,
+              TETRA_SYNC_SYMBOLS);
+    check_true("and it is there", word != NULL);
+    if (!word)
+        return;
+    for (n = 0; n < count; n++)
+        check_msg(word[n] < 4, "symbol %d of the sync word is %d, not a "
+                               "dibit\n", n, word[n]);
+    /*
+     * The first bits of equation (9.11) are 1,1, 0,0, 0,0, 0,1 -- so the first
+     * four symbols are 3, 0, 0, 1 under table 5.1's reading of B(2k-1),B(2k)
+     * as a two-bit number. Spelling that out is the one place the
+     * transcription is legible in the test rather than only in the source.
+     */
+    check_int("first symbol",  word[0], 3);
+    check_int("second symbol", word[1], 0);
+    check_int("third symbol",  word[2], 0);
+    check_int("fourth symbol", word[3], 1);
+    check_int("last symbol",   word[count - 1], 3);
+
+    /* Planted in noise, it is found where it was planted. */
+    for (n = 0; n < 4000; n++)
+        stream[n] = (unsigned char)((int)(uniform() * 4.0) & 3);
+    for (n = 0; n < count; n++)
+        stream[1234 + n] = word[n];
+    at = tetra_find_sync(stream, 4000, &matched);
+    check_int("found where it was planted", at, 1234);
+    check_int("every symbol of it", matched, count);
+
+    /* And not found in noise alone: the bar is sixteen of nineteen, because
+       at thirteen an empty channel produced a fourteen. */
+    for (n = 0; n < 4000; n++)
+        stream[n] = (unsigned char)((int)(uniform() * 4.0) & 3);
+    check_int("not found in noise", tetra_find_sync(stream, 4000, &matched),
+              -1);
+    check_msg(matched < 16,
+              "noise matched %d of %d symbols of the sync word\n", matched,
+              count);
+
+    /* A sequence one symbol out of place is not a match, which is what makes
+       the position meaningful. */
+    check_int("the burst layout puts it at symbol 107 of 255",
+              TETRA_SYNC_AT_SYMBOL, 107);
+}
+
 int main(void) {
     test_the_phase_steps();
     test_round_trips();
@@ -380,6 +442,7 @@ int main(void) {
     test_noise_does_not_lock();
     test_the_burst_grid();
     test_noise_has_no_grid();
+    test_the_sync_word();
 
     return check_report("TETRA: a carrier to symbols");
 }
