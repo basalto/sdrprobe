@@ -374,7 +374,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
 	check-row-list check-survey-bands check-text-wrap \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
-	check-lte-turbo
+	check-lte-turbo check-lte-transport
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -420,6 +420,15 @@ check-lte-turbo: $(TESTS)/lte_turbo_test.c $(TESTS)/check.h \
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_turbo_test \
 		$(TESTS)/lte_turbo_test.c $(SRC)/lte_turbo.c -lm
 	$(Q)./$(BUILD)/lte_turbo_test
+
+check-lte-transport: $(TESTS)/lte_transport_test.c $(TESTS)/check.h \
+		$(SRC)/lte_transport.c $(SRC)/lte_transport.h \
+		$(SRC)/lte_turbo.c $(SRC)/lte_turbo.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_transport_test \
+		$(TESTS)/lte_transport_test.c $(SRC)/lte_transport.c \
+		$(SRC)/lte_turbo.c -lm
+	$(Q)./$(BUILD)/lte_transport_test
 
 probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h

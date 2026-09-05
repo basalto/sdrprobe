@@ -27,6 +27,7 @@ make check-scan       # the band scan's coverage and the channel it chooses
 make check-adsb-analysis # trace latching, the message log, the funnel
 make check-gsm-continuity # whether consecutive SCH decodes hang together
 make check-gsm-bcch   # four bursts to a System Information message
+make check-lte-transport # CRC-24A, the fillers, and the circular buffer
 make check-acquisition # the block slot, both its modes, and its shutdown
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
@@ -412,6 +413,17 @@ Tabs are presentation only, not the boundary (ADR-0010).
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →
   CRC-16 masked by the antenna-port count → a Master Information Block.
   `src/lte_gold.h` holds the length-31 Gold sequence both sides need.
+- `src/lte_turbo.{c,h}` and `src/lte_transport.{c,h}` — the chain above the
+  MIB, being built for System Information Block 1
+  (`.scratch/lte-sib1/`). The turbo code is rate 1/3 with a quadratic
+  permutation polynomial between its two encoders, decoded max-log-MAP;
+  `lte_transport` is the layer between that codeword and the air — CRC-24A,
+  the filler bits, the 32-column sub-block interleaver and the circular
+  buffer. **Both constants transcribed from the standard are checked against
+  properties rather than against their own use**: a QPP is a permutation
+  exactly when f1 is coprime with K and every prime factor of K divides f2,
+  and a CRC register fed its own polynomial must leave no remainder. A wrong
+  table that both sides share round-trips perfectly and fails only on air.
 - `src/fm_dsp.{c,h}` (`fm_`) — FM broadcast: discriminator, a coherent 19 kHz
   pilot, and the RDS subcarrier down to soft symbols. **Every rate in the
   multiplex is a whole multiple of the pilot** — the subcarrier is three times

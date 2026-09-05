@@ -314,6 +314,19 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   and a CRC-16 whose mask names the antenna-port count. `src/lte_gold.h` holds
   the length-31 Gold sequence both sides of the split need, as a header so
   neither has to depend on the other.
+- `src/lte_turbo.{c,h}` / `src/lte_transport.{c,h}` — the chain above the MIB,
+  under construction for System Information Block 1 (`.scratch/lte-sib1/`).
+  Turbo is rate 1/3 with a quadratic permutation polynomial between two
+  eight-state recursive encoders, decoded max-log-MAP; `lte_transport` is what
+  sits between that codeword and the air. It carries CRC-24A **and** CRC-24B,
+  as separate functions rather than one taking a polynomial, because the
+  polynomial is exactly the argument that gets passed wrongly and the failure
+  is silent. It also owns the two kinds of hole a codeword has -- the sub-block
+  interleaver's padding, and the transport block's filler bits, which are
+  <NULL> in streams 0 and 1 but not in stream 2 -- and one walk computes the
+  circular buffer's selection for both directions, since a dematcher that
+  disagreed with the matcher by one position reads noise with nothing to say
+  why.
 - `src/acquisition.{c,h}` — the worker thread, the single overwriteable block
   slot it hands samples through (ADR-0002), and raw-I/Q recording. Owns its
   own state and knows nothing of `struct app`: the device handle, playback
