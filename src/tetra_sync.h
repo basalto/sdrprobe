@@ -63,10 +63,50 @@ int tetra_sync_block_decode(const unsigned char *dibits,
                             uint8_t message[TETRA_SB_MESSAGE_BITS]);
 
 /*
+ * The broadcast network channel, which rides in the same burst: 216 scrambled
+ * bits at bits 283 to 498, which is symbols 142 to 249 -- 34 symbols after the
+ * synchronization training sequence starts.
+ *
+ * Two things differ from the synchronization block and both matter. It is a
+ * (140,124) code over 144 type-2 bits with a (216,101) interleaver rather than
+ * (76,60) over 80 with (120,11). And **it is scrambled with the network's real
+ * extended colour code**, not with zeros -- 30 bits of MCC, MNC and colour
+ * code, every one of which has to be read out of the synchronization block
+ * first. That ordering is the whole architecture of the air interface: a
+ * terminal finds the network before it can hear what the network says about
+ * itself.
+ */
+#define TETRA_BNCH_SCRAMBLED_BITS 216
+#define TETRA_BNCH_TYPE2_BITS 144
+#define TETRA_BNCH_MESSAGE_BITS 124
+#define TETRA_BNCH_INTERLEAVE_STRIDE 101
+#define TETRA_BNCH_AT_SYMBOL 34      /* after the sync word's first symbol */
+#define TETRA_COLOUR_BITS 30
+
+/* MCC, MNC and colour code into the 30-bit extended colour code (clause 23.2.1,
+   figure 23.5): the 24-bit network identity then the 6-bit colour code. */
+void tetra_extended_colour(int mcc, int mnc, int colour,
+                           uint8_t out[TETRA_COLOUR_BITS]);
+
+/*
+ * Returns 1 when the parity checks. `colour` is the extended colour code, and
+ * for the synchronization block it is all zeros -- which is what
+ * tetra_sync_block_decode passes.
+ */
+int tetra_bnch_decode(const unsigned char *dibits,
+                      const uint8_t colour[TETRA_COLOUR_BITS],
+                      uint8_t message[TETRA_BNCH_MESSAGE_BITS]);
+
+/*
  * The pieces, exposed so each can be checked on its own rather than only
  * through the whole chain -- a chain that fails tells you nothing about which
  * link did it.
  */
+void tetra_descramble(uint8_t *bits, int count,
+                      const uint8_t colour[TETRA_COLOUR_BITS]);
+void tetra_deinterleave(const uint8_t *in, uint8_t *out, int count,
+                        int stride);
+/* Kept as the zero-colour, 120-bit case the synchronization block uses. */
 void tetra_sb_descramble(uint8_t bits[TETRA_SB_SCRAMBLED_BITS]);
 void tetra_sb_deinterleave(const uint8_t in[TETRA_SB_SCRAMBLED_BITS],
                            uint8_t out[TETRA_SB_SCRAMBLED_BITS]);
@@ -75,9 +115,8 @@ void tetra_sb_deinterleave(const uint8_t in[TETRA_SB_SCRAMBLED_BITS],
 int tetra_rcpc_puncture_index(int j);
 /* Hard-decision Viterbi over the terminated mother code. `erased` marks the
    punctured positions, which cost nothing rather than counting as errors. */
-void tetra_rcpc_decode(const uint8_t mother[4 * TETRA_SB_TYPE2_BITS],
-                       const uint8_t erased[4 * TETRA_SB_TYPE2_BITS],
-                       uint8_t out[TETRA_SB_TYPE2_BITS]);
+void tetra_rcpc_decode(const uint8_t *mother, const uint8_t *erased,
+                       int type2_bits, uint8_t *out);
 /* CRC-CCITT as clause 8.2.3.3 defines it: X^16 + X^12 + X^5 + 1, the register
    preset to ones and the remainder complemented (ITU-T X.25). */
 unsigned int tetra_sb_crc(const uint8_t *bits, int count);
