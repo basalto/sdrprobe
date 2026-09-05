@@ -269,25 +269,60 @@ static void test_step_centres(void) {
 
 /* Unresolvable narrowness: what a bare carrier measures at. */
 static void test_unresolved_width(void) {
-    double floor_hz = survey_resolution_hz(RATE, FFT);
+    /* A survey measuring out of one tuning: its bins are the transform's. */
+    double fine = RATE / (double)FFT;
+    double floor_hz = survey_tone_width_hz(fine, RATE, FFT);
 
     check_close("four bins at 2 MS/s", floor_hz, 3906.25, 0.5);
     /* The 3.9 kHz that every one of those comb tones reported. */
-    check_int("3.9 kHz is at the floor", survey_is_unresolved(3900.0, RATE,
-                                                              FFT),
-              1);
+    check_int("3.9 kHz is at the floor",
+              survey_is_unresolved(3900.0, fine, RATE, FFT), 1);
     check_int("6 kHz is still within the slack",
-              survey_is_unresolved(4800.0, RATE, FFT), 1);
-    check_int("20 kHz is a real width", survey_is_unresolved(20000.0, RATE,
-                                                             FFT),
-              0);
+              survey_is_unresolved(4800.0, fine, RATE, FFT), 1);
+    check_int("20 kHz is a real width",
+              survey_is_unresolved(20000.0, fine, RATE, FFT), 0);
     /* An FM station and a DVB-T multiplex are nowhere near it. */
-    check_int("a 180 kHz FM signal", survey_is_unresolved(180000.0, RATE, FFT),
-              0);
-    check_int("an 8 MHz multiplex", survey_is_unresolved(8e6, RATE, FFT), 0);
+    check_int("a 180 kHz FM signal",
+              survey_is_unresolved(180000.0, fine, RATE, FFT), 0);
+    check_int("an 8 MHz multiplex",
+              survey_is_unresolved(8e6, fine, RATE, FFT), 0);
     /* Nothing measured yet is not a narrow signal. */
-    check_int("no measurement", survey_is_unresolved(0.0, RATE, FFT), 0);
-    check_int("no FFT", survey_is_unresolved(3900.0, RATE, 0), 0);
+    check_int("no measurement", survey_is_unresolved(0.0, fine, RATE, FFT), 0);
+    /* No transform is not a resolution, however well the survey binned: a
+       configuration that cannot have produced a measurement must not have one
+       read out of it. */
+    check_int("no FFT", survey_is_unresolved(3900.0, fine, RATE, 0), 0);
+    check_close("nor a tone width", survey_tone_width_hz(fine, RATE, 0), 0.0,
+                1e-9);
+
+    /*
+     * And a swept survey, whose bins are coarser than the transform's. The
+     * width comes out of the survey array, so it is quantised to those bins,
+     * and judging it against the transform's resolution answers "resolved" for
+     * every tone in every swept survey -- which is the case the narrowness
+     * observation exists for.
+     *
+     * These are measurements, not choices. On a 240-270 MHz sweep at 3.66 kHz
+     * bins, the comb tones came back one or two bins wide; on an 88-108 MHz
+     * sweep at 2.44 kHz bins, the broadcast stations came back twenty-three to
+     * seventy-four.
+     */
+    {
+        double coarse = 30e6 / 8192.0;      /* 3.66 kHz */
+        check_close("a swept survey resolves no finer than its own bins",
+                    survey_tone_width_hz(coarse, RATE, FFT), 4.0 * coarse,
+                    1.0);
+        check_int("a comb tone, one survey bin wide",
+                  survey_is_unresolved(coarse, coarse, RATE, FFT), 1);
+        check_int("and at two bins",
+                  survey_is_unresolved(2.0 * coarse, coarse, RATE, FFT), 1);
+        check_int("a station twenty-three bins wide is not a tone",
+                  survey_is_unresolved(23.0 * coarse, coarse, RATE, FFT), 0);
+        /* The extent walk hits its bound on a candidate with no -20 dB point
+           and reports something enormous. That must read as "not narrow". */
+        check_int("an extent that ran to its bound is not a tone",
+                  survey_is_unresolved(2049.0 * coarse, coarse, RATE, FFT), 0);
+    }
 }
 
 /*
@@ -442,6 +477,177 @@ static void test_bin_centre_round_trip(void) {
                 plan.bin_hz / 2.0, 1.0);
 }
 
+/*
+ * The fine comb, and the confound that kept it out of the survey until it
+ * could be told apart from broadcast.
+ *
+ * Every number here is a measurement from 2026-09-05 and both halves matter.
+ * 1.6 MHz is sixteen times the 100 kHz raster that broadcast services sit on,
+ * so a frequency test alone flags one FM channel in sixteen -- and flagged
+ * candidates are set aside from a report's per-allocation bests, so it would
+ * hide a real transmitter rather than a spur.
+ */
+static void test_the_fine_comb(void) {
+    struct survey_plan fm, vhf;
+    double fm_tol, vhf_tol;
+
+    /* The two sweeps the measurements came from. */
+    survey_plan_make(88e6, 108e6, RATE, FFT, 0.20, &fm);
+    survey_plan_make(240e6, 270e6, RATE, FFT, 0.20, &vhf);
+    fm_tol = survey_comb_tolerance(&fm, RATE, FFT);
+    vhf_tol = survey_comb_tolerance(&vhf, RATE, FFT);
+
+    /* The spacing is a ninth of the coarse comb, and the coarse tones are on
+       both -- 244.8 is 17 x 14.4 and 153 x 1.6. */
+    check_close("nine fine tones to a coarse one",
+                RECEIVER_COMB_HZ / RECEIVER_FINE_COMB_HZ, 9.0, 1e-9);
+    check_int("244.8 MHz is on the coarse comb",
+              survey_reference_harmonic(244.8e6, vhf_tol), 17);
+    check_int("and on the fine one",
+              survey_fine_harmonic(244.8e6, vhf_tol), 153);
+    /* And the eight between them are on the fine comb only, which is the
+       whole point: the old test saw one tone in nine. */
+    check_int("243.2 MHz is not on the coarse comb",
+              survey_reference_harmonic(243.2e6, vhf_tol), 0);
+    check_int("but is on the fine one",
+              survey_fine_harmonic(243.2e6, vhf_tol), 152);
+
+    /*
+     * The confound, measured. 94.4 MHz is 59 x 1.6 and it is the loudest FM
+     * station at this site -- a confirmation pass put it 46 dB above its
+     * floor. Its extent on an 88-108 MHz sweep was 27 survey bins, 66 kHz.
+     */
+    check_int("94.4 MHz is on the fine comb",
+              survey_fine_harmonic(94.4e6, fm_tol), 59);
+    check_int("but it is not narrow",
+              survey_is_unresolved(66e3, fm.bin_hz, RATE, FFT), 0);
+    check_int("so it is not flagged",
+              (survey_suspect(&fm, 94.4e6, 66e3, RATE, FFT, 1) &
+               SURVEY_SUSPECT_REFERENCE) != 0,
+              0);
+    /* Nor 107.2 MHz (67 x 1.6), 72 bins wide, nor 92.8 (58 x 1.6), 45 bins. */
+    check_int("nor 107.2 MHz",
+              (survey_suspect(&fm, 107.2e6, 176e3, RATE, FFT, 1) &
+               SURVEY_SUSPECT_REFERENCE) != 0,
+              0);
+    check_int("nor 92.8 MHz",
+              (survey_suspect(&fm, 92.8e6, 110e3, RATE, FFT, 1) &
+               SURVEY_SUSPECT_REFERENCE) != 0,
+              0);
+
+    /*
+     * And the case in the other direction, which is where the resolution
+     * decides. 102.4 MHz is 64 x 1.6 and there is a comb tone on it: swept at
+     * the transform's own 977 Hz it comes back four bins wide and is flagged
+     * `reference,unresolved`. Swept as part of 88-108 MHz, whose bins are
+     * 2.44 kHz, the same tone quantises to six bins -- 14.6 kHz, half as wide
+     * again as four bins of that sweep -- and is not called a tone.
+     *
+     * That is the sweep declining to claim, not a miss, and it degrades the
+     * same way the frequency test does: a coarse sweep can place a candidate
+     * less precisely and can resolve it less finely, so it says less about it.
+     * The alternative is a tone rule loose enough to catch a pager.
+     */
+    {
+        struct survey_plan narrow;
+        double fine;
+
+        survey_plan_make(101.8e6, 103.4e6, RATE, FFT, 0.30, &narrow);
+        fine = survey_comb_tolerance(&narrow, RATE, FFT);
+        check_close("a 1.6 MHz sweep bins at the transform's resolution",
+                    narrow.bin_hz, RATE / (double)FFT, 1.0);
+        check_int("102.4 MHz is on the fine comb",
+                  survey_fine_harmonic(102.4e6, fine), 64);
+        check_int("four bins there is a tone",
+                  (survey_suspect(&narrow, 102.4e6, 4.0 * narrow.bin_hz, RATE,
+                                  FFT, 1) & SURVEY_SUSPECT_REFERENCE) != 0,
+                  1);
+        check_int("the same tone at 88-108 MHz's bins is not claimed",
+                  (survey_suspect(&fm, 102.4e6, 14.6e3, RATE, FFT, 1) &
+                   SURVEY_SUSPECT_REFERENCE) != 0,
+                  0);
+    }
+
+    /* The tones at 240-270, one and two survey bins wide. */
+    check_int("a one-bin comb tone at 243.2 MHz",
+              (survey_suspect(&vhf, 243.2e6, vhf.bin_hz, RATE, FFT, 1) &
+               SURVEY_SUSPECT_REFERENCE) != 0,
+              1);
+    check_int("a two-bin one at 259.2 MHz",
+              (survey_suspect(&vhf, 259.2e6, 2.0 * vhf.bin_hz, RATE, FFT, 1) &
+               SURVEY_SUSPECT_REFERENCE) != 0,
+              1);
+    /* A carrier of real width on a fine-comb multiple is left alone. */
+    check_int("but a 200 kHz carrier at 246.4 MHz is not",
+              (survey_suspect(&vhf, 246.4e6, 200e3, RATE, FFT, 1) &
+               SURVEY_SUSPECT_REFERENCE) != 0,
+              0);
+}
+
+/*
+ * A comb test that cannot place a candidate says nothing rather than saying
+ * something one time in eight.
+ *
+ * The chance a real signal lands within `tolerance` of a multiple is
+ * 2*tolerance/spacing. At 14.4 MHz even a full-tuner sweep's 106 kHz half-bin
+ * is 1.5%; at 1.6 MHz it is 13%, and a flag that is wrong one candidate in
+ * eight is not evidence.
+ */
+static void test_the_fine_comb_refuses_a_coarse_sweep(void) {
+    struct survey_plan wide;
+    double tolerance;
+    int flagged = 0;
+    int i;
+
+    survey_plan_make(24e6, 1766e6, RATE, FFT, 0.10, &wide);
+    tolerance = survey_comb_tolerance(&wide, RATE, FFT);
+    check_msg(tolerance > RECEIVER_FINE_COMB_HZ * RECEIVER_COMB_MAX_FRACTION,
+              "a full-tuner sweep's %.0f Hz tolerance should be too coarse "
+              "for a 1.6 MHz comb\n", tolerance);
+    check_int("so the fine comb declines to answer",
+              survey_fine_harmonic(259.2e6, tolerance), 0);
+    /* The coarse comb still answers, because 106 kHz of 14.4 MHz is 1.5%. */
+    check_int("while the coarse one still does",
+              survey_reference_harmonic(259.2e6, tolerance), 18);
+
+    /* And nothing narrow on a fine-comb multiple is flagged by it either. */
+    for (i = 0; i < 1000; i++) {
+        double hz = 24e6 + (1766e6 - 24e6) * (double)i / 1000.0;
+
+        if (survey_fine_harmonic(hz, tolerance))
+            flagged++;
+    }
+    check_int("not one frequency in a thousand", flagged, 0);
+
+    /* At a resolution that can place a candidate, it answers again. */
+    {
+        struct survey_plan band;
+        double fine;
+
+        survey_plan_make(240e6, 270e6, RATE, FFT, 0.20, &band);
+        fine = survey_comb_tolerance(&band, RATE, FFT);
+        check_msg(fine <= RECEIVER_FINE_COMB_HZ * RECEIVER_COMB_MAX_FRACTION,
+                  "a 30 MHz sweep's %.0f Hz tolerance should be fine enough\n",
+                  fine);
+        check_int("259.2 MHz is tone 162", survey_fine_harmonic(259.2e6, fine),
+                  162);
+        /* The false-hit rate that tolerance buys: 2*25k/1.6M is about 3%. */
+        flagged = 0;
+        for (i = 0; i < 1000; i++) {
+            double hz = 240e6 + 30e6 * (double)i / 1000.0;
+
+            if (survey_fine_harmonic(hz, fine))
+                flagged++;
+        }
+        check_msg(flagged <= 50,
+                  "%d of 1000 frequencies land on the fine comb by chance\n",
+                  flagged);
+        check_msg(flagged >= 5,
+                  "only %d of 1000 hit the comb, so nothing is being "
+                  "exercised\n", flagged);
+    }
+}
+
 int main(void) {
     test_the_comb_that_was_measured();
     test_real_signals_are_left_alone();
@@ -455,6 +661,9 @@ int main(void) {
     test_counting_a_sweep();
     test_the_step_centre_test_is_gated();
     test_bin_centre_round_trip();
+
+    test_the_fine_comb();
+    test_the_fine_comb_refuses_a_coarse_sweep();
 
     return check_report("suspicious candidates");
 }

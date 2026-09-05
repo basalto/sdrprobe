@@ -259,7 +259,15 @@ Two conventions worth knowing before comparing anything:
 
 - **Flagged candidates are kept, never dropped.** A `flags` entry means the
   survey thinks the candidate resembles the receiver rather than the band -- a
-  reference comb, a DC offset at a step centre. The survey does not remove
+  reference comb, a DC offset at a step centre. The comb is spaced **1.6 MHz**,
+  which is 28.8/18: every ninth tone is also a multiple of 14.4 MHz, which is
+  all the survey used to know about. Two things have to agree before the finer
+  comb is claimed, because 1.6 MHz is sixteen times the 100 kHz broadcast
+  raster and one FM channel in sixteen sits on it: the sweep must be able to
+  place the candidate to a fortieth of the spacing, which a sweep wider than
+  about 650 MHz cannot, and the candidate must be a bare tone at that sweep's
+  own resolution. 94.4 MHz, the loudest station at this site, is on the comb
+  and 27 survey bins wide, and is not flagged. The survey does not remove
   them and neither does this, because removing a peak would hide a real
   transmitter that happens to sit on a harmonic (ADR-0015). `report` and `diff`
   set them aside and count them; they stay in the file.

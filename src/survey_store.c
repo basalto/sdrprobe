@@ -42,6 +42,8 @@ int survey_candidates_from(struct app *app, const struct survey_plan *plan,
         c->found_hz = survey_plan_bin_centre(plan, peaks[i].index);
         c->power_dbfs = peaks[i].power_dbfs;
         c->prominence_db = peaks[i].prominence_db;
+        c->extent_hz = (double)(peaks[i].upper_index - peaks[i].lower_index +
+                                1) * plan->bin_hz;
 
         if (spectrum &&
             sdr_dsp_characterise_carrier(
@@ -59,9 +61,16 @@ int survey_candidates_from(struct app *app, const struct survey_plan *plan,
          * centre, and reporting that centre in place of each would hide the
          * fact that the peak finder returned several.
          */
+        /*
+         * Measured width where there is one, the survey array's extent where
+         * there is not. It used to pass zero for a swept survey, which made
+         * every narrowness test answer "no" and left the one observation that
+         * tells a bare carrier from a service unavailable in exactly the case
+         * that needs it.
+         */
         c->suspect = survey_suspect(plan,
                                     c->measured ? c->centre_hz : c->found_hz,
-                                    c->measured ? c->width_hz : 0.0,
+                                    c->measured ? c->width_hz : c->extent_hz,
                                     (double)app->applied_sample_rate,
                                     SDR_DSP_FFT_SIZE, app->remove_dc);
         entry = band_plan_lookup(c->measured ? c->centre_hz : c->found_hz);
