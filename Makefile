@@ -374,7 +374,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
 	check-row-list check-survey-bands check-text-wrap \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
-	check-lte-turbo check-lte-transport
+	check-lte-turbo check-lte-transport check-tetra-dsp
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -420,6 +420,13 @@ check-lte-turbo: $(TESTS)/lte_turbo_test.c $(TESTS)/check.h \
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_turbo_test \
 		$(TESTS)/lte_turbo_test.c $(SRC)/lte_turbo.c -lm
 	$(Q)./$(BUILD)/lte_turbo_test
+
+check-tetra-dsp: $(TESTS)/tetra_dsp_test.c $(TESTS)/check.h \
+		$(SRC)/tetra_dsp.c $(SRC)/tetra_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/tetra_dsp_test \
+		$(TESTS)/tetra_dsp_test.c $(SRC)/tetra_dsp.c -lm
+	$(Q)./$(BUILD)/tetra_dsp_test
 
 check-lte-transport: $(TESTS)/lte_transport_test.c $(TESTS)/check.h \
 		$(SRC)/lte_transport.c $(SRC)/lte_transport.h \
