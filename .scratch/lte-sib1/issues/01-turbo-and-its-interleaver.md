@@ -1,6 +1,6 @@
 # 01 — The turbo code, and the interleaver that defines it
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: (none)
 
 `src/lte_turbo.{c,h}`: the rate-1/3 parallel concatenated convolutional code
@@ -49,3 +49,47 @@ hit exactly once.
 
 The rate matching that feeds it, the CRC-24A that checks it, and everything
 above the physical layer. Those are 02 and later.
+
+## Comments
+
+Resolved. `src/lte_turbo.{c,h}` and 219 checks.
+
+**The table is right, and it is right for a reason that does not involve our
+encoder.** All 188 rows satisfy the permutation property -- f1 coprime with K,
+every prime factor of K dividing f2 -- and every interleaver is a bijection in
+fact as well as in principle: no two bits to one place, no place left empty,
+nothing pointing outside its block, at all 188 sizes. That is the check the
+ticket was written for, and it passed first time.
+
+The decoder is max-log-MAP, and it behaves like a turbo decoder rather than
+like something that merely passes a clean round trip. Measured on K = 512:
+
+| Es/N0 | after 1 iteration | after 8 |
+| --- | --- | --- |
+| -1.1 dB | 0 | 0 |
+| **-3.0 dB** | **19** | **0** |
+| -4.6 dB | 88 | 122 |
+
+The middle row is the one worth having: the iteration is doing the work.
+The last row is the cliff, where iterating makes it worse -- which is what a
+turbo decoder does below its threshold, and is itself a sign the feedback is
+real. Rate 1/3 at -3.0 dB Es is 1.8 dB of Eb/N0, which is where max-log-MAP on
+a block this size belongs.
+
+## Three of my own claims were wrong before any code was
+
+Worth recording, because they are the `check-claims` shapes exactly.
+
+- **The block sizes.** I generated the expected sequence with the step chosen
+  by `expected <= 512`, which makes 512 be followed by 520. The step changes
+  *at* the boundary: 512 is followed by 528. 128 of 188 sizes "failed" against
+  my arithmetic, not the standard's.
+- **The prime factors.** I divided out one prime and then treated the whole
+  remaining cofactor as prime, so K = 120 was reported as failing on 40 --
+  which is neither prime nor a factor anybody claimed. 1289 false failures.
+- **The operating point.** The first version of the iteration check used three
+  times the noise it should have. One iteration and eight both left about a
+  third of the block wrong, and the check said the decoder was broken when it
+  was past the code's cliff, where no decoder converges. The point had to be
+  *found* by sweeping, not guessed -- and the sweep is now a second check
+  rather than a thing I did once.

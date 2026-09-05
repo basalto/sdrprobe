@@ -373,7 +373,8 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-layout check-acquisition check-scan check-adsb-analysis \
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
 	check-row-list check-survey-bands check-text-wrap \
-	check-gsm-continuity check-gsm-bcch check-geometry check-input
+	check-gsm-continuity check-gsm-bcch check-geometry check-input \
+	check-lte-turbo
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -412,6 +413,13 @@ probe-fm-filter: scripts/fm_filter_probe.c $(SRC)/fm_dsp.c $(SRC)/fm_dsp.h \
 		scripts/fm_filter_probe.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
 		$(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/fm_filter_probe $(FILE_FM_FILTER) $(RATE_FM_FILTER)
+
+check-lte-turbo: $(TESTS)/lte_turbo_test.c $(TESTS)/check.h \
+		$(SRC)/lte_turbo.c $(SRC)/lte_turbo.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_turbo_test \
+		$(TESTS)/lte_turbo_test.c $(SRC)/lte_turbo.c -lm
+	$(Q)./$(BUILD)/lte_turbo_test
 
 probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
