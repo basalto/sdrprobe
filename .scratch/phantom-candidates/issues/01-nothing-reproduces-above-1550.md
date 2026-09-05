@@ -16,10 +16,34 @@ Three things to separate, cheapest first:
    image rejection degrades over the last hundred megahertz is measurable:
    sweep 1500-1620 and 1650-1766 with a long dwell, several times, and see
    whether the candidates move.
-2. **The sweep's own step boundaries.** A candidate that only appears at
-   certain step edges is a fold artefact rather than a signal. The step plan
-   is `survey_sweep.h` and `check-survey-sweep` covers its arithmetic; what is
-   not covered is what happens to a *measurement* that straddles two steps.
+2. **The sweep's own step boundaries -- now with evidence, and it is the
+   likeliest of the three.** The receiver retunes in 1.6 MHz steps, and
+   candidates cluster on multiples of exactly that:
+
+   | multiple of | on it | by chance |
+   | --- | --- | --- |
+   | 1.5 MHz | 2.7% | 2.0% |
+   | **1.6 MHz** | **6.7%** | 1.9% |
+   | 1.7 MHz | 2.0% | 1.8% |
+   | 1.8 MHz | 0.4% | 1.7% |
+
+   The obvious confound is that 1.6 MHz is sixteen times the 100 kHz raster
+   broadcast services sit on, so real stations would land there anyway. Two
+   controls say otherwise. Restricted to **200-300 MHz, where no broadcast
+   raster applies**, 1.6 MHz gives 8.3% of 48 candidates against 0.0% at
+   1.5 MHz. And the 100 kHz raster itself shows **no enrichment at all** --
+   31.4% against 30.0% by chance -- so the rasters are not what is doing this.
+
+   A live sweep of 240-270 MHz makes it plain. Eight candidates, and every
+   one is a multiple of 1.6 MHz to within 10 kHz: 240.009, 243.210, 244.810,
+   246.407, 251.208, 259.210, 267.211, 268.801. That is the whole of the
+   "Fixed and mobile" cluster in that range, which the full survey reports as
+   51 candidates -- its second largest group.
+
+   `survey_sweep.h` holds the step plan and `check-survey-sweep` covers its
+   arithmetic. What is not covered is what happens to a *measurement* that
+   straddles two steps, or to the bins at a step's edge where the tuner's
+   response is rolling off.
 3. **The negative prominence.** 1603.219 MHz reported -3.0 dB, a maximum below
    its own floor. Whatever grouping or floor estimate allows that is reachable
    without a receiver -- `survey_carrier.h` is a pure header with a check
