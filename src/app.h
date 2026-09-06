@@ -19,6 +19,7 @@
 #include "gsm_bcch.h"
 #include "gsm_dsp.h"
 #include "lte_dsp.h"
+#include "lte_stats.h"
 #include "lte_mib.h"
 #include "lte_scan.h"
 #include "options.h"
@@ -515,6 +516,9 @@ struct lte_view {
        own frequency correction. */
     struct lte_channel_shape shape;
     int shape_valid;
+    /* What each of the measurements above has done since this cell was
+       found. Cleared when the identity changes -- see lte_stats.h. */
+    struct lte_cell_stats stats;
     struct lte_mib mib;
     int mib_valid;
     double mib_time;

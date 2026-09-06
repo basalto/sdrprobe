@@ -90,6 +90,19 @@ displays a PNG. Look at the ones your change touched, and at their
 neighbours; bare `make screens` renders all twelve and takes a minute, which
 is the wrong tool for a change that moved one panel.
 
+The cell panel is a table of what each measurement *did*, not what it says
+this block: smallest, mean and largest since the identity last changed
+(`src/lte_stats.h`, and `lte-chain-stat` lines in the headless report). Every
+one of those moves -- a correlation drops when somebody walks past the
+antenna, a reference power follows the fading -- and one reading cannot tell a
+marginal cell from a steady one. **The reset on a change of identity is
+load-bearing**: a carrier here alternates between two cells block to block,
+and an average across both would sit under a heading naming one of them. It
+also caught a fault nothing per-block could show: the chain was picking its
+primary cell by reference power, an invented identity's power reads high often
+enough to take first place, and the primary flipped often enough to reset a
+run of 146 blocks to 3.
+
 Panel rows are part of that geometry. `lte_layout.h` gives a panel's row
 positions, its label and value columns and how many rows it *holds*
 (`lte_panel_rows_for`), because the LTE view computed them as `y += 21`

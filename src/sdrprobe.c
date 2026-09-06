@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 #include <sys/stat.h>
 #include <time.h>
 
@@ -28,6 +29,7 @@
 #include "tetra_dsp.h"
 #include "tetra_sync.h"
 #include "lte_confirm.h"
+#include "lte_stats.h"
 #include "debug_log.h"
 
 /* input_route.h mirrors this so it can stay standalone; if that enum is
@@ -2114,11 +2116,13 @@ static int run_headless(struct app *app) {
                                   ? app->options.lte_chain_seconds : 30.0;
         unsigned long blocks = 0, cells = 0, parity = 0, messages = 0;
         struct lte_cell_tally tally;
+        struct lte_cell_stats stats;
         int primary_read = 0;
         struct lte_cell on_carrier[LTE_MAX_CELLS_PER_CARRIER];
         int found_cells = 0;
 
         memset(&tally, 0, sizeof(tally));
+        memset(&stats, 0, sizeof(stats));
         struct lte_mib last;
         int have_last = 0;
         uint32_t carrier = 0;
@@ -2221,7 +2225,28 @@ static int run_headless(struct app *app) {
                                               on_carrier,
                                               LTE_MAX_CELLS_PER_CARRIER, NULL);
             if (found_cells > 0) {
-                cell = on_carrier[0];
+                /*
+                 * The strongest *correlation*, not the strongest level.
+                 *
+                 * lte_cell_search_all ranks by reference power, which is the
+                 * right order for presenting neighbours and the wrong way to
+                 * pick the cell being walked: an identity the search invented
+                 * has its power measured at reference positions belonging to
+                 * no transmitter, and that reads high often enough to take
+                 * first place. The primary then flips between blocks, which
+                 * is invisible in a per-block report and obvious the moment
+                 * anything accumulates across blocks -- it reset the run's
+                 * statistics to three samples out of a hundred and forty-six.
+                 *
+                 * The correlation is what the detector actually locked onto
+                 * and it is stable, which is what a run of blocks needs.
+                 */
+                int b, best = 0;
+                for (b = 1; b < found_cells; b++)
+                    if (on_carrier[b].pss_correlation >
+                        on_carrier[best].pss_correlation)
+                        best = b;
+                cell = on_carrier[best];
             } else if (lte_cell_search(app->i_samples, app->q_samples,
                                        app->pair_count,
                                        (double)app->applied_sample_rate, &cell,
@@ -2295,16 +2320,43 @@ static int run_headless(struct app *app) {
                            mib_ok ? "yes" : "no");
                 }
             }
+            /*
+             * Into the run's statistics as well as onto the line. Everything
+             * here moves, and a summary of what it did beats three hundred
+             * lines of what it was -- which is what a reader gets today.
+             */
+            lte_stats_for_cell(&stats, cell.pci);
+            lte_stat_add(&stats.frequency_khz,
+                         (float)(cell.frequency_offset_hz / 1e3));
+            lte_stat_add(&stats.pss, cell.pss_correlation);
+            lte_stat_add(&stats.sss, cell.sss_correlation);
             {
                 struct lte_channel_shape shape;
                 if (lte_channel_shape(app->i_samples, app->q_samples,
                                       app->pair_count,
                                       (double)app->applied_sample_rate,
-                                      &cell, &shape))
+                                      &cell, &shape)) {
                     printf("chain %lu channel delay_ns %.0f spread_ns %.0f "
                            "drift_hz %.0f\n", blocks, (double)shape.delay_ns,
                            (double)shape.delay_spread_ns,
                            (double)shape.drift_hz);
+                    lte_stat_add(&stats.delay_ns, shape.delay_ns);
+                    lte_stat_add(&stats.spread_ns, shape.delay_spread_ns);
+                    lte_stat_add(&stats.drift_hz, shape.drift_hz);
+                }
+            }
+            {
+                float coherence[LTE_PORT_COUNT];
+                if (lte_port_coherence(app->i_samples, app->q_samples,
+                                       app->pair_count,
+                                       (double)app->applied_sample_rate,
+                                       &cell, coherence)) {
+                    int ports = 0, p;
+                    for (p = 0; p < LTE_PORT_COUNT; p++)
+                        if (coherence[p] >= LTE_PORT_COHERENCE_PRESENT)
+                            ports++;
+                    lte_stat_add(&stats.ports, (float)ports);
+                }
             }
             {
                 /* dBFS and not dBm, and the keyword says so: there is no
@@ -2314,12 +2366,16 @@ static int run_headless(struct app *app) {
                 if (lte_reference_power(app->i_samples, app->q_samples,
                                         app->pair_count,
                                         (double)app->applied_sample_rate,
-                                        &cell, &power))
+                                        &cell, &power)) {
                     printf("chain %lu power rsrp_dbfs %.1f rssi_dbfs %.1f "
                            "rsrq_db %.1f sinr_db %.1f blocks %d\n", blocks,
                            (double)power.rsrp_dbfs, (double)power.rssi_dbfs,
                            (double)power.rsrq_db, (double)power.sinr_db,
                            power.resource_blocks);
+                    lte_stat_add(&stats.rsrp_dbfs, power.rsrp_dbfs);
+                    lte_stat_add(&stats.rsrq_db, power.rsrq_db);
+                    lte_stat_add(&stats.sinr_db, power.sinr_db);
+                }
             }
 
             primary_read = 0;
@@ -2374,6 +2430,60 @@ static int run_headless(struct app *app) {
          * existence is a broadcast channel scrambled with that identity and
          * checked by a CRC.
          */
+        /*
+         * What each measurement did over the run. The statistics belong to
+         * whichever cell was last seen -- lte_stats_for_cell clears them when
+         * the identity changes, so on a carrier that alternates these
+         * describe the survivor and the `blocks` count says how few that was.
+         */
+        if (stats.valid) {
+            static const struct {
+                const char *name;
+                size_t offset;
+                const char *format;
+            } columns[] = {
+                { "freq_khz", offsetof(struct lte_cell_stats, frequency_khz),
+                  "%+.2f" },
+                { "pss", offsetof(struct lte_cell_stats, pss), "%.3f" },
+                { "sss", offsetof(struct lte_cell_stats, sss), "%.3f" },
+                { "rsrp_dbfs", offsetof(struct lte_cell_stats, rsrp_dbfs),
+                  "%.1f" },
+                { "rsrq_db", offsetof(struct lte_cell_stats, rsrq_db), "%.1f" },
+                { "sinr_db", offsetof(struct lte_cell_stats, sinr_db), "%.1f" },
+                { "delay_ns", offsetof(struct lte_cell_stats, delay_ns),
+                  "%+.0f" },
+                { "spread_ns", offsetof(struct lte_cell_stats, spread_ns),
+                  "%.0f" },
+                { "drift_hz", offsetof(struct lte_cell_stats, drift_hz),
+                  "%+.0f" },
+                { "ports", offsetof(struct lte_cell_stats, ports), "%.2f" }
+            };
+            unsigned c;
+            for (c = 0; c < sizeof(columns) / sizeof(columns[0]); c++) {
+                const struct lte_stat *st =
+                    (const struct lte_stat *)((const char *)&stats +
+                                              columns[c].offset);
+                char line[160];
+                int n;
+                if (!st->count)
+                    continue;
+                n = snprintf(line, sizeof(line),
+                             "lte-chain-stat pci %d %s min ", stats.pci,
+                             columns[c].name);
+                n += snprintf(line + n, sizeof(line) - (size_t)n,
+                              columns[c].format, (double)st->min);
+                n += snprintf(line + n, sizeof(line) - (size_t)n, " mean ");
+                n += snprintf(line + n, sizeof(line) - (size_t)n,
+                              columns[c].format,
+                              (double)lte_stat_mean(st));
+                n += snprintf(line + n, sizeof(line) - (size_t)n, " max ");
+                n += snprintf(line + n, sizeof(line) - (size_t)n,
+                              columns[c].format, (double)st->max);
+                snprintf(line + n, sizeof(line) - (size_t)n, " blocks %lu",
+                         st->count);
+                printf("%s\n", line);
+            }
+        }
         {
             int t;
             for (t = 0; t < tally.count; t++) {

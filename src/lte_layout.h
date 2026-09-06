@@ -80,6 +80,14 @@ struct lte_panel_rows {
     float value_width;
     float footer_y;     /* the "last seen" line, under the rows */
     int capacity;       /* rows that fit without leaving the panel */
+    /*
+     * The value column split three ways, for a row carrying the smallest,
+     * mean and largest of a measurement rather than one reading. Same right
+     * edge as `value_x + value_width`, so a plain row and a statistics row
+     * end in the same place and the panel reads as one table.
+     */
+    float stat_x[3];
+    float stat_width;
 };
 
 static inline struct lte_panel_rows lte_panel_rows_for(Rectangle panel) {
@@ -104,6 +112,20 @@ static inline struct lte_panel_rows lte_panel_rows_for(Rectangle panel) {
     r.value_width = panel.x + panel.width - 12.0f - r.value_x;
     if (r.value_width < 1.0f)
         r.value_width = 1.0f;
+
+    {
+        /* Three columns and two gaps. The gap is small because the numbers
+           are short and the space is not: five characters of "-35.8" against
+           a column that has to hold "1579". */
+        const float gap = 6.0f;
+        float each = (r.value_width - 2.0f * gap) / 3.0f;
+        int c;
+        if (each < 1.0f)
+            each = 1.0f;
+        r.stat_width = each;
+        for (c = 0; c < 3; c++)
+            r.stat_x[c] = r.value_x + (float)c * (each + gap);
+    }
 
     room = panel.y + panel.height - LTE_PANEL_FOOTER_HEIGHT - r.first_y;
     r.capacity = room > 0.0f ? (int)(room / r.step) : 0;
