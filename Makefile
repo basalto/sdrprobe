@@ -478,6 +478,13 @@ probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 
 # White-box diagnostic walk through the LTE cell search and broadcast channel.
 FILE_LTE ?= testfiles/lte_b20_pci28.bin
+FILE_NBIOT ?= captures/nbiot.bin
+probe-nbiot: scripts/nbiot_gate.c $(SRC)/lte_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/nbiot_gate \
+		scripts/nbiot_gate.c -lm
+	$(Q)./$(BUILD)/nbiot_gate $(FILE_NBIOT)
+
 probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h
 	@mkdir -p $(BUILD)
@@ -541,4 +548,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity probe-survey-threshold bench-dsp screens clean
+.PHONY: all check hooks check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-periodicity probe-survey-threshold bench-dsp screens clean

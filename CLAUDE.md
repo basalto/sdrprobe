@@ -183,6 +183,17 @@ is LTE (a burst every 5 ms) or 5G NR (every 20, and none at 5), and whether it
 runs at 15 or 30 kHz. It is how band 28 was found to be carrying NR rather than
 a weak LTE cell.
 
+`probe-nbiot` is the gate the `rf-environment` skill demands before a
+technology gets a ticket, written for NB-IoT and useful as a shape. It
+correlates against the narrowband primary synchronisation signal -- a
+length-11 Zadoff-Chu, the same in every cell, repeating every 10 ms -- and
+reports the peak against its own floor and how much of it comes back a frame
+later. **`FILE_NBIOT=--self-test` lays the sequence into noise and finds it at
+12.8 deviations with a 105% repeat**, which is the half that makes a null
+worth anything: a negative from a detector nobody has seen fire is not a
+finding. Six band 8 carriers read 2.9 to 5.1 deviations and 50 to 79%, against
+a known-empty LTE capture at 4.0 and 68%.
+
 `probe-survey-threshold` answers a different kind of question: what a survey of
 *nothing* reports. Pure noise through the real transform and the real fold, at
 every fold depth a sweep can have, and the answer is no candidates at any bar
