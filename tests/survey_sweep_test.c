@@ -205,6 +205,34 @@ static void test_fold_holds_the_peak(void) {
                 SURVEY_SENTINEL_DBFS - 10.0, 0.001);
 }
 
+/*
+ * Measuring one candidate has the same settle as a sweep step, and did not.
+ *
+ * A block already in the pipeline when the tuner moved holds samples from
+ * where the receiver was, and measuring it measures that frequency. The sweep
+ * has always discarded those; the measure path folded them in, so peak power,
+ * prominence, bandwidth and duty were all computed partly from the previous
+ * tuning. A spectrum average blurs one stale block among good ones well
+ * enough that it never showed -- until a carrier measurement, which cannot
+ * blur it, called the 75.000 MHz clock harmonic "a modulated carrier".
+ */
+static void test_measuring_waits_for_the_tuner(void) {
+    check_int("a block before the settle is not measured",
+              survey_measure_settled(SURVEY_SETTLE_SECONDS / 2.0), 0);
+    check_int("nor is the one at the instant of tuning",
+              survey_measure_settled(0.0), 0);
+    check_int("the instant the settle ends, measuring starts",
+              survey_measure_settled(SURVEY_SETTLE_SECONDS), 1);
+    check_int("and everything after it",
+              survey_measure_settled(SURVEY_MEASURE_SECONDS), 1);
+    /*
+     * The measurement has to have room left after the settle, or a candidate
+     * is selected, waited for, and measured over nothing.
+     */
+    check_true("and the settle leaves most of the measurement",
+               SURVEY_SETTLE_SECONDS < SURVEY_MEASURE_SECONDS / 4.0);
+}
+
 /* The step machine: settle, dwell, advance, finish. */
 static void test_step_phases(void) {
     const double dwell = 0.5;
@@ -399,6 +427,7 @@ int main(void) {
     test_fold_mapping();
     test_fold_discards_the_edges();
     test_fold_holds_the_peak();
+    test_measuring_waits_for_the_tuner();
     test_step_phases();
     test_leaving_a_step();
     test_a_whole_sweep_walks_the_range();

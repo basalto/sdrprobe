@@ -39,6 +39,17 @@ struct survey_layout {
     Rectangle scan_button;      /* inside detail: sweep around the candidate */
     Rectangle waterfall_button; /* inside detail: watch it over time */
     Rectangle inspect_button;   /* inside detail, when a decoder fits the band */
+    /*
+     * Where the panel's prose may go: inside detail, stopping clear of the
+     * buttons. The panel grew a block of findings and the band plan under it
+     * was pushed straight through the "Scan this frequency" button -- the
+     * caption-on-a-checkbox fault this file's header already records, in a
+     * panel whose text was positioned by `y +=` between draw calls and so
+     * modelled nowhere. A rectangle nothing may draw past is the fix, and it
+     * is here so check-layout can assert it clears the buttons at every
+     * window size.
+     */
+    Rectangle detail_text;
     float status_y;            /* baseline of the status line, below both rows */
     /*
      * How far above a field its caption sits, and how tall captions are.
@@ -191,6 +202,18 @@ static inline struct survey_layout survey_layout_for(float width,
                                       button_w, 28.0f };
     l.inspect_button = (Rectangle){ l.detail.x + 12.0f, lower_row,
                                     detail_w - 24.0f, 28.0f };
+
+    /* Down to the topmost button, less a gap. Never negative: a window short
+       enough puts the buttons at the panel's top edge, and then there is no
+       room for prose at all, which is the honest answer rather than a
+       height that wraps. */
+    {
+        float text_h = upper_row - 8.0f - l.detail.y;
+        if (text_h < 0.0f)
+            text_h = 0.0f;
+        l.detail_text = (Rectangle){ l.detail.x, l.detail.y, l.detail.width,
+                                     text_h };
+    }
     return l;
 }
 
