@@ -27,7 +27,13 @@
  * (ADR-0012).
  */
 
-#define LTE_CONFIRM_MAX_CELLS 8
+/*
+ * Sixteen, not eight. A noisy carrier produces more spurious identities than
+ * it has cells: EARFCN 3625 filled an eight-entry table with 187, 410, 191,
+ * 406, 318, 23 and 163 -- one real cell among them -- and PCI 190, confirmed
+ * in other runs of the same channel, never got a slot.
+ */
+#define LTE_CONFIRM_MAX_CELLS 16
 /* One parity pass is expected in a long run; two agreeing is not. */
 #define LTE_CONFIRM_MIN_MESSAGES 2
 /* Below this an identity is one block's opinion rather than a claim. */
@@ -74,8 +80,28 @@ static inline void lte_confirm_saw(struct lte_cell_tally *tally, int pci,
         tally->cell[i].messages += message ? 1 : 0;
         return;
     }
-    if (tally->count >= LTE_CONFIRM_MAX_CELLS)
+    if (tally->count >= LTE_CONFIRM_MAX_CELLS) {
+        /*
+         * Full. Take the slot of an identity seen exactly once and never
+         * read, if there is one -- it is worth no more than the newcomer,
+         * which is also seen once, so exchanging them loses nothing.
+         *
+         * Nothing else is evicted. An entry that has been seen twice is
+         * better established than a new arrival, and an entry with a message
+         * is a cell; a table that evicted those would report whichever
+         * artefacts arrived last. Sizing the table is what keeps this rare,
+         * and the eviction is what stops a run of singletons burying a real
+         * cell that appears late.
+         */
+        for (i = 0; i < tally->count; i++) {
+            if (tally->cell[i].looks == 1 && tally->cell[i].messages == 0) {
+                tally->cell[i].pci = pci;
+                tally->cell[i].messages = message ? 1 : 0;
+                return;
+            }
+        }
         return;
+    }
     tally->cell[tally->count].pci = pci;
     tally->cell[tally->count].looks = 1;
     tally->cell[tally->count].messages = message ? 1 : 0;
