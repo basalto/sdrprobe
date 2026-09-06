@@ -2,6 +2,7 @@
 #define SURVEY_SUSPECT_H
 
 #include <math.h>
+#include <string.h>
 
 #include "sdr_dsp.h"
 #include "survey_sweep.h"
@@ -288,6 +289,46 @@ static inline unsigned survey_suspect(const struct survey_plan *plan, double hz,
         flags |= SURVEY_SUSPECT_UNRESOLVED;
     return flags;
 }
+
+/*
+ * The same tests, at the resolution a confirmation look has rather than the
+ * one the sweep had.
+ *
+ * A sweep across the whole tuner puts 212 kHz in a bin, and half of that is
+ * 106 kHz -- more than a fortieth of the 1.6 MHz comb, so
+ * `survey_comb_harmonic()` correctly refuses to answer and the fine comb goes
+ * untested exactly where the baseline is built. Fourteen of the 2026-09-05
+ * sweep's on-comb candidates were flagged and thirty were not, and every one
+ * of the fourteen was the one tone in nine that is also a 14.4 MHz harmonic.
+ *
+ * A confirmation look is one tuning at the receiver's own rate, so its bin is
+ * `sample_rate / fft_size` -- 244 Hz at 2 MS/s and 8192 bins. At that
+ * resolution the guard does not trip and the width is real, so both tests
+ * mean what they say.
+ *
+ * Pass the frequency and width the *pass* measured, not the sweep's.
+ */
+static inline unsigned survey_suspect_confirmed(double hz,
+                                                double bandwidth_hz,
+                                                double sample_rate,
+                                                int fft_size) {
+    struct survey_plan plan;
+
+    if (fft_size <= 0 || !(sample_rate > 0.0))
+        return SURVEY_SUSPECT_NONE;
+    memset(&plan, 0, sizeof(plan));
+    plan.bins = fft_size;
+    plan.bin_hz = sample_rate / (double)fft_size;
+    /*
+     * The step-centre test is left out rather than given a plan to work with.
+     * It asks whether a frequency sits where the receiver's own offset lands,
+     * which is a property of how the *sweep* was stepped; a confirmation look
+     * is tuned to the candidate, so every candidate is at its centre and the
+     * test would flag all of them.
+     */
+    return survey_suspect(&plan, hz, bandwidth_hz, sample_rate, fft_size, 1);
+}
+
 
 /*
  * Whether the flags amount to a warning. Narrowness alone does not: a pager, a

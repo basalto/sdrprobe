@@ -1,6 +1,6 @@
 # 02 — The comb flag is disabled in the one sweep whose output is the baseline
 
-Status: needs-triage
+Status: resolved
 
 Ticket 01 gave the 1.6 MHz comb a detector that a broadcast carrier cannot
 trip. It works, at every sweep width except one: **the full-tuner sweep, which
@@ -95,3 +95,42 @@ that question turned out to depend on this one: at full-tuner resolution the
 survey listed 16 candidates in VHF land mobile, and a 3.3 kHz sweep of the same
 band found **one carrier, at 172.800 MHz = 6 x 28.8**, the receiver's own
 crystal. Everything else was noise in a 212 kHz bin.
+
+## Answer
+
+Status: resolved, by direction 2 -- the confirmation pass measures the width.
+
+It already did. `sdr_carrier_report` carries `bandwidth_hz`, the pass computes
+it at 2 MS/s to decide presence, and `survey_confirm_decide()` threw it away.
+So the fix was to keep it, and to re-run the suspicion tests at the pass's own
+resolution rather than the sweep's: `survey_suspect_confirmed()` builds a plan
+whose bin is `sample_rate / fft_size` -- 244 Hz -- where
+`survey_comb_harmonic()`'s guard does not trip and the width is real.
+
+The step-centre test is deliberately left out of that call. It asks whether a
+frequency sits where the receiver's own offset lands, which is a property of
+how the sweep was *stepped*; a confirmation look is tuned to the candidate, so
+every candidate would be at its centre and the test would flag all of them.
+
+On 225-400 MHz, where fourteen of thirty-eight on-comb candidates were flagged
+before and the rest were not:
+
+```
+confirm 230393982 ... 2930 reference,unresolved
+confirm 288008118 ... 3906 reference,unresolved
+confirm 259201050 ... 2930 reference,unresolved
+confirm 240007019 ... 2930 reference,unresolved
+confirm 390515137 ... 24414 -
+confirm 392127991 ... 23438 -
+```
+
+**Three kilohertz against twenty-four.** A crystal spur is a bare tone and a
+TETRA carrier is a 25 kHz channel, and at 244 Hz bins that is an order of
+magnitude rather than a judgement. Every comb tone in the band is now flagged
+and every TETRA carrier is not.
+
+The full-tuner sweep still cannot flag them, and that is not a fault to fix
+here: a 212 kHz bin genuinely cannot resolve a 3 kHz tone, and
+`survey_comb_harmonic()` is right to refuse. What has changed is that the pass
+which revisits those candidates can, so the answer exists for anything
+confirmed.
