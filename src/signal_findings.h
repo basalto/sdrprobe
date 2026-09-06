@@ -102,6 +102,7 @@ static inline void signal_finding_add(struct signal_findings *f,
  */
 static inline int signal_findings_from(const struct signal_carrier *carrier,
                                        const struct signal_bursts *bursts,
+                                       const struct signal_envelope *envelope,
                                        double duty, int duty_hits,
                                        int duty_blocks, double spread_hz,
                                        struct signal_findings *out) {
@@ -206,6 +207,35 @@ static inline int signal_findings_from(const struct signal_carrier *carrier,
     } else if (bursts && bursts->verdict == SIGNAL_BURST_BUSY) {
         signal_finding_add(out, "and it does not stop: busy %.0f%% of the look",
                            bursts->occupancy * 100.0, 0.0);
+    }
+
+    /*
+     * What the envelope's shape says, in the only two places it says
+     * something this program can stand behind.
+     *
+     * The band between the two thresholds is left unnamed on purpose: it is
+     * where an empty channel sits, at Rayleigh's 0.52, so a sentence about it
+     * would be a sentence about nothing being there.
+     *
+     * And what is named is named weakly for a reason. A bare carrier in noise
+     * reads 0.248 and filtered pi/4-DQPSK reads 0.252 -- the same number --
+     * so "hardly varies" is true of both and separates neither.
+     * `carrier_power_fraction` above is what tells those two apart.
+     *
+     * And a low reading means "constant envelope" only for something that
+     * does not stop -- GSM is constant-envelope by construction and reads up
+     * to 0.79, because it is also TDMA. Which is why this is printed after
+     * the burst lines rather than before them.
+     */
+    if (envelope && envelope->found) {
+        if (envelope->variation < SIGNAL_ENVELOPE_CONTAINED)
+            signal_finding_add(out,
+                "envelope hardly varies: %.2f, noise %.2f",
+                envelope->variation, SIGNAL_ENVELOPE_RAYLEIGH);
+        else if (envelope->variation > SIGNAL_ENVELOPE_RESTLESS)
+            signal_finding_add(out,
+                "envelope varies past noise: %.2f vs %.2f",
+                envelope->variation, SIGNAL_ENVELOPE_RAYLEIGH);
     }
 
     if (verdict == SIGNAL_MODULATED)

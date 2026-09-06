@@ -899,6 +899,10 @@ struct survey_view {
     /* And what it does in time. The duty above is per 65.5 ms block, which
        cannot tell a 120 us squitter from a carrier that never stops. */
     struct signal_bursts bursts;
+    /* And what shape its envelope has, measured in the isolated channel --
+       on the whole 2 MHz span it would be the envelope of the noise beside
+       the signal. */
+    struct signal_envelope envelope;
 
     struct survey_snapshot previous;
 
