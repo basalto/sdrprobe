@@ -442,6 +442,90 @@ int main(int argc, char **argv) {
                 if (!fits)
                     printf("            no frame start in that range fits "
                            "under any port count\n");
+
+                /*
+                 * And the error a sample sweep cannot reach.
+                 *
+                 * The frame boundary is not only a correlation peak, it is a
+                 * peak plus the half-frame the secondary sequence reported: a
+                 * primary sequence from subframe 5 puts subframe 0 five
+                 * subframes earlier. Get that wrong and the broadcast channel
+                 * is read out of a subframe that has none -- while the
+                 * primary and secondary sequences, which live in both
+                 * subframe 0 and subframe 5, look perfect.
+                 *
+                 * That is this exact failure shape, and +-30 samples is
+                 * nowhere near it: a subframe is 1920 samples.
+                 */
+                printf("          and every subframe of the frame, in case "
+                       "the boundary is a whole subframe out:\n");
+                fits = 0;
+                for (nudge = 0; nudge < 10; nudge++) {
+                    size_t at = cell.subframe0_start +
+                                (size_t)nudge * (size_t)LTE_SUBFRAME_SAMPLES;
+                    for (h = 0; h < 3; h++) {
+                        float soft[LTE_PBCH_SOFT_BITS];
+                        struct lte_mib mib;
+                        if (lte_pbch_soft_bits(i_samples, q_samples, pairs,
+                                               LTE_SAMPLE_RATE_HZ, &cell, at,
+                                               ports[h], soft,
+                                               NULL) != LTE_PBCH_SOFT_BITS)
+                            continue;
+                        if (!lte_mib_decode(soft, cell.pci, &mib))
+                            continue;
+                        printf("            subframe %d, %d port(s): MIB "
+                               "fits -- %d blocks, SFN %d\n", nudge,
+                               ports[h], mib.bandwidth_prb,
+                               mib.system_frame_number);
+                        fits++;
+                    }
+                }
+                if (!fits)
+                    printf("            no subframe of the frame fits "
+                           "either\n");
+
+                /*
+                 * And finally: is the key wrong, or are the elements?
+                 *
+                 * The broadcast channel is scrambled with the cell identity,
+                 * and the identity comes from a secondary sequence that can
+                 * be confidently wrong -- a whole-subcarrier frequency error
+                 * moves every subcarrier it reads, and lte_cell_search sweeps
+                 * for exactly that reason. If some *other* identity
+                 * descrambles into a message, the elements were right all
+                 * along and only the key was wrong, which is a completely
+                 * different fault from the extraction being wrong.
+                 *
+                 * Extraction does not depend on the descrambling identity, so
+                 * the soft bits are read once per port count and only the key
+                 * varies -- 504 identities against three reads rather than
+                 * 1512 reads.
+                 */
+                printf("          and every descrambling identity, in case "
+                       "the one found is confidently wrong:\n");
+                fits = 0;
+                for (h = 0; h < 3; h++) {
+                    float soft[LTE_PBCH_SOFT_BITS];
+                    int p;
+                    if (lte_pbch_soft_bits(i_samples, q_samples, pairs,
+                                           LTE_SAMPLE_RATE_HZ, &cell,
+                                           cell.subframe0_start, ports[h],
+                                           soft, NULL) != LTE_PBCH_SOFT_BITS)
+                        continue;
+                    for (p = 0; p < LTE_PCI_COUNT; p++) {
+                        struct lte_mib mib;
+                        if (!lte_mib_decode(soft, p, &mib))
+                            continue;
+                        printf("            PCI %d, %d port(s): MIB fits -- "
+                               "%d blocks, SFN %d\n", p, ports[h],
+                               mib.bandwidth_prb, mib.system_frame_number);
+                        fits++;
+                    }
+                }
+                if (!fits)
+                    printf("            no identity in 0..%d descrambles "
+                           "these elements into a message\n",
+                           LTE_PCI_COUNT - 1);
             }
         }
         block++;
