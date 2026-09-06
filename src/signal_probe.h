@@ -136,4 +136,125 @@ static inline int signal_is_bare_tone(const struct signal_carrier *c) {
     return signal_carrier_verdict(c) == SIGNAL_BARE;
 }
 
+/* ------------------------------------------------------------------ *
+ * Does it have a symbol rate?
+ * ------------------------------------------------------------------ */
+
+/*
+ * Oerder and Meyr, out of `tetra_dsp` where it was welded to 18 kBd.
+ *
+ * A linearly modulated signal with excess bandwidth puts a line at its symbol
+ * rate in the squared magnitude, and the *phase* of that line is where the
+ * symbols are. `tetra_dsp.c`'s own comment says this "is the same statistic
+ * that says a carrier is TETRA at all", which is exactly why it belongs a
+ * layer down: for a signal nobody has identified, the question is not "is the
+ * line at 18 kBd strong" but "is there a line, and where".
+ *
+ * `signal_symbol_line()` is the measurement at one rate -- the generalisation,
+ * with the two rates passed rather than compiled in. It returns the timing as
+ * a fraction of a symbol period and, through `strength`, the size of the line
+ * against the mean power: near zero for noise and for a constant-envelope
+ * modulation, well above it for a filtered one.
+ */
+double signal_symbol_line(const float *i_samples, const float *q_samples,
+                          size_t pair_count, double sample_rate,
+                          double symbol_rate_bd, double *strength);
+
+/*
+ * There is deliberately no blind search for the rate here, and the reason is
+ * measured rather than assumed.
+ *
+ * A scan of this line over 1-250 kBd, scored against a *local* floor so the
+ * envelope's own low-frequency skirt cannot win, finds both TETRA captures at
+ * 17998 Bd -- 0.01% off, at 37.8 and 37.5 times the floor beside them. It
+ * also finds a line at 3466.9 Bd, at 28.6, in a 25 kHz slice of a GSM
+ * capture. That is not an error: 3466.9 is twice GSM's 1733 Hz burst rate,
+ * and it is a real periodicity in the envelope.
+ *
+ * Which is the finding. Oerder-Meyr detects periodicity in the squared
+ * magnitude, and a burst grid is periodicity in the squared magnitude. At a
+ * *known* rate the statistic answers "are the symbols here", which is what
+ * tetra_dsp asks it and why that works; searched blind it cannot tell a symbol
+ * rate from a frame rate, and 28.6 against 37.5 is not a separation anything
+ * can be built on. `.scratch/signal-probe/issues/02-*.md` has the table.
+ */
+
+/* ------------------------------------------------------------------ *
+ * Does it repeat?
+ * ------------------------------------------------------------------ */
+
+/*
+ * A burst grid found from decided symbols alone, out of `tetra_dsp` where the
+ * profile was sized to one TETRA timeslot.
+ *
+ * Its own comment there already said it "works before anybody knows which
+ * technology this is", and needing nothing transcribed from a standard is the
+ * rule for what belongs in this file. `profile[k]` is how often the symbol at
+ * position k of the period equals the one a period earlier: a burst is a
+ * *mixture* -- a training sequence near 1, data near the chance rate -- and
+ * it is the mixture rather than any one value that says a grid is there.
+ *
+ * The caller must hand in symbols demodulated **contiguously**. This counts
+ * matches at a fixed lag, so a stream stitched from chunks that each began at
+ * their own timing phase has a discontinuity at every join and the profile
+ * smears every position together.
+ */
+#define SIGNAL_PROFILE_MAX 512
+
+struct signal_repeat {
+    int period;         /* symbols, 0 when none stands out */
+    float repeat;       /* matches at that period */
+    float runner_up;    /* the best period that is not a multiple of it */
+    int fixed;          /* profile positions above 0.9 */
+    int varying;        /* profile positions below 0.4 */
+    int profile_len;    /* 0 when the period is longer than the profile */
+    float profile[SIGNAL_PROFILE_MAX];
+};
+
+int signal_repeat_find(const unsigned char *symbols, int count,
+                       int low, int high, struct signal_repeat *out);
+
+/* ------------------------------------------------------------------ *
+ * Does it repeat at a period, in the samples themselves?
+ * ------------------------------------------------------------------ */
+
+/*
+ * Both out of `scripts/signal_periodicity.c`, which was a `main()`, so nothing
+ * in the program could call either.
+ *
+ * Neither has a sequence model in it, and both are immune to the receiver's
+ * tuning error: a frequency offset contributes the same constant phase to
+ * every term of a lag correlation, and the magnitude discards it. That is what
+ * makes them usable on a signal nothing here can demodulate -- folding at a
+ * period is how band 28 was found to be carrying 5G NR rather than a weak LTE
+ * cell.
+ */
+double signal_lag_correlation(const float *i_samples, const float *q_samples,
+                              size_t at, size_t lag, size_t window);
+
+/*
+ * Correlate against a copy `lag` later, fold the result over the lag, and see
+ * whether one phase stands out. A burst that really sits at a fixed phase of
+ * the period averages up while everything else averages down.
+ *
+ * `step` is how finely the period is divided, and it is raised when necessary
+ * so the fold fits SIGNAL_FOLD_SLOTS: a fixed ceiling keeps this
+ * allocation-free, and raising the step *lowers* the work, since the number of
+ * correlations is `pair_count / step`.
+ */
+#define SIGNAL_FOLD_SLOTS 512
+
+struct signal_fold {
+    double peak;    /* the best slot's mean correlation */
+    double floor;   /* the median slot -- what the peak must stand above */
+    double ratio;   /* peak over floor: the number to read */
+    size_t phase;   /* samples into the period where the peak sits */
+    int slots;      /* how many the period was divided into */
+    size_t step;    /* what the step was raised to, if it was */
+};
+
+int signal_fold_at(const float *i_samples, const float *q_samples,
+                   size_t pair_count, size_t lag, size_t window, size_t step,
+                   struct signal_fold *out);
+
 #endif

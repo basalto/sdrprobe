@@ -408,7 +408,8 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
 	check-row-list check-survey-bands check-text-wrap \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
-	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync
+	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
+	check-signal-probe
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -456,10 +457,12 @@ check-lte-turbo: $(TESTS)/lte_turbo_test.c $(TESTS)/check.h \
 	$(Q)./$(BUILD)/lte_turbo_test
 
 check-tetra-dsp: $(TESTS)/tetra_dsp_test.c $(TESTS)/check.h \
-		$(SRC)/tetra_dsp.c $(SRC)/tetra_dsp.h
+		$(SRC)/tetra_dsp.c $(SRC)/tetra_dsp.h \
+		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/tetra_dsp_test \
-		$(TESTS)/tetra_dsp_test.c $(SRC)/tetra_dsp.c -lm
+		$(TESTS)/tetra_dsp_test.c $(SRC)/tetra_dsp.c \
+		$(SRC)/signal_probe.c -lm
 	$(Q)./$(BUILD)/tetra_dsp_test
 
 check-tetra-sync: $(TESTS)/tetra_sync_test.c $(TESTS)/check.h \
@@ -529,10 +532,11 @@ probe-survey-threshold: scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c \
 		scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_threshold_probe $(DRAWS)
 
-probe-periodicity: scripts/signal_periodicity.c
+probe-periodicity: scripts/signal_periodicity.c $(SRC)/signal_probe.c \
+		$(SRC)/signal_probe.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -o $(BUILD)/signal_periodicity \
-		scripts/signal_periodicity.c -lm
+		-I$(SRC) scripts/signal_periodicity.c $(SRC)/signal_probe.c -lm
 	$(Q)./$(BUILD)/signal_periodicity $(FILE_PERIODICITY) $(RATE_PERIODICITY)
 
 # Every screen the program has, rendered to look at. A change that draws is not

@@ -31,58 +31,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "signal_probe.h"
+
 static int cmp(const void *a, const void *b) {
     double x = *(const double *)a, y = *(const double *)b;
     return x < y ? -1 : x > y ? 1 : 0;
 }
 
-/* Normalised correlation of a window against the same window `lag` later. */
-static double lag_correlation(const float *re, const float *im, size_t at,
-                              size_t lag, size_t window) {
-    double sr = 0.0, si = 0.0, e1 = 0.0, e2 = 0.0;
-    size_t n;
-    for (n = 0; n < window; n++) {
-        float ar = re[at + n], ai = im[at + n];
-        float br = re[at + lag + n], bi = im[at + lag + n];
-        sr += (double)ar * br + (double)ai * bi;    /* a times conj(b) */
-        si += (double)ai * br - (double)ar * bi;
-        e1 += (double)ar * ar + (double)ai * ai;
-        e2 += (double)br * br + (double)bi * bi;
-    }
-    if (e1 <= 0.0 || e2 <= 0.0)
-        return 0.0;
-    return sqrt(sr * sr + si * si) / sqrt(e1 * e2);
-}
-
-/* Is there a burst at a fixed phase of this period? Returns the peak of the
-   folded profile and, through `floor_out`, its median. */
-static double folded_peak(const float *re, const float *im, size_t pairs,
-                          size_t lag, size_t window, size_t step,
-                          double *floor_out, size_t *phase_out) {
-    size_t slots = lag / step, p, best_slot = 0;
-    double *acc = calloc(slots, sizeof(*acc)), *sorted, best = 0.0;
-    size_t *hits = calloc(slots, sizeof(*hits));
-    if (!acc || !hits)
-        exit(2);
-    for (p = 0; p + lag + window <= pairs; p += step) {
-        size_t slot = (p / step) % slots;
-        acc[slot] += lag_correlation(re, im, p, lag, window);
-        hits[slot]++;
-    }
-    sorted = malloc(slots * sizeof(*sorted));
-    if (!sorted)
-        exit(2);
-    for (p = 0; p < slots; p++) {
-        acc[p] = hits[p] ? acc[p] / (double)hits[p] : 0.0;
-        sorted[p] = acc[p];
-        if (acc[p] > best) { best = acc[p]; best_slot = p; }
-    }
-    qsort(sorted, slots, sizeof(*sorted), cmp);
-    *floor_out = sorted[slots / 2];
-    *phase_out = best_slot * step;
-    free(acc); free(hits); free(sorted);
-    return best;
-}
+/*
+ * Both measurements moved into src/signal_probe.c, which is why this file no
+ * longer carries them: they were static in a `main()`, so nothing in the
+ * program could call either, and folding at a period is general enough that
+ * band 28 was identified as 5G NR with it. What is left here is the walk and
+ * the conclusion.
+ */
 
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : NULL;
@@ -129,22 +91,21 @@ int main(int argc, char **argv) {
     printf("  %-10s %8s %8s %8s   %s\n", "period", "peak", "floor", "ratio",
            "phase");
     for (k = 0; k < n_periods; k++) {
-        double floor_v = 0.0, peak, ratio;
-        size_t phase = 0;
+        struct signal_fold fold;
         lag = (size_t)(periods_ms[k] / 1000.0 * rate);
-        if (lag + 128 >= pairs) {
+        if (lag + 128 >= pairs ||
+            !signal_fold_at(re, im, pairs, lag, 128, 32, &fold)) {
             printf("  %-10.1f (capture too short)\n", periods_ms[k]);
             continue;
         }
-        peak = folded_peak(re, im, pairs, lag, 128, 32, &floor_v, &phase);
-        ratio = floor_v > 0.0 ? peak / floor_v : 0.0;
         printf("  %-7.1f ms %8.3f %8.3f %8.1f   %.3f ms\n", periods_ms[k],
-               peak, floor_v, ratio, (double)phase / rate * 1000.0);
+               fold.peak, fold.floor, fold.ratio,
+               (double)fold.phase / rate * 1000.0);
         if (periods_ms[k] == 5.0)
-            five_ratio = ratio;
-        ratios[k] = ratio;
-        if (ratio > best_ratio)
-            best_ratio = ratio;
+            five_ratio = fold.ratio;
+        ratios[k] = fold.ratio;
+        if (fold.ratio > best_ratio)
+            best_ratio = fold.ratio;
     }
     /*
      * Name the shortest period that explains the burst, not the strongest.
@@ -169,7 +130,7 @@ int main(int argc, char **argv) {
             double *s = malloc(((scan - lag - 24) / 8 + 2) * sizeof(*s));
             if (!s) exit(2);
             for (t = 0; t + lag + 24 <= scan; t += 8)
-                s[count++] = lag_correlation(re, im, t, lag, 24);
+                s[count++] = signal_lag_correlation(re, im, t, lag, 24);
             qsort(s, count, sizeof(*s), cmp);
             printf("  %-8zu %6.1f kHz %8.3f %8.3f%s\n", lag,
                    rate / 1000.0 / (double)lag, s[(size_t)(count * 0.99)],
