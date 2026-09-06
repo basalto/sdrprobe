@@ -2213,6 +2213,36 @@ static int run_headless(struct app *app) {
                    (double)cell.sss_runner_up, cell.n_id_1, cell.pci,
                    cell.extended_cp ? "extended" : "normal", cell.half_frame);
             {
+                /*
+                 * And anyone else on the carrier. A block that holds two
+                 * cells reported one and looked, across blocks, like a single
+                 * cell changing its mind -- which is how EARFCN 3625's pair
+                 * were found in the first place.
+                 */
+                struct lte_cell all[LTE_MAX_CELLS_PER_CARRIER];
+                struct lte_reference_power np;
+                int count = lte_cell_search_all(app->i_samples, app->q_samples,
+                                                app->pair_count,
+                                                (double)app->applied_sample_rate,
+                                                all, LTE_MAX_CELLS_PER_CARRIER,
+                                                NULL);
+                int c;
+                for (c = 0; c < count; c++) {
+                    if (all[c].pci == cell.pci)
+                        continue;
+                    printf("chain %lu neighbour pci %d n_id_1 %d n_id_2 %d "
+                           "pss %.3f sss %.3f rsrp_dbfs %.1f\n", blocks,
+                           all[c].pci, all[c].n_id_1, all[c].n_id_2,
+                           (double)all[c].pss_correlation,
+                           (double)all[c].sss_correlation,
+                           lte_reference_power(app->i_samples, app->q_samples,
+                                               app->pair_count,
+                                               (double)app->applied_sample_rate,
+                                               &all[c], &np)
+                               ? (double)np.rsrp_dbfs : 0.0);
+                }
+            }
+            {
                 /* dBFS and not dBm, and the keyword says so: there is no
                    calibrated gain in front of this receiver. RSRQ is the
                    comparable one -- see struct lte_reference_power. */

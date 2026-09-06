@@ -1095,6 +1095,119 @@ static void test_port_coherence(void) {
                   (double)four[p]);
 }
 
+/* 800 samples is 417 us at 1.92 MS/s: two sites, not one. */
+#define TWO_CELL_OFFSET 800
+
+static float other_i[BUFFER_SAMPLES];
+static float other_q[BUFFER_SAMPLES];
+
+/*
+ * Two cells on one carrier, which is what the single-cell search cannot say.
+ *
+ * The identities are the pair actually measured on EARFCN 3625 -- PCI 190 and
+ * PCI 402, whose N_ID_2 are 1 and 0, so each has its own Zadoff-Chu root and
+ * both peaks are already in the correlation.
+ *
+ * Two things about the construction are deliberate and were arrived at by
+ * measuring, not by choosing. The second cell is offset in time, because two
+ * cells landing on the same sample is not the hard case but an unreal one --
+ * their secondary sequences would occupy the same symbol and the weaker would
+ * be read through the stronger. And it is only 1.4 dB down, because that is
+ * where this works: a sweep from -16.5 dB to -1.4 dB finds the second cell at
+ * -1.4 and nowhere below it, which `check_two_cells_needs_similar_levels`
+ * below pins.
+ *
+ * That limit is not a disappointment, it is the measured case. The real pair
+ * differ by 1.7 dB.
+ */
+static void build_two_cell_carrier(float amplitude) {
+    int n;
+
+    build_buffer(402, 2, 0.0, 0.004, 61u);
+    for (n = 0; n < BUFFER_SAMPLES; n++) {
+        other_i[n] = buffer_i[n] * amplitude;
+        other_q[n] = buffer_q[n] * amplitude;
+    }
+    build_buffer(190, 2, 0.0, 0.004, 62u);
+    for (n = BUFFER_SAMPLES - 1; n >= TWO_CELL_OFFSET; n--) {
+        buffer_i[n] += other_i[n - TWO_CELL_OFFSET];
+        buffer_q[n] += other_q[n - TWO_CELL_OFFSET];
+    }
+}
+
+static void test_two_cells_on_one_carrier(void) {
+    struct lte_cell cells[LTE_MAX_CELLS_PER_CARRIER];
+    int found, saw_190 = 0, saw_402 = 0, n;
+
+    build_two_cell_carrier(0.85f);
+    found = lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                LTE_SAMPLE_RATE_HZ, cells,
+                                LTE_MAX_CELLS_PER_CARRIER, NULL);
+    check_int("two cells on one carrier: how many are found", found, 2);
+    if (found != 2)
+        return;
+    for (n = 0; n < found; n++) {
+        if (cells[n].pci == 190)
+            saw_190 = 1;
+        if (cells[n].pci == 402)
+            saw_402 = 1;
+    }
+    check_true("the carrier's two identities are both reported",
+               saw_190 && saw_402);
+    /*
+     * The *set* and not the order. Both cells transmit across the whole
+     * measured bandwidth, so each one's reference power is measured through
+     * the other's transmission -- at a decibel and a half apart that is
+     * inside the interference, and asserting which comes first would be
+     * pinning noise. The ordering is worth having on air, where cells differ
+     * by more; it is not worth asserting here.
+     */
+
+    {
+        struct lte_cell one;
+        check_int("the single-cell search still returns one",
+                  lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                  LTE_SAMPLE_RATE_HZ, &one, NULL), 1);
+        check_true("and it is one of the two",
+                   one.pci == 190 || one.pci == 402);
+    }
+}
+
+/*
+ * Where it stops working, pinned so a change that claims to improve it has a
+ * number to move.
+ *
+ * A cell 6.9 dB below the strongest is not recovered, and the reason is not
+ * noise: its secondary sequence is read through the stronger cell's own
+ * transmission, which no amount of integration removes. Getting it would mean
+ * subtracting the stronger cell first, which this does not do and the header
+ * says so.
+ */
+static void test_two_cells_needs_similar_levels(void) {
+    struct lte_cell cells[LTE_MAX_CELLS_PER_CARRIER];
+
+    build_two_cell_carrier(0.45f);
+    check_int("a cell 6.9 dB down is not separated",
+              lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                  LTE_SAMPLE_RATE_HZ, cells,
+                                  LTE_MAX_CELLS_PER_CARRIER, NULL), 1);
+    check_int("and the one reported is the stronger", cells[0].pci, 190);
+}
+
+/* One cell is one cell: the multi-cell path must not invent neighbours out of
+   the two roots that did not match, which is the failure mode the per-root
+   gates exist to prevent. */
+static void test_one_cell_stays_one(void) {
+    struct lte_cell cells[LTE_MAX_CELLS_PER_CARRIER];
+
+    build_buffer(227, 2, 900.0, 0.004, 63u);
+    check_int("one cell on the carrier",
+              lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                  LTE_SAMPLE_RATE_HZ, cells,
+                                  LTE_MAX_CELLS_PER_CARRIER, NULL), 1);
+    check_int("and it is the one that was built", cells[0].pci, 227);
+}
+
 int main(void) {
     twiddles_init();
 
@@ -1111,6 +1224,9 @@ int main(void) {
     test_broadcast_channel();
     test_reference_power();
     test_port_coherence();
+    test_two_cells_on_one_carrier();
+    test_two_cells_needs_similar_levels();
+    test_one_cell_stays_one();
     test_broadcast_channel_refuses();
 
     /*
