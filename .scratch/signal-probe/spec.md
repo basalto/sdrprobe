@@ -82,8 +82,9 @@ receiver, answering in order:
    resolution rather than the survey's 65.5 ms block (ticket 04).
 6. **Does the envelope carry anything, and does the frequency sit on levels?**
    Envelope variation and an instantaneous-frequency histogram (ticket 05).
-7. **What shape is it, beyond how wide?** Skirt steepness, flatness, symmetry
-   over the extent `survey_carrier.h` already measures (ticket 06).
+7. ~~**What shape is it, beyond how wide?**~~ Built four ways and put back
+   (ticket 06, wontfix): a width on a real profile measures its ripple, and
+   flatness -- the one number that works -- reads noise flatter than OFDM.
 
 Then a findings layer over them, the way `lte_findings.h` sits over the LTE
 measurements: sentences with their numbers attached, and refusals where the
