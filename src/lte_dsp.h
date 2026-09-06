@@ -267,6 +267,51 @@ struct lte_cell {
 };
 
 /*
+ * What a cell measures to: reference signal received power, the carrier's
+ * total received power, and the ratio between them (36.214 sections 5.1.1
+ * to 5.1.3).
+ *
+ * **RSRP here is dBFS and not dBm, and the difference is not pedantry.** The
+ * standard's quantity is an absolute power at the antenna connector, and
+ * reaching it needs the antenna's gain, the cable's loss and the receiver's
+ * gain in known units -- none of which this program has. What is measured is
+ * the power in the converter's full-scale units, which compares one cell with
+ * another *on this receiver at this gain* and means nothing across
+ * installations. The Probe context may not claim a decibel-milliwatt it did
+ * not measure.
+ *
+ * The scale is decibels below a full-scale subcarrier, so every reading is
+ * negative and 0 would be a signal filling the converter on its own.
+ *
+ * RSRQ is the exception and it is worth having for that reason alone: it is
+ * N * RSRP / RSSI, a ratio of two powers measured through the same chain, so
+ * every unknown gain in front of it cancels. It is directly comparable with a
+ * handset's reading, and check-lte-dsp pins that by scaling a buffer and
+ * asserting RSRP moves while RSRQ does not.
+ */
+struct lte_reference_power {
+    float rsrp_dbfs;        /* mean power in one reference resource element */
+    float rssi_dbfs;        /* total power across the measured blocks */
+    float rsrq_db;          /* N * RSRP / RSSI -- free of any fixed gain */
+    int resource_blocks;    /* N: what the two above were measured over */
+    int references;         /* how many reference elements were averaged */
+};
+
+/*
+ * Measured over the six central resource blocks, which is what a receiver at
+ * LTE's own 1.92 MS/s can see (ADR-0014) -- the standard allows any bandwidth
+ * and requires the count be reported with the answer, which is what
+ * `resource_blocks` is for.
+ *
+ * Averaged over every frame the block holds, on the symbol carrying port 0's
+ * references. Returns 1 when `out` is filled.
+ */
+int lte_reference_power(const float *i_samples, const float *q_samples,
+                        size_t pair_count, double sample_rate,
+                        const struct lte_cell *cell,
+                        struct lte_reference_power *out);
+
+/*
  * PSS, then SSS, then the frame boundary. Returns 1 when a cell is found.
  *
  * How many whole subcarriers either way the search will look for the part of

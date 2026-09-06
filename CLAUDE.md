@@ -610,7 +610,16 @@ a capture:
 ./sdrprobe --headless --lte-chain --lte-chain-band 20     # scan, walk the best
 ```
 
-Three lines per block -- PSS, SSS, MIB -- then a funnel. Which stage stops is
+Four lines per block -- PSS, SSS, power, MIB -- then a funnel. The `power`
+line is 36.214's reference-signal measurements over the six central resource
+blocks: `rsrp_dbfs`, `rssi_dbfs` and `rsrq_db`. **RSRP is dBFS and not dBm**,
+because nothing here knows the antenna's gain or the cable's loss, so it
+compares cells on this receiver at this gain and nowhere else; RSRQ is a ratio
+of two powers through the same chain, so every fixed gain cancels and it is
+directly comparable with a handset's. `check-lte-dsp` pins exactly that by
+doubling a buffer and asserting RSRP moves 6.02 dB while RSRQ does not move at
+all. It is also what tells two cells on one channel apart: EARFCN 3625 here
+carries PCI 190 at -33.3 dBFS and PCI 402 at -35.0. Which stage stops is
 the diagnosis: no PSS is tuning or band, PSS without SSS was the conjugated
 sequence, SSS without parity is the broadcast channel, and parity without a
 repeat is chance. A live cell gave 175 blocks, 169 cells, 168 messages.

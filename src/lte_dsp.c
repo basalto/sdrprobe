@@ -1264,6 +1264,81 @@ static void alamouti(float r0re, float r0im, float r1re, float r1im,
     *x1im = h0re * r1im - h0im * r1re - h1im * r0re + h1re * r0im;
 }
 
+int lte_reference_power(const float *i_samples, const float *q_samples,
+                        size_t pair_count, double sample_rate,
+                        const struct lte_cell *cell,
+                        struct lte_reference_power *out) {
+    float row_re[LTE_PBCH_SUBCARRIERS], row_im[LTE_PBCH_SUBCARRIERS];
+    int positions[LTE_PBCH_SUBCARRIERS / 6];
+    double reference = 0.0, total = 0.0, full_scale;
+    int refs = 0, frames = 0, count, m, k;
+    const int blocks = LTE_PBCH_SUBCARRIERS / 12;
+
+    if (!cell || !out || !i_samples || !q_samples)
+        return 0;
+    if (fabs(sample_rate - LTE_SAMPLE_RATE_HZ) > 1.0)
+        return 0;
+    /* The reference positions are the normal prefix's, and nothing here reads
+       an extended-prefix cell. */
+    if (cell->extended_cp)
+        return 0;
+    count = lte_crs_subcarriers(cell->pci, 1, 0, 0, positions);
+    if (count <= 0)
+        return 0;
+
+    while (1) {
+        size_t at = cell->subframe0_start +
+                    (size_t)frames * (size_t)LTE_FRAME_SAMPLES;
+        if (at + LTE_SUBFRAME_SAMPLES > pair_count)
+            break;
+        /*
+         * Symbol 0 of slot 1 carries port 0's references, and the standard
+         * measures the carrier's power on a symbol that does -- so the two
+         * come off the same samples and their ratio is a ratio of one
+         * measurement, not of two taken at different moments.
+         */
+        read_slot1_symbol(i_samples, q_samples, at, 0,
+                          cell->frequency_offset_hz, sample_rate,
+                          row_re, row_im);
+        for (m = 0; m < count; m++) {
+            int p = positions[m];
+            reference += (double)row_re[p] * row_re[p] +
+                         (double)row_im[p] * row_im[p];
+            refs++;
+        }
+        for (k = 0; k < LTE_PBCH_SUBCARRIERS; k++)
+            total += (double)row_re[k] * row_re[k] +
+                     (double)row_im[k] * row_im[k];
+        frames++;
+    }
+    if (!frames || !refs || !(reference > 0.0) || !(total > 0.0))
+        return 0;
+
+    /* RSRP is per reference element; RSSI is the whole measured bandwidth,
+       per frame, which is what makes N * RSRP / RSSI dimensionless. */
+    reference /= (double)refs;
+    total /= (double)frames;
+    /*
+     * And into decibels *of full scale*, which takes an explicit reference
+     * because neither end of this chain is normalised: a sample is
+     * `byte - 127.5` so its full-scale amplitude is 127.5, and the transform
+     * has no 1/N in it, so a full-scale complex sinusoid sitting in one
+     * subcarrier arrives with magnitude 127.5 * LTE_FFT_SIZE.
+     *
+     * Without this the numbers come out around +48 for a strong cell, and a
+     * positive dBFS is not a strong signal, it is a wrong unit. The same
+     * divisor is applied to both, so RSRQ is unaffected either way.
+     */
+    full_scale = 127.5 * (double)LTE_FFT_SIZE;
+    full_scale *= full_scale;
+    out->rsrp_dbfs = (float)(10.0 * log10(reference / full_scale));
+    out->rssi_dbfs = (float)(10.0 * log10(total / full_scale));
+    out->rsrq_db = (float)(10.0 * log10((double)blocks * reference / total));
+    out->resource_blocks = blocks;
+    out->references = refs;
+    return 1;
+}
+
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        const struct lte_cell *cell, size_t subframe0_start,
