@@ -2212,6 +2212,20 @@ static int run_headless(struct app *app) {
                    "half_frame %d\n", blocks, (double)cell.sss_correlation,
                    (double)cell.sss_runner_up, cell.n_id_1, cell.pci,
                    cell.extended_cp ? "extended" : "normal", cell.half_frame);
+            {
+                /* dBFS and not dBm, and the keyword says so: there is no
+                   calibrated gain in front of this receiver. RSRQ is the
+                   comparable one -- see struct lte_reference_power. */
+                struct lte_reference_power power;
+                if (lte_reference_power(app->i_samples, app->q_samples,
+                                        app->pair_count,
+                                        (double)app->applied_sample_rate,
+                                        &cell, &power))
+                    printf("chain %lu power rsrp_dbfs %.1f rssi_dbfs %.1f "
+                           "rsrq_db %.1f blocks %d\n", blocks,
+                           (double)power.rsrp_dbfs, (double)power.rssi_dbfs,
+                           (double)power.rsrq_db, power.resource_blocks);
+            }
 
             for (h = 0; h < 3; h++) {
                 float soft[LTE_PBCH_SOFT_BITS];
