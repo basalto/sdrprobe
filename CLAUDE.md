@@ -415,6 +415,18 @@ Tabs are presentation only, not the boundary (ADR-0010).
   offsets to find the rest, and then re-finds the PSS peak with the offset
   removed, because a frequency error *moves* a Zadoff-Chu correlation as well
   as weakening it.
+  Two measurements sit beside the identity rather than after it.
+  `lte_reference_power()` is 36.214's RSRP, carrier RSSI and RSRQ over the six
+  central resource blocks -- **RSRP in dBFS and not dBm**, since nothing here
+  knows the antenna's gain, so it compares cells on this receiver and nowhere
+  else, while RSRQ is a ratio through the same chain and transfers anywhere.
+  `lte_port_coherence()` says how many antennas the cell is transmitting on,
+  from the reference *phases*: a reference symbol has unit magnitude, so
+  dividing by the expected sequence leaves the level alone whether the
+  sequence was right or not, and only the phase separates a silent port from a
+  live one. Eleven differences per port put chance at 0.30. It is what
+  identified the band 8 cell as four-port, and it corroborates the count in
+  the broadcast's parity mask while sharing no code with it.
 - `src/lte_mib.{c,h}` — one layer further, Decoder side: 480 soft bits →
   descramble (four offsets, since one transmission does not say which quarter
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →

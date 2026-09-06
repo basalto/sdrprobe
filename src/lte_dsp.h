@@ -352,6 +352,39 @@ int lte_reference_power(const float *i_samples, const float *q_samples,
  * holds is read and their scores added, since the sequence is the same in all
  * of them.
  */
+/*
+ * How coherently each antenna port's reference signals read, which is how
+ * many antennas the cell is actually transmitting on.
+ *
+ * A reference symbol has unit magnitude, so dividing the received value by the
+ * expected one keeps the magnitude whatever sequence is used -- a channel
+ * *level* therefore cannot tell a port that is transmitting from one that is
+ * not, and it has to be the phase. Against the right sequence, neighbouring
+ * per-reference estimates differ by one consistent rotation, the channel's
+ * delay across the band; against noise they differ randomly. This returns the
+ * coherence of that difference, port by port, exactly as the secondary
+ * sequence is read differentially and for the same reason: it survives any
+ * channel, and nothing but the real sequence can fake it.
+ *
+ * There are twelve references per port in the six central blocks, so eleven
+ * differences, and **chance is about 0.30** -- LTE_PORT_COHERENCE_CHANCE.
+ * A port well above it is transmitting; a port at it is not.
+ *
+ * This is the measurement that found the four-port cell on band 8, and it
+ * says so before any message decodes and without sharing a line of code with
+ * the antenna-port count in the broadcast's parity mask. Two independent
+ * answers agreeing is the only kind of corroboration a transcription can get.
+ *
+ * Writes LTE_PORT_COUNT values. Returns 1 on success.
+ */
+#define LTE_PORT_COUNT 4
+#define LTE_PORT_COHERENCE_CHANCE 0.30f
+
+int lte_port_coherence(const float *i_samples, const float *q_samples,
+                       size_t pair_count, double sample_rate,
+                       const struct lte_cell *cell,
+                       float coherence[LTE_PORT_COUNT]);
+
 int lte_cell_search(const float *i_samples, const float *q_samples,
                     size_t pair_count, double sample_rate,
                     struct lte_cell *cell, struct lte_trace *trace);
