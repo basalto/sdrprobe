@@ -156,6 +156,46 @@ That is an inspection against the standard rather than a round trip, which is
 the only kind of check that can catch a shared convention, and it **weakens**
 the shift hypothesis. It does not clear the rest of the N_ID_2 0 path.
 
+### 7. The carrier does transmit a broadcast channel
+
+Candidate 2 below is refuted. A PBCH carries the same coded block over 40 ms,
+one quarter per radio frame, and the quarter is picked by the two low bits of
+the frame number -- so subframe 0 of frame n and of frame n+4 carry the same
+coded bits under the same scrambling, and frames one to three apart carry
+different ones. Nothing else in LTE has a 40 ms period. That is a test of
+whether a broadcast channel is *present* that needs no decoder, no
+descrambling and no knowledge of the identity.
+
+Correlating the soft bits at lags of one to five frames, averaged over every
+block with a cell:
+
+```
+                              +1      +2      +3      +4      +5
+band 8  PCI 330  subframe 0  -0.015  -0.015  +0.027  +0.145  +0.012
+band 20 PCI 28   subframe 0  -0.003  -0.033  +0.008  +0.160  -0.016   (decodes)
+
+band 8  PCI 330  subframe 7  +0.910  +0.902  +0.884  +0.865  +0.835
+band 20 PCI 28   subframe 7  +0.275  +0.280  +0.271  +0.232  +0.255
+```
+
+Subframe 0 shows a peak at four frames and flat, near-zero near lags, on both
+captures, and **band 8's is the same size as the one on the cell that
+decodes**. So the carrier is transmitting a broadcast channel with the right
+40 ms structure. It is not a repeater and not a sync-only transmitter, and the
+message is there to be read.
+
+Subframe 7 is the control and it is the part worth reading carefully. It has no
+broadcast channel, and it correlates far *more* strongly than subframe 0 does
+-- 0.84 to 0.91 on this cell -- because a lightly loaded subframe is nearly
+identical frame to frame; the reference signals alone repeat. But it has no
+maximum at four frames: on both captures +4 sits at or below its neighbours.
+**The test is the peak and never the level**, and a control that correlates
+three times higher than the signal while still showing no peak is what
+establishes that.
+
+(Subframe 5 was tried first and rejected: it gave an intermediate, partly
+structured profile, and a control has to be unambiguous to be worth anything.)
+
 ## Next
 
 Status stays `needs-triage`; this narrows it, it does not close it.
@@ -166,7 +206,7 @@ Shift and N_ID_2 are confounded in the evidence: `PCI mod 6 == 0` implies
 among the four found, so that discriminator is not available at this site and
 this may not be resolvable here.
 
-Two candidates remain, and they want different work:
+One candidate remains; the other has been measured and refuted.
 
 1. **Something else in the N_ID_2 0 broadcast path.** The reference-signal
    shift now reads correctly against the standard, so the suspicion moves to
@@ -174,12 +214,11 @@ Two candidates remain, and they want different work:
    initialisation and the broadcast channel's scrambling both take the full
    PCI. Reading those against 36.211 the way the shift was read, rather than
    against their own encoder, is the move.
-2. **This carrier may have no normal broadcast channel at all.**
-   Synchronisation signals with nothing readable behind them is what a
-   repeater or a sync-only transmitter looks like, and it would explain every
-   measurement above, including elements that are statistically ordinary
-   noise. Nothing here has tested whether the broadcast region carries power
-   in the pattern a PBCH does, and that test does not require decoding it.
+2. ~~**This carrier may have no normal broadcast channel at all.**~~
+   **Refuted** -- see section 7. The broadcast region repeats at 40 ms exactly
+   as a PBCH must, as strongly as on the cell that decodes, and the repetition
+   is absent from a control region that correlates three times higher overall.
+   The message is being transmitted and this decoder is not reading it.
 
 ## Comments
 

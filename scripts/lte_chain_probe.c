@@ -24,6 +24,12 @@
    error that is a timing error rather than a symbol slip. */
 #define LTE_TIMING_NUDGE 30
 
+/* How many radio frames of lag the broadcast-repetition test looks over. The
+   answer it is after is at four; one, two and three are there so that a
+   carrier repeating at every lag can be told from one repeating at the right
+   one. */
+#define PBCH_LAGS 5
+
 #include "lte_dsp.c"
 #include "lte_mib.h"
 
@@ -130,11 +136,120 @@ static double pbch_qpsk_coherence(const struct lte_trace *trace) {
     return sqrt(sr * sr + si * si) / power;
 }
 
+/*
+ * Normalised correlation between two sets of soft bits, zero-mean.
+ */
+static double soft_correlation(const float *a, const float *b, int count) {
+    double ma = 0.0, mb = 0.0, num = 0.0, da = 0.0, db = 0.0;
+    int k;
+
+    for (k = 0; k < count; k++) {
+        ma += (double)a[k];
+        mb += (double)b[k];
+    }
+    ma /= (double)count;
+    mb /= (double)count;
+    for (k = 0; k < count; k++) {
+        double x = (double)a[k] - ma, y = (double)b[k] - mb;
+        num += x * y;
+        da += x * x;
+        db += y * y;
+    }
+    if (da <= 0.0 || db <= 0.0)
+        return 0.0;
+    return num / sqrt(da * db);
+}
+
+/*
+ * Does this carrier have a broadcast channel at all?
+ *
+ * The question the decode funnel cannot answer: a cell whose parity never fits
+ * looks the same whether the message is being read wrongly or was never
+ * transmitted. Synchronisation signals with nothing behind them is what a
+ * repeater or a sync-only transmitter looks like, and no work on the decoder
+ * would ever produce a message from one.
+ *
+ * The test needs no decoder and no descrambling. A PBCH carries the same coded
+ * block over 40 ms, one self-decodable quarter per radio frame, and which
+ * quarter is used is picked by the two low bits of the frame number -- so
+ * subframe 0 of frame n and of frame n+4 carry **the same coded bits under the
+ * same scrambling**, while frames one, two and three apart carry different
+ * ones. Nothing else in LTE has a 40 ms period.
+ *
+ * So a real broadcast channel correlates high at a lag of four frames and low
+ * at one, two and three; noise is low at every lag; and something stuck or
+ * repeating is high at every lag, which is why the near lags are printed
+ * rather than only the one being tested.
+ *
+ * The offset control is what makes the number mean anything. The same profile
+ * is taken over subframe 7, which carries no broadcast channel -- so a peak at
+ * +4 appearing there too would belong to the measurement rather than to the
+ * signal.
+ *
+ * Note what the null does *not* say. It correlates high and flat (0.84-0.91 on
+ * the band 8 cell, 0.23-0.28 on the band 20 one), because a lightly loaded
+ * subframe is nearly identical frame to frame -- the reference signals alone
+ * repeat. The test is therefore the *peak*, never the level: a region with no
+ * broadcast channel can correlate far more strongly overall and still have no
+ * maximum at four frames, which is exactly what both captures show.
+ *
+ * Subframe 5 was tried first and is a poor null. It gave an intermediate,
+ * partly structured profile, and the whole point of a control is that it be
+ * unambiguous.
+ */
+struct repetition {
+    double sum[PBCH_LAGS + 1];
+    int count[PBCH_LAGS + 1];
+};
+
+static void repetition_add(struct repetition *acc, const float *i_samples,
+                           const float *q_samples, size_t pairs,
+                           const struct lte_cell *cell, int ports,
+                           size_t from) {
+    float soft[PBCH_LAGS + 1][LTE_PBCH_SOFT_BITS];
+    int have[PBCH_LAGS + 1];
+    int lag;
+
+    for (lag = 0; lag <= PBCH_LAGS; lag++) {
+        size_t at = from + (size_t)lag * (size_t)LTE_FRAME_SAMPLES;
+        have[lag] = lte_pbch_soft_bits(i_samples, q_samples, pairs,
+                                       LTE_SAMPLE_RATE_HZ, cell, at, ports,
+                                       soft[lag], NULL) == LTE_PBCH_SOFT_BITS;
+    }
+    if (!have[0])
+        return;
+    for (lag = 1; lag <= PBCH_LAGS; lag++) {
+        if (!have[lag])
+            continue;
+        acc->sum[lag] += soft_correlation(soft[0], soft[lag],
+                                          LTE_PBCH_SOFT_BITS);
+        acc->count[lag]++;
+    }
+}
+
+static void repetition_report(const struct repetition *acc, const char *label) {
+    int lag;
+
+    printf("  %-28s", label);
+    for (lag = 1; lag <= PBCH_LAGS; lag++) {
+        if (!acc->count[lag]) {
+            printf("  +%d   n/a", lag);
+            continue;
+        }
+        printf("  +%d %+.3f", lag, acc->sum[lag] / (double)acc->count[lag]);
+    }
+    printf("\n");
+}
+
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : NULL;
     FILE *f;
     int block = 0, cells = 0, messages = 0;
     int swept = 0;
+    struct repetition on_pbch, off_pbch;
+
+    memset(&on_pbch, 0, sizeof(on_pbch));
+    memset(&off_pbch, 0, sizeof(off_pbch));
 
     if (!path) {
         fprintf(stderr, "usage: %s <capture.bin>\n", argv[0]);
@@ -229,6 +344,14 @@ int main(int argc, char **argv) {
         printf("   timing shift %+d  sidelobe %.3f (peak %.3f)\n",
                cell.timing_shift, (double)cell.timing_sidelobe,
                (double)cell.pss_correlation);
+
+        /* Accumulated over every block and reported once at the end: one
+           block's correlation is a single draw and these are small numbers. */
+        repetition_add(&on_pbch, i_samples, q_samples, pairs, &cell, 1,
+                       cell.subframe0_start);
+        repetition_add(&off_pbch, i_samples, q_samples, pairs, &cell, 1,
+                       cell.subframe0_start +
+                           (size_t)(7 * LTE_SUBFRAME_SAMPLES));
 
         {
             static const int ports[3] = { 1, 2, 4 };
@@ -326,5 +449,12 @@ int main(int argc, char **argv) {
     fclose(f);
     printf("\n%d blocks, %d with a cell, %d with a message\n", block, cells,
            messages);
+    if (cells > 0) {
+        printf("\nbroadcast repetition, mean over the blocks with a cell:\n");
+        repetition_report(&on_pbch, "subframe 0 (has a PBCH)");
+        repetition_report(&off_pbch, "subframe 7 (has none)");
+        printf("  a broadcast channel repeats at +4 and nowhere else, and "
+               "only in subframe 0\n");
+    }
     return 0;
 }
