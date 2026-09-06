@@ -2307,9 +2307,19 @@ static int run_headless(struct app *app) {
                         mib_ok = lte_mib_decode(soft, all[c].pci, &nm);
                     }
                     lte_confirm_saw(&tally, all[c].pci, mib_ok);
+                    /*
+                     * `at` is how far this identity's frame boundary sits
+                     * from the cell being walked. Ticket 05 turns on it: an
+                     * identity the search invented out of a strong cell's
+                     * sidelobe lands at that cell's timing, and a genuine
+                     * neighbour has no reason to.
+                     */
                     printf("chain %lu neighbour pci %d n_id_1 %d n_id_2 %d "
-                           "pss %.3f sss %.3f rsrp_dbfs %.1f mib %s\n", blocks,
+                           "at %+ld pss %.3f sss %.3f rsrp_dbfs %.1f "
+                           "mib %s\n", blocks,
                            all[c].pci, all[c].n_id_1, all[c].n_id_2,
+                           (long)all[c].subframe0_start -
+                               (long)cell.subframe0_start,
                            (double)all[c].pss_correlation,
                            (double)all[c].sss_correlation,
                            lte_reference_power(app->i_samples, app->q_samples,
