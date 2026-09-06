@@ -1038,6 +1038,63 @@ static void test_reference_power(void) {
     check_close("RSRQ does not", loud.rsrq_db, quiet.rsrq_db, 0.001);
 }
 
+/*
+ * How many antennas the cell is transmitting on, read from the reference
+ * phases and nothing else.
+ *
+ * This is the measurement that found the four-port cell on band 8 after every
+ * other hypothesis had been eliminated, and the property that makes it work
+ * is that a *level* cannot answer: reference symbols have unit magnitude, so
+ * dividing by the expected sequence leaves the magnitude alone whether the
+ * sequence was right or not. Only the phase separates a port that is
+ * transmitting from one that is silent.
+ *
+ * Two buffers, differing only in how many ports carry references.
+ */
+static void test_port_coherence(void) {
+    struct lte_cell cell;
+    float two[LTE_PORT_COUNT], four[LTE_PORT_COUNT];
+    int p;
+
+    build_buffer(227, 2, 0.0, 0.004, 51u);
+    if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                        LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1) {
+        check_true("port coherence: the two-port cell is found", 0);
+        return;
+    }
+    if (!lte_port_coherence(buffer_i, buffer_q, BUFFER_SAMPLES,
+                            LTE_SAMPLE_RATE_HZ, &cell, two)) {
+        check_true("port coherence: measured on the two-port cell", 0);
+        return;
+    }
+    for (p = 0; p < 2; p++)
+        check_msg(two[p] > 0.6f,
+                  "two-port cell: port %d transmits, coherence %.2f\n", p,
+                  (double)two[p]);
+    /* The half that matters: a port with nothing on it must not look like a
+       port with something on it, or the count is unreadable. */
+    for (p = 2; p < LTE_PORT_COUNT; p++)
+        check_msg(two[p] < 0.6f,
+                  "two-port cell: port %d is silent, coherence %.2f\n", p,
+                  (double)two[p]);
+
+    build_buffer(101, 4, 0.0, 0.004, 52u);
+    if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                        LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1) {
+        check_true("port coherence: the four-port cell is found", 0);
+        return;
+    }
+    if (!lte_port_coherence(buffer_i, buffer_q, BUFFER_SAMPLES,
+                            LTE_SAMPLE_RATE_HZ, &cell, four)) {
+        check_true("port coherence: measured on the four-port cell", 0);
+        return;
+    }
+    for (p = 0; p < LTE_PORT_COUNT; p++)
+        check_msg(four[p] > 0.6f,
+                  "four-port cell: port %d transmits, coherence %.2f\n", p,
+                  (double)four[p]);
+}
+
 int main(void) {
     twiddles_init();
 
@@ -1053,6 +1110,7 @@ int main(void) {
     test_cell_search_refuses();
     test_broadcast_channel();
     test_reference_power();
+    test_port_coherence();
     test_broadcast_channel_refuses();
 
     /*

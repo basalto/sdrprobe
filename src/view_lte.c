@@ -478,6 +478,14 @@ void update_lte(struct app *app, double now) {
     app->lte.cell_valid = 1;
     app->lte.cell_time = now;
     app->lte.cells_found++;
+    /* Measured from the same block the cell was found in, so the level on
+       screen always belongs to the identity beside it. */
+    app->lte.power_valid = lte_reference_power(app->i_samples, app->q_samples,
+                                               app->pair_count, rate, &cell,
+                                               &app->lte.power);
+    app->lte.port_coherence_valid =
+        lte_port_coherence(app->i_samples, app->q_samples, app->pair_count,
+                           rate, &cell, app->lte.port_coherence);
     snprintf(app->lte.status, sizeof(app->lte.status),
              "Cell %d found; its broadcast has not decoded yet.", cell.pci);
 
@@ -729,6 +737,34 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
     snprintf(text, sizeof(text), "%.2f  (runner-up %.2f)",
              (double)cell->sss_correlation, (double)cell->sss_runner_up);
     draw_row(rect, y, "SSS correlation", text, row_value);
+    y += 21;
+    /*
+     * Two rows rather than one, because one did not fit. The value column is
+     * whatever is left of a half-panel after a 170-pixel label gutter, which
+     * is about thirteen characters on a narrow window -- and
+     * "-35.8 dBFS   RSRQ -17.8 dB" truncated to "-35.8 dBFS   RS...", losing
+     * the RSRQ. That is the wrong half to lose: the level only compares
+     * against another cell on this receiver at this gain, while the ratio
+     * cancels every fixed gain and is what transfers anywhere. Short values
+     * both survive.
+     *
+     * "dBFS" is on the row rather than in a note, because it is the whole
+     * caveat: this is not the dBm a handset reports.
+     */
+    if (app->lte.power_valid)
+        snprintf(text, sizeof(text), "%.1f dBFS",
+                 (double)app->lte.power.rsrp_dbfs);
+    else
+        snprintf(text, sizeof(text), "not measured");
+    draw_row(rect, y, "RSRP", text,
+             app->lte.power_valid ? row_value : row_muted);
+    y += 21;
+    if (app->lte.power_valid)
+        snprintf(text, sizeof(text), "%.1f dB", (double)app->lte.power.rsrq_db);
+    else
+        snprintf(text, sizeof(text), "not measured");
+    draw_row(rect, y, "RSRQ", text,
+             app->lte.power_valid ? row_value : row_muted);
     y += 25;
     snprintf(text, sizeof(text), "last seen %.1f s ago",
              now - app->lte.cell_time);
@@ -839,6 +875,42 @@ static void draw_charts(const struct app *app, const struct lte_layout *l) {
         sdrgui_burst_chart(&params);
     }
     {
+        /*
+         * The fourth chart, and the one the other three cannot replace: the
+         * channel chart beside it is a magnitude, and a magnitude cannot see
+         * this. Reference symbols have unit magnitude, so a port that is
+         * silent and a port that is transmitting look identical in level and
+         * differ only in phase.
+         *
+         * Four bars against a marked chance line therefore say how many
+         * antennas the cell has, before any message decodes -- which is the
+         * measurement that identified the band 8 cell as four-port after
+         * every other explanation had been eliminated. It also corroborates
+         * the antenna-port count the broadcast's parity mask gives, sharing
+         * no code with it.
+         */
+        struct sdrgui_burst_chart_params params = {
+            l->chart[3],
+            app->lte.port_coherence_valid ? app->lte.port_coherence : NULL,
+            app->lte.port_coherence_valid ? LTE_PORT_COUNT : 0,
+            /*
+             * The axis floor is the chance level rather than zero, so the
+             * scale itself is the reference: eleven phase differences per
+             * port put an untransmitted port at about 0.30, and starting
+             * there means a silent port draws no bar at all while a
+             * transmitting one draws a tall one. A caption cannot promise a
+             * line this component has no way to draw, and a bar chart from
+             * zero with nothing marked on it leaves the reader unable to say
+             * whether 0.45 is a port or noise.
+             */
+            SDRGUI_BURST_BAR, LTE_PORT_COHERENCE_CHANCE, 1.0f,
+            "Antenna ports: coherence above chance (0.30)",
+            "No cell yet"
+        };
+        sdrgui_burst_chart(&params);
+    }
+
+    {
         struct sdrgui_constellation_params params = {
             l->constellation, trace->element_i, trace->element_q,
             trace->element_bit, trace->element_count,
@@ -875,11 +947,22 @@ void draw_lte(struct app *app) {
     draw_button(l.scan_button, app->lte.scan.running ? "Stop" : "Scan band",
                 app->lte.scan.running);
 
-    if (app->lte.earfcn)
+    if (app->lte.earfcn) {
+        /*
+         * The band an EARFCN is in, not the one the picker is showing. These
+         * are different facts and the header was printing the second under a
+         * caption promising the first: `--earfcn 3475` tunes 927.5 MHz in
+         * band 8 and the header read "band 20 (800 MHz)", because
+         * selected_band() reports which button is lit and the buttons default
+         * to band 20. Nothing on screen contradicted it -- the frequency
+         * beside it was right.
+         */
+        const struct lte_band *tuned = lte_band_for_earfcn(app->lte.earfcn);
         snprintf(text, sizeof(text),
                  "LTE downlink   EARFCN %d   %.3f MHz   band %d (%s)",
                  app->lte.earfcn, app->applied_frequency / 1e6,
-                 band ? band->band : 0, band ? band->name : "unknown");
+                 tuned ? tuned->band : 0, tuned ? tuned->name : "unknown");
+    }
     else
         snprintf(text, sizeof(text),
                  "LTE downlink   %.3f MHz   outside band %d -- pick a band, "
