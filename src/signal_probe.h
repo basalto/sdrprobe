@@ -21,13 +21,26 @@
  */
 
 /*
- * Where a carrier is, and how much of the channel is standing in it.
+ * Where a carrier is, and how much of the channel is standing still in it.
  *
- * `in_line` is the fraction of the channel's energy inside the carrier's own
- * line, from 0 to 1. It is the measurement that separates two signals with
- * identical power and identical prominence: a bare tone puts nearly all of
- * its energy in one line, and anything carrying information spreads it across
- * the bandwidth it occupies.
+ * Neither field name is a term of art, because neither measurement is a
+ * standard one, and borrowing a standard name for a near neighbour is how a
+ * reader ends up trusting the wrong thing:
+ *
+ *   `carrier_over_noise_db` is *not* carrier-to-noise ratio. C/N is a carrier
+ *   against noise integrated over a stated bandwidth; this is the carrier's
+ *   line against the median of SIGNAL_FLOOR_PROBES single-frequency probes
+ *   spread across the capture. It answers "is there a line here at all",
+ *   and it is not comparable to a C/N quoted anywhere else.
+ *
+ *   `carrier_power_fraction` is the fraction of the channel's power sitting
+ *   in the unmodulated part of the carrier, 0 to 1 -- the closest standard
+ *   idea is the residual-carrier ratio of an AM signal, and this is measured
+ *   over whatever channel width the caller passes rather than over a
+ *   modulation the receiver knows. It separates two signals with identical
+ *   power and identical prominence: a bare tone puts nearly all of its power
+ *   in one constant, and anything carrying information spreads it across the
+ *   bandwidth it occupies.
  *
  * On air: a recording of 75.000 MHz reads a carrier 57 dB over its floor with
  * no sideband at any ILS marker tone -- a clock harmonic reaching the antenna,
@@ -39,8 +52,8 @@ struct signal_carrier {
     int found;
     double offset_hz;     /* from the centre the samples were taken at */
     double magnitude;     /* of the line itself */
-    double line_over_floor_db;
-    double in_line;       /* 0 to 1 */
+    double carrier_over_noise_db;  /* the line, over the median probe */
+    double carrier_power_fraction; /* 0 to 1, how much of it stands still */
 };
 
 /*
@@ -78,12 +91,12 @@ int signal_find_carrier(const float *i_samples, const float *q_samples,
    on other signals cannot move the answer. */
 #define SIGNAL_FLOOR_PROBES 33
 
-#define SIGNAL_BARE_TONE 0.80
+#define SIGNAL_BARE_FRACTION 0.80
 
 /*
  * And a line has to *be* there before its shape means anything. This is the
  * mistake the tool made on its first run over real captures: an empty
- * frequency has no constant in it either, so `in_line` reads 0.00 there
+ * frequency has no constant in it either, so `carrier_power_fraction` reads 0.00 there
  * exactly as it does for a busy channel, and calling that "modulated" is
  * reporting a signal where there is none.
  *
@@ -96,7 +109,7 @@ int signal_find_carrier(const float *i_samples, const float *q_samples,
  * energy is real and whose standing carrier is not: adsb_cpr_pair.bin reads
  * -2.0 dB and is correctly reported as no carrier rather than as a bare one.
  */
-#define SIGNAL_LINE_PRESENT_DB 15.0
+#define SIGNAL_CARRIER_PRESENT_DB 15.0
 
 enum signal_verdict {
     SIGNAL_NOTHING = 0,   /* no line stands above the floor beside it */
@@ -106,9 +119,9 @@ enum signal_verdict {
 
 static inline enum signal_verdict
 signal_carrier_verdict(const struct signal_carrier *c) {
-    if (!c || !c->found || c->line_over_floor_db < SIGNAL_LINE_PRESENT_DB)
+    if (!c || !c->found || c->carrier_over_noise_db < SIGNAL_CARRIER_PRESENT_DB)
         return SIGNAL_NOTHING;
-    return c->in_line >= SIGNAL_BARE_TONE ? SIGNAL_BARE : SIGNAL_MODULATED;
+    return c->carrier_power_fraction >= SIGNAL_BARE_FRACTION ? SIGNAL_BARE : SIGNAL_MODULATED;
 }
 
 static inline const char *signal_verdict_name(enum signal_verdict v) {

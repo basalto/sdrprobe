@@ -78,6 +78,12 @@ receiver, answering in order:
 2. **Is there a symbol rate?** Oerder-Meyr, moved down out of `tetra_dsp`.
 3. **Does it repeat at a period?** Folding, moved up out of the probe.
 4. **Is it OFDM?** Cyclic-prefix autocorrelation, from the same probe.
+5. **How long is a burst, and how often?** Time segmentation, at sample
+   resolution rather than the survey's 65.5 ms block (ticket 04).
+6. **Does the envelope carry anything, and does the frequency sit on levels?**
+   Envelope variation and an instantaneous-frequency histogram (ticket 05).
+7. **What shape is it, beyond how wide?** Skirt steepness, flatness, symmetry
+   over the extent `survey_carrier.h` already measures (ticket 06).
 
 Then a findings layer over them, the way `lte_findings.h` sits over the LTE
 measurements: sentences with their numbers attached, and refusals where the
@@ -90,3 +96,37 @@ was identified by *decoding* something it said, and a tool that guesses "QPSK"
 from a fourth-power line is a different kind of claim from one that reads a
 Master Information Block. These tools narrow what a reader should try next;
 they do not conclude.
+
+## Measured against the standard monitoring chain
+
+2026-09-06. The usual pipeline in this field -- gr-inspector, the commercial
+monitoring receivers, the modulation-classification literature -- runs energy
+detection, then signal segmentation, then feature extraction, then waveform
+classification. Read against it, this repository already has the first two
+stages and most of the third:
+
+| feature | here |
+| --- | --- |
+| centre frequency | `centre_hz` and `power_centre_hz`, and their disagreement is itself a feature |
+| bandwidth | `width_hz`, to the trough rather than a fixed dB down |
+| power | dBFS and prominence over the local floor; RSRP where LTE decodes |
+| occupancy | `survey_measure_duty()`, plus per-hour presence in the site history |
+| frequency stability | `survey_measure_spread_hz()` |
+| spectral shape | width bucketed into five names, and nothing more -- ticket 06 |
+| cyclostationarity | three implementations, none shared -- ticket 02 |
+| time-domain features | `carrier_power_fraction` only -- ticket 05 |
+| **duration** | **nothing** -- ticket 04 |
+
+Duration is the real gap, and `.scratch/bursty-signals/` found the same hole
+from the other side: the confirmation pass can only ask "up or down" at block
+resolution, so it refutes nine of ten real satellite bursts.
+
+**The fourth stage is deliberately not built as described.** A twenty-class
+modulation classifier over an 8-bit ADC, an AGC that moves, no amplitude
+calibration and a 2 MS/s window is where projects like this over-claim. What
+is honestly reachable here is a small set of verdicts, each returned only when
+one measurement crosses a threshold that was measured against real captures
+*and* against noise, with "cannot say" as the default rather than a failure --
+the shape `signal_carrier_verdict()` already set, and the same discipline
+ADR-0015 applies to the band plan: a lookup is not an identification, and
+neither is a threshold.

@@ -51,7 +51,7 @@ static void test_a_pure_tone_is_all_line(void) {
                                    40000.0, &c) == 1);
     check_close("at the frequency it was put", c.offset_hz, 120000.0, 30.0);
     /* Nothing else in the samples, so the line is the whole of the power. */
-    check_close("with all of the channel's energy in it", c.in_line, 1.0, 0.02);
+    check_close("with all of the channel's energy in it", c.carrier_power_fraction, 1.0, 0.02);
     check_true("and it reads as a bare tone", signal_is_bare_tone(&c));
 }
 
@@ -143,7 +143,7 @@ static void test_the_guard_is_the_callers(void) {
  *
  * The tool's first run over real captures called a control at an empty
  * frequency "modulated", because nothing there has a constant in it either:
- * in_line reads 0.00 for an empty channel exactly as it does for a busy one.
+ * carrier_power_fraction reads 0.00 for an empty channel exactly as it does for a busy one.
  * Only the height of the line separates them.
  */
 static void test_empty_is_not_modulated(void) {

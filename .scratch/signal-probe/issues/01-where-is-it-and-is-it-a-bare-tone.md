@@ -59,10 +59,10 @@ that line. `signal_carrier_verdict()` reads the two numbers together.
 On four real captures:
 
 ```
-75.000 MHz       line +49.8 dB   in_line 0.872   a bare carrier
-empty control    line  -8.0 dB   in_line 0.000   no carrier
-adsb_cpr_pair    line  -2.0 dB   in_line 0.000   no carrier
-fm_rds_tsf       line +18.2 dB   in_line 0.000   a modulated carrier
+75.000 MHz       line +49.8 dB   carrier_power_fraction 0.872   a bare carrier
+empty control    line  -8.0 dB   carrier_power_fraction 0.000   no carrier
+adsb_cpr_pair    line  -2.0 dB   carrier_power_fraction 0.000   no carrier
+fm_rds_tsf       line +18.2 dB   carrier_power_fraction 0.000   a modulated carrier
 ```
 
 Mode S reading "no carrier" is right rather than a miss: it is pulsed, so its
@@ -75,7 +75,7 @@ would make.
 
 **The complement of "bare" is not "modulated".** The first verdict was a
 single predicate, and an empty frequency has no constant in it either -- so
-`in_line` reads 0.00 there exactly as it does on a busy channel, and the tool
+`carrier_power_fraction` reads 0.00 there exactly as it does on a busy channel, and the tool
 called an empty control modulated. It takes both numbers: a line has to be
 there before its shape means anything.
 
@@ -93,7 +93,7 @@ window* was the intermediate version, and it fails when the window is narrower
 than the channel: every probe falls inside the carrier's own skirt, none
 survives, and the floor comes back zero.
 
-**`in_line` has to be measured in the channel.** The first version compared
+**`carrier_power_fraction` has to be measured in the channel.** The first version compared
 the line against the power of every sample handed in, which for a 2 MHz
 capture of a narrow carrier is almost all broadband noise far outside the
 channel. It read 0.138 for a carrier standing 49 dB over its own floor -- and
