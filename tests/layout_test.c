@@ -857,6 +857,25 @@ static void check_lte(void) {
                       i);
             check_msg(rows.value_width > 0.0f && rows.label_width > 0.0f,
                       "%.0fx%.0f: panel %d has a collapsed column\n", w, h, i);
+            /* The three statistics columns share the value column's span and
+               must not overlap each other or leave it. */
+            for (int c = 0; c < 3; c++) {
+                check_msg(rows.stat_x[c] >= rows.value_x - 0.01f,
+                          "%.0fx%.0f: panel %d stat column %d starts before "
+                          "the value column\n", w, h, i, c);
+                check_msg(rows.stat_x[c] + rows.stat_width <=
+                              rows.value_x + rows.value_width + 0.01f,
+                          "%.0fx%.0f: panel %d stat column %d leaves the "
+                          "value column\n", w, h, i, c);
+                if (c + 1 < 3)
+                    check_msg(rows.stat_x[c] + rows.stat_width <=
+                                  rows.stat_x[c + 1] + 0.01f,
+                              "%.0fx%.0f: panel %d stat column %d runs into "
+                              "the next\n", w, h, i, c);
+            }
+            check_msg(rows.stat_width > 0.0f,
+                      "%.0fx%.0f: panel %d has collapsed statistics "
+                      "columns\n", w, h, i);
         }
         /* The waterfall spans the row, so the screen reads as one column of
            content rather than two that happen to be stacked. */

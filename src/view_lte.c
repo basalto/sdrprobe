@@ -489,6 +489,34 @@ void update_lte(struct app *app, double now) {
     app->lte.shape_valid = lte_channel_shape(app->i_samples, app->q_samples,
                                              app->pair_count, rate, &cell,
                                              &app->lte.shape);
+    /*
+     * And into the run's statistics. The reset inside lte_stats_for_cell is
+     * the load-bearing part: this carrier can alternate between two cells
+     * block to block, and an average across both would sit under a heading
+     * naming one of them.
+     */
+    lte_stats_for_cell(&app->lte.stats, cell.pci);
+    lte_stat_add(&app->lte.stats.frequency_khz,
+                 (float)(cell.frequency_offset_hz / 1e3));
+    lte_stat_add(&app->lte.stats.pss, cell.pss_correlation);
+    lte_stat_add(&app->lte.stats.sss, cell.sss_correlation);
+    if (app->lte.power_valid) {
+        lte_stat_add(&app->lte.stats.rsrp_dbfs, app->lte.power.rsrp_dbfs);
+        lte_stat_add(&app->lte.stats.rsrq_db, app->lte.power.rsrq_db);
+        lte_stat_add(&app->lte.stats.sinr_db, app->lte.power.sinr_db);
+    }
+    if (app->lte.shape_valid) {
+        lte_stat_add(&app->lte.stats.delay_ns, app->lte.shape.delay_ns);
+        lte_stat_add(&app->lte.stats.spread_ns, app->lte.shape.delay_spread_ns);
+        lte_stat_add(&app->lte.stats.drift_hz, app->lte.shape.drift_hz);
+    }
+    if (app->lte.port_coherence_valid) {
+        int ports = 0, p;
+        for (p = 0; p < LTE_PORT_COUNT; p++)
+            if (app->lte.port_coherence[p] >= LTE_PORT_COHERENCE_PRESENT)
+                ports++;
+        lte_stat_add(&app->lte.stats.ports, (float)ports);
+    }
     snprintf(app->lte.status, sizeof(app->lte.status),
              "Cell %d found; its broadcast has not decoded yet.", cell.pci);
 
@@ -576,6 +604,42 @@ static int draw_panel(Rectangle rect, const char *caption) {
     sdrgui_text_fit(caption, (int)rect.x + 12, (int)rect.y + 10, 16,
                     rect.width - 24.0f, panel_caption);
     return (int)rect.y + 36;
+}
+
+/*
+ * A row carrying what a measurement did rather than what it says now:
+ * smallest, mean and largest since the cell last changed.
+ *
+ * A count of zero draws the label and nothing else. That is the honest state
+ * for a measurement whose block failed -- an empty column says "not read",
+ * where a zero would say "read, and it was zero", and for a reference power
+ * in dBFS zero is a level this receiver cannot reach.
+ */
+static void draw_stat_row(const struct lte_panel_rows *rows, int index,
+                          const char *label, const struct lte_stat *stat,
+                          const char *format) {
+    char text[32];
+    float values[3];
+    int y, c;
+
+    if (index < 0 || index >= rows->capacity)
+        return;
+    y = (int)(rows->first_y + (float)index * rows->step);
+    sdrgui_text_fit(label, (int)rows->label_x, y, LTE_PANEL_ROW_FONT,
+                    rows->label_width, row_label);
+    if (!stat->count) {
+        sdrgui_text_fit("--", (int)rows->stat_x[1], y, LTE_PANEL_ROW_FONT,
+                        rows->stat_width, row_muted);
+        return;
+    }
+    values[0] = stat->min;
+    values[1] = lte_stat_mean(stat);
+    values[2] = stat->max;
+    for (c = 0; c < 3; c++) {
+        snprintf(text, sizeof(text), format, (double)values[c]);
+        sdrgui_text_fit(text, (int)rows->stat_x[c], y, LTE_PANEL_ROW_FONT,
+                        rows->stat_width, c == 1 ? row_value : row_muted);
+    }
 }
 
 /*
@@ -711,8 +775,7 @@ static void draw_found_panel(const struct app *app, Rectangle rect) {
 static void draw_cell_panel(const struct app *app, Rectangle rect,
                             double now) {
     const struct lte_cell *cell = &app->lte.cell;
-    const struct lte_reference_power *power = &app->lte.power;
-    const struct lte_channel_shape *shape = &app->lte.shape;
+    const struct lte_cell_stats *st = &app->lte.stats;
     struct lte_panel_rows rows = lte_panel_rows_for(rect);
     char text[160];
     int r = 0;
@@ -746,87 +809,54 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
     /* The offset in parts per million is the figure that transfers: it is a
        property of the receiver's crystal rather than of this carrier, so it
        can be compared with what the GSM calibration measured. */
-    /* Hertz and parts per million; the whole-subcarrier part is in the
-       headless report, and putting three numbers here truncated all of them.
-       The ppm is the figure that transfers -- it is a property of the
-       receiver's crystal rather than of this carrier, so it compares with
-       what the GSM calibration measured. */
-    snprintf(text, sizeof(text), "%+.1f kHz  %+.1f ppm",
-             cell->frequency_offset_hz / 1e3,
+    /*
+     * Parts per million only: the hertz are in the table below, and printing
+     * both put the same measurement on screen twice.
+     *
+     * The ppm is the one that belongs up here with the facts rather than down
+     * there with the readings -- it is a property of the receiver's crystal
+     * and not of this carrier, so it compares with what the GSM calibration
+     * measured on a different band.
+     */
+    snprintf(text, sizeof(text), "%+.1f ppm  (%+d sc)",
              app->applied_frequency > 0
                  ? cell->frequency_offset_hz * 1e6 /
                        (double)app->applied_frequency
-                 : 0.0);
-    draw_row_at(&rows, r++, "Freq offset", text, row_value);
-    snprintf(text, sizeof(text), "%.2f  (%.2f)",
-             (double)cell->pss_correlation, (double)cell->pss_runner_up);
-    draw_row_at(&rows, r++, "PSS correlation", text, row_value);
-    snprintf(text, sizeof(text), "%.2f  (%.2f)",
-             (double)cell->sss_correlation, (double)cell->sss_runner_up);
-    draw_row_at(&rows, r++, "SSS correlation", text, row_value);
-
-    /* dBFS and not dBm: nothing here knows the antenna's gain. RSRQ and
-       RS-SINR are ratios through the same chain and carry no calibration,
-       which is why they are worth reading beside a level that does. */
-    if (app->lte.power_valid)
-        snprintf(text, sizeof(text), "%.1f dBFS", (double)power->rsrp_dbfs);
-    else
-        snprintf(text, sizeof(text), "not measured");
-    draw_row_at(&rows, r++, "RSRP", text,
-                app->lte.power_valid ? row_value : row_muted);
-    if (app->lte.power_valid)
-        snprintf(text, sizeof(text), "%.1f dB", (double)power->rsrq_db);
-    else
-        snprintf(text, sizeof(text), "not measured");
-    draw_row_at(&rows, r++, "RSRQ", text,
-                app->lte.power_valid ? row_value : row_muted);
-    if (app->lte.power_valid)
-        snprintf(text, sizeof(text), "%.1f dB", (double)power->sinr_db);
-    else
-        snprintf(text, sizeof(text), "not measured");
-    draw_row_at(&rows, r++, "RS-SINR", text,
-                app->lte.power_valid ? row_value : row_muted);
-
-    /* Delay and its spread on one row: they are the same measurement read two
-       ways, and the units are shared. */
-    if (app->lte.shape_valid)
-        snprintf(text, sizeof(text), "%+.0f / %.0f ns", (double)shape->delay_ns,
-                 (double)shape->delay_spread_ns);
-    else
-        snprintf(text, sizeof(text), "not measured");
-    draw_row_at(&rows, r++, "Delay / spread", text,
-                app->lte.shape_valid ? row_value : row_muted);
+                 : 0.0,
+             cell->integer_offset);
+    draw_row_at(&rows, r++, "Crystal error", text, row_value);
     /*
-     * What is left after the search's own frequency correction, which on a
-     * static receiver checks that correction rather than measuring motion --
-     * a Doppler and a residual tuning error are the same phase.
+     * From here down the panel is a table: smallest, mean and largest since
+     * this cell was found, because every one of these moves. A single block's
+     * correlation drops when somebody walks past the antenna and its
+     * reference power follows the fading, so one number cannot tell a
+     * marginal cell from a steady one -- which is the distinction a reader
+     * actually wants.
      */
-    if (app->lte.shape_valid)
-        snprintf(text, sizeof(text), "%+.0f Hz", (double)shape->drift_hz);
-    else
-        snprintf(text, sizeof(text), "not measured");
-    draw_row_at(&rows, r++, "Residual drift", text,
-                app->lte.shape_valid ? row_value : row_muted);
-    /*
-     * How many antennas are transmitting, read from the reference phases
-     * alone. It agrees with the antenna-port count in the broadcast panel
-     * without sharing any code with it, so the two disagreeing is worth
-     * noticing -- and this one is available before any message decodes.
-     */
-    if (app->lte.port_coherence_valid) {
-        int ports = 0, p;
-        for (p = 0; p < LTE_PORT_COUNT; p++)
-            if (app->lte.port_coherence[p] >= LTE_PORT_COHERENCE_PRESENT)
-                ports++;
-        snprintf(text, sizeof(text), "%d transmitting", ports);
-    } else {
-        snprintf(text, sizeof(text), "not measured");
+    if (r < rows.capacity) {
+        /* Each heading over the column it names. Written as one string in
+           the value column first, which lined up only by luck and only at
+           one window width. */
+        static const char *heading[3] = { "min", "mean", "max" };
+        int hy = (int)(rows.first_y + (float)r * rows.step), c;
+        for (c = 0; c < 3; c++)
+            sdrgui_text_fit(heading[c], (int)rows.stat_x[c], hy,
+                            LTE_PANEL_ROW_FONT, rows.stat_width, row_label);
     }
-    draw_row_at(&rows, r++, "Antenna ports", text,
-                app->lte.port_coherence_valid ? row_value : row_muted);
+    r++;
+    draw_stat_row(&rows, r++, "Freq offset kHz", &st->frequency_khz, "%+.1f");
+    draw_stat_row(&rows, r++, "PSS correlation", &st->pss, "%.2f");
+    draw_stat_row(&rows, r++, "SSS correlation", &st->sss, "%.2f");
+    draw_stat_row(&rows, r++, "RSRP dBFS", &st->rsrp_dbfs, "%.1f");
+    draw_stat_row(&rows, r++, "RSRQ dB", &st->rsrq_db, "%.1f");
+    draw_stat_row(&rows, r++, "RS-SINR dB", &st->sinr_db, "%.1f");
+    draw_stat_row(&rows, r++, "Delay ns", &st->delay_ns, "%+.0f");
+    draw_stat_row(&rows, r++, "Spread ns", &st->spread_ns, "%.0f");
+    draw_stat_row(&rows, r++, "Drift Hz", &st->drift_hz, "%+.0f");
+    draw_stat_row(&rows, r++, "Antenna ports", &st->ports, "%.0f");
 
-    snprintf(text, sizeof(text), "last seen %.1f s ago",
-             now - app->lte.cell_time);
+    snprintf(text, sizeof(text), "%lu blocks, last seen %.1f s ago",
+             st->rsrp_dbfs.count, now - app->lte.cell_time);
     sdrgui_text_fit(text, (int)rows.label_x,
                     (int)lte_panel_footer_after(&rows, r), 14,
                     rect.width - 24.0f, row_muted);
