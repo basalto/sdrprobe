@@ -90,6 +90,18 @@ displays a PNG. Look at the ones your change touched, and at their
 neighbours; bare `make screens` renders all twelve and takes a minute, which
 is the wrong tool for a change that moved one panel.
 
+`src/lte_findings.h` turns those numbers into sentences, in the broadcast
+panel and as `lte-chain-finding` lines. **Two of the five are refusals and
+they are the point.** The 3GPP channel profiles -- EPA 45 ns, EVA 357, ETU 991
+(36.104 annex B.2) -- all sit under the ~1010 ns this receiver resolves, since
+references six subcarriers apart put twelve of them across 990 kHz and the
+resolution is its reciprocal; printing "EVA" from a measurement that cannot
+separate it from EPA would be inventing the answer a reader wanted. And a
+Doppler and a residual tuning error are one phase, so at 1.16 km/h per hertz
+the drift measures the crystal with any motion buried inside it. Each caveat
+shares a line with the claim it qualifies, because the first version had them
+separate and the panel ran out of room after the claim.
+
 The cell panel is a table of what each measurement *did*, not what it says
 this block: smallest, mean and largest since the identity last changed
 (`src/lte_stats.h`, and `lte-chain-stat` lines in the headless report). Every
@@ -743,6 +755,13 @@ answer was never the contract.
 
 Bumping it is editing three numbers in that header. Nothing derives it from
 git: a build from a dirty tree would claim to be a tag it is not.
+
+**Every header the program includes belongs in `APP_HDR`**, and four did not:
+`panel_rows.h`, `lte_stats.h`, `lte_confirm.h` and `lte_findings.h` were each
+listed only by their own `check-*` rule, so editing one rebuilt its check and
+not the binary. That is how a screenshot came back showing wording that had
+already been changed, and `make check` cannot catch it because the checks have
+their own dependency lists and are perfectly up to date.
 
 `version.h` is in `APP_HDR` so that editing it rebuilds. It was not, for a
 while, and the failure is quiet in the worst way: the header says one version,

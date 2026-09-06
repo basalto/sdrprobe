@@ -6,6 +6,7 @@
 
 #include "view.h"
 #include "lte_layout.h"
+#include "lte_findings.h"
 #include "sdrgui.h"
 
 /*
@@ -860,6 +861,7 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
     sdrgui_text_fit(text, (int)rows.row.label_x,
                     (int)panel_footer_after(&rows.row, r), 14,
                     rect.width - 24.0f, row_muted);
+
 }
 
 static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
@@ -913,6 +915,43 @@ static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
                     "needs before it knows the bandwidth.",
                     (int)rect.x + 12, y + 17, 14, rect.width - 24.0f,
                     row_muted);
+
+    /*
+     * And what the measurements next door amount to.
+     *
+     * Here rather than under the numbers they summarise, because the cell
+     * panel is thirteen rows and a footer and had room for two of these --
+     * and the two it dropped were the refusals, which are the half a reader
+     * most needs. This is the prose column and it has the space.
+     *
+     * Measured before drawing: sdrgui_text_block does not clip, so a finding
+     * that would not fit whole is not started. A conclusion cut off
+     * mid-sentence is worse than one absent, because a reader cannot tell
+     * which half is missing.
+     */
+    {
+        struct lte_findings findings;
+        float top = y + 44.0f;
+        float bottom = rect.y + rect.height - 8.0f;
+        int i;
+
+        if (!lte_findings_from(&app->lte.stats,
+                               (double)app->applied_frequency, &findings))
+            return;
+        sdrgui_text_fit("What that adds up to", (int)rect.x + 12, (int)top, 15,
+                        rect.width - 24.0f, panel_caption);
+        top += 22.0f;
+        for (i = 0; i < findings.count; i++) {
+            Rectangle box = { rect.x + 12.0f, top, rect.width - 24.0f,
+                              bottom - top };
+            float used = sdrgui_text_block(box, findings.line[i], 14, 2,
+                                           row_muted, 0);
+            if (top + used > bottom)
+                break;
+            sdrgui_text_block(box, findings.line[i], 14, 2, row_muted, 1);
+            top += used + 8.0f;
+        }
+    }
 }
 
 /*
