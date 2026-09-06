@@ -173,6 +173,14 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   span of zero. The candidate panel carries "Scan this frequency", which sweeps
   +/-2 MHz around the selection at the current dwell -- the drill-down the
   survey exists for -- and snapshots the survey first so Reset zoom returns.
+  Selecting a candidate also **measures what kind of thing it is**, not only
+  that it is there: `signal_find_carrier()` over the raw samples says whether
+  a standing carrier is present and how much of the channel stands still, and
+  `signal_findings.h` turns that into sentences drawn above the band plan --
+  a bare carrier, a modulated one, or no standing carrier at all, each with
+  the number it rests on and each refusal kept. Measuring waits
+  SURVEY_SETTLE_SECONDS after the retune, the same as a sweep step, because a
+  block already in the pipeline holds the previous tuning's samples.
   "Open waterfall" tunes 300 kHz off the candidate, clears the waterfall
   history and switches to view 4; that tuning is kept rather than restored on
   leaving, which is the one case where the survey does not put back what it

@@ -1179,6 +1179,7 @@ static void survey_select(struct app *app, int index) {
         return;
     s->selected = index;
     s->report_valid = 0;
+    s->carrier_valid = 0;
     survey_measure_reset(&s->measure);
     hz = survey_bin_hz(s, s->peaks[index].index);
     s->measure_expected_hz = hz;
@@ -1242,6 +1243,45 @@ static void survey_walk_to(struct app *app, int rank, Rectangle list) {
     survey_follow_selection(app, list);
 }
 
+/*
+ * Is anything riding it? Measured from the raw samples, not the spectrum.
+ *
+ * The search window is centred on where the candidate was *put* rather than
+ * on where the spectrum says it is: survey_select() tunes SURVEY_OFFSET_HZ
+ * below the candidate precisely so it lands clear of the receiver's own DC
+ * spike, and that offset is also the guard this needs. Passing a guard of
+ * zero here would find the DC spike every time -- it is the strongest thing
+ * in any capture, at an empty frequency as readily as an occupied one -- and
+ * then measure its sidebands. Three runs of this analysis were thrown away to
+ * exactly that before signal_find_carrier() grew the parameter, and the tell
+ * was a control at an empty frequency reporting a stronger carrier than the
+ * signal under test.
+ *
+ * The channel width is what the sweep measured, floored: below about a
+ * transform bin the "width" is the instrument's resolution rather than the
+ * signal's, and a channel narrower than the line itself compares the carrier
+ * against nothing.
+ */
+#define SURVEY_CARRIER_SEARCH_HZ 40000.0
+#define SURVEY_CARRIER_MIN_CHANNEL_HZ 20000.0
+
+static void survey_measure_carrier(struct app *app,
+                                   const struct sdr_carrier_report *report) {
+    struct survey_view *s = &app->survey;
+    double at = SURVEY_OFFSET_HZ;
+    double channel = report->bandwidth_hz;
+
+    if (channel < SURVEY_CARRIER_MIN_CHANNEL_HZ)
+        channel = SURVEY_CARRIER_MIN_CHANNEL_HZ;
+    s->carrier_valid = signal_find_carrier(app->i_samples, app->q_samples,
+                                           app->pair_count,
+                                           (double)app->applied_sample_rate,
+                                           at - SURVEY_CARRIER_SEARCH_HZ,
+                                           at + SURVEY_CARRIER_SEARCH_HZ,
+                                           SURVEY_OFFSET_HZ / 2.0,
+                                           channel, &s->carrier);
+}
+
 /* One block's worth of measurement of the selected candidate. */
 static void survey_measure_block(struct app *app) {
     struct survey_view *s = &app->survey;
@@ -1261,6 +1301,7 @@ static void survey_measure_block(struct app *app) {
                                report.centre_hz)) {
         s->report = report;
         s->report_valid = 1;
+        survey_measure_carrier(app, &report);
     }
 }
 
@@ -1368,7 +1409,11 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
     }
 
     if (s->measuring) {
-        survey_measure_block(app);
+        /* Not until the tuner has settled: the blocks before that are the
+           previous tuning's, and measuring them measures the wrong
+           frequency. survey_measure_settled() carries the reason. */
+        if (survey_measure_settled(now - s->measure_started_at))
+            survey_measure_block(app);
         if (now - s->measure_started_at >= SURVEY_MEASURE_SECONDS) {
             s->measuring = 0;
             snprintf(s->status, sizeof(s->status),
@@ -2140,6 +2185,26 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
     }
 }
 
+/*
+ * One line of the panel's prose, if there is room for it above the buttons.
+ *
+ * Returns 1 when it drew and 0 when the line did not fit, so a caller can
+ * stop rather than carry on drawing into the controls. Off the bottom edge is
+ * worse than absent -- panel_rows.h says the same for the views that have a
+ * table of fields, and this panel's content is prose of a length that depends
+ * on what was measured, so it needs the rule at every line rather than a row
+ * capacity worked out once.
+ */
+static int detail_line(const struct survey_layout *l, int *y, int indent,
+                       int size, int step, const char *text, Color color) {
+    if ((float)(*y + size) > l->detail_text.y + l->detail_text.height)
+        return 0;
+    sdrgui_text_fit(text, (int)l->detail_text.x + indent, *y, size,
+                    l->detail_text.width - (float)indent - 12.0f, color);
+    *y += step;
+    return 1;
+}
+
 static void draw_detail(const struct app *app, const struct survey_layout *l) {
     const struct survey_view *s = &app->survey;
     Rectangle rect = l->detail;
@@ -2211,6 +2276,36 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
     }
 
     /*
+     * What kind of thing it is, before what the frequency is allocated to and
+     * before the receiver-spur warning -- the same ordering argument as the
+     * one below, one step further back. A reader who has already read
+     * "Aeronautical radionavigation -- ILS markers" is reading everything
+     * after it as detail about a beacon; the measurement of the signal itself
+     * has to come first to have a chance of being believed over the label.
+     */
+    if (s->report_valid || s->carrier_valid) {
+        struct signal_findings findings;
+        int k;
+
+        signal_findings_from(s->carrier_valid ? &s->carrier : NULL,
+                             survey_measure_duty(&s->measure),
+                             s->measure.hits, s->measure.blocks,
+                             survey_measure_spread_hz(&s->measure),
+                             &findings);
+        y += 6;
+        for (k = 0; k < findings.count; k++) {
+            /* The first line is the claim and the rest qualify it, so they
+               are indented and quieter -- the arrangement the band plan and
+               the spur warning below already use. */
+            if (!detail_line(l, &y, k ? 24 : 12, k ? 16 : 17,
+                             k ? line - 2 : line, findings.line[k],
+                             k ? (Color){ 126, 151, 166, 255 }
+                               : (Color){ 213, 226, 234, 255 }))
+                break;
+        }
+    }
+
+    /*
      * What the measurement suggests about the candidate itself, before the
      * band plan says what the frequency is allocated to. The order matters:
      * the allocation is what a reader believes by default, and a warning
@@ -2223,39 +2318,30 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
                                              : 0.0);
     if (survey_suspect_warns(suspect)) {
         y += 6;
-        sdrgui_text_fit("this looks like the receiver, not the band",
-                        (int)rect.x + 12, y, 17, rect.width - 24.0f,
-                        (Color){ 250, 190, 74, 255 });
-        y += line;
-        sdrgui_text_fit(survey_suspect_reason(suspect), (int)rect.x + 24, y, 16,
-                        rect.width - 36.0f, (Color){ 200, 165, 110, 255 });
-        y += line - 2;
-        if (suspect & SURVEY_SUSPECT_UNRESOLVED) {
-            sdrgui_text_fit("and too narrow for this FFT to resolve: a bare "
-                            "carrier",
-                            (int)rect.x + 24, y, 16, rect.width - 36.0f,
-                            (Color){ 200, 165, 110, 255 });
-            y += line - 2;
-        }
+        detail_line(l, &y, 12, 17, line,
+                    "this looks like the receiver, not the band",
+                    (Color){ 250, 190, 74, 255 });
+        detail_line(l, &y, 24, 16, line - 2, survey_suspect_reason(suspect),
+                    (Color){ 200, 165, 110, 255 });
+        if (suspect & SURVEY_SUSPECT_UNRESOLVED)
+            detail_line(l, &y, 24, 16, line - 2,
+                        "and too narrow for this FFT to resolve: a bare "
+                        "carrier", (Color){ 200, 165, 110, 255 });
         /* Sufficient, not necessary: a spur the dongle radiates and hears
            back through its own antenna goes when the antenna does, and most
            of this comb behaves that way. What survives unplugging is
            certainly the receiver; what does not is not thereby a signal. */
-        sdrgui_text_fit("unplug the antenna and sweep again: what stays is "
-                        "the receiver",
-                        (int)rect.x + 24, y, 15, rect.width - 36.0f,
-                        (Color){ 126, 151, 166, 255 });
-        y += line - 2;
+        detail_line(l, &y, 24, 15, line - 2,
+                    "unplug the antenna and sweep again: what stays is "
+                    "the receiver", (Color){ 126, 151, 166, 255 });
     } else if (suspect & SURVEY_SUSPECT_UNRESOLVED) {
         /* Not a warning on its own -- plenty of real services are this narrow
            -- but worth saying that the width reported is the instrument's
            floor and not the signal's. */
         y += 6;
-        sdrgui_text_fit("too narrow for this FFT to resolve: the width above "
-                        "is its floor",
-                        (int)rect.x + 12, y, 16, rect.width - 24.0f,
-                        (Color){ 126, 151, 166, 255 });
-        y += line - 2;
+        detail_line(l, &y, 12, 16, line - 2,
+                    "too narrow for this FFT to resolve: the width above "
+                    "is its floor", (Color){ 126, 151, 166, 255 });
     }
 
     /* The band plan, and what it is not. */
@@ -2263,24 +2349,21 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
     y += 6;
     if (entry) {
         snprintf(text, sizeof(text), "band plan: %s", entry->name);
-        sdrgui_text_fit(text, (int)rect.x + 12, y, 17, rect.width - 24.0f,
-                        (Color){ 149, 205, 232, 255 });
-        y += line;
-        if (entry->note) {
-            sdrgui_text_fit(entry->note, (int)rect.x + 24, y, 16,
-                            rect.width - 36.0f, (Color){ 126, 151, 166, 255 });
-            y += line - 2;
-        }
-        sdrgui_text_fit("a frequency lookup, not a detection",
-                        (int)rect.x + 12, y, 15, rect.width - 24.0f,
+        detail_line(l, &y, 12, 17, line, text,
+                    (Color){ 149, 205, 232, 255 });
+        if (entry->note)
+            detail_line(l, &y, 24, 16, line - 2, entry->note,
                         (Color){ 126, 151, 166, 255 });
+        detail_line(l, &y, 12, 15, line - 2,
+                    "a frequency lookup, not a detection",
+                    (Color){ 126, 151, 166, 255 });
         if (band_plan_can_inspect(entry->decoder) && s->report_valid)
             draw_button(l->inspect_button,
                         band_plan_inspect_label(entry->decoder), 1);
     } else {
-        sdrgui_text_fit("band plan: nothing allocated here that this table knows",
-                        (int)rect.x + 12, y, 16, rect.width - 24.0f,
-                        (Color){ 126, 151, 166, 255 });
+        detail_line(l, &y, 12, 16, line - 2,
+                    "band plan: nothing allocated here that this table knows",
+                    (Color){ 126, 151, 166, 255 });
     }
 }
 

@@ -618,6 +618,27 @@ static void check_survey(void) {
                       l.waterfall_button.x + 0.01f,
                   "%.0fx%.0f the panel's upper buttons overlap\n", w->width,
                   w->height);
+        /*
+         * Nothing the panel writes may reach the buttons. This is the
+         * rectangle that was missing: the detail panel's text is prose whose
+         * length depends on what was measured, positioned by `y +=` between
+         * draw calls, and adding a block of findings pushed the band plan
+         * straight through the "Scan this frequency" button on air. A
+         * rectangle is what check-layout can see; a running total is not.
+         */
+        check_msg(l.detail_text.y + l.detail_text.height <=
+                      l.scan_button.y + 0.01f,
+                  "%.0fx%.0f the panel's text reaches its buttons by "
+                  "%.0f px\n", w->width, w->height,
+                  (l.detail_text.y + l.detail_text.height) - l.scan_button.y);
+        check_msg(l.detail_text.height >= 0.0f,
+                  "%.0fx%.0f the panel's text region has negative height\n",
+                  w->width, w->height);
+        check_msg(fabsf(l.detail_text.x - l.detail.x) <= 0.01f &&
+                      l.detail_text.width <= l.detail.width + 0.01f &&
+                      l.detail_text.y >= l.detail.y - 0.01f,
+                  "%.0fx%.0f the panel's text region is not inside it\n",
+                  w->width, w->height);
         /* The handoff sits on its own row, below the pair. */
         check_msg(l.inspect_button.y >=
                           l.scan_button.y + l.scan_button.height ||

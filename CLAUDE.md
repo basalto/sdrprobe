@@ -418,6 +418,17 @@ it measured to, whether it resembles the receiver, which allocation it falls in
 -- is decided once. It used to be decided inside a `printf` loop, where the two
 could have disagreed about the same peak with nothing to say so.
 
+**Measuring one candidate has the same settle, and did not.** Selecting a
+candidate retunes the receiver, and the blocks already in the pipeline hold
+the previous tuning's samples -- so peak power, prominence, bandwidth and duty
+were all being computed partly from wherever the receiver had just been. A
+spectrum *average* blurs one stale block among the good ones well enough that
+it never showed. A carrier measurement cannot: the first live run of
+`signal_findings` called the 75.000 MHz clock harmonic "a modulated carrier,
+19 dB up" where the same signal recorded and measured offline reads 40.7 dB
+and 87% standing still. `survey_measure_settled()` is the rule and
+`check-survey-sweep` asserts it.
+
 A sweep also throws away every block that arrives before a step's settle is
 over -- it was in the pipeline while the tuner was moving, so it holds the
 previous step's samples, and folding it writes that step's signal into this
@@ -466,6 +477,20 @@ Tabs are presentation only, not the boundary (ADR-0010).
   detects periodicity in the squared magnitude and a burst grid *is*
   periodicity in the squared magnitude, so asked blind it cannot tell a symbol
   rate from a frame rate. `.scratch/signal-probe/issues/02-*.md` has the table.
+- `src/signal_findings.h` — one layer over that, and the same relation to it
+  that `lte_findings.h` has to the LTE measurements: sentences with their
+  numbers attached, and refusals where the measurement cannot reach. It is
+  drawn on the survey's candidate panel **above the band plan**, and the
+  order is the argument -- a reader who has already read "Aeronautical
+  radionavigation -- ILS markers" reads everything after it as detail about a
+  beacon, so the measurement has to come first to be believed over the label
+  (ADR-0015). On air, 75.0005 MHz reads *a bare carrier, 42 dB over its
+  floor; 87% of the channel stands still; nothing rides it* under exactly
+  that allocation, and 100.2965 MHz reads *a modulated carrier, 56 dB over
+  its floor; almost none of the channel stands still; no symbol rate looked
+  for: needs one channel*. **It must not become a verdict**: "18 kBd, 25 kHz
+  wide, continuous" lets a reader reach for the TETRA view, and "probably
+  TETRA" is a claim nothing here can stand behind.
 - `src/sdr_dsp.{c,h}` (`sdr_dsp_`) — technology-independent primitives: byte→float
   I/Q, DC removal, peak binning, signal stats, a hand-written 2048-point
   Hann-windowed FFT → dBFS, power centroid, channel-power reducer, PPM.

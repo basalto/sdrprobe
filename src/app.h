@@ -24,6 +24,7 @@
 #include "lte_scan.h"
 #include "options.h"
 #include "sdr_dsp.h"
+#include "signal_findings.h"
 #include "survey_sweep.h"
 
 
@@ -889,6 +890,12 @@ struct survey_view {
     struct survey_measurement measure;
     struct sdr_carrier_report report;
     int report_valid;
+    /* What kind of thing it is, rather than that it is there. Measured from
+       the raw samples rather than the spectrum, because a standing carrier is
+       a property of the samples and the transform has already averaged it
+       together with everything beside it. */
+    struct signal_carrier carrier;
+    int carrier_valid;
 
     struct survey_snapshot previous;
 
