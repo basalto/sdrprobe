@@ -25,6 +25,8 @@
 #include "chrome_layout.h"
 #include "sdrgui.h"
 #include "view.h"
+#include "tetra_dsp.h"
+#include "tetra_sync.h"
 #include "debug_log.h"
 
 /* input_route.h mirrors this so it can stay standalone; if that enum is
@@ -1783,9 +1785,116 @@ static void print_lte(struct app *app, double now)
                mib->antenna_ports == 1 ? "" : "s");
 }
 
+/*
+ * TETRA: one block of samples to whatever the network says about itself.
+ *
+ * Stateless per block, unlike the other decoders here, because a TETRA
+ * downlink is continuous and every block carries several synchronization
+ * bursts -- this base station sends one in every timeslot, about seventy a
+ * second. There is nothing to accumulate across blocks and nothing to lose
+ * lock on.
+ *
+ * One line per identity rather than one per burst. The identity repeats
+ * seventy times a second and is the same every time; what a reader wants is
+ * the network, and how many bursts stood behind it.
+ */
+static void print_tetra(struct app *app, double now)
+{
+    static float work_i[TETRA_MAX_WORK], work_q[TETRA_MAX_WORK];
+    static int announced_colour = -1;
+    static int announced_la = -1;
+    struct tetra_symbols symbols;
+    const unsigned char *word = NULL;
+    double coarse;
+    size_t filtered;
+    int at, bursts = 0, decoded = 0, broadcast = 0;
+    int mcc = -1, mnc = -1, colour = -1, la = -1;
+
+    (void)now;
+    if (app->pair_count < 64)
+        return;
+    coarse = tetra_coarse_offset_hz(app->i_samples, app->q_samples,
+                                    app->pair_count,
+                                    (double)app->applied_sample_rate, 12500.0);
+    filtered = tetra_channel(app->i_samples, app->q_samples, app->pair_count,
+                             (double)app->applied_sample_rate, coarse, work_i,
+                             work_q, TETRA_MAX_WORK);
+    if (filtered == 0) {
+        static int complained;
+        if (!complained++)
+            fprintf(stderr, "TETRA needs a sample rate that is a whole "
+                            "multiple of %.0f S/s; %u is not.\n",
+                    TETRA_WORK_RATE_HZ, app->applied_sample_rate);
+        return;
+    }
+    if (!tetra_demodulate(work_i, work_q, filtered, coarse, &symbols))
+        return;
+    tetra_sync_dibits(&word);
+
+    for (at = 60; at + TETRA_SYNC_SYMBOLS <= symbols.count; at++) {
+        uint8_t block[TETRA_SB_MESSAGE_BITS];
+        int k, hits = 0;
+
+        for (k = 0; k < TETRA_SYNC_SYMBOLS; k++)
+            if (symbols.dibit[at + k] == word[k])
+                hits++;
+        if (hits < 16)
+            continue;
+        bursts++;
+        if (!tetra_sync_block_decode(symbols.dibit + at - 60, block))
+            continue;
+        decoded++;
+        colour = 0;
+        for (k = 4; k < 10; k++)
+            colour = (colour << 1) | block[k];
+        mcc = 0;
+        for (k = 31; k < 41; k++)
+            mcc = (mcc << 1) | block[k];
+        mnc = 0;
+        for (k = 41; k < 55; k++)
+            mnc = (mnc << 1) | block[k];
+        /* The broadcast channel rides in the same burst and is scrambled with
+           the network's own colour code, so it cannot be read until the block
+           above has given that up. */
+        if (at + TETRA_BNCH_AT_SYMBOL + TETRA_BNCH_SCRAMBLED_BITS / 2 <=
+            symbols.count) {
+            uint8_t extended[TETRA_COLOUR_BITS];
+            uint8_t sysinfo[TETRA_BNCH_MESSAGE_BITS];
+
+            tetra_extended_colour(mcc, mnc, colour, extended);
+            if (tetra_bnch_decode(symbols.dibit + at + TETRA_BNCH_AT_SYMBOL,
+                                  extended, sysinfo)) {
+                broadcast++;
+                la = 0;
+                for (k = 82; k < 96; k++)
+                    la = (la << 1) | sysinfo[k];
+            }
+        }
+    }
+    if (decoded == 0) {
+        printf("TETRA  lock %.2f  %d burst(s), none with the parity "
+               "checking\n", (double)symbols.lock, bursts);
+        fflush(stdout);
+        return;
+    }
+    if (colour != announced_colour || la != announced_la) {
+        printf("TETRA  MCC %d  MNC %d  colour %d%s%d  "
+               "(%d burst(s), %d block(s), %d broadcast)\n",
+               mcc, mnc, colour, la >= 0 ? "  LA " : "  LA unread",
+               la >= 0 ? la : 0, bursts, decoded, broadcast);
+        announced_colour = colour;
+        announced_la = la;
+        fflush(stdout);
+    }
+}
+
 static void print_new_decodes(struct app *app, double now,
                               enum decode_kind decoder)
 {
+    if (decoder == DECODE_TETRA) {
+        print_tetra(app, now);
+        return;
+    }
     if (decoder == DECODE_LTE) {
         print_lte(app, now);
         fflush(stdout);
@@ -2305,6 +2414,9 @@ static int run_headless(struct app *app) {
     else if (app->options.technology &&
              strcmp(app->options.technology, "fm") == 0)
         decoder = DECODE_FM;
+    else if (app->options.technology &&
+             strcmp(app->options.technology, "tetra") == 0)
+        decoder = DECODE_TETRA;
     if (app->options.decode)
         sdr_dsp_init(&app->dsp);
 

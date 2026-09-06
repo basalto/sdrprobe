@@ -182,6 +182,47 @@ else
     fail "--lte-scan accepted a capture"
 fi
 
+# --- TETRA: whose network is this -----------------------------------------
+printf '  TETRA decode\n'
+decode_tetra() {
+    run --file "$1" --headless --technology tetra --sample-rate 2000000 \
+        --decode --once
+}
+
+# Two captures, two cells, and that is the assertion rather than a convenience.
+# The broadcast channel is scrambled with the network's own colour code, which
+# has to be read out of the synchronization block first -- so a decoder that
+# hardcoded a colour code would read one of these and fail the other. It is the
+# same argument that gives the GSM set three captures for three BCCs.
+for pair in "tetra_cc17.bin:17:4375" "tetra_cc32.bin:32:4658"; do
+    file=${pair%%:*}
+    rest=${pair#*:}
+    colour=${rest%%:*}
+    la=${rest#*:}
+    checked
+    tetra=$(decode_tetra "testfiles/$file")
+    line=$(printf '%s\n' "$tetra" | grep "^TETRA  MCC" | head -1)
+    if [ -z "$line" ]; then
+        fail "$file decoded no TETRA identity at all"
+    elif ! printf '%s\n' "$line" | grep -q "MCC 268  MNC 3  colour $colour  LA $la"; then
+        fail "$file read: $line"
+    elif printf '%s\n' "$tetra" | grep -q "none with the parity"; then
+        fail "$file had a block whose parity did not check"
+    else
+        report "$file" "MCC 268 MNC 3, colour $colour, LA $la"
+    fi
+done
+
+# Byte for byte the same twice: the chain is stateless per block, so anything
+# that varies between runs is a bug rather than the air.
+checked
+if [ "$(decode_tetra testfiles/tetra_cc17.bin)" != \
+     "$(decode_tetra testfiles/tetra_cc17.bin)" ]; then
+    fail "the same TETRA capture decoded differently the second time"
+else
+    report "run twice" "identical output"
+fi
+
 # --- ADS-B: frames, and a position that needed two of them ----------------
 printf '  Mode S decode\n'
 decode_adsb() {

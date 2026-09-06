@@ -75,7 +75,8 @@ enum decode_kind {
     DECODE_FM,
     DECODE_ADSB,
     DECODE_GSM,
-    DECODE_LTE
+    DECODE_LTE,
+    DECODE_TETRA
 };
 /* What the ADS-B view decides -- the log row, which frame the charts are
    drawn from, and the funnel -- is in a header the checks can reach. */
