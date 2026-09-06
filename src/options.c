@@ -22,7 +22,7 @@ void usage(const char *program) {
             "          [--file capture.bin] [--device index]\n"
             "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte|fm|\n"
             "                  calibration|settings|help]\n"
-            "          [--record-seconds n] [--technology gsm|adsb|lte|fm|raw]\n"
+            "          [--record-seconds n] [--technology gsm|adsb|lte|fm|tetra|raw]\n"
             "          [--debug-log FILE|-] [--analysis] [--fm-scan] [--fm-play]\n"
             "          [--survey-select n] [--survey-bands] [--survey-band n]\n"
             "          [--zoom from:to] [--fft points]\n"
@@ -470,6 +470,7 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (strcmp(options->technology, "gsm") != 0 &&
                 strcmp(options->technology, "adsb") != 0 &&
                 strcmp(options->technology, "lte") != 0 &&
+                strcmp(options->technology, "tetra") != 0 &&
                 strcmp(options->technology, "fm") != 0 &&
                 strcmp(options->technology, "raw") != 0)
                 return -1;

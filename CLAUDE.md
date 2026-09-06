@@ -235,6 +235,8 @@ way to see whether a change to the DSP helped or hurt:
 ```sh
 ./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode --once
 ./sdrprobe --file testfiles/adsb_cpr_pair.bin --headless --technology adsb --decode --once
+./sdrprobe --file testfiles/tetra_cc17.bin --headless --technology tetra \
+    --sample-rate 2000000 --decode --once
 ./sdrprobe --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
     --frequency 89.5M --headless --technology fm --decode --once
 ./sdrprobe --headless --record-seconds 2 --technology adsb   # live capture + sidecar
@@ -674,6 +676,18 @@ git: a build from a dirty tree would claim to be a tag it is not.
   numbers that increase and track the burst timeline. The three BCCs are the
   point of having three: the BCC picks the training sequence every normal
   burst is found by, so hardcoding one passes ARFCN 69 and fails 113.
+  `tetra_cc17.bin` and `tetra_cc32.bin` are a pair and the pair is the point:
+  colour code 17 against 32, location area 4375 against 4658. The broadcast
+  channel is scrambled with the network's **own** colour code, read out of the
+  synchronization block first, so a decoder that hardcoded one would read one
+  capture and fail the other — the same argument that gives the GSM set three
+  captures for three BCCs. Half a second each at 2 MS/s, which is ample because
+  this base station sends a synchronization burst in every timeslot, about
+  seventy a second. `tetra_cc32.bin` is tuned to 392.8735 rather than a round
+  number: recorded at 392.84 the carrier was 33.5 kHz away, the coarse
+  estimator pinned at the edge of its range and half the blocks failed — and
+  since TETRA channels are 25 kHz apart, a search wide enough to cover that is
+  wide enough to select the neighbour.
   `fm_rds_tsf.bin` is at **2.048 MS/s**, tuned to 89.5 where TSF is, and
   three seconds long. It must keep reading identification 0x8343 and the name
   `TSF`; the name alone would pass with the differential sense backwards, so
