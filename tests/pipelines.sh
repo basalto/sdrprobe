@@ -331,24 +331,26 @@ candidates=$(printf '%s\n' "$survey" | grep -c "^candidate ")
 carriers=$(printf '%s\n' "$survey" | sed -n 's/^survey carriers \([0-9]*\)$/\1/p')
 centre=$(printf '%s\n' "$survey" | grep "^candidate " | head -1 | cut -d' ' -f5)
 
-# One carrier, and ARFCN 63 is not among them. It is really there -- the cell's
-# own System Information 2, decoded from this same capture, lists 63 among its
-# neighbours, and a peak finder that measured its floor outside the hump found
-# it at 947.6347 MHz. That version reported every ripple on every television
-# multiplex as a carrier too, and was reverted (ADR-0017). This is what the
-# trade costs, asserted so that recovering it shows up here as a change rather
-# than as luck: see .scratch/survey-extent/.
+# ARFCN 69's own carrier, and ARFCN 63 beside it. 63 is really there -- the
+# cell's System Information 2, decoded from this same capture by an entirely
+# different chain, lists it among its neighbours -- and until the extent walk
+# was bounded the survey could not report it: a maximum with no -20 dB point of
+# its own ran to the ends of the array and was left with no measurable floor.
+# Two subsystems agreeing on a channel is corroboration a survey cannot give
+# itself, which is why it is asserted here (.scratch/survey-extent/).
 if [ "$candidates" -lt 1 ]; then
     fail "the GSM capture surveyed to no candidates at all"
-elif [ "${carriers:-0}" -ne 1 ]; then
-    fail "ARFCN 69's carrier came back as ${carriers:-no} carriers, not one"
+elif [ "${carriers:-0}" -lt 1 ]; then
+    fail "ARFCN 69's carrier came back as ${carriers:-no} carriers"
 elif [ "$centre" -lt 948700000 ] || [ "$centre" -gt 948900000 ]; then
     fail "the measured centre $centre Hz is not ARFCN 69's 948.8 MHz"
 elif ! printf '%s\n' "$survey" | grep -q "GSM 900 / LTE B8 downlink"; then
     fail "the survey did not look the carrier up in the band plan"
+elif ! printf '%s\n' "$survey" | grep -qE "^candidate 9476[0-9]{5} "; then
+    fail "ARFCN 63 at 947.63 MHz is not reported; the extent walk lost it"
 else
     report "gsm_arfcn_69.bin" \
-        "$candidates candidates, 1 carrier at $centre Hz"
+        "$candidates candidates incl. ARFCN 63, centre $centre Hz"
 fi
 
 # Byte for byte the same, twice. A survey an agent cannot diff against
@@ -360,22 +362,22 @@ else
     report "run twice" "identical output"
 fi
 
-# A Mode S capture surveys to nothing, and the honest reason is not the one
-# this check used to give. "Mode S is pulses: there is no carrier standing
-# above anything" is false -- a train of pulses is amplitude modulation on a
-# carrier, and a peak finder measuring its floor outside the hump finds it at
-# 1090.10 MHz, with the denser adsb_modes1.bin showing the same carrier 35 dB
-# stronger. It is not found because that carrier has no -20 dB point of its own
-# in this capture, so it has no measurable extent (ADR-0017). What this asserts
-# is that the survey does not invent candidates out of a noise floor, which is
-# worth keeping either way.
+# A Mode S capture surveys to its carrier, and the reason it did not is worth
+# keeping. "Mode S is pulses: there is no carrier standing above anything" was
+# false -- a train of pulses is amplitude modulation on a carrier -- but the
+# survey still reported nothing, because that carrier has no -20 dB point of
+# its own in this capture and an unbounded extent walk left it with no floor
+# to measure (ADR-0017). Bounded, it is found at 1090 MHz, which the six
+# decoded frames from the same capture corroborate.
 checked
-if ! run --file testfiles/adsb_cpr_pair.bin --headless --survey --once |
-     grep -q "^survey candidates 0 "; then
-    fail "a capture of Mode S pulses produced carrier candidates"
+adsb_survey=$(run --file testfiles/adsb_cpr_pair.bin --headless --survey --once)
+adsb_hz=$(printf '%s\n' "$adsb_survey" | grep "^candidate " | head -1 | cut -d' ' -f2)
+if [ -z "$adsb_hz" ]; then
+    fail "the Mode S capture surveyed to no candidate; 1090 MHz is there"
+elif [ "$adsb_hz" -lt 1089500000 ] || [ "$adsb_hz" -gt 1090500000 ]; then
+    fail "the Mode S capture's candidate is at $adsb_hz Hz, not 1090 MHz"
 else
-    report "adsb_cpr_pair.bin" "no candidates; the 1090 MHz carrier has no"\
-        "measurable extent"
+    report "adsb_cpr_pair.bin" "the 1090 MHz carrier at $adsb_hz Hz"
 fi
 
 # --- Recording: the file and the sidecar that explains it -----------------

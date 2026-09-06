@@ -421,13 +421,22 @@ int sdr_dsp_find_peaks(const float *power_dbfs, int count, float sentinel,
          * rather than a threshold.
          */
         float threshold = power_dbfs[i] - gate->bandwidth_db;
+        /*
+         * Bounded, and the bound's only job is to leave something outside the
+         * hump to measure a floor against. It is not a statement about how
+         * wide a signal may be -- a quarter of the array keeps three quarters
+         * available, and that is the whole of the reasoning.
+         */
+        int reach = count / 4 < 4 ? 4 : count / 4;
         candidate.lower_index = i;
         while (candidate.lower_index > 0 &&
+               i - candidate.lower_index < reach &&
                power_dbfs[candidate.lower_index - 1] > sentinel &&
                power_dbfs[candidate.lower_index - 1] >= threshold)
             candidate.lower_index--;
         candidate.upper_index = i;
         while (candidate.upper_index < count - 1 &&
+               candidate.upper_index - i < reach &&
                power_dbfs[candidate.upper_index + 1] > sentinel &&
                power_dbfs[candidate.upper_index + 1] >= threshold)
             candidate.upper_index++;
