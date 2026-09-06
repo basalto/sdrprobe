@@ -1,5 +1,7 @@
 #include "tetra_dsp.h"
 
+#include "signal_probe.h"
+
 #include <math.h>
 #include <string.h>
 
@@ -202,43 +204,17 @@ size_t tetra_channel(const float *i_samples, const float *q_samples,
 double tetra_symbol_timing(const float *i_samples, const float *q_samples,
                            size_t pairs, double *strength) {
     /*
-     * Oerder and Meyr: the squared magnitude of a linearly modulated signal
-     * with excess bandwidth carries a line at the symbol rate, and the phase
-     * of that line is where the symbols are.
+     * One rate, and the arithmetic is signal_symbol_line()'s.
      *
-     * No loop, so there is nothing to lose lock; one estimate per chunk, so
-     * the caller has to keep chunks short enough that the clock cannot slide a
-     * symbol inside one. At 35 ppm that is thousands of symbols.
+     * It moved down because it needs nothing transcribed from ETSI: a line at
+     * the symbol rate in the squared magnitude is a property of any linearly
+     * modulated signal with excess bandwidth, so the same measurement answers
+     * "does this have a symbol rate, and what is it" for a carrier nobody has
+     * identified. What stays here is the pair of constants that say this one
+     * is TETRA.
      */
-    double w = 2.0 * M_PI * TETRA_SYMBOL_RATE_HZ / TETRA_WORK_RATE_HZ;
-    double sr = 0.0, si = 0.0, mean = 0.0;
-    size_t n;
-
-    if (strength)
-        *strength = 0.0;
-    if (!i_samples || !q_samples || pairs < 64)
-        return 0.0;
-    for (n = 0; n < pairs; n++) {
-        double a = (double)i_samples[n] * i_samples[n] +
-                   (double)q_samples[n] * q_samples[n];
-        sr += a * cos(w * (double)n);
-        si -= a * sin(w * (double)n);
-        mean += a;
-    }
-    mean /= (double)pairs;
-    if (strength && mean > 0.0)
-        *strength = sqrt(sr * sr + si * si) / ((double)pairs * mean);
-    /* The line's phase is the timing, in symbol periods: negated because a
-       later symbol instant is a lagging phase. */
-    {
-        double phase = atan2(si, sr);
-        double fraction = -phase / (2.0 * M_PI);
-        while (fraction < 0.0)
-            fraction += 1.0;
-        while (fraction >= 1.0)
-            fraction -= 1.0;
-        return fraction;
-    }
+    return signal_symbol_line(i_samples, q_samples, pairs, TETRA_WORK_RATE_HZ,
+                              TETRA_SYMBOL_RATE_HZ, strength);
 }
 
 /*
@@ -362,106 +338,36 @@ int tetra_demodulate(const float *i_samples, const float *q_samples,
     return count;
 }
 
-static float period_match(const unsigned char *dibits, int count, int lag) {
-    int k, same = 0, total = 0;
-
-    for (k = lag; k < count; k++) {
-        if (dibits[k] == dibits[k - lag])
-            same++;
-        total++;
-    }
-    return total > 0 ? (float)same / (float)total : 0.0f;
-}
-
 int tetra_burst_find(const unsigned char *dibits, int count, int low, int high,
                      struct tetra_burst_sync *out) {
-    int lag, best = 0, k;
-    float best_match = 0.0f, runner_up = 0.0f;
+    /*
+     * The search moved down to signal_repeat_find() intact -- it needs nothing
+     * transcribed, which its own comment here always said, and a burst grid
+     * measured from the symbols is as useful before anybody knows the
+     * technology as after.
+     *
+     * What stays here is TETRA's shape: the profile is only carried over when
+     * the period found is a timeslot, because that is the only length
+     * `struct tetra_burst_sync` is sized for and the only one a TETRA caller
+     * can read.
+     */
+    struct signal_repeat found;
+    int k;
 
     if (!out)
         return 0;
     memset(out, 0, sizeof(*out));
-    /* Four periods at the longest lag asked for, so every lag in the range is
-       measured over the same amount of evidence. Zeroed first, so a caller
-       that hands in too little can tell a refusal from a finding. */
-    if (!dibits || count < 4 * high || low < 2 || high <= low)
+    if (!signal_repeat_find(dibits, count, low, high, &found))
         return 0;
-    for (lag = low; lag <= high; lag++) {
-        float m = period_match(dibits, count, lag);
-
-        if (m > best_match) {
-            runner_up = best_match;
-            best_match = m;
-            best = lag;
-        } else if (m > runner_up) {
-            runner_up = m;
-        }
-    }
-    /*
-     * The *fundamental*, not the strongest.
-     *
-     * Anything with a period of 255 repeats just as well at 510, 765 and 1020,
-     * and on a perfectly periodic stream those tie to within a rounding error
-     * -- the first version of this picked 1020 over 255 by a thousandth and
-     * the synthetic check caught it. So the period is the smallest lag that
-     * matches as well as the best does, within a margin.
-     *
-     * On real air the harmonics are weaker, because content that varies from
-     * frame to frame breaks them: this capture gives 0.744 at 255 and 0.547 at
-     * 1020. Relying on that would be relying on the signal being interesting.
-     */
-    for (lag = low; lag <= high; lag++) {
-        if (period_match(dibits, count, lag) >= best_match - 0.02f) {
-            best = lag;
-            break;
-        }
-    }
-    best_match = period_match(dibits, count, best);
-    /*
-     * And the runner-up is the best lag that is *not* a multiple of the period,
-     * since a multiple is the same finding rather than a competing one. Without
-     * that, a clean periodic signal always looks ambiguous.
-     */
-    runner_up = 0.0f;
-    for (lag = low; lag <= high; lag++) {
-        float m;
-        if (lag % best == 0)
-            continue;
-        m = period_match(dibits, count, lag);
-        if (m > runner_up)
-            runner_up = m;
-    }
-    out->period = best;
-    out->repeat = best_match;
-    out->runner_up = runner_up;
-    /*
-     * Standing clear, not merely highest. Everything correlates a little with
-     * everything at a quarter, so "the best of a thousand lags" is a number a
-     * stream of noise also produces.
-     */
-    if (best_match < 0.4f || best_match < runner_up * 1.4f)
-        return 0;
-
-    if (best == TETRA_SLOT_SYMBOLS) {
-        int counted[TETRA_SLOT_SYMBOLS];
-        int hit[TETRA_SLOT_SYMBOLS];
-
+    out->period = found.period;
+    out->repeat = found.repeat;
+    out->runner_up = found.runner_up;
+    if (found.period == TETRA_SLOT_SYMBOLS &&
+        found.profile_len == TETRA_SLOT_SYMBOLS) {
         for (k = 0; k < TETRA_SLOT_SYMBOLS; k++)
-            counted[k] = hit[k] = 0;
-        for (k = best; k < count; k++) {
-            int phase = k % best;
-            if (dibits[k] == dibits[k - best])
-                hit[phase]++;
-            counted[phase]++;
-        }
-        for (k = 0; k < TETRA_SLOT_SYMBOLS; k++) {
-            out->profile[k] = counted[k] ? (float)hit[k] / (float)counted[k]
-                                         : 0.0f;
-            if (out->profile[k] > 0.9f)
-                out->fixed++;
-            else if (out->profile[k] < 0.4f)
-                out->varying++;
-        }
+            out->profile[k] = found.profile[k];
+        out->fixed = found.fixed;
+        out->varying = found.varying;
     }
     return 1;
 }

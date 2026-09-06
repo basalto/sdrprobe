@@ -127,6 +127,13 @@ size_t tetra_channel(const float *i_samples, const float *q_samples,
  * The symbol timing, as a fraction of a symbol period, from the symbol-rate
  * line in the squared magnitude (Oerder and Meyr).
  *
+ * **The measurement itself is signal_symbol_line() and lives in
+ * `signal_probe`**; what is here is the pair of constants that say this one is
+ * TETRA. It moved because it needs nothing transcribed from ETSI -- a line at
+ * the symbol rate is a property of any linearly modulated signal with excess
+ * bandwidth -- and the same function therefore answers for a carrier nobody
+ * has identified yet.
+ *
  * The same statistic that says a carrier is TETRA at all: a linearly modulated
  * signal with excess bandwidth puts a line at its symbol rate in |x|^2, and its
  * *phase* is where the symbols are. Open-loop and one estimate per chunk, so
@@ -190,6 +197,13 @@ struct tetra_burst_sync {
 
 /*
  * Find the burst period in a run of dibits, searching `low` to `high`.
+ *
+ * **The search is signal_repeat_find() and lives in `signal_probe`**, for the
+ * reason the paragraph above gives: a grid measured from the symbols needs
+ * nothing transcribed, so it is as useful before anybody knows the technology
+ * as after. What is here is TETRA's shape -- the profile is carried over only
+ * when the period found is a timeslot, which is the only length this struct
+ * is sized for.
  *
  * Returns 1 when one period stands clear of the rest. The profile is only
  * filled in when the period found is TETRA_SLOT_SYMBOLS, since that is the
