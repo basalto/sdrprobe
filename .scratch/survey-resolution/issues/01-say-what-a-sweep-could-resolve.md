@@ -1,6 +1,6 @@
 # 01 - A candidate should carry the resolution it was found at
 
-Status: needs-triage
+Status: ready-for-agent
 
 The spec has the measurement. The question is what the survey should do about
 it, and the answer is probably not "sweep finer" -- a full-tuner sweep at
@@ -45,7 +45,9 @@ the strong wide signals. The fault is the missing caveat, not the sweep.
 
 ## Answer
 
-Status: resolved for confirmed candidates, by direction 2.
+Half of it, by direction 2. The status stays open -- `ready-for-agent` rather
+than `resolved` -- because the half that matters most to the baseline is the
+half not done.
 
 The `confirm` line now carries the width the closer look measured and the
 suspicion flags at that resolution:
