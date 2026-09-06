@@ -30,6 +30,7 @@
 #include "tetra_sync.h"
 #include "lte_confirm.h"
 #include "lte_stats.h"
+#include "lte_findings.h"
 #include "debug_log.h"
 
 /* input_route.h mirrors this so it can stay standalone; if that enum is
@@ -2493,6 +2494,19 @@ static int run_headless(struct app *app) {
                          st->count);
                 printf("%s\n", line);
             }
+        }
+        /*
+         * And what the run amounts to. The statistics above are ten rows of
+         * numbers; these are the conclusions they support, and two of them
+         * are refusals -- a reader who is not told the channel profile cannot
+         * be named will assume nobody asked.
+         */
+        {
+            struct lte_findings findings;
+            int fi, n = lte_findings_from(&stats, (double)app->applied_frequency,
+                                          &findings);
+            for (fi = 0; fi < n; fi++)
+                printf("lte-chain-finding %s\n", findings.line[fi]);
         }
         {
             int t;
