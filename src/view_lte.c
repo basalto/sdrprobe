@@ -765,6 +765,13 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
         snprintf(text, sizeof(text), "not measured");
     draw_row(rect, y, "RSRQ", text,
              app->lte.power_valid ? row_value : row_muted);
+    y += 21;
+    if (app->lte.power_valid)
+        snprintf(text, sizeof(text), "%.1f dB", (double)app->lte.power.sinr_db);
+    else
+        snprintf(text, sizeof(text), "not measured");
+    draw_row(rect, y, "RS-SINR", text,
+             app->lte.power_valid ? row_value : row_muted);
     y += 25;
     snprintf(text, sizeof(text), "last seen %.1f s ago",
              now - app->lte.cell_time);
