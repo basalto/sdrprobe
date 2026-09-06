@@ -756,7 +756,18 @@ answer was never the contract.
 Bumping it is editing three numbers in that header. Nothing derives it from
 git: a build from a dirty tree would claim to be a tag it is not.
 
-**Every header the program includes belongs in `APP_HDR`**, and four did not:
+**Every header the program includes belongs in `APP_HDR`**, and nine did not.
+Five of them -- `chart_window.h`, `help_layout.h`, `scan_layout.h`,
+`scope_layout.h`, `settings_layout.h` -- were never listed at all, so the
+fault is older than the four below and not confined to one session. The audit
+is one line and worth re-running after adding a header:
+
+```sh
+for h in $(ls src/*.h | xargs -n1 basename); do \
+    grep -q "SRC)/$h" Makefile || echo "MISSING: $h"; done
+```
+
+The four added in one afternoon were:
 `panel_rows.h`, `lte_stats.h`, `lte_confirm.h` and `lte_findings.h` were each
 listed only by their own `check-*` rule, so editing one rebuilt its check and
 not the binary. That is how a screenshot came back showing wording that had
