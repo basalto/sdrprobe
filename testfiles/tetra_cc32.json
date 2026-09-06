@@ -1,0 +1,20 @@
+{
+  "provenance": "recorded by sdrprobe, 2026-09-06, and cut to the first 2 000 000 bytes",
+  "format": "unsigned 8-bit interleaved I/Q, 127.5 = zero",
+  "center_frequency_hz": 392873500,
+  "sample_rate_hz": 2000000,
+  "gain_db": 29.7,
+  "ppm": 35,
+  "source": "sdrprobe --headless --frequency 392.8735M --sample-rate 2000000 --record-seconds 1",
+  "tuner": "Rafael Micro R820T",
+  "antenna": "telescopic",
+  "site": "home-sala-estar",
+  "duration_seconds": 0.5,
+  "bytes": 2000000,
+  "decodes_to": "MCC 268, MNC 3, colour code 32, location area 4658",
+  "notes": [
+    "The second of the pair, and a different cell: colour code 32 against tetra_cc17.bin's 17, location area 4658 against 4375.",
+    "The tuning is 392.8735 rather than a round number on purpose. A first attempt recorded at 392.84 put the carrier 33.5 kHz away, which is more than a channel spacing and outside what a coarse search should reach for -- the estimator pinned itself at the edge of its range and half the blocks failed. Tuned to the carrier the offset is under 200 Hz and every block decodes.",
+    "That is worth knowing before recording another: TETRA channels are 25 kHz apart, so a coarse search wide enough to cover a large tuning error is also wide enough to select the neighbouring channel."
+  ]
+}

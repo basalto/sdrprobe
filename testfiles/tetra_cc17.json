@@ -1,0 +1,21 @@
+{
+  "provenance": "recorded by sdrprobe, 2026-09-05, and cut to the first 2 000 000 bytes",
+  "format": "unsigned 8-bit interleaved I/Q, 127.5 = zero",
+  "center_frequency_hz": 392640000,
+  "sample_rate_hz": 2000000,
+  "gain_db": 29.7,
+  "ppm": 35,
+  "source": "sdrprobe --headless --frequency 392.64M --sample-rate 2000000 --record-seconds 3",
+  "tuner": "Rafael Micro R820T",
+  "antenna": "telescopic",
+  "site": "home-sala-estar",
+  "duration_seconds": 0.5,
+  "bytes": 2000000,
+  "decodes_to": "MCC 268, MNC 3, colour code 17, location area 4375",
+  "notes": [
+    "One of two, and the pair is the point: this cell's colour code is 17 and tetra_cc32.bin's is 32. The colour code is what the broadcast channel is scrambled with, so a decoder that hardcoded one would read this capture and fail the other -- the same argument that gives the GSM set three captures for three BCCs.",
+    "The carrier sits about 9 kHz above the tuning even with the site's 35 ppm correction applied, which is why tetra_coarse_offset_hz exists and is not optional.",
+    "The base station sends a synchronization burst in every timeslot, about seventy a second, so half a second carries roughly thirty-five. That is why a capture this short is enough; it is not a general property of TETRA.",
+    "The full three-second recording it was cut from decoded 202 of 202 synchronization blocks and 190 of 202 broadcast blocks, with the slot, frame and multiframe counters advancing."
+  ]
+}
