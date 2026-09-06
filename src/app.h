@@ -81,6 +81,8 @@ enum decode_kind {
 /* What the ADS-B view decides -- the log row, which frame the charts are
    drawn from, and the funnel -- is in a header the checks can reach. */
 #include "adsb_analysis.h"
+#include "tetra_dsp.h"
+#include "tetra_sync.h"
 #include "chart_window.h"
 #include "fm_dsp.h"
 #include "fm_scan.h"
@@ -397,6 +399,45 @@ struct adsb_view {
     struct adsb_frame_trace good_trace;
     struct adsb_demod_stats block_stats;   /* the latest block alone */
     struct adsb_demod_stats totals;        /* accumulated over the session */
+};
+
+/*
+ * The TETRA decode screen's own state.
+ *
+ * Stateless per block underneath: a TETRA downlink is continuous and this base
+ * station puts a synchronization burst in every timeslot, about seventy a
+ * second, so a block carries several and there is nothing to accumulate across
+ * blocks. What is kept here is the last identity read, the totals behind it,
+ * and enough of the last block to draw.
+ */
+#define TETRA_LOG_CAPACITY 64
+
+struct tetra_log_entry {
+    double at;                  /* seconds since the run started */
+    int mcc, mnc, colour, la;
+    int bursts, blocks, broadcast;
+};
+
+struct tetra_view {
+    int analysis_mode;
+    int have_identity;
+    int mcc, mnc, colour, la;
+    float lock;
+    double offset_hz;
+    /* Per block, and the session's totals under them. */
+    int bursts, blocks, broadcast;
+    uint64_t bursts_total, blocks_total, broadcast_total, blocks_failed;
+    /* What the charts are drawn from: the last block's phase steps as points
+       on a circle, and how much of each 255-symbol slot repeated. */
+    float point_x[TETRA_MAX_SYMBOLS];
+    float point_y[TETRA_MAX_SYMBOLS];
+    unsigned char point_bit[TETRA_MAX_SYMBOLS];
+    int point_count;
+    float profile[TETRA_SLOT_SYMBOLS];
+    int profile_valid;
+    int profile_fixed;
+    struct tetra_log_entry log[TETRA_LOG_CAPACITY];   /* newest first */
+    int log_count;
 };
 
 /*
@@ -842,6 +883,7 @@ struct app {
     struct survey_view survey;
     struct gsm_view gsm;
     struct adsb_view adsb;
+    struct tetra_view tetra;
     struct lte_view lte;
     struct fm_view fm;
     struct settings_panel set;

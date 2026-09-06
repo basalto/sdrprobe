@@ -20,7 +20,8 @@ void usage(const char *program) {
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
-            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb|lte|fm|\n"
+            "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|\n"
+            "          adsb|lte|fm|tetra|\n"
             "                  calibration|settings|help]\n"
             "          [--record-seconds n] [--technology gsm|adsb|lte|fm|tetra|raw]\n"
             "          [--debug-log FILE|-] [--analysis] [--fm-scan] [--fm-play]\n"
@@ -219,6 +220,7 @@ int parse_view(const char *text, enum start_view *view) {
         { "adsb", START_VIEW_ADSB },
         { "lte", START_VIEW_LTE },
         { "fm", START_VIEW_FM },
+        { "tetra", START_VIEW_TETRA },
         { "calibration", START_VIEW_CALIBRATION },
         { "settings", START_VIEW_SETTINGS },
         { "help", START_VIEW_HELP }
