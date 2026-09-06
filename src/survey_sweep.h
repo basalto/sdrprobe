@@ -45,6 +45,28 @@
 #define SURVEY_DWELL_MIN 0.02
 #define SURVEY_DWELL_MAX 10.0
 #define SURVEY_MEASURE_SECONDS 2.0
+
+/*
+ * Whether a block that arrived `elapsed` seconds after tuning to a candidate
+ * may be measured, or is still the previous tuning's.
+ *
+ * The same rule as survey_step_phase_at()'s settle and for the same reason --
+ * a block already in the pipeline when the tuner moved holds samples from
+ * where the receiver *was* -- and the measure path did not have it. That is
+ * older than it looks: peak power, prominence, bandwidth and duty were all
+ * being computed from stale blocks, and a spectrum *average* blurs a stale
+ * block in among the good ones well enough that nobody noticed.
+ *
+ * A carrier measurement cannot blur it. Selecting the 75.000 MHz clock
+ * harmonic reported "a modulated carrier, 19 dB up, almost none of the
+ * channel standing still", where the same block recorded and measured offline
+ * reads 40.7 dB and 87% standing still -- a bare carrier, which is what it is.
+ * The stale blocks were from the sweep's last step, two megahertz away, where
+ * there is no carrier at all and the search finds noise.
+ */
+static inline int survey_measure_settled(double elapsed) {
+    return elapsed >= SURVEY_SETTLE_SECONDS;
+}
 /* The descent a maximum must make before it can reach higher ground. This is
    what rejects the shoulder of a strong carrier, and it is not a noise
    threshold -- see SURVEY_FLOOR_THRESHOLD_DB below for that one. */
