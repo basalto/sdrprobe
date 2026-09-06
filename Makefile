@@ -16,7 +16,7 @@ BUILD=build
 
 all: sdrprobe
 
-DSP_SRC=$(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
+DSP_SRC=$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c
 APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
@@ -37,7 +37,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/lte_findings.h \
 	$(SRC)/chart_window.h $(SRC)/help_layout.h $(SRC)/scan_layout.h \
 	$(SRC)/scope_layout.h $(SRC)/settings_layout.h
-DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
+DSP_HDR=$(SRC)/signal_probe.h $(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
 	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h $(SRC)/lte_scan.h \
 	$(SRC)/fm_dsp.h $(SRC)/rds.h $(SRC)/tetra_dsp.h $(SRC)/tetra_sync.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
@@ -335,6 +335,13 @@ check-acquisition: $(TESTS)/acquisition_test.c $(TESTS)/check.h \
 # Which candidates the survey should warn about: the receiver's own reference
 # comb, and the DC offset at each step centre. The check is built from a real
 # sweep taken with the antenna disconnected.
+check-signal-probe: $(TESTS)/signal_probe_test.c $(TESTS)/check.h \
+		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_probe_test \
+		$(TESTS)/signal_probe_test.c $(SRC)/signal_probe.c -lm
+	$(Q)./$(BUILD)/signal_probe_test
+
 check-lte-findings: $(TESTS)/lte_findings_test.c $(TESTS)/check.h \
 		$(SRC)/lte_findings.h $(SRC)/lte_stats.h
 	@mkdir -p $(BUILD)
@@ -559,4 +566,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-periodicity probe-survey-threshold bench-dsp screens clean
+.PHONY: all check hooks check-signal-probe check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-periodicity probe-survey-threshold bench-dsp screens clean
