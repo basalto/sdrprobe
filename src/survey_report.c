@@ -156,8 +156,17 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
 
     found = survey_candidates_from(app, plan, peaks, count, spectrum,
                                    candidates, SURVEY_MAX_PEAKS);
+    /*
+     * `extent_hz` is the width in the sweep's own bins, and `resolved` says
+     * whether that width means anything. A full-tuner sweep puts 212 kHz in a
+     * bin, so a 25 kHz carrier and a 3 kHz spur both come back as one or two
+     * bins and the number is a floor rather than a measurement. It was
+     * computed for every candidate and never reported, which left a reader
+     * unable to tell narrow from unresolvable.
+     */
     printf("# candidate <frequency_hz> <level_dbfs> <prominence_db> "
-           "<measured_hz|-> <bandwidth_hz|-> <flags|-> <allocation|->\n");
+           "<measured_hz|-> <bandwidth_hz|-> <extent_hz> <resolved|floor> "
+           "<flags|-> <allocation|->\n");
     for (i = 0; i < found; i++) {
         const struct survey_candidate *c = &candidates[i];
         char flags[64], centre[32], width[32];
@@ -171,8 +180,11 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
             snprintf(centre, sizeof(centre), "-");
             snprintf(width, sizeof(width), "-");
         }
-        printf("candidate %.0f %.1f %.1f %s %s %s %s\n", c->found_hz,
-               (double)c->power_dbfs, (double)c->prominence_db, centre, width,
+        printf("candidate %.0f %.1f %.1f %s %s %.0f %s %s %s\n",
+               c->found_hz, (double)c->power_dbfs, (double)c->prominence_db,
+               centre, width, c->extent_hz,
+               survey_extent_is_floor(c->extent_hz, plan->bin_hz) ? "floor"
+                                                                  : "resolved",
                survey_flag_text(c->suspect, flags, sizeof(flags)),
                c->allocation ? c->allocation : "-");
     }
