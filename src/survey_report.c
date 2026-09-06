@@ -300,11 +300,21 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
             intermittent++;
         else
             refuted++;
-        printf("confirm %.0f %s %s %.1f %d/%d\n", targets[i].hz,
-               targets[i].claim == SURVEY_CLAIM_MISSING ? "missing" : "new",
-               survey_verdict_name(targets[i].verdict),
-               (double)targets[i].prominence_db, targets[i].hits,
-               targets[i].looks);
+        {
+            /* The width and the suspicion the closer look measured. The sweep
+               could not supply either: at 212 kHz a bin cannot resolve a
+               25 kHz carrier, and the comb test refuses to run at all when
+               half a bin is a large fraction of the comb's spacing. */
+            char flags[64];
+            printf("confirm %.0f %s %s %.1f %d/%d %.0f %s\n", targets[i].hz,
+                   targets[i].claim == SURVEY_CLAIM_MISSING ? "missing"
+                                                            : "new",
+                   survey_verdict_name(targets[i].verdict),
+                   (double)targets[i].prominence_db, targets[i].hits,
+                   targets[i].looks, targets[i].bandwidth_hz,
+                   survey_flag_text(targets[i].suspicion, flags,
+                                    sizeof(flags)));
+        }
     }
     printf("confirm-summary asked %d confirmed %d intermittent %d refuted "
            "%d\n", asked, confirmed, intermittent, refuted);

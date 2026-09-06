@@ -408,6 +408,22 @@ int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
     target->looks = s->confirm.looks;
     target->prominence_db = s->confirm.measured
                                 ? s->confirm.best.prominence_db : 0.0f;
+    /*
+     * The width and the suspicion at the pass's own resolution, which is
+     * three orders finer than the sweep that raised the candidate. This is
+     * the only place either can be measured honestly: a 212 kHz bin cannot
+     * resolve a 25 kHz carrier, and the comb test refuses to run at all when
+     * the bin is that wide.
+     */
+    target->bandwidth_hz = s->confirm.measured ? s->confirm.best.bandwidth_hz
+                                               : 0.0;
+    target->suspicion = s->confirm.measured
+                            ? survey_suspect_confirmed(
+                                  s->confirm.best.centre_hz,
+                                  s->confirm.best.bandwidth_hz,
+                                  (double)app->applied_sample_rate,
+                                  SDR_DSP_FFT_SIZE)
+                            : 0u;
     target->verdict = (signed char)survey_confirm_verdict_from(
         target->claim, s->confirm.hits, s->confirm.looks);
     return s->confirm.measured;
@@ -429,14 +445,16 @@ static void survey_confirm_finish(struct app *app) {
     if (s->confirm.printed) {
         int i;
         printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
-               "<hits>/<looks>\n");
+               "<hits>/<looks> <bandwidth_hz> <flags|->\n");
         for (i = 0; i < s->confirm.count; i++) {
             const struct survey_confirm_target *target = &s->confirm.target[i];
-            printf("confirm %.0f %s %s %.1f %d/%d\n", target->hz,
+            char flags[64];
+            printf("confirm %.0f %s %s %.1f %d/%d %.0f %s\n", target->hz,
                    target->claim == SURVEY_CLAIM_NEW ? "new" : "missing",
                    survey_verdict_name(target->verdict),
                    (double)target->prominence_db, target->hits,
-                   target->looks);
+                   target->looks, target->bandwidth_hz,
+                   survey_flag_text(target->suspicion, flags, sizeof(flags)));
         }
         printf("confirm-summary asked %d confirmed %d intermittent %d "
                "refuted %d\n", s->confirm.count, s->confirm.confirmed,
