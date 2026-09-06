@@ -918,8 +918,8 @@ static void draw_header(const struct app *app) {
     static const char *scope_opts[4] = {
         "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall"
     };
-    static const char *decode_opts[4] = { "1 FM", "2 ADS-B", "3 GSM",
-                                          "4 LTE" };
+    static const char *decode_opts[5] = { "1 FM", "2 ADS-B", "3 GSM",
+                                          "4 LTE", "5 TETRA" };
 
     DrawText("sdrprobe signal visualizer", 22, 14, 24,
              (Color){ 225, 236, 245, 255 });
@@ -943,7 +943,7 @@ static void draw_header(const struct app *app) {
                             : "+/- scale   h help   Esc quit",
                         "h help  Esc quit");
     } else {
-        draw_option_row((int)app->decode, decode_opts, 4,
+        draw_option_row((int)app->decode, decode_opts, 5,
                         app->decode == DECODE_ADSB
                             ? "h help   Esc scope"
                             : "drag/Up/Down zoom  Left/Right pan  +/- scale"
@@ -1194,6 +1194,8 @@ static int run_gui(struct app *app) {
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_FM:        set_decode(app, DECODE_FM);
                                set_tab(app, TAB_DECODE); break;
+    case START_VIEW_TETRA:     set_decode(app, DECODE_TETRA);
+                               set_tab(app, TAB_DECODE); break;
     case START_VIEW_LTE:       set_decode(app, DECODE_LTE);
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_CALIBRATION:
@@ -1250,6 +1252,7 @@ static int run_gui(struct app *app) {
     app->fm.analysis_mode = app->options.analysis;
     app->adsb.analysis_mode = app->options.analysis;
     app->lte.analysis_mode = app->options.analysis;
+    app->tetra.analysis_mode = app->options.analysis;
     app->gsm_analysis_mode = app->options.analysis;
 
     /* A recording asked for on the command line starts as soon as the worker
@@ -1379,6 +1382,8 @@ static int run_gui(struct app *app) {
                         set_decode(app, DECODE_GSM);
                     else if (IsKeyPressed(KEY_FOUR))
                         set_decode(app, DECODE_LTE);
+                    else if (IsKeyPressed(KEY_FIVE))
+                        set_decode(app, DECODE_TETRA);
                 }
                 if (app->decode == DECODE_GSM)
                     handle_gsm_input(app);
@@ -1386,6 +1391,8 @@ static int run_gui(struct app *app) {
                     handle_adsb_input(app);
                 else if (app->decode == DECODE_FM)
                     handle_fm_input(app);
+                else if (app->decode == DECODE_TETRA)
+                    handle_tetra_input(app);
                 else
                     handle_lte_input(app);
                 /*
@@ -1544,6 +1551,12 @@ static int run_gui(struct app *app) {
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_GSM && !app->calibration_open)
             update_gsm_sch(app, now);
+        /* Every block, and only when one arrived: a TETRA downlink is
+           continuous and each block carries several synchronization bursts,
+           so there is nothing to carry between them. */
+        if (have_new && app->tab == TAB_DECODE &&
+            app->decode == DECODE_TETRA && !app->calibration_open)
+            update_tetra(app, now);
         if (app->tab == TAB_DECODE && app->decode == DECODE_LTE &&
             !app->calibration_open) {
             /* The scan drives the tuning, so it runs every frame and not only
@@ -1588,6 +1601,8 @@ static int run_gui(struct app *app) {
                     draw_adsb(app);
                 else if (app->decode == DECODE_FM)
                     draw_fm(app);
+                else if (app->decode == DECODE_TETRA)
+                    draw_tetra(app);
                 else
                     draw_lte(app);
             } else if (app->tab == TAB_SURVEY) {
