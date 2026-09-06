@@ -41,13 +41,6 @@ transmitter is *saying* rather than merely measuring it:
 Every one of those ends in something a transmitter said about itself, which is
 the bar for a decoder here rather than a demodulator.
 
-**What it will not do.** Claim more than it measured. A level is dBFS and not
-dBm, because nothing here knows the antenna's gain; a channel's delay spread is
-placed among the 3GPP profiles only where the noise floor allows it and named
-as unmeasurable where it does not; a cell identity is believed when its own
-broadcast decodes and not when it merely repeats. The refusals are on screen,
-because a reader who is not told cannot know the question was asked.
-
 ## What is on screen
 
 - **Survey first.** The tab the program opens on: the sweep, its candidate
@@ -250,6 +243,36 @@ to have decoded a message -- and the **Decoder** context starts where bits
 become a message. `CONTEXT-MAP.md` has both. The key decisions are recorded as ADRs in
 [`docs/adr/`](docs/adr/), and the ubiquitous language in
 [`CONTEXT.md`](CONTEXT.md).
+
+## What it will not do
+
+Claim more than it measured.
+
+A level is **dBFS and not dBm**, because nothing here knows the antenna's gain
+or the cable's loss -- so it compares one cell with another on this receiver at
+this gain, and means nothing across installations. RSRQ and RS-SINR are ratios
+through the same chain and do carry across, which is why they are worth reading
+beside a level that does not.
+
+A channel's **delay spread is placed among the 3GPP profiles only where the
+noise floor allows it**. The estimator measures the scatter of the phase steps
+between reference signals, so its floor is the signal-to-noise -- 559 ns at
+10 dB, 70 at 28 -- and its ceiling is where those steps wrap, at 1768 ns. Above
+that the number is not a delay, and it says so rather than printing a profile
+name a reader would have believed.
+
+A **cell identity is believed when its own broadcast decodes**, not when it
+repeats. A search that mistakes a sidelobe for a cell makes the same mistake
+every block, so a false identity repeats exactly as faithfully as a true one --
+on one carrier here, twenty-nine sightings and not one message. A Master
+Information Block is scrambled with the identity and checked by a CRC, and that
+cannot be repeated into existence.
+
+An **allocation is a lookup, not an identification** (ADR-0015). Band 28 here
+is labelled an LTE downlink and carries 5G NR.
+
+The refusals are on screen and in the headless reports rather than left out,
+because a reader who is not told cannot know the question was asked.
 
 ## License
 
