@@ -1,52 +1,91 @@
 # sdrprobe
 
-A [raylib](https://www.raylib.com/) signal probe for RTL‑SDR receivers: it
-acquires raw I/Q, visualizes it four ways, and calibrates the receiver's
-frequency error against a GSM 900 cellular reference. Acquisition is modeled
-after dump1090's `modesInitRTLSDR()`.
+An RF awareness probe for RTL-SDR receivers. It surveys the spectrum to find
+out **what is transmitting, where, and when** -- then identifies what it can
+and hands the rest to a decoder that reads the signal's own account of itself.
 
-> Scope today is **calibration‑grade detection** — identify a reference carrier
-> and measure its frequency — not message decoding. The architecture (a generic
-> DSP core plus per‑technology plugins) is built to grow toward decoding.
+The four things it does, in the order it does them:
 
-## Features
+**Survey.** Sweep any range the tuner reaches, fold each step into a
+peak-hold, and report the maxima that stand above their local noise floor --
+with the frequency, the level, how wide the sweep could see them, and the
+allocation the frequency falls in. That last one is a **band-plan lookup and
+never a claim about what the signal is**: band 28 here is labelled an LTE
+downlink and carries 5G NR (ADR-0015).
 
-- **Five live views** — magnitude over time, dBFS spectrum (average + peak
-  hold), I/Q scatter, a frequency/time waterfall, and a band survey. Cursor
-  readouts on every plot; Up/Down rescales the active chart.
-- **Band survey** — sweep any range up to the tuner's full span, chart the
-  power across it, and mark the peaks standing above their local noise floor.
-  Pick one and it retunes and measures it: occupied bandwidth, prominence,
-  duty (continuous, intermittent, bursty) and frequency stability, plus the
-  allocation the frequency falls in — a band-plan lookup, never a claim about
-  what the signal *is*. Portuguese/European allocations are shaded behind the
-  trace; drag a rectangle to zoom, `+`/`-` zoom, `Left`/`Right` pan, `0`
-  resets, and the candidate list follows the window. A dwell field decides how
-  long each step listens, which is what catches transmitters that are not
-  always on, Sweep surveys whatever the chart is showing — the fields when zoomed
-  out, the window when zoomed in — "Scan this frequency" drills into a selected
-  candidate, "Open waterfall" watches it over time, and "Reset zoom" backs out
-  again.
-- **Live or file** — a real RTL‑SDR dongle, or paced, looping hardware‑free
-  playback of a raw capture (`--file`).
-- **Runtime settings** — center frequency (Hz or `K`/`M`/`G`), gain (live),
-  PPM correction, and a default‑on spectrum/waterfall DC‑spike filter.
-- **Signal‑quality HUD** — noise floor, estimated SNR, clipping %, and
-  full‑scale headroom to guide gain selection.
-- **GSM 900 frequency calibration** — measures a known ARFCN's carrier with a
-  power centroid refined by the **FCCH pure tone**, applies a robust
-  median/MAD + standard‑error stability gate, and suggests a PPM correction.
-- **Channel power scan** — sweeps the GSM 900 downlink band and charts
-  per‑ARFCN power, flagging **BCCH** channels (those carrying an FCCH tone) so
-  you can pick a good calibration reference.
-- **ADS‑B frame analysis** — an analysis mode beside the message log charting
-  one Mode S frame's decode: preamble score landscape, per‑bit decision
-  confidence, magnitude envelope, and a bit‑decision scatter, plus a decode
-  funnel (preambles → squitter‑shaped → CRC failed → decoded) that says whether
-  an empty log means a silent band or frames that are failing.
-- **Calibration‑health indicator** — a top‑right circle (grey/green/red) plus an
-  opt‑in periodic drift re‑check that retunes to the calibrated ARFCN and warns
-  on drift.
+**Watch.** A sweep step is a tenth of a second, so its marks are claims rather
+than findings. `--survey-confirm` revisits each with six looks and returns
+`confirmed`, `intermittent` or `refuted`; **Watch** keeps sweeping and folds
+every pass into the site's history, so a signal that is only there in the
+evenings reads as `by hour` rather than `on/off`. Bursty and intermittent
+traffic is the thing a single sweep cannot see and this is how it is caught.
+
+**Remember.** Sweeps accumulate under `surveys/` as JSON, one per pass, with
+the site and the antenna recorded because levels only compare within one of
+each. `survey_tool.py` reports one, diffs two, and refuses outright to diff
+sweeps taken at different sites. The per-site history says what this place has
+heard before, so a new sweep is annotated `new`, `steady`, `on/off` or `gone`
+rather than being read cold.
+
+**Decode.** Where a technology is understood, a decoder reads what the
+transmitter is *saying* rather than merely measuring it:
+
+| | reads |
+| --- | --- |
+| **FM broadcast** | stereo audio, and RDS down to the station's identification, name and programme type |
+| **GSM 900** | the synchronisation burst's BSIC and frame number, then a System Information message: MCC, MNC, location area, cell identity |
+| **Mode S / ADS-B** | aircraft address, altitude, and position from a CPR even/odd pair |
+| **LTE** | the cell identity, its Master Information Block, reference power and quality (RSRP, RSRQ, RS-SINR), the channel's delay and drift, and how many antennas it transmits on |
+| **TETRA** | the network's own identity from the broadcast layer: MCC, MNC, colour code, location area |
+
+Every one of those ends in something a transmitter said about itself, which is
+the bar for a decoder here rather than a demodulator.
+
+**What it will not do.** Claim more than it measured. A level is dBFS and not
+dBm, because nothing here knows the antenna's gain; a channel's delay spread is
+placed among the 3GPP profiles only where the noise floor allows it and named
+as unmeasurable where it does not; a cell identity is believed when its own
+broadcast decodes and not when it merely repeats. The refusals are on screen,
+because a reader who is not told cannot know the question was asked.
+
+## What is on screen
+
+- **Survey first.** The tab the program opens on: the sweep, its candidate
+  list with each maximum's width, shape and what this site has heard of it
+  before, a band picker over the 54 allocations the tuner reaches, and
+  **Save survey** and **Watch** beside the site and antenna fields.
+- **Four scope views** — magnitude over time, dBFS spectrum with average and
+  peak hold, I/Q scatter, and a frequency/time waterfall. Cursor readouts
+  everywhere; drag to zoom, `+`/`-`, `Left`/`Right` to pan, `0` to reset.
+- **A decode view per technology** — FM, ADS-B, GSM, LTE and TETRA, each with
+  two arrangements: the messages it has read, and the analysis behind them.
+  `--analysis` opens on the second.
+- **A decode funnel on every one of them.** Two empty panels look identical
+  whether nothing is transmitting or every message is failing parity, and the
+  funnel is the difference: blocks → bursts → parity → messages.
+- **Signal-quality HUD** — noise floor, estimated SNR, clipping percentage and
+  full-scale headroom, which is what gain selection needs.
+- **Receiver calibration** — against a GSM FCCH tone or an LTE cell, with a
+  median/MAD stability gate; the correction is kept per site, because it drifts
+  and is measured against whatever reference a place offers.
+
+## Without a window
+
+Every decision the program makes is reachable from the command line, because
+one that needs a person to click cannot be checked (ADR-0012):
+
+```sh
+# Sweep, confirm what it found, and file the result under surveys/
+./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
+    --survey-confirm | ./scripts/survey_tool.py ingest --note "telescopic, indoors"
+
+# Keep sweeping, folding each pass into the site's history
+./sdrprobe --headless --survey --survey-watch 20
+
+# Read a capture, or a live cell, with nothing to click
+./sdrprobe --file testfiles/gsm_arfcn_69.bin --headless --arfcn 69 --decode --once
+./sdrprobe --headless --lte-chain --earfcn 3475 --lte-chain-seconds 30
+```
 
 ## Versioning
 
@@ -159,7 +198,7 @@ for the full procedure and the DSP details.
 Everything is checkable without a window, a receiver, or a person:
 
 ```sh
-make check           # all of the below, about 18 seconds
+make check           # all of the below, about a minute
 ```
 
 ```sh
@@ -180,22 +219,35 @@ twice.
 ## Project layout
 
 ```
-src/       sdrprobe.c        application: state, acquisition, screen composition
-           sdr_dsp.{c,h}     generic, technology-independent SDR DSP core
-           gsm_dsp.{c,h}     GSM 900 plugin: ARFCN map + FCCH tone detector
-           sdrgui.{c,h}      reusable SDR visual components (plots, waterfall, ...)
-           raygui_impl.c     one TU that expands the vendored raygui
-tests/     sdr_dsp_test.c    hardware-free DSP checks
-           gsm_dsp_test.c
-vendor/    raygui.h          pinned immediate-mode widget toolkit
-docs/      ARCHITECTURE.md, adr/, cellular-frequency-correction.md, ...
-testfiles/ adsb_modes1.bin, gsm_arfcn_69.bin   test captures (&lt;tech&gt;_&lt;detail&gt;.bin)
-build/     compiled artifacts (gitignored)
+src/  sdrprobe.c            application: acquisition, tabs, the frame loop
+      acquisition.{c,h}     the receiver and file threads, and the block slot
+      view_*.c              one file per screen: survey, scope, fm, gsm, adsb,
+                            lte, tetra
+      survey_*.{c,h}        the sweep, its candidates, the carriers they group
+                            into, what resembles the receiver, the site history
+      sdr_dsp.{c,h}         generic, technology-independent DSP core
+      gsm_dsp.{c,h}  gsm_bcch.{c,h}     GSM: SCH, then System Information
+      adsb_dsp.{c,h}                    Mode S: preamble, CRC-24, CPR
+      fm_dsp.{c,h}   rds.{c,h}          FM: pilot, audio, and RDS groups
+      lte_dsp.{c,h}  lte_mib.{c,h}      LTE: cell search, then the MIB
+      tetra_dsp.{c,h} tetra_sync.{c,h}  TETRA: dibits, then the broadcast layer
+      *_layout.h            where each screen puts things, as pure arithmetic
+      sdrgui*.{c,h}         reusable chart components over vendored raygui
+tests/      one check per area, each hardware-free -- see `make check`
+scripts/    survey_tool.py, and the white-box probes behind `make probe-*`
+vendor/     raygui.h        pinned immediate-mode widget toolkit
+docs/       ARCHITECTURE.md, adr/, band-surveys.md, ...
+testfiles/  test captures, one .json sidecar each
+surveys/    saved sweeps and per-site history (gitignored)
+build/      compiled artifacts (gitignored)
 ```
 
-The DSP is split into a generic core and per‑technology plugins; the UI is split
-into reusable `sdrgui` components over vendored raygui widgets, with application
-logic and composition in `sdrprobe.c`. The key decisions are recorded as ADRs in
+The DSP is split into a generic core and per-technology plugins, and a decoder
+sits behind the same seam even where it reuses almost none of the core. The
+domain is split in two and the split is load-bearing for naming: the **Probe**
+context acquires samples and stops at signal statistics -- it must never claim
+to have decoded a message -- and the **Decoder** context starts where bits
+become a message. `CONTEXT-MAP.md` has both. The key decisions are recorded as ADRs in
 [`docs/adr/`](docs/adr/), and the ubiquitous language in
 [`CONTEXT.md`](CONTEXT.md).
 
