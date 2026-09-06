@@ -393,4 +393,96 @@ int signal_find_bursts(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        double min_gap_seconds, struct signal_bursts *out);
 
+/* ------------------------------------------------------------------ *
+ * Does the envelope carry anything, and does the frequency sit on levels?
+ * ------------------------------------------------------------------ */
+
+/*
+ * Two statistics of the channel, once it has been mixed to zero and filtered
+ * to its own width. **Both need that isolation**, which is the trap ticket 02
+ * fell into: measured across a 2 MHz capture, the envelope of any narrow
+ * signal is the envelope of the noise beside it, and so is its instantaneous
+ * frequency.
+ *
+ * `variation` is the coefficient of variation of the magnitude -- the
+ * standard deviation over the mean. It splits everything that holds a
+ * constant envelope from everything that does not, without naming either.
+ * `peak_over_mean_db` is the same question asked at the top of the
+ * distribution.
+ *
+ * `frequency_spread_hz` is the scatter of the instantaneous frequency, which
+ * is a width the spectrum cannot give: occupied bandwidth counts where the
+ * power is, and this counts where the *carrier* goes.
+ *
+ * A count of frequency levels -- bin the instantaneous frequency, count the
+ * modes, call the spacing an FSK deviation -- **is not here and was not
+ * built**. The spread measured first says why it would not work: an empty
+ * channel's instantaneous frequency spreads 8.7 kHz in a 25 kHz channel and
+ * TETRA's spreads 5.0 kHz in the same one, so the noise is *wider* than the
+ * signal and any histogram of a real capture is mostly noise's. It needs a
+ * signal-to-noise this receiver and antenna do not give on a narrow channel.
+ *
+ * **What this measures is the envelope over the whole look, which is not the
+ * same as the envelope of the modulation.** GSM is GMSK -- constant envelope
+ * by construction -- and reads 0.29 to 0.79 here, because it is also TDMA and
+ * the envelope goes to nothing between timeslots. Read this beside
+ * signal_find_bursts(): a low variation means constant envelope only for
+ * something that does not stop.
+ */
+struct signal_envelope {
+    int found;
+    double variation;           /* sd(|z|) / mean(|z|), 0 for a bare tone */
+    double peak_over_mean_db;
+    double frequency_spread_hz;
+    double mean_frequency_hz;   /* residual offset of the isolated channel */
+};
+
+/*
+ * Below this level there is nothing to measure: eight bits is about 45 dB, so
+ * a variation computed on a signal far down the range is measuring the
+ * quantiser rather than the modulation.
+ */
+#define SIGNAL_ENVELOPE_MIN_RMS 0.002
+
+/*
+ * Complex Gaussian noise has a Rayleigh magnitude, whose coefficient of
+ * variation is sqrt(4/pi - 1) = 0.523 exactly. That is the number to compare
+ * against, because it is what an empty channel reads and also what OFDM reads
+ * -- a sum of many independent subcarriers is Gaussian by the central limit
+ * theorem, which is the same reason its peak-to-average is punishing.
+ */
+#define SIGNAL_ENVELOPE_RAYLEIGH 0.5227
+
+/*
+ * Measured across every capture here, in a channel isolated to its own width:
+ *
+ *   FM broadcast, continuous          0.032
+ *   a bare carrier, 5 kHz channel     0.137
+ *   a bare carrier, 20 kHz channel    0.248
+ *   TETRA, pi/4-DQPSK                 0.252 and 0.272
+ *   GSM at one carrier                0.291
+ *   an empty channel                  0.545 and 0.554   <- Rayleigh
+ *   GSM at another                    0.792
+ *   Mode S, pulsed                    1.057
+ *   an LTE downlink, OFDM             1.098
+ *
+ * So 0.30 sits under every signal whose envelope is contained and a factor of
+ * 1.8 under what an empty channel reads, and 0.90 sits over everything but
+ * the two that vary more than noise does.
+ *
+ * The band between them is where an empty channel sits, so nothing is said
+ * about it. And what is said either side is said weakly: a bare carrier in
+ * noise reads 0.248 and filtered pi/4-DQPSK reads 0.252, the same number, so
+ * "contained" is true of both and separates neither. This statistic is a
+ * scale rather than a classifier, and `carrier_power_fraction` is what tells
+ * those two apart.
+ */
+#define SIGNAL_ENVELOPE_CONTAINED 0.30
+#define SIGNAL_ENVELOPE_RESTLESS 0.90
+
+int signal_envelope_stats(const float *i_samples, const float *q_samples,
+                          size_t pair_count, double sample_rate,
+                          double carrier_hz, double channel_hz,
+                          struct signal_envelope *out);
+
 #endif

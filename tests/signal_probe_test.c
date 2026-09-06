@@ -611,6 +611,98 @@ static void test_burst_refusals(void) {
               signal_find_bursts(ir, qr, N, 0.0, 0.0001, &b), 0);
 }
 
+/* ------------------------------------------------------------------ *
+ * Does the envelope carry anything?
+ * ------------------------------------------------------------------ */
+
+static void test_the_envelope_of_a_bare_tone_does_not_vary(void) {
+    struct signal_envelope e;
+
+    clear();
+    add_tone(70000.0, 0.5);
+    check_int("a clean tone is measurable",
+              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, &e), 1);
+    check_true("and its envelope does not vary", e.variation < 0.01);
+    check_true("so its peak is its mean", e.peak_over_mean_db < 0.5);
+    check_true("and its frequency does not move",
+               e.frequency_spread_hz < 10.0);
+    check_close("nor is it anywhere but where it was put",
+                e.mean_frequency_hz, 0.0, 5.0);
+
+    /* Mixing to the wrong frequency leaves the residual, which is what
+       mean_frequency_hz is for: it is the offset the isolation did not
+       remove, and a caller that trusted the carrier it was given can see how
+       far out it was. */
+    clear();
+    add_tone(70000.0, 0.5);
+    signal_envelope_stats(ir, qr, N, FS, 68000.0, 40000.0, &e);
+    check_close("a carrier 2 kHz out reads 2 kHz of residual",
+                e.mean_frequency_hz, 2000.0, 50.0);
+}
+
+static void test_noise_reads_rayleigh(void) {
+    struct signal_envelope e;
+
+    /*
+     * A complex Gaussian's magnitude is Rayleigh, whose coefficient of
+     * variation is sqrt(4/pi - 1) and depends on nothing. That is the
+     * reference the whole statistic is read against, so it is worth pinning
+     * against a number derived rather than measured -- and it is also what
+     * OFDM reads, since a sum of many independent subcarriers is Gaussian by
+     * the central limit theorem.
+     */
+    clear();
+    add_noise(0.4);
+    check_int("noise is measurable", 
+              signal_envelope_stats(ir, qr, N, FS, 0.0, 500000.0, &e), 1);
+    check_close("and reads Rayleigh", e.variation,
+                SIGNAL_ENVELOPE_RAYLEIGH, 0.06);
+    check_true("which is above what a contained envelope reads",
+               SIGNAL_ENVELOPE_RAYLEIGH > SIGNAL_ENVELOPE_CONTAINED);
+    check_true("and below what a restless one does",
+               SIGNAL_ENVELOPE_RAYLEIGH < SIGNAL_ENVELOPE_RESTLESS);
+}
+
+static void test_an_on_off_envelope_varies_more_than_noise(void) {
+    struct signal_envelope e;
+
+    /* Keyed a fifth of the time: the envelope spends most of its time at
+       nothing and the rest at full, which is more variation than noise has. */
+    clear();
+    add_keyed(20000, 4000, 1500, 1.0);
+    add_noise(0.02);
+    signal_envelope_stats(ir, qr, N, FS, 70000.0, 500000.0, &e);
+    check_true("an on-off envelope varies more than noise",
+               e.variation > SIGNAL_ENVELOPE_RESTLESS);
+    check_true("and its peak stands far over its mean",
+               e.peak_over_mean_db > 5.0);
+}
+
+static void test_envelope_refusals(void) {
+    struct signal_envelope e;
+
+    clear();
+    add_tone(70000.0, 0.5);
+    check_int("a null destination is refused",
+              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, NULL), 0);
+    check_int("too few samples is refused",
+              signal_envelope_stats(ir, qr, 64, FS, 70000.0, 40000.0, &e), 0);
+    check_int("a channel as wide as the sample rate is refused",
+              signal_envelope_stats(ir, qr, N, FS, 0.0, FS, &e), 0);
+    check_int("and a refusal leaves nothing behind", e.found, 0);
+
+    /*
+     * Eight bits is about 45 dB, so a signal far down the range is measuring
+     * the quantiser rather than the modulation. Refused rather than reported,
+     * because a variation computed on three quantisation levels is a number
+     * that looks exactly like a measurement.
+     */
+    clear();
+    add_tone(70000.0, 0.0002);
+    check_int("a signal in the quantiser's floor is refused",
+              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, &e), 0);
+}
+
 int main(void) {
     test_a_pure_tone_is_all_line();
     test_only_in_channel_energy_counts();
@@ -626,5 +718,9 @@ int main(void) {
     test_a_burst_cut_by_the_buffer_is_not_measured();
     test_the_gap_says_what_is_one_burst();
     test_burst_refusals();
+    test_the_envelope_of_a_bare_tone_does_not_vary();
+    test_noise_reads_rayleigh();
+    test_an_on_off_envelope_varies_more_than_noise();
+    test_envelope_refusals();
     return check_report("where a carrier is, and whether anything rides it");
 }

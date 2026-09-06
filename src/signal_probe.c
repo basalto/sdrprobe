@@ -759,3 +759,143 @@ int signal_find_bursts(const float *i_samples, const float *q_samples,
     out->found = out->count > 0;
     return out->found;
 }
+
+/* ------------------------------------------------------------------ *
+ * Does the envelope carry anything, and does the frequency sit on levels?
+ * ------------------------------------------------------------------ */
+
+/*
+ * The channel, mixed to zero and boxcar-decimated to its own width.
+ *
+ * The same isolation constant_fraction() does inline, factored out because
+ * two more measurements need it and because measuring either of them on the
+ * whole span measures the noise beside the signal instead -- the mistake
+ * ticket 02's symbol-rate search made in a different form.
+ *
+ * Returns how many decimated pairs were written.
+ */
+#define SIGNAL_CHANNEL_MAX 65536
+
+static size_t channel_samples(const float *i_samples, const float *q_samples,
+                              size_t count, double carrier_hz,
+                              double sample_rate, double channel_hz,
+                              double *out_re, double *out_im,
+                              size_t capacity) {
+    double w = -2.0 * M_PI * carrier_hz / sample_rate;
+    double step_re = cos(w), step_im = sin(w);
+    double pr = 1.0, pi = 0.0;
+    double block_re = 0.0, block_im = 0.0;
+    size_t n, decimate, in_block = 0, written = 0;
+
+    if (!(channel_hz > 0.0) || !count || !capacity)
+        return 0;
+    decimate = (size_t)(sample_rate / channel_hz);
+    if (decimate < 1)
+        decimate = 1;
+
+    for (n = 0; n < count && written < capacity; n++) {
+        double next = pr * step_re - pi * step_im;
+        block_re += (double)i_samples[n] * pr - (double)q_samples[n] * pi;
+        block_im += (double)i_samples[n] * pi + (double)q_samples[n] * pr;
+        pi = pi * step_re + pr * step_im;
+        pr = next;
+        if ((n & 0xffff) == 0xffff) {
+            double m = sqrt(pr * pr + pi * pi);
+            if (m > 0.0) { pr /= m; pi /= m; }
+        }
+        if (++in_block == decimate) {
+            out_re[written] = block_re / (double)decimate;
+            out_im[written] = block_im / (double)decimate;
+            written++;
+            block_re = block_im = 0.0;
+            in_block = 0;
+        }
+    }
+    return written;
+}
+
+int signal_envelope_stats(const float *i_samples, const float *q_samples,
+                          size_t pair_count, double sample_rate,
+                          double carrier_hz, double channel_hz,
+                          struct signal_envelope *out) {
+    static double re[SIGNAL_CHANNEL_MAX], im[SIGNAL_CHANNEL_MAX];
+    static double magnitude[SIGNAL_CHANNEL_MAX];
+    size_t count, n;
+    double rate, sum = 0.0, sum_sq = 0.0, mean, variance;
+    double f_sum = 0.0, f_sq = 0.0;
+    size_t steps = 0;
+
+    if (!out)
+        return 0;
+    memset(out, 0, sizeof(*out));
+    if (!i_samples || !q_samples || pair_count < 1024 || !(sample_rate > 0.0))
+        return 0;
+    if (!(channel_hz > 0.0) || channel_hz >= sample_rate)
+        return 0;
+
+    count = channel_samples(i_samples, q_samples, pair_count, carrier_hz,
+                            sample_rate, channel_hz, re, im,
+                            SIGNAL_CHANNEL_MAX);
+    if (count < 64)
+        return 0;
+    /* The rate the decimated stream runs at, which is what turns a phase step
+       into a frequency. */
+    rate = sample_rate / (double)((size_t)(sample_rate / channel_hz) < 1
+                                      ? 1 : (size_t)(sample_rate / channel_hz));
+
+    for (n = 0; n < count; n++) {
+        magnitude[n] = sqrt(re[n] * re[n] + im[n] * im[n]);
+        sum += magnitude[n];
+        sum_sq += magnitude[n] * magnitude[n];
+    }
+    mean = sum / (double)count;
+    if (sqrt(sum_sq / (double)count) < SIGNAL_ENVELOPE_MIN_RMS)
+        return 0;   /* measuring the quantiser, not the modulation */
+    variance = sum_sq / (double)count - mean * mean;
+    if (variance < 0.0)
+        variance = 0.0;
+    out->variation = mean > 0.0 ? sqrt(variance) / mean : 0.0;
+
+    {
+        double peak = 0.0, mean_power = sum_sq / (double)count;
+        for (n = 0; n < count; n++)
+            if (magnitude[n] * magnitude[n] > peak)
+                peak = magnitude[n] * magnitude[n];
+        out->peak_over_mean_db = mean_power > 0.0
+                                     ? 10.0 * log10(peak / mean_power) : 0.0;
+    }
+
+    /*
+     * The instantaneous frequency, as the phase step between consecutive
+     * samples of the isolated channel. A step is taken from the *product*
+     * with the previous conjugate rather than from a difference of two
+     * atan2s, so there is no unwrapping to get wrong.
+     *
+     * Steps where either sample is near zero are skipped: the phase of a
+     * sample with no magnitude is noise, and a modulation that passes through
+     * zero would otherwise contribute a uniform spread of its own.
+     */
+    for (n = 1; n < count; n++) {
+        double a_re = re[n], a_im = im[n];
+        double b_re = re[n - 1], b_im = im[n - 1];
+        double pr = a_re * b_re + a_im * b_im;
+        double pi = a_im * b_re - a_re * b_im;
+        double f;
+        if (magnitude[n] < mean * 0.25 || magnitude[n - 1] < mean * 0.25)
+            continue;
+        f = atan2(pi, pr) / (2.0 * M_PI) * rate;
+        f_sum += f;
+        f_sq += f * f;
+        steps++;
+    }
+    if (steps > 8) {
+        double fm = f_sum / (double)steps;
+        double fv = f_sq / (double)steps - fm * fm;
+        if (fv < 0.0)
+            fv = 0.0;
+        out->mean_frequency_hz = fm;
+        out->frequency_spread_hz = sqrt(fv);
+    }
+    out->found = 1;
+    return 1;
+}

@@ -1181,6 +1181,7 @@ static void survey_select(struct app *app, int index) {
     s->report_valid = 0;
     s->carrier_valid = 0;
     memset(&s->bursts, 0, sizeof(s->bursts));
+    memset(&s->envelope, 0, sizeof(s->envelope));
     survey_measure_reset(&s->measure);
     hz = survey_bin_hz(s, s->peaks[index].index);
     s->measure_expected_hz = hz;
@@ -1289,6 +1290,15 @@ static void survey_measure_carrier(struct app *app,
                                            at + SURVEY_CARRIER_SEARCH_HZ,
                                            SURVEY_OFFSET_HZ / 2.0,
                                            channel, &s->carrier);
+    /* The envelope's shape, in the channel the carrier search just located
+       rather than at the frequency the sweep guessed -- and only when it
+       located one, since isolating a channel around nothing measures noise. */
+    if (s->carrier_valid)
+        signal_envelope_stats(app->i_samples, app->q_samples, app->pair_count,
+                              (double)app->applied_sample_rate,
+                              s->carrier.offset_hz, channel, &s->envelope);
+    else
+        memset(&s->envelope, 0, sizeof(s->envelope));
 }
 
 /* One block's worth of measurement of the selected candidate. */
@@ -2297,7 +2307,7 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
         int k;
 
         signal_findings_from(s->carrier_valid ? &s->carrier : NULL,
-                             &s->bursts,
+                             &s->bursts, &s->envelope,
                              survey_measure_duty(&s->measure),
                              s->measure.hits, s->measure.blocks,
                              survey_measure_spread_hz(&s->measure),
