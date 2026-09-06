@@ -196,6 +196,76 @@ establishes that.
 (Subframe 5 was tried first and rejected: it gave an intermediate, partly
 structured profile, and a control has to be unambiguous to be worth anything.)
 
+### 8. The identity path, checked against other implementations
+
+The remaining candidate was "something else in the N_ID_2 0 path". It is
+largely ruled out too, and this section was done the way it should have been
+done from the start -- against srsRAN and against measurement, not against
+recollection of 36.211.
+
+**The descrambling key is not wrong.** `lte_mib_decode()` takes the identity
+separately from extraction, so the elements can be read once and every key
+tried against them. All 504 identities, three port counts, four quarters and
+the CRC masks -- roughly eighteen thousand attempts -- and **none fits**. A
+secondary sequence that returns a confident wrong identity was a live
+possibility (`lte_cell_search` sweeps integer offsets for exactly that reason);
+it is not what is happening. The elements themselves are not a message.
+
+**The reference-signal conventions are right, and one was settled by
+experiment rather than by reading.** `pbch_subcarrier()` maps the 72 broadcast
+subcarriers to 36 either side of DC, *skipping* DC, while the reference
+exclusion two hundred lines away tests `index % 3`. Those two agree below DC
+and differ by one residue class above it, which looked like a real bug. Four
+builds settled it:
+
+```
+                              control PCI 28 (shift 4)   band 8 PCI 330 (shift 0)
+skip DC, exclude on index      12 / 12 messages           0 / 12
+skip DC, exclude on physical   11 / 12                    0 / 12
+keep DC, exclude on index       0 / 12                    0 / 12
+keep DC, exclude on physical    0 / 12                    0 / 12
+```
+
+So **skipping DC is required** -- not skipping it destroys the cell that works
+-- and the index-space exclusion is at least as good as the physical one. The
+convention is validated on air. Neither variant rescues band 8.
+
+srsRAN corroborates the shape: `srsran_pbch_cp()` calls
+`prb_cp_ref(&input, &output, cell.id % 3, 4, 4 * 6, put)`, and `prb_cp_ref`
+computes `ref_interval = (SRSRAN_NRE / nof_refs) - 1` = 2, copying `offset`
+elements then repeatedly skipping one and copying two. That is references every
+third subcarrier starting at `cell.id % 3`, counted across the block -- the
+same rule this file uses.
+
+**The four-port combining is not it either.** All three cells that decode here
+report two ports, so the four-port path had never been exercised on air, and
+its element-to-port pairing is a convention a synthetic round trip cannot
+check. Three pairings were tried on the failing capture -- pair 0 on ports
+(0,1), (0,2) and (0,3) with the complements -- and none produces a message.
+
+## What is now known, and what is left
+
+A signal with the broadcast channel's 40 ms period is present in the right
+place, and the 480 soft bits taken from it are not a message under **any**
+identity, port count, frame start within a sample, subframe within a frame,
+cyclic prefix, or reference-signal convention tried. Everything upstream of
+the elements is measured and sound; the elements themselves are wrong, and
+nothing tested so far explains why.
+
+Note what section 7 does and does not establish. A 40 ms repetition proves a
+40 ms-periodic transmission is there; it does **not** prove the extraction
+picks the right resource elements, because a wrong extraction of a periodic
+signal repeats just as faithfully. Presence was the question it was asked, and
+presence is all it answers.
+
+What has not been looked at: the channel estimate itself. `estimate_port()`
+interpolates across the block from references every sixth subcarrier, and
+every measurement here has been of the elements *after* it was applied. A
+cell whose centre sits in a notch, or whose references are being read at the
+right positions with the wrong sequence, would produce exactly this -- soft
+bits with ordinary magnitude and no information in them. `trace->channel_db`
+already records that channel and nothing has ever plotted it.
+
 ## Next
 
 Status stays `needs-triage`; this narrows it, it does not close it.
