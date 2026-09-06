@@ -1276,6 +1276,85 @@ static void test_reference_sinr(void) {
               "the noise sits below the reference power\n");
 }
 
+/*
+ * The channel's delay and the drift across a slot, both checked by putting a
+ * known one there.
+ *
+ * Neither can be asserted as a value on a synthetic buffer that has no delay
+ * and no motion -- both would read zero, and so would an implementation that
+ * returned zero. What makes them measurements is that a *deliberate* delay
+ * and a *deliberate* frequency error come back at the size they were made.
+ */
+static void test_channel_shape(void) {
+    struct lte_cell cell, moved;
+    struct lte_channel_shape flat, delayed, drifting;
+    const double sample_ns = 1e9 / LTE_SAMPLE_RATE_HZ;
+
+    build_buffer(227, 2, 0.0, 0.002, 81u);
+    if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                        LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1 ||
+        !lte_channel_shape(buffer_i, buffer_q, BUFFER_SAMPLES,
+                           LTE_SAMPLE_RATE_HZ, &cell, &flat)) {
+        check_true("channel shape: measured on the flat buffer", 0);
+        return;
+    }
+    /*
+     * The grid is built without delay, and the measurement still reads about
+     * 0.28 of a sample -- steady at that across five identities and three
+     * noise levels, so it is something systematic in how the buffer is laid
+     * rather than scatter. It is not what is being asserted here: the
+     * absolute figure carries that offset and the *difference* below does
+     * not, which is why the delay is checked by moving the window rather
+     * than by trusting a value.
+     */
+    check_msg(fabsf(flat.delay_ns) < 0.4f * (float)sample_ns,
+              "a flat channel is within a fraction of a sample, got %.0f ns\n",
+              (double)flat.delay_ns);
+    check_msg(flat.delay_spread_ns < 0.5 * sample_ns,
+              "a flat channel has no spread, got %.0f ns\n",
+              (double)flat.delay_spread_ns);
+
+    /*
+     * Reading the symbol two samples late is exactly a two-sample delay: the
+     * transform window slides and every subcarrier picks up its share of a
+     * phase ramp. Nothing else about the signal changes, so the answer is
+     * known to the sample.
+     */
+    moved = cell;
+    moved.subframe0_start = cell.subframe0_start + 2;
+    if (!lte_channel_shape(buffer_i, buffer_q, BUFFER_SAMPLES,
+                           LTE_SAMPLE_RATE_HZ, &moved, &delayed)) {
+        check_true("channel shape: measured with the window moved", 0);
+        return;
+    }
+    check_close("two samples late reads as two samples of delay",
+                fabs((double)delayed.delay_ns - (double)flat.delay_ns),
+                2.0 * sample_ns, 0.4 * sample_ns);
+
+    /*
+     * And a frequency error, made by telling the measurement the wrong
+     * correction. Everything it reads then rotates at the difference, which
+     * is what a Doppler would do -- the two are the same phase and the header
+     * says so.
+     */
+    moved = cell;
+    moved.frequency_offset_hz = cell.frequency_offset_hz + 300.0;
+    if (!lte_channel_shape(buffer_i, buffer_q, BUFFER_SAMPLES,
+                           LTE_SAMPLE_RATE_HZ, &moved, &drifting)) {
+        check_true("channel shape: measured with the offset moved", 0);
+        return;
+    }
+    check_close("300 Hz of uncorrected offset reads as 300 Hz of drift",
+                fabs((double)drifting.drift_hz - (double)flat.drift_hz),
+                300.0, 60.0);
+    /* A delay is not a drift: moving the window must not invent one. The
+       trap this guards is comparing symbol 4's references against symbol 0's
+       by index, which compares different subcarriers and reads the delay as
+       a frequency. */
+    check_close("and a delay does not read as a drift", delayed.drift_hz,
+                flat.drift_hz, 60.0);
+}
+
 int main(void) {
     twiddles_init();
 
@@ -1292,6 +1371,7 @@ int main(void) {
     test_broadcast_channel();
     test_reference_power();
     test_reference_sinr();
+    test_channel_shape();
     test_port_coherence();
     test_two_cells_on_one_carrier();
     test_two_cells_needs_similar_levels();
