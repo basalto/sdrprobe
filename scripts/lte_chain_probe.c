@@ -19,6 +19,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* How far either way the frame start is nudged when nothing fits. A symbol at
+   1.92 MS/s is 137 samples and a normal cyclic prefix is 9, so 30 covers every
+   error that is a timing error rather than a symbol slip. */
+#define LTE_TIMING_NUDGE 30
+
 #include "lte_dsp.c"
 #include "lte_mib.h"
 
@@ -85,10 +90,51 @@ static void root_scores(const float *si, const float *sq, size_t pairs,
     }
 }
 
+/*
+ * Whether the equalised broadcast-channel elements are QPSK at all.
+ *
+ * This is the measurement that tells "read wrong" from "too weak", and the
+ * chain had no way to say which. Raising each element to the fourth power
+ * maps all four QPSK points onto the same place, so the data cancels itself
+ * and what is left is coherent if the points were really there -- the same
+ * trick tetra_dsp.c uses on pi/4-DQPSK, where every legal phase step is an
+ * odd multiple of pi/4 and four times any of them is -1.
+ *
+ * Near 1 means four clean clusters. Near 0 means the phases are spread, which
+ * is what noise with no signal under it looks like.
+ *
+ * An earlier version of this measured distance from the ideal points instead,
+ * and it was worthless: the trace normalises by the *mean* magnitude, so the
+ * spread it reported was the soft bits' dynamic range and it read 58-66% on
+ * the cell that decodes and 49-64% on the one that does not. A number that
+ * cannot separate the control from the fault is not evidence.
+ */
+static double pbch_qpsk_coherence(const struct lte_trace *trace) {
+    double sr = 0.0, si = 0.0, power = 0.0;
+    int k;
+
+    if (!trace || trace->element_count <= 0)
+        return 0.0;
+    for (k = 0; k < trace->element_count; k++) {
+        double i = (double)trace->element_i[k];
+        double q = (double)trace->element_q[k];
+        /* z^2 then (z^2)^2, which is z^4 without a pow() call. */
+        double ar = i * i - q * q, ai = 2.0 * i * q;
+        double br = ar * ar - ai * ai, bi = 2.0 * ar * ai;
+        sr += br;
+        si += bi;
+        power += sqrt(br * br + bi * bi);
+    }
+    if (power <= 0.0)
+        return 0.0;
+    return sqrt(sr * sr + si * si) / power;
+}
+
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : NULL;
     FILE *f;
     int block = 0, cells = 0, messages = 0;
+    int swept = 0;
 
     if (!path) {
         fprintf(stderr, "usage: %s <capture.bin>\n", argv[0]);
@@ -166,6 +212,23 @@ int main(int argc, char **argv) {
                cell.frequency_offset_hz, (double)cell.pss_correlation,
                (double)cell.pss_runner_up, (double)cell.sss_correlation,
                (double)cell.sss_runner_up);
+        /* The two decisions the chain used to report as facts. "normal CP"
+           beside the score the extended prefix actually reached, and the
+           frame's timing beside the best competitor far enough away to be a
+           different symbol boundary rather than this one's shoulder. */
+        printf("          CP normal ");
+        if (cell.cp_measured[0])
+            printf("%.3f", (double)cell.cp_score[0]);
+        else
+            printf("not tried");
+        printf("  extended ");
+        if (cell.cp_measured[1])
+            printf("%.3f", (double)cell.cp_score[1]);
+        else
+            printf("not tried");
+        printf("   timing shift %+d  sidelobe %.3f (peak %.3f)\n",
+               cell.timing_shift, (double)cell.timing_sidelobe,
+               (double)cell.pss_correlation);
 
         {
             static const int ports[3] = { 1, 2, 4 };
@@ -173,11 +236,12 @@ int main(int argc, char **argv) {
             for (h = 0; h < 3; h++) {
                 float soft[LTE_PBCH_SOFT_BITS];
                 struct lte_mib mib;
+                struct lte_trace pbch;
                 int written = lte_pbch_soft_bits(i_samples, q_samples, pairs,
                                                  LTE_SAMPLE_RATE_HZ, &cell,
                                                  cell.subframe0_start,
-                                                 ports[h], soft, NULL);
-                double magnitude = 0.0;
+                                                 ports[h], soft, &pbch);
+                double magnitude = 0.0, evm;
                 int k;
                 if (written != LTE_PBCH_SOFT_BITS) {
                     printf("          %d port(s): no soft bits\n", ports[h]);
@@ -186,14 +250,17 @@ int main(int argc, char **argv) {
                 for (k = 0; k < LTE_PBCH_SOFT_BITS; k++)
                     magnitude += fabs((double)soft[k]);
                 magnitude /= LTE_PBCH_SOFT_BITS;
+                evm = pbch_qpsk_coherence(&pbch);
                 if (!lte_mib_decode(soft, cell.pci, &mib)) {
                     printf("          %d port(s): no parity fits "
-                           "(mean |soft| %.3f)\n", ports[h], magnitude);
+                           "(mean |soft| %.3f, QPSK coherence %.3f)\n", ports[h],
+                           magnitude, evm);
                     continue;
                 }
-                printf("          MIB via %d-port combining: "
+                printf("          MIB via %d-port combining (coherence %.3f): "
                        "%d blocks (%.2f MHz)  PHICH %s %s  "
-                       "SFN %d  %d port(s)\n", ports[h], mib.bandwidth_prb,
+                       "SFN %d  %d port(s)\n", ports[h], evm,
+                       mib.bandwidth_prb,
                        lte_mib_occupied_hz(mib.bandwidth_prb) / 1e6,
                        mib.phich_extended ? "extended" : "normal",
                        lte_phich_resource_name(mib.phich_resource_sixths),
@@ -203,6 +270,56 @@ int main(int argc, char **argv) {
             }
             if (read_any)
                 messages++;
+            else if (!swept) {
+                /*
+                 * Nothing fitted. Before blaming a stage further down, ask
+                 * the one question that needs no theory: would *any* frame
+                 * start have worked?
+                 *
+                 * The frame boundary comes from a correlation peak, and a
+                 * timing error of more than the cyclic prefix costs the
+                 * broadcast channel everything while costing the primary and
+                 * secondary sequences almost nothing -- so the chain can look
+                 * healthy at exactly the point it has gone wrong. If some
+                 * nudge decodes, the timing is the fault and its size says
+                 * how far out. If none does across a whole symbol either way,
+                 * the timing is exonerated and the fault is downstream.
+                 *
+                 * Once per run, on the first block that finds a cell and no
+                 * message: 61 starts times three port hypotheses is a couple
+                 * of seconds, which is worth paying once and not per block.
+                 */
+                int nudge, fits = 0;
+                swept = 1;
+                printf("          sweeping the frame start +-%d samples, "
+                       "since none of the three port hypotheses fitted:\n",
+                       LTE_TIMING_NUDGE);
+                for (nudge = -LTE_TIMING_NUDGE; nudge <= LTE_TIMING_NUDGE;
+                     nudge++) {
+                    long at = (long)cell.subframe0_start + nudge;
+                    if (at < 0)
+                        continue;
+                    for (h = 0; h < 3; h++) {
+                        float soft[LTE_PBCH_SOFT_BITS];
+                        struct lte_mib mib;
+                        if (lte_pbch_soft_bits(i_samples, q_samples, pairs,
+                                               LTE_SAMPLE_RATE_HZ, &cell,
+                                               (size_t)at, ports[h], soft,
+                                               NULL) != LTE_PBCH_SOFT_BITS)
+                            continue;
+                        if (!lte_mib_decode(soft, cell.pci, &mib))
+                            continue;
+                        printf("            %+d samples, %d port(s): "
+                               "MIB fits -- %d blocks, SFN %d\n", nudge,
+                               ports[h], mib.bandwidth_prb,
+                               mib.system_frame_number);
+                        fits++;
+                    }
+                }
+                if (!fits)
+                    printf("            no frame start in that range fits "
+                           "under any port count\n");
+            }
         }
         block++;
     }

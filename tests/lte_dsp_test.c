@@ -664,6 +664,43 @@ static void search_and_check(const char *label, int pci, int ports,
     check_msg(cell.sss_correlation - cell.sss_runner_up > 0.3f,
               "%s: SSS beats its runner-up, %.2f against %.2f\n", label,
               cell.sss_correlation, cell.sss_runner_up);
+    /*
+     * Both cyclic-prefix hypotheses are measured, not just the winner.
+     *
+     * This is the regression that matters: the search stops at the first
+     * prefix clearing LTE_SSS_CONFIDENT, and these buffers are clean enough
+     * that the normal one always does -- so before the extra read was added,
+     * cp_measured[1] was 0 here and the chain still printed "normal CP" as
+     * though it had compared them. A cell that scores well is exactly the
+     * cell whose losing hypothesis goes unasked.
+     */
+    check_msg(cell.cp_measured[0] && cell.cp_measured[1],
+              "%s: both cyclic prefixes measured (normal %d, extended %d)\n",
+              label, cell.cp_measured[0], cell.cp_measured[1]);
+    check_msg(cell.sss_correlation >= LTE_SSS_CONFIDENT,
+              "%s: SSS %.2f clears the gate that ends the search early, so "
+              "the extended hypothesis is one the loop skipped\n", label,
+              cell.sss_correlation);
+    check_msg(cell.cp_score[0] > cell.cp_score[1],
+              "%s: the normal prefix outscores the extended one, "
+              "%.2f against %.2f\n", label, cell.cp_score[0],
+              cell.cp_score[1]);
+    /* The verdict and the numbers behind it cannot disagree. */
+    check_msg(cell.extended_cp == (cell.cp_score[1] > cell.cp_score[0]),
+              "%s: the prefix reported matches the one that scored better\n",
+              label);
+    /*
+     * The frame is measured from the primary sequence's peak, so a competitor
+     * a whole symbol boundary away must not be close to it. On a synthetic
+     * buffer there is nothing for it to compete with.
+     */
+    check_msg(cell.timing_sidelobe < cell.pss_correlation,
+              "%s: the timing peak %.2f beats its sidelobe %.2f\n", label,
+              cell.pss_correlation, cell.timing_sidelobe);
+    check_msg(cell.timing_shift > -LTE_TIMING_SEARCH &&
+              cell.timing_shift < LTE_TIMING_SEARCH,
+              "%s: the timing moved %+d samples, inside the search window\n",
+              label, cell.timing_shift);
     (void)ports;
 }
 
