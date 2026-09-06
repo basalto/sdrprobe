@@ -845,12 +845,14 @@ static void check_lte(void) {
                       "%.0fx%.0f: band button %d runs into the next\n", w, h,
                       i);
         }
-        /* Analysis mode reuses the same space: three charts on the row the
+        /* Analysis mode reuses the same space: the charts on the row the
            waterfall had, and a square constellation below them. */
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < LTE_LAYOUT_CHARTS; i++) {
             check_msg(fabsf(l.chart[i].y - l.chart[0].y) <= 0.01f,
                       "%.0fx%.0f: chart %d is off the chart row\n", w, h, i);
-            if (i + 1 < 3)
+            check_msg(l.chart[i].width > 0.0f && l.chart[i].height > 0.0f,
+                      "%.0fx%.0f: chart %d collapsed\n", w, h, i);
+            if (i + 1 < LTE_LAYOUT_CHARTS)
                 check_msg(l.chart[i].x + l.chart[i].width <= l.chart[i + 1].x,
                           "%.0fx%.0f: chart %d runs into chart %d\n", w, h, i,
                           i + 1);

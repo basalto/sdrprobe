@@ -1339,6 +1339,64 @@ int lte_reference_power(const float *i_samples, const float *q_samples,
     return 1;
 }
 
+int lte_port_coherence(const float *i_samples, const float *q_samples,
+                       size_t pair_count, double sample_rate,
+                       const struct lte_cell *cell,
+                       float coherence[LTE_PORT_COUNT]) {
+    float row_re[LTE_PBCH_SUBCARRIERS], row_im[LTE_PBCH_SUBCARRIERS];
+    float ref_re[LTE_PBCH_SUBCARRIERS / 6], ref_im[LTE_PBCH_SUBCARRIERS / 6];
+    int positions[LTE_PBCH_SUBCARRIERS / 6];
+    int port;
+
+    if (!cell || !coherence || !i_samples || !q_samples)
+        return 0;
+    if (fabs(sample_rate - LTE_SAMPLE_RATE_HZ) > 1.0)
+        return 0;
+    if (cell->extended_cp)
+        return 0;
+    if (cell->subframe0_start + LTE_SUBFRAME_SAMPLES > pair_count)
+        return 0;
+
+    for (port = 0; port < LTE_PORT_COUNT; port++) {
+        /* Ports 0 and 1 have references in symbol 0 of the slot, ports 2 and
+           3 in symbol 1; those are the only two of the four that carry any. */
+        int symbol = port < 2 ? 0 : 1;
+        double tr[LTE_PBCH_SUBCARRIERS / 6], ti[LTE_PBCH_SUBCARRIERS / 6];
+        double sr = 0.0, si = 0.0, mag = 0.0;
+        int count, m;
+
+        coherence[port] = 0.0f;
+        read_slot1_symbol(i_samples, q_samples, cell->subframe0_start, symbol,
+                          cell->frequency_offset_hz, sample_rate,
+                          row_re, row_im);
+        count = lte_crs_subcarriers(cell->pci, 1, symbol, port, positions);
+        if (count <= 0)
+            continue;
+        if (lte_crs_sequence(cell->pci, 1, symbol, port, 0, ref_re,
+                             ref_im) <= 0)
+            continue;
+        for (m = 0; m < count; m++) {
+            int k = positions[m];
+            /* Unit magnitude, so dividing is multiplying by the conjugate. */
+            tr[m] = (double)row_re[k] * ref_re[m] +
+                    (double)row_im[k] * ref_im[m];
+            ti[m] = (double)row_im[k] * ref_re[m] -
+                    (double)row_re[k] * ref_im[m];
+        }
+        for (m = 0; m + 1 < count; m++) {
+            /* t[m+1] * conj(t[m]): one step of the channel's phase ramp. */
+            double dr = tr[m + 1] * tr[m] + ti[m + 1] * ti[m];
+            double di = ti[m + 1] * tr[m] - tr[m + 1] * ti[m];
+            sr += dr;
+            si += di;
+            mag += sqrt(dr * dr + di * di);
+        }
+        if (mag > 0.0)
+            coherence[port] = (float)(sqrt(sr * sr + si * si) / mag);
+    }
+    return 1;
+}
+
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        const struct lte_cell *cell, size_t subframe0_start,

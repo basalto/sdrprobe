@@ -24,6 +24,12 @@
 
 #define LTE_LAYOUT_BANDS 3       /* the bands an RTL-SDR can reach */
 
+/* Four charts on the analysis row. The fourth is the antenna-port coherence,
+   which is four bars and so the narrowest content here -- but an equal split
+   keeps the row one shape, and check-layout walks this constant rather than a
+   literal so the two cannot drift. */
+#define LTE_LAYOUT_CHARTS 4
+
 struct lte_layout {
     Rectangle band_button[LTE_LAYOUT_BANDS];
     Rectangle scan_button;       /* "Scan band" / "Stop" share this spot */
@@ -33,7 +39,9 @@ struct lte_layout {
     Rectangle found_panel;       /* what the scan found, left column */
     Rectangle cell_panel;        /* what PSS and SSS found */
     Rectangle mib_panel;         /* what the broadcast said */
-    Rectangle chart[3];          /* analysis: correlation, candidates, channel */
+    Rectangle chart[LTE_LAYOUT_CHARTS];  /* analysis, left to right:
+                                    correlation, candidates, channel,
+                                    antenna ports */
     Rectangle constellation;     /* analysis: the broadcast's elements */
     float header_left;
     float header_right;
@@ -104,11 +112,12 @@ static inline struct lte_layout lte_layout_for(float width, float height) {
     l.mib_panel = (Rectangle){ l.cell_panel.x + half + gap, panel_y, half,
                                panel_h };
 
-    /* Analysis mode: three charts across the top of the same space the
+    /* Analysis mode: four charts across the top of the same space the
        waterfall had, and the constellation beside the scan list below. */
     chart_h = span * 0.44f;
-    chart_w = (usable - 2.0f * gap) / 3.0f;
-    for (i = 0; i < 3; i++)
+    chart_w = (usable - (float)(LTE_LAYOUT_CHARTS - 1) * gap) /
+              (float)LTE_LAYOUT_CHARTS;
+    for (i = 0; i < LTE_LAYOUT_CHARTS; i++)
         l.chart[i] = (Rectangle){ left + (float)i * (chart_w + gap), top,
                                   chart_w, chart_h };
     lower_y = top + chart_h + 16.0f;

@@ -502,6 +502,15 @@ struct lte_view {
     struct lte_cell cell;
     int cell_valid;
     double cell_time;
+    /* 36.214's reference-signal measurements for the cell above, filled in
+       the same block it was found. dBFS rather than dBm -- see
+       struct lte_reference_power. */
+    struct lte_reference_power power;
+    int power_valid;
+    /* How coherently each antenna port's references read: how many antennas
+       the cell transmits on, before any message decodes. */
+    float port_coherence[LTE_PORT_COUNT];
+    int port_coherence_valid;
     struct lte_mib mib;
     int mib_valid;
     double mib_time;
