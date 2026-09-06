@@ -2296,6 +2296,17 @@ static int run_headless(struct app *app) {
                 }
             }
             {
+                struct lte_channel_shape shape;
+                if (lte_channel_shape(app->i_samples, app->q_samples,
+                                      app->pair_count,
+                                      (double)app->applied_sample_rate,
+                                      &cell, &shape))
+                    printf("chain %lu channel delay_ns %.0f spread_ns %.0f "
+                           "drift_hz %.0f\n", blocks, (double)shape.delay_ns,
+                           (double)shape.delay_spread_ns,
+                           (double)shape.drift_hz);
+            }
+            {
                 /* dBFS and not dBm, and the keyword says so: there is no
                    calibrated gain in front of this receiver. RSRQ is the
                    comparable one -- see struct lte_reference_power. */

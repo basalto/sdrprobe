@@ -491,6 +491,51 @@ int lte_cell_search_all(const float *i_samples, const float *q_samples,
                         struct lte_cell *cells, int max,
                         struct lte_trace *trace);
 
+/*
+ * The shape of the channel, from references already read.
+ *
+ * **Delay.** The phase turns across frequency in proportion to the delay, and
+ * references sit six subcarriers apart, so a mean step of phi radians is
+ * phi/(2*pi) * (LTE_FFT_SIZE/6) samples of delay. That is srsRAN's
+ * chest_dl_estimate_correct_sync_error, whose scale factor is
+ * `symbol_sz / 6.0` for the same reason. It is signed: the frame boundary can
+ * be early as well as late, and which it is matters to the broadcast channel.
+ *
+ * **Spread.** How much the individual steps scatter about that mean. Noise
+ * scatters them too, so the noise is taken out: a channel estimate at SNR rho
+ * carries a phase error of about 1/sqrt(2*rho), and a step is a difference of
+ * two of them, so 1/rho of the measured variance is noise and not channel.
+ * What is left, clipped at zero, is delay spread. Twelve references make this
+ * a coarse figure and it is reported as one -- it says whether the channel is
+ * flat or dispersive, not what its profile is.
+ *
+ * **Doppler.** Port 0's references appear twice in a slot, at symbols 0 and
+ * 4, and the phase between the two readings is a frequency. The two symbols
+ * do not use the same subcarriers -- the shifts swap, so symbol 4's
+ * references sit exactly halfway between symbol 0's -- so each is compared
+ * against the *sum* of the two symbol-0 references bracketing it, whose phase
+ * is the midpoint's. That removes the delay's contribution without needing
+ * the delay, which is the trap here: comparing pilot m against pilot m across
+ * the two symbols is comparing different frequencies, and reads a delay as a
+ * Doppler.
+ *
+ * A residual tuning error is the same phase as a Doppler and this cannot tell
+ * them apart. What it measures is the drift left *after* the cell search's
+ * correction, so on a static receiver it is a check on that correction, and
+ * only on a moving one is it Doppler. The name is honest about which.
+ */
+struct lte_channel_shape {
+    float delay_ns;          /* signed: the frame boundary early or late */
+    float delay_spread_ns;   /* scatter of the steps, noise removed */
+    float drift_hz;          /* residual frequency drift across the slot */
+    int references;          /* how many steps went into it */
+};
+
+int lte_channel_shape(const float *i_samples, const float *q_samples,
+                      size_t pair_count, double sample_rate,
+                      const struct lte_cell *cell,
+                      struct lte_channel_shape *out);
+
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        const struct lte_cell *cell, size_t subframe0_start,
