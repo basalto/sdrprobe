@@ -1,6 +1,6 @@
 # 01 - Every cell on the carrier, not the strongest one
 
-Status: needs-info
+Status: resolved
 
 `lte_cell_search()` reports one cell per block, and a carrier can hold several.
 Measured 2026-09-06 on EARFCN 3625: an 85-block run found **PCI 190 in 40
@@ -105,3 +105,55 @@ repository**, and a neighbour list assembled from single blocks inherits every
 false positive the gates let through. Until that exists, the `neighbour` line
 is a per-block observation carrying its own correlations so a reader can
 judge, and nothing should quote it as a cell.
+
+## Answer
+
+Status: resolved. The search finds every cell on the carrier, and a separate
+verdict says which of them are real -- because the search's own output turned
+out not to be trustworthy on its own.
+
+**PCI 410 is not a cell.** The open question from the previous pass is settled
+by the strongest test available rather than by a threshold: over 364 blocks on
+EARFCN 3625 it was reported **59 times and decoded a broadcast channel none of
+them**, while PCI 402 read 179 messages in 179 looks and PCI 190 read 16 in
+104, at the same reference power.
+
+That result also disposes of the confirmation rule this ticket assumed. A
+count of blocks cannot settle a cell identity, and the reason is not
+statistical: `lte_cell_search_all` mistakes a sidelobe for a cell and **makes
+the same mistake every block**, so a false identity repeats exactly as
+faithfully as a true one. Any threshold on hits would have confirmed 410, and
+it was the more-seen of the two unconfirmed-versus-confirmed pairs.
+
+A Master Information Block cannot be repeated into existence: it is scrambled
+with the cell identity and checked by a sixteen-bit CRC, so it does not fit
+unless the identity is right. `src/lte_confirm.h` is that rule --
+
+```
+lte-chain-cell pci 402 looks 179 messages 179 confirmed
+lte-chain-cell pci 190 looks 104 messages  16 confirmed
+lte-chain-cell pci 410 looks  59 messages   0 unread
+lte-chain-cell pci 406 looks   9 messages   0 unread
+lte-chain-cell pci 163 looks   7 messages   0 unread
+lte-chain-cell pci 187 looks   1 messages   0 spurious
+```
+
+-- with three verdicts rather than two, because "seen repeatedly and never
+read" is its own answer and is not the same as either "real" or "noise". A
+weak but genuine cell lands there too, and saying so is more honest than
+guessing which.
+
+Two messages are required rather than one, and the arithmetic is already in
+`view_lte.c`: thirty-six chances a block means a long run sees one parity pass
+by luck. `check-lte-confirm` pins the whole rule, including the case this was
+written for -- twenty-nine sightings and no message is `unread`, three
+sightings and two messages is `confirmed`.
+
+## What is left
+
+The neighbour search itself still produces those artefacts; confirmation
+labels them rather than preventing them. Suppressing the peak of a found cell
+and searching again -- which is also what would reach two cells sharing an
+N_ID_2 -- is the thing that would cut them off at the source, and is a
+separate ticket if anyone wants it. Nothing downstream should read an `unread`
+identity as a cell in the meantime.
