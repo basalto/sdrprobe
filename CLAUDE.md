@@ -477,6 +477,19 @@ Tabs are presentation only, not the boundary (ADR-0010).
   detects periodicity in the squared magnitude and a burst grid *is*
   periodicity in the squared magnitude, so asked blind it cannot tell a symbol
   rate from a frame rate. `.scratch/signal-probe/issues/02-*.md` has the table.
+  `signal_find_bursts()` is the time-domain half: how long a burst is, how
+  often, and what fraction of the look is occupied, at sample resolution
+  rather than the survey's 65.5 ms block -- which cannot tell a 120 us
+  squitter from a carrier that never stops. Three verdicts, because "nothing
+  to report" has two causes: **level** (a carrier, or an empty channel),
+  **busy** (a transmitter that has not stopped) and **separable**. Every
+  constant in it was measured and three were wrong first: thresholding a
+  *raw* envelope reported 134726 bursts in a bare carrier; a 99.9th-percentile
+  ceiling could not see Mode S, whose frames are 0.04% of the buffer; and
+  contrast cannot separate an LTE downlink's OFDM symbols (191 "bursts",
+  20.5 dB) from Mode S (4 bursts, 26.1 dB) -- occupancy does, 0.796 against
+  0.0037. Lengths are long by exactly the smoothing window and it is
+  subtracted; synthetic bursts of 100, 300 and 1000 us then read exact.
 - `src/signal_findings.h` — one layer over that, and the same relation to it
   that `lte_findings.h` has to the LTE measurements: sentences with their
   numbers attached, and refusals where the measurement cannot reach. It is

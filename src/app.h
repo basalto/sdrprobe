@@ -896,6 +896,9 @@ struct survey_view {
        together with everything beside it. */
     struct signal_carrier carrier;
     int carrier_valid;
+    /* And what it does in time. The duty above is per 65.5 ms block, which
+       cannot tell a 120 us squitter from a carrier that never stops. */
+    struct signal_bursts bursts;
 
     struct survey_snapshot previous;
 

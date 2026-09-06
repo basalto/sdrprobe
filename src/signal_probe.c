@@ -477,3 +477,285 @@ int signal_fold_at(const float *i_samples, const float *q_samples,
     out->step = step;
     return 1;
 }
+
+/* ------------------------------------------------------------------ *
+ * How long is a burst, and how much of the time is it there?
+ * ------------------------------------------------------------------ */
+
+/*
+ * The envelope, smoothed over `window` samples, at index `n`.
+ *
+ * Smoothing is not a nicety here, it is the measurement. The envelope of any
+ * modulated signal crosses a mid-level threshold constantly -- the first
+ * version of this thresholded the raw envelope and reported **134726 bursts
+ * in a bare unmodulated carrier** and none at all in a Mode S capture. What a
+ * threshold finds in a raw envelope is the modulation; what it finds in a
+ * smoothed one is the transmission.
+ *
+ * The window is `min_gap` for a reason worth stating: a silence too short to
+ * separate two bursts is also too short to be worth resolving, so one
+ * parameter sets both. The cost is that a burst's measured length is longer
+ * than its real one by about the window, which matters when the window
+ * approaches the burst -- so pass a gap well under the shortest burst of
+ * interest.
+ */
+static void smoothed_envelope(const float *i_samples, const float *q_samples,
+                              size_t count, size_t window, double *out) {
+    double sum = 0.0;
+    size_t n;
+
+    for (n = 0; n < count; n++) {
+        double p = (double)i_samples[n] * i_samples[n] +
+                   (double)q_samples[n] * q_samples[n];
+        sum += p;
+        if (n >= window) {
+            double old = (double)i_samples[n - window] * i_samples[n - window] +
+                         (double)q_samples[n - window] * q_samples[n - window];
+            sum -= old;
+            out[n] = sum / (double)window;
+        } else {
+            out[n] = sum / (double)(n + 1);
+        }
+    }
+}
+
+/*
+ * A percentile of the envelope, from a strided subsample.
+ *
+ * Sorting every sample of a multi-second capture is minutes; a stride keeps
+ * the cost fixed and costs nothing in accuracy, because a percentile is a
+ * property of the distribution and a burst pattern is not synchronised to any
+ * stride this picks.
+ */
+#define BURST_SUBSAMPLE 16384
+
+static double envelope_percentile(const double *envelope, size_t count,
+                                  double pct) {
+    static double sample[BURST_SUBSAMPLE];
+    size_t stride = count / BURST_SUBSAMPLE;
+    size_t used = 0, n;
+
+    if (!count)
+        return 0.0;
+    if (stride < 1)
+        stride = 1;
+    for (n = 0; n < count && used < BURST_SUBSAMPLE; n += stride)
+        sample[used++] = envelope[n];
+    if (!used)
+        return 0.0;
+    qsort(sample, used, sizeof(*sample), cmp_double);
+    return sample[(size_t)(pct * (double)(used - 1))];
+}
+
+/*
+ * One run of the merged burst, handed to the statistics.
+ *
+ * `at_edge` is the whole reason this is a function: a run touching either end
+ * of the buffer was cut by the buffer and not by the transmitter, so its
+ * length is an artefact. It is counted in `truncated` and kept out of the
+ * medians -- averaging half a burst in biases every answer the same
+ * direction, which is the worst kind of quiet error -- while still counting
+ * towards occupancy, which asks how much of the buffer was busy and does not
+ * care where a burst began.
+ */
+static void burst_emit(struct signal_bursts *out, size_t start, size_t end,
+                       int at_edge, size_t *busy, size_t *previous_end,
+                       int *have_previous, double *lengths, double *gaps,
+                       int *kept, int *gap_kept) {
+    *busy += end - start;
+    if (at_edge) {
+        out->truncated++;
+    } else {
+        out->count++;
+        if (*kept < SIGNAL_BURST_KEPT)
+            lengths[(*kept)++] = (double)(end - start);
+        if (*have_previous && *gap_kept < SIGNAL_BURST_KEPT)
+            gaps[(*gap_kept)++] = (double)(start - *previous_end);
+    }
+    *previous_end = end;
+    *have_previous = 1;
+}
+
+int signal_find_bursts(const float *i_samples, const float *q_samples,
+                       size_t pair_count, double sample_rate,
+                       double min_gap_seconds, struct signal_bursts *out) {
+    static double lengths[SIGNAL_BURST_KEPT];
+    static double gaps[SIGNAL_BURST_KEPT];
+    static double envelope[SIGNAL_BURST_SAMPLES];
+    double noise, peak, enter, leave, hyst;
+    size_t min_gap, window, n, busy = 0;
+    size_t open_start = 0, open_end = 0;     /* the run being merged into */
+    size_t previous_end = 0;
+    size_t run_start = 0;
+    int inside = 0, open = 0, have_previous = 0, kept = 0, gap_kept = 0;
+
+    if (!out)
+        return 0;
+    memset(out, 0, sizeof(*out));
+    if (!i_samples || !q_samples || pair_count < 64 || !(sample_rate > 0.0))
+        return 0;
+    if (min_gap_seconds < 0.0)
+        return 0;
+    if (pair_count > SIGNAL_BURST_SAMPLES)
+        pair_count = SIGNAL_BURST_SAMPLES;
+
+    min_gap = (size_t)(min_gap_seconds * sample_rate);
+    if (min_gap < 1)
+        min_gap = 1;
+    /*
+     * The smoothing window is the gap, and that was measured rather than
+     * reasoned. Finer smoothing lets noise through: at a quarter of the gap
+     * an unmodulated carrier reads 22 bursts and at an eighth it reads 38,
+     * where at the full gap it reads none and stays 2.9 dB under the contrast
+     * gate. What the extra smoothing costs is length -- Mode S reads 64 us at
+     * an eighth and 114 at the full gap -- and 114 is the better answer
+     * anyway, against a 112-bit frame's 120.
+     */
+    window = min_gap;
+    if (window < 4)
+        window = 4;
+    if (window > pair_count / 8)
+        window = pair_count / 8;
+    if (window < 1)
+        window = 1;
+
+    smoothed_envelope(i_samples, q_samples, pair_count, window, envelope);
+
+    /*
+     * The floor is a low percentile, which is what the quiet parts read; the
+     * ceiling is the **maximum**, not a high percentile.
+     *
+     * That asymmetry is measured. Mode S puts six decodable frames into two
+     * seconds, so bursts are about 0.04% of the buffer and the 99.9th
+     * percentile of it is still noise -- the first version used one and
+     * reported "no burst structure" on a capture that plainly holds bursts.
+     * A percentile cannot see a rare event by construction. After smoothing,
+     * a maximum is safe to use: a single sample spike is averaged away, so
+     * what survives is something that lasted.
+     */
+    noise = envelope_percentile(envelope, pair_count, SIGNAL_BURST_FLOOR_PCT);
+    peak = 0.0;
+    for (n = window; n < pair_count; n++)
+        if (envelope[n] > peak)
+            peak = envelope[n];
+    if (!(noise > 0.0) || !(peak > noise))
+        return 0;
+    /* Powers, so a decibel is ten log ten rather than twenty. */
+    out->contrast_db = 10.0 * log10(peak / noise);
+    out->verdict = SIGNAL_BURST_LEVEL;
+    if (out->contrast_db < SIGNAL_BURST_CONTRAST_DB)
+        return 0;   /* a level, not a burst pattern */
+
+    /*
+     * The threshold sits above the floor rather than midway to the peak. A
+     * midpoint is wrong for exactly the signals this is for: a strong rare
+     * burst pulls the midpoint far above everything else and a weak one
+     * pulls it into the noise, so the same rule finds different fractions of
+     * the same transmission depending on how loud it happened to be.
+     */
+    hyst = pow(10.0, SIGNAL_BURST_HYSTERESIS_DB / 10.0);
+    enter = noise * pow(10.0, SIGNAL_BURST_OVER_FLOOR_DB / 10.0) * hyst;
+    leave = noise * pow(10.0, SIGNAL_BURST_OVER_FLOOR_DB / 10.0) / hyst;
+
+    /*
+     * Two things at once: crossing the threshold with hysteresis, so an
+     * envelope hovering on it does not chatter one burst into dozens; and
+     * merging runs closer together than min_gap, so the modulation's own
+     * silences do not each end a burst.
+     */
+    for (n = 0; n < pair_count; n++) {
+        double p = envelope[n];
+
+        if (!inside) {
+            if (p < enter)
+                continue;
+            inside = 1;
+            run_start = n;
+            continue;
+        }
+        if (p >= leave)
+            continue;
+        inside = 0;
+        /* A raw run closed at [run_start, n). Merge or emit. */
+        if (open && run_start - open_end < min_gap) {
+            open_end = n;
+        } else {
+            if (open)
+                burst_emit(out, open_start, open_end, open_start == 0, &busy,
+                           &previous_end, &have_previous, lengths, gaps,
+                           &kept, &gap_kept);
+            open_start = run_start;
+            open_end = n;
+            open = 1;
+        }
+    }
+    /* Whatever is still open ends at the buffer, and if the envelope never
+       came back down it was cut there. */
+    if (inside) {
+        if (open && run_start - open_end < min_gap)
+            open_end = pair_count;
+        else {
+            if (open)
+                burst_emit(out, open_start, open_end, open_start == 0, &busy,
+                           &previous_end, &have_previous, lengths, gaps,
+                           &kept, &gap_kept);
+            open_start = run_start;
+            open_end = pair_count;
+            open = 1;
+        }
+    }
+    if (open)
+        burst_emit(out, open_start, open_end,
+                   open_start == 0 || open_end == pair_count, &busy,
+                   &previous_end, &have_previous, lengths, gaps, &kept,
+                   &gap_kept);
+
+    out->occupancy = (double)busy / (double)pair_count;
+    /*
+     * Busy more of the time than not: the runs are the modulation's, not the
+     * transmitter's. Reported before the statistics rather than alongside
+     * them, so nothing hands back a median burst length it does not stand
+     * behind.
+     */
+    if (out->occupancy > SIGNAL_BURST_MAX_OCCUPANCY) {
+        int saved_count = out->count;
+        double saved_occupancy = out->occupancy;
+        double saved_contrast = out->contrast_db;
+        memset(out, 0, sizeof(*out));
+        out->verdict = SIGNAL_BURST_BUSY;
+        out->occupancy = saved_occupancy;
+        out->contrast_db = saved_contrast;
+        (void)saved_count;
+        return 0;
+    }
+    out->verdict = SIGNAL_BURST_SEPARABLE;
+    out->sampled = kept;
+    if (kept > 0) {
+        /*
+         * Every length is long by exactly the smoothing window, and that is
+         * measured rather than derived: the average is causal, so it reaches
+         * the threshold almost at the true start -- a burst well above the
+         * floor crosses a floor+8 dB threshold within the first fraction of a
+         * percent of the window -- and does not fall back below it until the
+         * window has slid entirely off the end. Synthetic bursts of 100, 300
+         * and 1000 us through a 100 us window all read exactly 99.5 us long,
+         * the half sample being the discrete crossing.
+         */
+        int j;
+        for (j = 0; j < kept; j++) {
+            lengths[j] -= (double)window;
+            if (lengths[j] < 1.0)
+                lengths[j] = 1.0;
+        }
+        qsort(lengths, (size_t)kept, sizeof(*lengths), cmp_double);
+        out->median_seconds = lengths[kept / 2] / sample_rate;
+        out->shortest_seconds = lengths[0] / sample_rate;
+        out->longest_seconds = lengths[kept - 1] / sample_rate;
+    }
+    if (gap_kept > 0) {
+        qsort(gaps, (size_t)gap_kept, sizeof(*gaps), cmp_double);
+        out->median_gap_seconds = gaps[gap_kept / 2] / sample_rate;
+    }
+    out->found = out->count > 0;
+    return out->found;
+}
