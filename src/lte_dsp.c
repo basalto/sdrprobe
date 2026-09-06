@@ -404,13 +404,21 @@ static float pss_score_at(const float *i_samples, const float *q_samples,
     return (float)(0.5 * (magnitude[0] + magnitude[1]));
 }
 
-int lte_pss_detect(const float *i_samples, const float *q_samples,
-                   size_t pair_count, double sample_rate,
-                   struct lte_pss_result *result, struct lte_trace *trace) {
+static int pss_detect_scan(const float *i_samples, const float *q_samples,
+                           size_t pair_count, double sample_rate,
+                           struct lte_pss_result *result,
+                           struct lte_pss_result *per_root,
+                           struct lte_trace *trace) {
     struct pss_reference reference[LTE_N_ID_2_COUNT];
     size_t span, start;
     double window_energy[2];
+    /* Each root's own best alignment, not only the winner's. Two cells on one
+       carrier commonly differ in N_ID_2 -- EARFCN 3625 here carries PCI 190
+       and PCI 402, roots 1 and 0 -- and keeping only where the best root
+       peaked is what made the second one invisible. */
     float best_by_root[LTE_N_ID_2_COUNT];
+    size_t start_by_root[LTE_N_ID_2_COUNT];
+    double offset_by_root[LTE_N_ID_2_COUNT];
     float best = -1.0f, runner_up = 0.0f;
     int best_root = -1;
     size_t best_start = 0;
@@ -430,6 +438,8 @@ int lte_pss_detect(const float *i_samples, const float *q_samples,
     for (r = 0; r < LTE_N_ID_2_COUNT; r++) {
         pss_reference_build(r, &reference[r]);
         best_by_root[r] = -1.0f;
+        start_by_root[r] = 0;
+        offset_by_root[r] = 0.0;
     }
 
     /* One half-frame is one PSS: searching further finds the same cell. */
@@ -489,8 +499,16 @@ int lte_pss_detect(const float *i_samples, const float *q_samples,
             }
             score = (float)(0.5 * (magnitude[0] + magnitude[1]));
 
-            if (score > best_by_root[r])
+            if (score > best_by_root[r]) {
                 best_by_root[r] = score;
+                start_by_root[r] = start;
+                /* Same phase arithmetic as the winner below: 64 samples of
+                   the frequency error, which wraps at half a subcarrier. */
+                offset_by_root[r] =
+                    atan2(c_im[1] * c_re[0] - c_re[1] * c_im[0],
+                          c_re[1] * c_re[0] + c_im[1] * c_im[0]) *
+                    sample_rate / (2.0 * M_PI * (LTE_FFT_SIZE / 2.0));
+            }
             if (score > best) {
                 best = score;
                 best_root = r;
@@ -522,6 +540,27 @@ int lte_pss_detect(const float *i_samples, const float *q_samples,
     result->frequency_offset_hz = best_offset;
     result->detected = best >= LTE_PSS_MIN_CORRELATION;
 
+    if (per_root) {
+        /* The same gate applied to each root at its own alignment, and each
+           root's runner-up is the best of the *others* -- so a root reporting
+           `detected` has cleared exactly what the single-cell path clears. */
+        for (r = 0; r < LTE_N_ID_2_COUNT; r++) {
+            float other = 0.0f;
+            int o;
+            for (o = 0; o < LTE_N_ID_2_COUNT; o++)
+                if (o != r && best_by_root[o] > other)
+                    other = best_by_root[o];
+            memset(&per_root[r], 0, sizeof(per_root[r]));
+            per_root[r].n_id_2 = r;
+            per_root[r].useful_start = start_by_root[r];
+            per_root[r].peak = best_by_root[r];
+            per_root[r].runner_up = other;
+            per_root[r].frequency_offset_hz = offset_by_root[r];
+            per_root[r].detected =
+                best_by_root[r] >= LTE_PSS_MIN_CORRELATION;
+        }
+    }
+
     /*
      * A second, tiny pass either side of the peak, for anyone drawing it.
      * Separate from the search on purpose: the search runs 28800 alignments
@@ -546,6 +585,13 @@ int lte_pss_detect(const float *i_samples, const float *q_samples,
         trace->profile_count = LTE_TRACE_PROFILE;
     }
     return result->detected;
+}
+
+int lte_pss_detect(const float *i_samples, const float *q_samples,
+                   size_t pair_count, double sample_rate,
+                   struct lte_pss_result *result, struct lte_trace *trace) {
+    return pss_detect_scan(i_samples, q_samples, pair_count, sample_rate,
+                           result, NULL, trace);
 }
 
 
@@ -815,10 +861,23 @@ static double refine_offset(const float *i_samples, const float *q_samples,
                             double sample_rate, int pci,
                             size_t subframe0_start, double coarse);
 
-int lte_cell_search(const float *i_samples, const float *q_samples,
-                    size_t pair_count, double sample_rate,
-                    struct lte_cell *cell, struct lte_trace *trace) {
-    struct lte_pss_result pss;
+/*
+ * Everything after the primary sequence, given one: the whole-subcarrier
+ * sweep, both cyclic prefixes, the secondary sequence, the refined timing and
+ * the frame boundary.
+ *
+ * Split out so it can be run over a root the block's *best* correlation did
+ * not win. A carrier holding two cells presents two peaks, and reading only
+ * the stronger one is why EARFCN 3625 looked like a single cell alternating
+ * between two identities.
+ *
+ * `found` is taken by value: the timing refinement moves the peak, and that
+ * belongs to this attempt rather than to the caller's copy.
+ */
+static int cell_from_pss(const float *i_samples, const float *q_samples,
+                         size_t pair_count, double sample_rate,
+                         struct lte_pss_result pss,
+                         struct lte_cell *cell, struct lte_trace *trace) {
     float scores[2][LTE_N_ID_1_COUNT];
     float winning_scores[LTE_N_ID_1_COUNT];
     int leads[2] = { LTE_SSS_LEAD_NORMAL, LTE_SSS_LEAD_EXTENDED };
@@ -839,8 +898,7 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
         memset(trace, 0, sizeof(*trace));
         memset(scores, 0, sizeof(scores));
     }
-    if (lte_pss_detect(i_samples, q_samples, pair_count, sample_rate,
-                       &pss, trace) <= 0)
+    if (!pss.detected)
         return 0;
 
     /*
@@ -1001,6 +1059,21 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
         trace->valid = 1;
     }
     return 1;
+}
+
+int lte_cell_search(const float *i_samples, const float *q_samples,
+                    size_t pair_count, double sample_rate,
+                    struct lte_cell *cell, struct lte_trace *trace) {
+    struct lte_pss_result pss;
+
+    if (!cell)
+        return -1;
+    memset(cell, 0, sizeof(*cell));
+    if (lte_pss_detect(i_samples, q_samples, pair_count, sample_rate, &pss,
+                       trace) <= 0)
+        return 0;
+    return cell_from_pss(i_samples, q_samples, pair_count, sample_rate, pss,
+                         cell, trace);
 }
 
 
@@ -1395,6 +1468,81 @@ int lte_port_coherence(const float *i_samples, const float *q_samples,
             coherence[port] = (float)(sqrt(sr * sr + si * si) / mag);
     }
     return 1;
+}
+
+int lte_cell_search_all(const float *i_samples, const float *q_samples,
+                        size_t pair_count, double sample_rate,
+                        struct lte_cell *cells, int max,
+                        struct lte_trace *trace) {
+    struct lte_pss_result per_root[LTE_N_ID_2_COUNT];
+    struct lte_pss_result best;
+    float power[LTE_MAX_CELLS_PER_CARRIER];
+    int measured[LTE_MAX_CELLS_PER_CARRIER];
+    float coherence[LTE_PORT_COUNT];
+    int found = 0, r, a, b;
+
+    if (!cells || max <= 0)
+        return 0;
+    if (pss_detect_scan(i_samples, q_samples, pair_count, sample_rate, &best,
+                        per_root, trace) <= 0)
+        return 0;
+
+    for (r = 0; r < LTE_N_ID_2_COUNT && found < max; r++) {
+        struct lte_cell cell;
+        struct lte_reference_power p;
+        if (!per_root[r].detected)
+            continue;
+        /* The trace belongs to whichever cell is reported first, and the
+           primary-sequence profile in it was drawn for the winning root. */
+        if (cell_from_pss(i_samples, q_samples, pair_count, sample_rate,
+                          per_root[r], &cell, NULL) != 1)
+            continue;
+        /*
+         * And the identity has to predict something it was not fitted to.
+         *
+         * The gates inside cell_from_pss are not enough here, and the reason
+         * is structural: the secondary sequences of different N_ID_2 are the
+         * same two m-sequences at different shifts, so a strong cell's
+         * correlates well enough with another root's candidates to clear a
+         * correlation and a margin. A single-cell buffer duly reported two.
+         *
+         * A cell's reference signals are a different prediction altogether --
+         * a sequence over the whole block, keyed on the full identity -- so a
+         * PCI that came out of a lucky secondary correlation does not read
+         * them coherently. This is the same measurement the antenna-port
+         * chart draws, used as a gate.
+         */
+        if (!lte_port_coherence(i_samples, q_samples, pair_count, sample_rate,
+                                &cell, coherence) ||
+            coherence[0] < LTE_PORT_COHERENCE_PRESENT)
+            continue;
+        cells[found] = cell;
+        measured[found] = lte_reference_power(i_samples, q_samples, pair_count,
+                                              sample_rate, &cell, &p);
+        power[found] = measured[found] ? p.rsrp_dbfs : 0.0f;
+        found++;
+    }
+
+    /* Strongest first. Three entries at most, so the sort is the obvious one
+       and its cost is not worth a thought. */
+    for (a = 0; a < found; a++) {
+        for (b = a + 1; b < found; b++) {
+            int swap;
+            if (measured[a] != measured[b])
+                swap = measured[b] && !measured[a];
+            else
+                swap = measured[a] && power[b] > power[a];
+            if (swap) {
+                struct lte_cell tc = cells[a];
+                float tp = power[a];
+                int tm = measured[a];
+                cells[a] = cells[b]; power[a] = power[b];
+                measured[a] = measured[b];
+                cells[b] = tc; power[b] = tp; measured[b] = tm;
+            }
+        }
+    }
+    return found;
 }
 
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,

@@ -380,6 +380,18 @@ int lte_reference_power(const float *i_samples, const float *q_samples,
 #define LTE_PORT_COUNT 4
 #define LTE_PORT_COHERENCE_CHANCE 0.30f
 
+/*
+ * Above this, a port is carrying references rather than noise.
+ *
+ * Chosen by measuring both sides rather than by taste. Ports that are
+ * transmitting read 0.73 to 0.92 on the two real captures and above 0.9 on
+ * synthetic buffers; ports that are not read 0.33 to 0.41, against a chance
+ * level of 0.30 from eleven phase differences. The gap is wide and this sits
+ * in the middle of it, so the constant would have to be wrong by a lot before
+ * it decided anything.
+ */
+#define LTE_PORT_COHERENCE_PRESENT 0.55f
+
 int lte_port_coherence(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        const struct lte_cell *cell,
@@ -401,6 +413,54 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
  * Writes LTE_PBCH_SOFT_BITS values, positive for a zero bit. Returns 0 when
  * the block does not hold the whole of subframe 0 the cell points at.
  */
+/*
+ * Every cell on the carrier, strongest first, rather than only the loudest.
+ *
+ * A carrier can hold several, and the single-cell search has one answer to
+ * give: on EARFCN 3625 an 85-block run found PCI 190 in forty blocks and
+ * PCI 402 in forty-two, which reads as one cell changing its mind. The two
+ * differ in N_ID_2, which is the ordinary case for co-channel neighbours --
+ * the primary sequence is a different Zadoff-Chu root for each, so both peaks
+ * are already in the correlation and only the winner was kept.
+ *
+ * Each root is put through the same gates the single-cell path uses, at its
+ * own alignment, so a cell reported here has cleared exactly what a cell
+ * reported there clears. **Two cells sharing a root at different frame
+ * timings are not found**: that needs the peak of the first suppressed and
+ * the search re-run, and no such pair has been measured here.
+ *
+ * Ordering is by reference-signal power, which is the measurement that
+ * separated 190 from 402 (-33.3 against -35.0 dBFS) -- a correlation score
+ * says how well a sequence matched, not how strong a cell is, and the two
+ * disagree. Cells whose power cannot be measured sort last, keeping their
+ * search order.
+ *
+ * **A second cell is only found when it is within a couple of decibels of the
+ * first**, and that is a property of the signal rather than of the gates.
+ * Both cells transmit across the whole measured bandwidth, so the weaker
+ * one's secondary sequence is read through the stronger one's transmission,
+ * and no amount of integration removes an interferer. Measured on synthetic
+ * carriers: both cells come back at 1.4 dB apart and only the stronger at
+ * 6.9 dB, which check-lte-dsp pins at both ends. The real pair differ by
+ * 1.7 dB. Reaching further would mean subtracting the stronger cell before
+ * searching again, which this does not do.
+ *
+ * An identity reported here has also had to predict its own reference
+ * signals. That gate is not decoration: the secondary sequences of different
+ * N_ID_2 are the same two m-sequences at different shifts, so a strong cell
+ * correlates well enough with another root's candidates to clear a
+ * correlation and a margin, and a single-cell buffer duly reported two before
+ * the gate was added.
+ *
+ * Writes at most `max` cells and returns how many. `trace` follows the first.
+ */
+#define LTE_MAX_CELLS_PER_CARRIER LTE_N_ID_2_COUNT
+
+int lte_cell_search_all(const float *i_samples, const float *q_samples,
+                        size_t pair_count, double sample_rate,
+                        struct lte_cell *cells, int max,
+                        struct lte_trace *trace);
+
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        const struct lte_cell *cell, size_t subframe0_start,
