@@ -200,7 +200,9 @@ signal no plugin here understands. Two lag correlations -- a burst folded over
 its own period, and the cyclic prefix against itself -- say whether a carrier
 is LTE (a burst every 5 ms) or 5G NR (every 20, and none at 5), and whether it
 runs at 15 or 30 kHz. It is how band 28 was found to be carrying NR rather than
-a weak LTE cell.
+a weak LTE cell. Both measurements now live in `signal_probe` -- they were
+statics in a `main()`, so nothing in the program could call either -- and this
+file is the walk and the conclusion over them.
 
 `probe-nbiot` is the gate the `rf-environment` skill demands before a
 technology gets a ticket, written for NB-IoT and useful as a shape. It
@@ -442,6 +444,28 @@ Tabs are presentation only, not the boundary (ADR-0010).
 
 ### DSP: generic core + technology plugins
 
+- `src/signal_probe.{c,h}` (`signal_`) — what a signal is, for a signal nobody
+  has identified. The rule for what belongs here is one line and it is what
+  keeps it from becoming a junk drawer: **a measurement belongs in
+  `signal_probe` when it needs no sequence.** Oerder-Meyr symbol timing needs
+  none, a cyclic-prefix autocorrelation needs none, a Zadoff-Chu correlation
+  needs the sequence and stays in `lte_dsp`.
+  Today: where a carrier is and whether anything rides it
+  (`signal_find_carrier`, and the two names are careful -- neither
+  `carrier_over_noise_db` nor `carrier_power_fraction` is a term of art, and
+  the header says which standard idea each is *not*); the symbol-rate line at
+  a given rate (`signal_symbol_line`, which `tetra_symbol_timing` now wraps);
+  a burst grid from decided symbols (`signal_repeat_find`, wrapped by
+  `tetra_burst_find`); and folding at a period
+  (`signal_lag_correlation`, `signal_fold_at`, which `probe-periodicity` now
+  calls rather than carrying its own).
+  **There is deliberately no blind search for the symbol rate**, and the
+  reason is measured: scored against a local floor it finds both TETRA
+  captures at 17998 Bd and 37.5 times their floor, and a 25 kHz slice of a GSM
+  capture at 28.6 -- where 3466.9 Bd is twice GSM's burst rate. Oerder-Meyr
+  detects periodicity in the squared magnitude and a burst grid *is*
+  periodicity in the squared magnitude, so asked blind it cannot tell a symbol
+  rate from a frame rate. `.scratch/signal-probe/issues/02-*.md` has the table.
 - `src/sdr_dsp.{c,h}` (`sdr_dsp_`) — technology-independent primitives: byte→float
   I/Q, DC removal, peak binning, signal stats, a hand-written 2048-point
   Hann-windowed FFT → dBFS, power centroid, channel-power reducer, PPM.
@@ -762,6 +786,20 @@ answer was never the contract.
 
 Bumping it is editing three numbers in that header. Nothing derives it from
 git: a build from a dirty tree would claim to be a tag it is not.
+
+**And every `check-*` rule belongs in `CHECK_UNITS`.** `check-signal-probe`
+did not, so the suite existed, passed, was picked up by `check-touched` --
+which reads the rules rather than the list -- and was never run by the gate or
+by the pre-push hook. The two failure modes are the same shape and neither is
+visible from a green run: the audit is one line and belongs beside the header
+one.
+
+```sh
+for r in $(grep -oE '^check-[a-z0-9-]+:' Makefile | tr -d ':' | sort -u); do \
+    case "$r" in check|check-dsp|check-touched|check-pipelines) continue;; esac; \
+    grep -q "$r\b" <(sed -n '/^CHECK_UNITS=/,/^$/p' Makefile) || echo "NOT GATED: $r"; \
+done
+```
 
 **Every header the program includes belongs in `APP_HDR`**, and nine did not.
 Five of them -- `chart_window.h`, `help_layout.h`, `scan_layout.h`,
