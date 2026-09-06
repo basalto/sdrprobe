@@ -47,6 +47,91 @@ struct lte_layout {
     float header_right;
 };
 
+/*
+ * Where the rows inside a panel go.
+ *
+ * This lived in `view_lte.c` as `y += 21` between draw calls, which is the
+ * arrangement CLAUDE.md warns about: a layout header modelling half a screen
+ * puts a green tick over the half it does not. The panel drew ten rows and a
+ * footer into a rectangle that holds six on a 900x540 window, and
+ * check-layout could not see it because the positions were not here.
+ *
+ * `capacity` is how many rows fit between the caption and the footer. A
+ * caller with more to say than that draws what fits, in the order it thinks
+ * matters, rather than off the bottom edge.
+ *
+ * The label gutter is proportional with a cap, not a constant. At 170 pixels
+ * -- what it was -- a half-panel on a narrow window leaves about thirteen
+ * characters for the value, which truncated "-35.8 dBFS   RSRQ -17.8 dB" to
+ * "-35.8 dBFS   RS...". Labels are drawn with the same truncation as values
+ * now, so a long one gives way instead of running under the number.
+ */
+#define LTE_PANEL_ROW_HEIGHT 21.0f
+#define LTE_PANEL_ROW_FONT 15
+#define LTE_PANEL_CAPTION_DROP 36.0f
+#define LTE_PANEL_FOOTER_HEIGHT 24.0f
+
+struct lte_panel_rows {
+    float first_y;      /* baseline of row 0 */
+    float step;         /* to the next row */
+    float label_x;
+    float label_width;  /* before the value begins */
+    float value_x;
+    float value_width;
+    float footer_y;     /* the "last seen" line, under the rows */
+    int capacity;       /* rows that fit without leaving the panel */
+};
+
+static inline struct lte_panel_rows lte_panel_rows_for(Rectangle panel) {
+    struct lte_panel_rows r;
+    float inner = panel.width - 24.0f;
+    float gutter;
+    float room;
+
+    r.first_y = panel.y + LTE_PANEL_CAPTION_DROP;
+    r.step = LTE_PANEL_ROW_HEIGHT;
+    r.label_x = panel.x + 12.0f;
+
+    gutter = inner * 0.45f;
+    if (gutter > 170.0f)
+        gutter = 170.0f;
+    if (gutter < 60.0f)
+        gutter = 60.0f;
+    r.label_width = gutter - 8.0f;
+    if (r.label_width < 1.0f)
+        r.label_width = 1.0f;
+    r.value_x = r.label_x + gutter;
+    r.value_width = panel.x + panel.width - 12.0f - r.value_x;
+    if (r.value_width < 1.0f)
+        r.value_width = 1.0f;
+
+    room = panel.y + panel.height - LTE_PANEL_FOOTER_HEIGHT - r.first_y;
+    r.capacity = room > 0.0f ? (int)(room / r.step) : 0;
+    r.footer_y = r.first_y + (float)r.capacity * r.step;
+    return r;
+}
+
+/*
+ * Where the footer goes when the caller drew fewer rows than fit.
+ *
+ * `footer_y` above is the worst case -- the panel's own floor -- and putting
+ * the "last seen" line there on a tall panel leaves a hand's width of gap
+ * between it and the last row, with the note that follows it landing on the
+ * version in the window's corner. The footer belongs under whatever was
+ * actually drawn, and never past where it would leave the panel.
+ */
+static inline float lte_panel_footer_after(const struct lte_panel_rows *rows,
+                                           int used) {
+    float y;
+
+    if (used < 0)
+        used = 0;
+    if (used > rows->capacity)
+        used = rows->capacity;
+    y = rows->first_y + (float)used * rows->step + 4.0f;
+    return y > rows->footer_y ? rows->footer_y : y;
+}
+
 static inline struct lte_layout lte_layout_for(float width, float height) {
     struct lte_layout l;
     const float left = 22.0f;
