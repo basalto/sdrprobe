@@ -174,6 +174,42 @@ all twenty-four broadcast stations. Refuted entries are still reported and
 still written down -- the verdict goes beside the signal, never in place of it
 (ADR-0015).
 
+### What kind of thing it was
+
+The pass has the receiver settled on one frequency for six blocks, which is
+more than the window's own measurement gets, so it also measures what
+`signal_probe` can say about *kind* -- and prints it on its own line:
+
+```
+kind 89503418 a modulated carrier 52.9 0.003 0.064 level 0.0000
+kind 93696777 a modulated carrier 46.2 0.515 0.426 level 0.0000
+kind 75000488 a bare carrier 41.9 0.871 0.019 level 0.0000
+```
+
+After the frequency: the carrier verdict, how far its line stands over the
+floor beside it, what fraction of the channel stands still, how much the
+envelope varies (Rayleigh's 0.52 being what noise reads, and -1 meaning the
+measurement refused), whether the envelope is separable into bursts or busy or
+a level, and the fraction of the look occupied.
+
+The second and third lines are the point of having it. Both are strong,
+confirmed, continuous carriers and the `confirm` line says almost the same
+thing about each; one is a broadcast station carrying a programme and one is a
+clock harmonic with nothing on it, and only the standing fraction -- 0.515 and
+0.871 against a broadcast station's 0.003 -- tells them apart.
+
+A line appears only for a target the pass actually caught. A target it never
+caught has no kind, and printing zeros for one would be worse than silence:
+a standing fraction of 0.000 means "heavily modulated" and a burst count of
+zero means "continuous".
+
+**The pass tunes 300 kHz below each target rather than onto it**, because the
+carrier search guards a band around zero so it cannot lock onto the receiver's
+own DC offset -- tuned onto the target, it would skip the signal it was
+pointed at. That costs about 2 dB of prominence, measured: the same 75.0005
+MHz carrier recorded at both tunings reads 21.9 dB tuned onto it and 20.1
+tuned below.
+
 ## What the site remembers
 
 Saving a sweep also folds it into `surveys/history-<site>.txt`, a small

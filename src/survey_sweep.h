@@ -128,6 +128,23 @@ static inline int survey_blocks_in(double dwell_seconds) {
 #define SURVEY_SENTINEL_DBFS (-300.0f)
 #define SURVEY_OFFSET_HZ 300000.0 /* keep a candidate off the DC spike */
 
+/*
+ * How far either side of that offset the carrier search looks, and the
+ * narrowest channel it will judge one against.
+ *
+ * Here rather than beside either caller because the window's measurement and
+ * the confirmation pass both need them and they must agree: two searches of
+ * different widths would report different carriers for the same signal, and
+ * the saved survey would hold whichever ran last.
+ *
+ * The channel is floored because below about a transform bin the "width" the
+ * sweep measured is the instrument's resolution rather than the signal's, and
+ * a channel narrower than the line itself compares the carrier against
+ * nothing.
+ */
+#define SURVEY_CARRIER_SEARCH_HZ 40000.0
+#define SURVEY_CARRIER_MIN_CHANNEL_HZ 20000.0
+
 /* Of each step's span, the middle that is kept. The tuner's response rolls off
    at the edges, so a signal there reads low; the steps overlap by the rest. */
 #define SURVEY_USABLE_SPAN 0.8
