@@ -40,67 +40,98 @@ static void test_nothing_measured_says_nothing(void) {
               lte_findings_from(&st, 0.0, &f), 0);
 }
 
-static void test_the_profile_is_refused(void) {
+/*
+ * Where a spread sits among the 36.104 profiles, and the floor that decides
+ * whether it can be placed at all.
+ *
+ * An earlier version refused to say anything about EPA, EVA or ETU, on the
+ * grounds that all three are finer than the ~1010 ns given by one over the
+ * references' span. That was the wrong criterion: 1/span resolves individual
+ * taps and this estimator does not resolve taps, it measures the scatter of
+ * the phase steps. The floor is the noise -- 1/sqrt(rho) of phase error per
+ * step -- so it moves with the signal, and these tests are built on that.
+ */
+static void test_the_floor_moves_with_the_noise(void) {
     struct lte_cell_stats st;
     struct lte_findings f;
 
     /*
-     * The measurement this exists to refuse. A spread of 400 ns is squarely
-     * EVA's 357 -- and it is also under the 1010 ns these references can
-     * resolve, so EVA cannot be told from EPA's 45 and naming either would be
-     * inventing the answer a reader wanted.
+     * The same 400 ns of spread, twice. At 10 dB the floor is 559 ns and the
+     * channel cannot be told from noise; at 28 dB the floor is 70 ns and it
+     * can be placed. One measurement, two honest answers, and the difference
+     * is the receiver rather than the channel.
      */
+    fill(&st, -31.8f, 10.0f, -17.0f, 400.0f, -50.0f, 60.0f);
+    lte_findings_from(&st, 927.5e6, &f);
+    check_true("400 ns at 10 dB is under the floor", mentions(&f, "Flat:"));
+
     fill(&st, -31.8f, 28.0f, -17.0f, 400.0f, -50.0f, 60.0f);
-    check_true("findings are produced", lte_findings_from(&st, 927.5e6, &f) > 0);
-    check_true("the refusal is explicit about which profiles",
-               mentions(&f, "no 3GPP profile follows"));
-    /*
-     * EPA and EVA appear -- in the refusal, which names what it ruled out.
-     * The thing that must not happen is a line *attributing* the channel to
-     * one, so the test is that they occur nowhere else.
-     */
-    {
-        int i, named = 0, refused = 0;
-        for (i = 0; i < f.count; i++) {
-            if (strstr(f.line[i], "EVA") || strstr(f.line[i], "EPA")) {
-                if (strstr(f.line[i], "no 3GPP profile follows"))
-                    refused++;
-                else
-                    named++;
-            }
-        }
-        check_int("the profiles are named once, in the refusal", refused, 1);
-        check_int("and nowhere else", named, 0);
-    }
-    check_true("a spread under the floor is called flat",
-               mentions(&f, "Flat:"));
-    /*
-     * And the caveat travels with the claim rather than on its own line. It
-     * did not, and the panel ran out of room after the claim -- so a reader
-     * saw the spread and never the sentence saying no profile follows from
-     * it. A caveat that can be dropped separately is not a caveat.
-     */
-    {
-        int i, together = 0;
-        for (i = 0; i < f.count; i++)
-            if ((strstr(f.line[i], "Flat:") || strstr(f.line[i], "Dispersive"))
-                && strstr(f.line[i], "no 3GPP profile follows"))
-                together++;
-        check_int("the spread and its limit are one line", together, 1);
-    }
+    lte_findings_from(&st, 927.5e6, &f);
+    check_true("400 ns at 28 dB is a measurement", !mentions(&f, "Flat:"));
+    check_true("and it is placed between EVA and ETU",
+               mentions(&f, "between EVA's 357 ns and ETU's 991"));
 }
 
-static void test_a_dispersive_channel_is_reported(void) {
+static void test_the_profiles_are_positions_not_identities(void) {
+    struct lte_cell_stats st;
+    struct lte_findings f;
+    int i;
+
+    /*
+     * 36.104's profiles are conformance models, not a taxonomy of places, so
+     * a channel is never said to *be* one. Every mention is positional.
+     */
+    fill(&st, -31.8f, 28.0f, -17.0f, 400.0f, -50.0f, 60.0f);
+    lte_findings_from(&st, 927.5e6, &f);
+    for (i = 0; i < f.count; i++) {
+        check_true("no line claims the channel is a profile",
+                   !strstr(f.line[i], "is EVA") &&
+                   !strstr(f.line[i], "is EPA") &&
+                   !strstr(f.line[i], "is ETU"));
+    }
+    check_true("the placement is relative",
+               mentions(&f, "between") || mentions(&f, "past") ||
+               mentions(&f, "flatter than"));
+}
+
+static void test_saturation_is_reported_as_a_bound(void) {
     struct lte_cell_stats st;
     struct lte_findings f;
 
-    /* Above the resolution floor, so there is something real to say. */
+    /*
+     * A step reaches a radian at 1768 ns and stops growing with the channel.
+     * Near it the number is a lower bound, and saying so is the difference
+     * between a measurement and a guess dressed as one -- the reading on air
+     * is 1.4 us, which is 79% of the way there.
+     */
     fill(&st, -31.8f, 28.0f, -17.0f, 1400.0f, -50.0f, 60.0f);
     lte_findings_from(&st, 927.5e6, &f);
-    check_true("a spread above the floor is a finding",
-               mentions(&f, "Dispersive"));
-    check_true("and the profile is still refused, on the same line",
-               mentions(&f, "no 3GPP profile follows"));
+    check_true("a spread near saturation says so", mentions(&f, "a floor"));
+    check_true("and is still placed among the profiles",
+               mentions(&f, "past ETU's 991 ns"));
+
+    /*
+     * And past the wrap the number is not a delay at all. Wrapped phase steps
+     * can scatter up to pi, so the arithmetic keeps producing values long
+     * after they mean anything -- 2.4 us came off the air and read "within a
+     * tenth of the 1.8 us saturation", which is not where 2.4 sits.
+     */
+    fill(&st, -31.8f, 28.0f, -17.0f, 2400.0f, -50.0f, 60.0f);
+    lte_findings_from(&st, 927.5e6, &f);
+    check_true("past the wrap it is named for what it is",
+               mentions(&f, "Beyond measure"));
+    check_true("and is not described as near the wrap",
+               !mentions(&f, "nears the"));
+
+    /* Comfortably inside the window: a value, not a bound. */
+    fill(&st, -31.8f, 28.0f, -17.0f, 600.0f, -50.0f, 60.0f);
+    lte_findings_from(&st, 927.5e6, &f);
+    check_true("a spread inside the window is not called a floor",
+               !mentions(&f, "a floor"));
+    /* The threshold is the error, not a round number: three quarters of a
+       radian is where a tenth of the reading has gone. */
+    check_close("compression is flagged where 9% is lost",
+                LTE_SPREAD_COMPRESSED_NS, 1326.0, 5.0);
 }
 
 static void test_motion_is_refused(void) {
@@ -178,8 +209,9 @@ static void test_nothing_overruns_its_line(void) {
 
 int main(void) {
     test_nothing_measured_says_nothing();
-    test_the_profile_is_refused();
-    test_a_dispersive_channel_is_reported();
+    test_the_floor_moves_with_the_noise();
+    test_the_profiles_are_positions_not_identities();
+    test_saturation_is_reported_as_a_bound();
     test_motion_is_refused();
     test_the_crystal_is_judged_in_ppm();
     test_quality_has_three_verdicts();
