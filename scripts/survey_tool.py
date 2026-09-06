@@ -58,7 +58,25 @@ def parse(text):
         f = line.split()
         if not f:
             continue
-        if line.startswith("candidate ") and len(f) >= 8:
+        if line.startswith("candidate ") and len(f) >= 10:
+            # extent_hz is the width in the sweep's own bins and `resolved`
+            # says whether that width means anything: at 212 kHz a bin a
+            # 25 kHz carrier and a 3 kHz spur are both one bin, and the
+            # number is a floor. Older output has neither field.
+            flags = [] if f[8] == "-" else f[8].split(",")
+            allocation = " ".join(f[9:])
+            out["candidates"].append({
+                "hz": int(float(f[1])),
+                "dbfs": float(f[2]),
+                "prominence_db": float(f[3]),
+                "centre_hz": None if f[4] == "-" else int(float(f[4])),
+                "width_hz": None if f[5] == "-" else int(float(f[5])),
+                "extent_hz": int(float(f[6])),
+                "resolved": f[7] == "resolved",
+                "flags": flags,
+                "allocation": None if allocation == "-" else allocation,
+            })
+        elif line.startswith("candidate ") and len(f) >= 8:
             flags = [] if f[6] == "-" else f[6].split(",")
             allocation = " ".join(f[7:])
             out["candidates"].append({
@@ -67,6 +85,8 @@ def parse(text):
                 "prominence_db": float(f[3]),
                 "centre_hz": None if f[4] == "-" else int(float(f[4])),
                 "width_hz": None if f[5] == "-" else int(float(f[5])),
+                "extent_hz": None,
+                "resolved": None,
                 "flags": flags,
                 "allocation": None if allocation == "-" else allocation,
             })
@@ -268,6 +288,31 @@ def cmd_report(args):
         print("  grouped into %d signals%s" % (
             len(carriers),
             ", %d of them holding several maxima" % merged if merged else ""))
+    # How much of this the sweep could actually resolve. A bin is the span
+    # over the transform size, so a full-tuner sweep puts 212 kHz in one and
+    # anything narrower than that comes back as one or two bins whatever it
+    # is. Saying so beside the count is the difference between a list of
+    # signals and a list of places where something might be.
+    bin_hz = (record.get("sweep") or {}).get("bin_hz")
+    floors = [c for c in record["candidates"] if c.get("resolved") is False]
+    unknown = sum(1 for c in record["candidates"] if c.get("resolved") is None)
+    known = len(record["candidates"]) - unknown
+    if bin_hz and known:
+        if floors:
+            print("  %.1f kHz to a bin, so %d of %d are at the resolution"
+                  " floor -- their widths are lower bounds, not measurements"
+                  % (bin_hz / 1e3, len(floors), known))
+        else:
+            print("  %.1f kHz to a bin, and every candidate is wider than it"
+                  % (bin_hz / 1e3))
+    elif bin_hz:
+        # Saying "every candidate is wider than it" here would be a claim
+        # about data the file does not contain.
+        print("  %.1f kHz to a bin; this sweep predates the extent being"
+              " recorded, so how much of it was resolvable is unknown"
+              % (bin_hz / 1e3))
+    if unknown and known:
+        print("  (%d of them predate the extent being recorded)" % unknown)
     # A sweep step is a tenth of a second, so its marks are claims. Whether
     # anybody went back and looked belongs beside the count, not buried.
     confirmation = record.get("confirmation") or {}

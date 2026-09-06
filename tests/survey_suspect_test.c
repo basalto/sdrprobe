@@ -648,7 +648,49 @@ static void test_the_fine_comb_refuses_a_coarse_sweep(void) {
     }
 }
 
+/*
+ * Whether a sweep could resolve what it found, which is not the same question
+ * as whether the thing is narrow.
+ */
+static void test_an_extent_needs_its_bin(void) {
+    /*
+     * The case the survey baseline is built on: 1742 MHz in 8192 bins puts
+     * 212.6 kHz in one, and a 25 kHz TETRA carrier occupies a fraction of it.
+     * Whatever comes back is a floor.
+     */
+    const double coarse = 212646.5;
+    check_true("a full-tuner sweep cannot resolve a 25 kHz carrier",
+               survey_extent_is_floor(25000.0, coarse));
+    check_true("nor one of its own bins",
+               survey_extent_is_floor(coarse, coarse));
+    check_true("nor two",
+               survey_extent_is_floor(2.0 * coarse, coarse));
+    /* Wide enough to have been measured rather than merely noticed. */
+    check_true("but a DVB-T multiplex is wider than its own bins",
+               !survey_extent_is_floor(7600000.0, coarse));
+
+    /*
+     * The same extent from a sweep that could see it. 148-175 MHz in 8192
+     * bins is 3.3 kHz, and 25 kHz across it is real.
+     */
+    {
+        const double fine = 3295.9;
+        check_true("a 27 MHz sweep resolves the same 25 kHz carrier",
+                   !survey_extent_is_floor(25000.0, fine));
+        check_true("and still cannot resolve a bare tone",
+                   survey_extent_is_floor(2.0 * fine, fine));
+    }
+
+    /* Nothing measured is not something resolved -- the distinction the
+       report could not make while every unmeasured width was zero. */
+    check_true("no extent is a floor, not a width",
+               survey_extent_is_floor(0.0, 212646.5));
+    check_true("and no bin width means nothing can be claimed",
+               survey_extent_is_floor(25000.0, 0.0));
+}
+
 int main(void) {
+    test_an_extent_needs_its_bin();
     test_the_comb_that_was_measured();
     test_real_signals_are_left_alone();
     test_the_tolerance();

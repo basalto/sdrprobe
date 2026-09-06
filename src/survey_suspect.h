@@ -291,6 +291,32 @@ static inline unsigned survey_suspect(const struct survey_plan *plan, double hz,
 }
 
 /*
+ * Whether a sweep could have resolved a candidate at all, as opposed to
+ * whether the candidate is narrow.
+ *
+ * These are different questions and the report answered neither. A full-tuner
+ * sweep is 1742 MHz in 8192 bins, so a bin is 212 kHz and a 25 kHz carrier
+ * occupies a fraction of one: its extent comes back as one or two bins
+ * whatever it really is. The same one-or-two-bin extent from a 27 MHz sweep,
+ * where a bin is 3.3 kHz, is a genuine measurement of something narrow.
+ *
+ * So the extent alone cannot be read without the bin it was measured in, and
+ * this is the test that says which case a reader is looking at: an extent
+ * this close to the floor is a lower bound and not a width.
+ *
+ * Two bins rather than one, because a maximum sitting between two bins
+ * occupies both, and calling that resolved would let exactly the narrowest
+ * things through as though they had been measured.
+ */
+#define SURVEY_RESOLVED_BINS 2.5
+
+static inline int survey_extent_is_floor(double extent_hz, double bin_hz) {
+    if (!(extent_hz > 0.0) || !(bin_hz > 0.0))
+        return 1;      /* nothing measured is not something resolved */
+    return extent_hz <= bin_hz * SURVEY_RESOLVED_BINS;
+}
+
+/*
  * The same tests, at the resolution a confirmation look has rather than the
  * one the sweep had.
  *
