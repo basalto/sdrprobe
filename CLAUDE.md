@@ -420,6 +420,17 @@ Tabs are presentation only, not the boundary (ADR-0010).
   central resource blocks -- **RSRP in dBFS and not dBm**, since nothing here
   knows the antenna's gain, so it compares cells on this receiver and nowhere
   else, while RSRQ is a ratio through the same chain and transfers anywhere.
+  `lte_channel_shape()` reports the channel's delay, its spread and the
+  frequency drift left after the search's own correction. The delay is the
+  phase slope across references scaled by `LTE_FFT_SIZE/6`, which is srsRAN's
+  `chest_dl_estimate_correct_sync_error`; the spread is the scatter about it
+  with the noise removed using the RS-SINR above, which is why the two were
+  built in that order. The trap is the drift: port 0's references appear at
+  symbols 0 and 4 **with their shifts swapped**, so comparing reference m
+  against reference m compares different frequencies and reads a delay as a
+  Doppler -- each is compared against the sum of the two bracketing it
+  instead. On air, about two microseconds of spread and a few tens of hertz of
+  drift; zero spread on a synthetic buffer built without delay.
   `lte_port_coherence()` says how many antennas the cell is transmitting on,
   from the reference *phases*: a reference symbol has unit magnitude, so
   dividing by the expected sequence leaves the level alone whether the

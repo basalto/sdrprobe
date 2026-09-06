@@ -1620,6 +1620,137 @@ int lte_cell_search_all(const float *i_samples, const float *q_samples,
     return found;
 }
 
+/* The channel each of one port's references saw, in one symbol of slot 1. */
+static int reference_channel(const float *i_samples, const float *q_samples,
+                             double sample_rate, const struct lte_cell *cell,
+                             int symbol, int port, int *positions,
+                             double *out_re, double *out_im) {
+    float row_re[LTE_PBCH_SUBCARRIERS], row_im[LTE_PBCH_SUBCARRIERS];
+    float ref_re[LTE_PBCH_SUBCARRIERS / 6], ref_im[LTE_PBCH_SUBCARRIERS / 6];
+    int count, m;
+
+    count = lte_crs_subcarriers(cell->pci, 1, symbol, port, positions);
+    if (count <= 0)
+        return 0;
+    if (lte_crs_sequence(cell->pci, 1, symbol, port, 0, ref_re, ref_im) <= 0)
+        return 0;
+    read_slot1_symbol(i_samples, q_samples, cell->subframe0_start, symbol,
+                      cell->frequency_offset_hz, sample_rate, row_re, row_im);
+    for (m = 0; m < count; m++) {
+        int k = positions[m];
+        out_re[m] = (double)row_re[k] * ref_re[m] +
+                    (double)row_im[k] * ref_im[m];
+        out_im[m] = (double)row_im[k] * ref_re[m] -
+                    (double)row_re[k] * ref_im[m];
+    }
+    return count;
+}
+
+int lte_channel_shape(const float *i_samples, const float *q_samples,
+                      size_t pair_count, double sample_rate,
+                      const struct lte_cell *cell,
+                      struct lte_channel_shape *out) {
+    double a_re[LTE_PBCH_SUBCARRIERS / 6], a_im[LTE_PBCH_SUBCARRIERS / 6];
+    double b_re[LTE_PBCH_SUBCARRIERS / 6], b_im[LTE_PBCH_SUBCARRIERS / 6];
+    int pa[LTE_PBCH_SUBCARRIERS / 6], pb[LTE_PBCH_SUBCARRIERS / 6];
+    struct lte_reference_power power;
+    double sr = 0.0, si = 0.0, mean, spread = 0.0;
+    double dr = 0.0, di = 0.0, seconds;
+    int count, other, m, steps = 0, pairs = 0, shift;
+
+    if (!cell || !out || !i_samples || !q_samples)
+        return 0;
+    if (fabs(sample_rate - LTE_SAMPLE_RATE_HZ) > 1.0)
+        return 0;
+    if (cell->extended_cp)
+        return 0;
+    if (cell->subframe0_start + LTE_SUBFRAME_SAMPLES > pair_count)
+        return 0;
+    memset(out, 0, sizeof(*out));
+
+    count = reference_channel(i_samples, q_samples, sample_rate, cell, 0, 0,
+                              pa, a_re, a_im);
+    if (count < 3)
+        return 0;
+
+    /* The mean step across frequency: the delay. */
+    for (m = 0; m + 1 < count; m++) {
+        sr += a_re[m + 1] * a_re[m] + a_im[m + 1] * a_im[m];
+        si += a_im[m + 1] * a_re[m] - a_re[m + 1] * a_im[m];
+        steps++;
+    }
+    if (!steps || (sr == 0.0 && si == 0.0))
+        return 0;
+    mean = atan2(si, sr);
+    out->delay_ns = (float)(mean / (2.0 * M_PI) *
+                            ((double)LTE_FFT_SIZE / 6.0) / sample_rate * 1e9);
+    out->references = steps;
+
+    /* And how far the individual steps sit from it. */
+    for (m = 0; m + 1 < count; m++) {
+        double pr = a_re[m + 1] * a_re[m] + a_im[m + 1] * a_im[m];
+        double pi_ = a_im[m + 1] * a_re[m] - a_re[m + 1] * a_im[m];
+        double d = atan2(pi_, pr) - mean;
+        while (d > M_PI)
+            d -= 2.0 * M_PI;
+        while (d < -M_PI)
+            d += 2.0 * M_PI;
+        spread += d * d;
+    }
+    spread /= (double)steps;
+    /*
+     * Take the noise out. A step is the difference of two estimates, each
+     * carrying about 1/sqrt(2*rho) of phase error, so 1/rho of this variance
+     * is the receiver rather than the channel. Below that there is nothing to
+     * report and the answer is zero, not a small positive number.
+     */
+    if (lte_reference_power(i_samples, q_samples, pair_count, sample_rate,
+                            cell, &power) && power.sinr_db > -90.0f) {
+        double rho = pow(10.0, (double)power.sinr_db / 10.0);
+        if (rho > 0.0)
+            spread -= 1.0 / rho;
+    }
+    if (spread < 0.0)
+        spread = 0.0;
+    out->delay_spread_ns = (float)(sqrt(spread) / (2.0 * M_PI) *
+                                   ((double)LTE_FFT_SIZE / 6.0) /
+                                   sample_rate * 1e9);
+
+    /*
+     * Symbol 4 carries port 0's references again, at the other shift. Which
+     * side of symbol 0's they fall on depends on the cell identity, so the
+     * bracketing pair is chosen from the positions rather than assumed.
+     */
+    other = reference_channel(i_samples, q_samples, sample_rate, cell, 4, 0,
+                              pb, b_re, b_im);
+    if (other >= 2) {
+        shift = pb[0] - pa[0];
+        for (m = 0; m < other; m++) {
+            int lo = shift > 0 ? m : m - 1;
+            double mr, mi, cr, ci;
+            if (lo < 0 || lo + 1 >= count)
+                continue;
+            /* The sum of the two either side: its phase is the midpoint's,
+               which is where this reference sits. */
+            mr = a_re[lo] + a_re[lo + 1];
+            mi = a_im[lo] + a_im[lo + 1];
+            cr = b_re[m] * mr + b_im[m] * mi;
+            ci = b_im[m] * mr - b_re[m] * mi;
+            dr += cr;
+            di += ci;
+            pairs++;
+        }
+    }
+    if (pairs > 0 && (dr != 0.0 || di != 0.0)) {
+        /* Exactly how far apart the two readings are, taken from the same
+           arithmetic that located them rather than from a symbol count. */
+        seconds = (double)(slot1_useful_offset(4) - slot1_useful_offset(0)) /
+                  sample_rate;
+        out->drift_hz = (float)(atan2(di, dr) / (2.0 * M_PI) / seconds);
+    }
+    return 1;
+}
+
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
                        size_t pair_count, double sample_rate,
                        const struct lte_cell *cell, size_t subframe0_start,
