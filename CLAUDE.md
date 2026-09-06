@@ -666,6 +666,12 @@ answer was never the contract.
 Bumping it is editing three numbers in that header. Nothing derives it from
 git: a build from a dirty tree would claim to be a tag it is not.
 
+`version.h` is in `APP_HDR` so that editing it rebuilds. It was not, for a
+while, and the failure is quiet in the worst way: the header says one version,
+`make` reports nothing to do, and the binary keeps claiming the last one it was
+built with. The corner and `--version` still agree with each other -- they
+share the header -- which is exactly what makes it hard to notice.
+
 ## Conventions
 
 - C, `-Wall -W` clean, 4-space indent, 80-ish column wrap, `/* ... */` comments.
