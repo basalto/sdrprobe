@@ -1,6 +1,6 @@
 # 01 — Find which stage loses band 8's broadcast channel
 
-Status: needs-triage
+Status: resolved
 
 The spec has the evidence and the two hypotheses nobody has tested. This is
 about picking one and measuring it, not about writing a decoder.
@@ -335,6 +335,68 @@ reported as one for about a minute. Across blocks it is noise, and with six
 hypothesis-capture pairs examined the chance of seeing at least one somewhere
 is about one in five. One block's outlier is not a measurement.
 
+### 11. Fixed: the Alamouti combiner recovered -conj(x1)
+
+`alamouti()` computed
+
+```c
+x1 = conj(h1) * r0 - h0 * conj(r1);
+```
+
+Against 36.211 section 6.3.4.3 the space-frequency block code puts `x0` and
+`-x1*` on the first element and `x1` and `x0*` on the second, so
+`r0 = h0*x0 - h1*x1*` and `r1 = h0*x1 + h1*x0*`, and solving gives
+
+```c
+x1 = conj(h0) * r1 - h1 * conj(r0);
+```
+
+The two differ by more than arrangement: the expression that was there
+evaluates to **-conj(x1)**, which inverts the real part and so flips one bit
+of every second symbol -- 120 of the 480. srsRAN's
+`srsran_predecoding_diversity_gen_` agrees with the standard
+(`x1 += -h2 * conjf(r0) + conjf(h0) * r1`), and its four-port branch also
+confirms the pairing this file already had: ports (0,2) on elements 4i and
+4i+1, ports (1,3) on 4i+2 and 4i+3.
+
+**Why it survived.** Two independent reasons, and it needed both. The
+synthetic encoder in `tests/lte_dsp_test.c` transposed the same two terms, so
+the round trip agreed perfectly. And the port hypotheses are tried 1, 2, 4 and
+stop at the first that fits, so every two-port cell here decoded with
+*single-port* combining and never reached the code at all. The transmit
+diversity path had never once run to a successful decode.
+
+The evidence was already on the page and misread. Section 10's table shows the
+control's two-port combining at a mean of 3.9 parity bits wrong against a null
+of 4.80 -- a two-port cell decoded with correct two-port combining must score
+0, and it was recorded as "a wrong hypothesis giving noise, as expected".
+
+**What it fixes.**
+
+```
+                      before            after
+band 8  PCI 330       0 / 219 blocks    264 / 292 blocks   (on air)
+band 20 PCI 28        158 / 175         158 / 175          (unchanged)
+
+parity bits wrong, mean, on the captures
+band 20 PCI 28  2-port combining   3.9  ->  0.0
+band 8  PCI 330 4-port combining   4.2  ->  0.0
+```
+
+PCI 330 reads **25 resource blocks, a 4.5 MHz carrier, PHICH normal 1, and
+four antenna ports** -- and the four is corroborated rather than merely
+consistent: `crs_coherence` in the probe reads 0.867 and 0.918 on ports 2 and
+3 from the reference phases alone, before any decoding, sharing no code with
+the parity mask the count comes out of.
+
+**The check that pins it.** `testfiles/lte_b8_pci330_4port.bin`, three
+megabytes of the same recording, asserted to read cell 330, 25 blocks and four
+ports. Reverting the one line fails it at 0 messages in 12 blocks while
+`lte_b20_pci28.bin` stays green -- which is the whole argument for keeping it,
+and the same argument that gives the GSM set three captures for three BCCs.
+Three megabytes rather than two because the frame-number claim wants more than
+eight consecutive steps and two gave seven.
+
 ## Next
 
 Status stays `needs-triage`; this narrows it, it does not close it.
@@ -345,37 +407,16 @@ Shift and N_ID_2 are confounded in the evidence: `PCI mod 6 == 0` implies
 among the four found, so that discriminator is not available at this site and
 this may not be resolvable here.
 
-Both original candidates are now measured and refuted, and the evidence
-points somewhere neither of them named.
+Resolved by section 11. The four-port transmit-diversity path was indeed the
+one that had never decoded a real signal, and it was wrong -- but so was the
+two-port path, which nothing had noticed because single-port combining is
+tried first and succeeds on a strong two-port cell.
 
-**The four-port transmit-diversity path is the only stage in the chain that
-has never decoded a real signal.** PCI 330 is the only four-port cell reachable
-here, everything upstream of the combining is measured and sound, and the
-soft bits that come out of it carry nothing. Three element-to-port pairings
-were tried and none decodes, but a pairing is only one of the conventions in
-that path: the conjugation and sign in the four-port case, the grouping of
-resource elements into fours, and the order the four symbols are written out
-are all shared between `build_buffer(101, 4, ...)` and the code that reads it,
-so the synthetic check passes against any of them.
-
-Reading that path against 36.211 section 6.3.4.3 and against an independent
-implementation -- srsRAN's `srsran_predecoding_diversity` -- is the work, and
-it is real work rather than a measurement. Whoever does it should know there
-is exactly one cell to test against and no synthetic check that can confirm
-the answer.
-
-1. **Something else in the N_ID_2 0 broadcast path.** The reference-signal
-   shift now reads correctly against the standard, so the suspicion moves to
-   what else the identity selects -- the reference sequence's Gold
-   initialisation and the broadcast channel's scrambling both take the full
-   PCI. Reading those against 36.211 the way the shift was read, rather than
-   against their own encoder, is the move.
-2. ~~**This carrier may have no normal broadcast channel at all.**~~
-   **Refuted** -- see section 7. The broadcast region repeats at 40 ms exactly
-   as a PBCH must, as strongly as on the cell that decodes, and the repetition
-   is absent from a control region that correlates three times higher overall.
-   The message is being transmitted and this decoder is not reading it.
-
+What is left is not this ticket. `probe-lte-chain` gained four diagnostics on
+the way here -- both cyclic prefixes, the timing sidelobe, the 40 ms
+repetition, the reference coherence and the parity distance -- and none of
+them is on a screen. The LTE view shows a cell and a message and nothing about
+how well either was read.
 ## Comments
 
 The chain gained two things it did not have and one it should not keep:

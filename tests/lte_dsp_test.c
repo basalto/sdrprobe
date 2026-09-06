@@ -280,11 +280,21 @@ static void place_broadcast(int pci, int ports) {
             int a = n, b = n + 1;
             int sca = pbch_subcarrier_of(index_of[a]);
             int scb = pbch_subcarrier_of(index_of[b]);
+            /*
+             * 36.211 table 6.3.4.3-1, and the placement is the whole point:
+             * the *first* element carries x0 on port 0 and -conj(x1) on port
+             * 1, the second carries x1 on port 0 and conj(x0) on port 1.
+             *
+             * This encoder had x1 and -conj(x1) transposed between the two
+             * ports, which is exactly the error the decoder made, so the
+             * round trip agreed perfectly and read nothing off the air.
+             * `check_real_capture` is what pins this now.
+             */
             grid_add(symbol_of[a], sca, 0, x_re[n] * root_half,
                      x_im[n] * root_half);
-            grid_add(symbol_of[a], sca, 1, x_re[n + 1] * root_half,
+            grid_add(symbol_of[a], sca, 1, -x_re[n + 1] * root_half,
                      x_im[n + 1] * root_half);
-            grid_add(symbol_of[b], scb, 0, -x_re[n + 1] * root_half,
+            grid_add(symbol_of[b], scb, 0, x_re[n + 1] * root_half,
                      x_im[n + 1] * root_half);
             grid_add(symbol_of[b], scb, 1, x_re[n] * root_half,
                      -x_im[n] * root_half);
@@ -299,11 +309,12 @@ static void place_broadcast(int pci, int ports) {
                 int scb = pbch_subcarrier_of(index_of[b]);
                 double f0re = x_re[a], f0im = x_im[a];
                 double f1re = x_re[b], f1im = x_im[b];
+                /* The same pair, on ports (0,2) then (1,3). */
                 grid_add(symbol_of[a], sca, p0, f0re * root_half,
                          f0im * root_half);
-                grid_add(symbol_of[a], sca, p1, f1re * root_half,
+                grid_add(symbol_of[a], sca, p1, -f1re * root_half,
                          f1im * root_half);
-                grid_add(symbol_of[b], scb, p0, -f1re * root_half,
+                grid_add(symbol_of[b], scb, p0, f1re * root_half,
                          f1im * root_half);
                 grid_add(symbol_of[b], scb, p1, f0re * root_half,
                          -f0im * root_half);
@@ -989,6 +1000,25 @@ int main(void) {
      * while every synthetic check passed.
      */
     check_real_capture("testfiles/lte_b20_pci28.bin", 28, -2, 50, 2, 14);
+
+    /*
+     * And a four-antenna-port cell, which is a different check rather than
+     * another one of the same.
+     *
+     * Every other cell reachable from this site transmits on two ports, and
+     * the port hypotheses are tried 1, 2, 4 and stop at the first that fits,
+     * so a two-port cell strong enough for single-port combining never
+     * reaches the transmit-diversity code at all. It was wrong for as long as
+     * it existed -- the second symbol of each Alamouti pair came out as
+     * -conj(x1) -- and place_broadcast() above transposed the same two terms,
+     * so every synthetic check passed while band 8 gave 216 cells and zero
+     * messages.
+     *
+     * This is the file that convention cannot satisfy, and 4 is the number
+     * that matters: it is read out of the parity mask, and the reference
+     * signals say four independently, by phase, with no decoding at all.
+     */
+    check_real_capture("testfiles/lte_b8_pci330_4port.bin", 330, -2, 25, 4, 3);
 
     return check_report("lte cell search and broadcast channel");
 }

@@ -1,0 +1,18 @@
+{
+  "provenance": "recorded by sdrprobe",
+  "format": "unsigned 8-bit interleaved I/Q, 127.5 = zero",
+  "technology": "lte",
+  "center_frequency_hz": 927500000,
+  "sample_rate_hz": 1920000,
+  "gain_db": 29.7,
+  "ppm": 0,
+  "source": "RTL-SDR: Generic RTL2832U",
+  "tuner": "R820T",
+  "started_at": "2026-09-06T07:52:33",
+  "duration_seconds": 0.819,
+  "bytes": 3145728,
+  "short_blocks": 0,
+  "earfcn": 3475,
+  "band": 8,
+  "note": "Live band 8 downlink, 927.5 MHz. Physical cell identity 330 (N_ID_1 110, N_ID_2 0), normal cyclic prefix, 25 resource blocks -- a 4.5 MHz carrier -- and FOUR antenna ports, which is the only reason this file exists. Every other LTE cell reachable from this site transmits on two, so the four-port transmit-diversity path had never decoded a real signal and was wrong for as long as it existed: the second symbol of each Alamouti pair came out as -conj(x1), inverting one bit of every second symbol. A synthetic round trip passed throughout, because tests/lte_dsp_test.c's encoder transposed the same two terms. This capture is the check that convention cannot satisfy. It reproduces from a longer recording made the same morning; three megabytes is the size the frame-number check needs -- it wants more than eight consecutive steps before it will believe the counter is tracking, and two megabytes gave seven."
+}
