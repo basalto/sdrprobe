@@ -1207,6 +1207,21 @@ static void interpolate_channel(const int *positions, int count,
 
 /* The central 72 subcarriers of one symbol of slot 1, with the frequency
    offset taken out. */
+/* The central 72 subcarriers of whichever symbol begins at `useful_start`. */
+static void read_symbol_at(const float *i_samples, const float *q_samples,
+                           size_t useful_start, double offset_hz,
+                           double sample_rate, float *row_re, float *row_im) {
+    float full_re[LTE_FFT_SIZE], full_im[LTE_FFT_SIZE];
+    int index;
+    symbol_fft_corrected(i_samples, q_samples, useful_start, 0, offset_hz,
+                         sample_rate, full_re, full_im);
+    for (index = 0; index < LTE_PBCH_SUBCARRIERS; index++) {
+        int bin = lte_subcarrier_bin(pbch_subcarrier(index));
+        row_re[index] = full_re[bin];
+        row_im[index] = full_im[bin];
+    }
+}
+
 static void read_slot1_symbol(const float *i_samples, const float *q_samples,
                               size_t subframe0_start, int symbol,
                               double offset_hz, double sample_rate,
@@ -1343,8 +1358,8 @@ int lte_reference_power(const float *i_samples, const float *q_samples,
                         struct lte_reference_power *out) {
     float row_re[LTE_PBCH_SUBCARRIERS], row_im[LTE_PBCH_SUBCARRIERS];
     int positions[LTE_PBCH_SUBCARRIERS / 6];
-    double reference = 0.0, total = 0.0, full_scale;
-    int refs = 0, frames = 0, count, m, k;
+    double reference = 0.0, total = 0.0, residual = 0.0, full_scale;
+    int refs = 0, frames = 0, residuals = 0, count, m, k;
     const int blocks = LTE_PBCH_SUBCARRIERS / 12;
 
     if (!cell || !out || !i_samples || !q_samples)
@@ -1379,6 +1394,47 @@ int lte_reference_power(const float *i_samples, const float *q_samples,
                          (double)row_im[p] * row_im[p];
             refs++;
         }
+        /*
+         * Noise, measured where nothing is transmitted.
+         *
+         * 36.211 clause 6.11.1.2 reserves the five resource elements either
+         * side of the primary and secondary sequences and sends nothing on
+         * them, so their power is noise and interference with no channel in
+         * the way. srsRAN offers the same measurement as
+         * SRSRAN_NOISE_ALG_EMPTY_SC and it is the right one here.
+         *
+         * Two estimators built from the *references* were tried first and
+         * both are recorded in the ticket, because they are the obvious
+         * approach and they do not work at this spacing. Differencing each
+         * reference against its neighbours -- srsRAN's estimate_noise_pilots,
+         * and with equal weights a second difference -- cancels a channel
+         * that is linear in the complex plane, and a channel is not: a delay
+         * is A*exp(-j*theta*m), whose second difference is
+         * -4*A*sin^2(theta/2). References sit 90 kHz apart, so a microsecond
+         * of delay leaves about ten decibels below the signal and the floor
+         * becomes the channel rather than the noise. De-rotating the mean
+         * delay first, which is what the second attempt did, removes the
+         * slope and not the curvature. Measured on air: -17.8 dB and then
+         * +3.2 dB of RS-SINR for a cell decoding nine tenths of its
+         * messages.
+         */
+        {
+            float sync_re[LTE_PBCH_SUBCARRIERS];
+            float sync_im[LTE_PBCH_SUBCARRIERS];
+            read_symbol_at(i_samples, q_samples, at + LTE_PSS_USEFUL_OFFSET,
+                           cell->frequency_offset_hz, sample_rate, sync_re,
+                           sync_im);
+            for (k = 0; k < LTE_PBCH_SUBCARRIERS; k++) {
+                int sc = pbch_subcarrier(k);
+                if (sc < 0)
+                    sc = -sc;
+                if (sc < LTE_SYNC_SUBCARRIERS / 2 + 1)
+                    continue;
+                residual += (double)sync_re[k] * sync_re[k] +
+                            (double)sync_im[k] * sync_im[k];
+                residuals++;
+            }
+        }
         for (k = 0; k < LTE_PBCH_SUBCARRIERS; k++)
             total += (double)row_re[k] * row_re[k] +
                      (double)row_im[k] * row_im[k];
@@ -1407,6 +1463,25 @@ int lte_reference_power(const float *i_samples, const float *q_samples,
     out->rsrp_dbfs = (float)(10.0 * log10(reference / full_scale));
     out->rssi_dbfs = (float)(10.0 * log10(total / full_scale));
     out->rsrq_db = (float)(10.0 * log10((double)blocks * reference / total));
+    if (residuals > 0 && residual > 0.0) {
+        /*
+         * The reference power carries the noise with it -- it is the power of
+         * what arrived, not of what was sent -- so the signal is what is left
+         * after taking the noise out. srsRAN reports rsrp/noise directly,
+         * which is (S+N)/N and reads 0 dB where this reads a floor; the
+         * subtraction costs nothing and means a clean signal and a silent one
+         * do not both come back as small positive numbers.
+         */
+        double noise = residual / (double)residuals;
+        double signal = reference - noise;
+        out->noise_dbfs = (float)(10.0 * log10(noise / full_scale));
+        out->sinr_db = signal > 0.0
+                           ? (float)(10.0 * log10(signal / noise))
+                           : -99.0f;
+    } else {
+        out->noise_dbfs = 0.0f;
+        out->sinr_db = -99.0f;
+    }
     out->resource_blocks = blocks;
     out->references = refs;
     return 1;

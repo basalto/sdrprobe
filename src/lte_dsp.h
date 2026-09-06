@@ -293,7 +293,37 @@ struct lte_reference_power {
     float rsrp_dbfs;        /* mean power in one reference resource element */
     float rssi_dbfs;        /* total power across the measured blocks */
     float rsrq_db;          /* N * RSRP / RSSI -- free of any fixed gain */
-    int resource_blocks;    /* N: what the two above were measured over */
+    /*
+     * RS-SINR (36.214): the reference elements' signal power over the noise
+     * and interference on those same elements, using port 0's references as
+     * the standard requires. Like RSRQ it is a ratio through one chain, so it
+     * carries no calibration and is comparable with a handset's.
+     *
+     * The noise is measured **where nothing is transmitted**: 36.211 clause
+     * 6.11.1.2 reserves the five resource elements either side of the primary
+     * and secondary sequences, so their power is noise and interference with
+     * no channel in the way. srsRAN offers the same measurement as
+     * SRSRAN_NOISE_ALG_EMPTY_SC.
+     *
+     * The obvious approach is to difference each reference against its
+     * neighbours -- srsRAN's estimate_noise_pilots -- and at this spacing it
+     * does not work. Two versions were built and measured before this one,
+     * and both are in `.scratch/lte-more-per-carrier/issues/02`: a plain
+     * second difference read **-17.8 dB** for a cell decoding nine tenths of
+     * its messages, and de-rotating the mean delay first improved it only to
+     * **+3.2 dB**. References sit 90 kHz apart and a channel between them is
+     * a rotation rather than a straight line, so what the difference removes
+     * is the slope and what is left is the curvature -- the channel, not the
+     * noise. On the reserved elements the same cells read 24 to 34 dB, in the
+     * order their reference powers predict.
+     *
+     * The signal is the reference power with the noise taken out, because a
+     * reference element carries both. srsRAN reports rsrp/noise, which is
+     * (S+N)/N and cannot read below 0 dB.
+     */
+    float noise_dbfs;       /* mean noise-plus-interference per reference */
+    float sinr_db;          /* RS-SINR: (RSRP - noise) over noise */
+    int resource_blocks;    /* N: what the powers above were measured over */
     int references;         /* how many reference elements were averaged */
 };
 
