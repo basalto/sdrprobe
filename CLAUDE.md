@@ -622,7 +622,20 @@ a capture:
 ./sdrprobe --headless --lte-chain --lte-chain-band 20     # scan, walk the best
 ```
 
-Four lines per block -- PSS, SSS, power, MIB -- then a funnel. The `power`
+Four lines per block -- PSS, SSS, power, MIB -- a `neighbour` line for any
+other cell on the carrier, then a funnel and **one verdict per identity**.
+
+The verdict is the part that matters, and it is not a count. A carrier holds
+more than one cell -- EARFCN 3625 here holds two -- but the multi-cell search
+also mistakes sidelobes for cells, and it makes the same mistake every block,
+so a false identity repeats as faithfully as a true one. On that carrier PCI
+410 was reported 59 times in 364 blocks and never decoded anything, while
+PCI 190 was reported 104 times and read 16 messages. Any threshold on
+sightings would have confirmed the wrong one. `src/lte_confirm.h` asks instead
+whether the identity's *own* broadcast channel decoded -- scrambled with the
+identity, checked by a CRC, and so not something repetition can manufacture --
+and reports `confirmed`, `unread` or `spurious`. Three verdicts, because "seen
+often and never read" is its own answer and a weak real cell lands there too. The `power`
 line is 36.214's reference-signal measurements over the six central resource
 blocks: `rsrp_dbfs`, `rssi_dbfs` and `rsrq_db`. **RSRP is dBFS and not dBm**,
 because nothing here knows the antenna's gain or the cable's loss, so it

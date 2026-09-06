@@ -331,6 +331,13 @@ check-acquisition: $(TESTS)/acquisition_test.c $(TESTS)/check.h \
 # Which candidates the survey should warn about: the receiver's own reference
 # comb, and the DC offset at each step centre. The check is built from a real
 # sweep taken with the antenna disconnected.
+check-lte-confirm: $(TESTS)/lte_confirm_test.c $(TESTS)/check.h \
+		$(SRC)/lte_confirm.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_confirm_test \
+		$(TESTS)/lte_confirm_test.c -lm
+	$(Q)./$(BUILD)/lte_confirm_test
+
 check-suspect: $(TESTS)/survey_suspect_test.c $(TESTS)/check.h \
 		$(SRC)/survey_suspect.h $(SRC)/survey_sweep.h $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
@@ -376,7 +383,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
 	check-row-list check-survey-bands check-text-wrap \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
-	check-lte-turbo check-lte-transport check-tetra-dsp check-tetra-sync
+	check-lte-turbo check-lte-transport check-lte-confirm check-tetra-dsp check-tetra-sync
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -527,4 +534,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity probe-survey-threshold bench-dsp screens clean
+.PHONY: all check hooks check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-periodicity probe-survey-threshold bench-dsp screens clean
