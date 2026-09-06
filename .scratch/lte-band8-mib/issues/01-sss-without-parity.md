@@ -126,16 +126,60 @@ convention both sides share — the conjugated primary sequence, the scattered
 GSM SCH layout, the pi/4-DQPSK phase table and the TETRA scrambler seed were
 all green throughout. **Shift 0 has never been read off the air here.**
 
+### 5. A fourth cell, and the band is exonerated
+
+`--lte-scan 8` found a second cell on band 8: **PCI 190 at EARFCN 3625**
+(942.5 MHz), N_ID_2 1, root 29, shift 4. It decodes **279 messages in 292
+blocks**, the best of the four, at a tuning offset of -30.6 kHz against the
+failing cell's -31.8 kHz.
+
+| cell                 | band | N_ID_2 | root | shift | result               |
+|----------------------|------|--------|------|-------|----------------------|
+| PCI 28, EARFCN 6200  | 20   | 1      | 29   | 4     | decodes              |
+| PCI 59, EARFCN 6300  | 20   | 2      | 34   | 5     | 215 messages / 292   |
+| PCI 190, EARFCN 3625 | 8    | 1      | 29   | 4     | 279 messages / 292   |
+| PCI 330, EARFCN 3475 | 8    | 0      | 25   | 0     | **0 messages / 219** |
+
+So it is not the band, not the region of spectrum, not the antenna and not the
+tuning error: a cell fifteen megahertz away, with an offset within 1.2 kHz of
+this one's, decodes better than anything else here.
+
+### 6. But the shift arithmetic reads correctly
+
+`lte_crs_subcarriers()` computes `shift = pci % 6` and `first = (v + shift) % 6`
+with `v` from `crs_shift()`, which matches 36.211 table 6.10.1.2-1: port 0 has
+v = 0 at symbol 0 and 3 at symbol 4, port 1 the reverse, ports 2 and 3 at
+symbol 1 with v = 3*(n_s mod 2) and 3 + 3*(n_s mod 2). Nothing special-cases a
+shift of zero -- at shift 0, `first` is simply `v`.
+
+That is an inspection against the standard rather than a round trip, which is
+the only kind of check that can catch a shared convention, and it **weakens**
+the shift hypothesis. It does not clear the rest of the N_ID_2 0 path.
+
 ## Next
 
 Status stays `needs-triage`; this narrows it, it does not close it.
 
-Shift and N_ID_2 are confounded in the evidence so far: `PCI mod 6 == 0`
-implies `PCI mod 3 == 0`, so every shift-0 cell also has N_ID_2 0. They come
-apart at **`PCI mod 6 == 3`** — N_ID_2 0 with shift 3. A cell like that decides
-between "the broadcast path is wrong at shift 0" and "it is wrong for N_ID_2 0",
-and there is no such cell among the three found. Scanning band 8 for more cells
-is the cheap next move.
+Shift and N_ID_2 are confounded in the evidence: `PCI mod 6 == 0` implies
+`PCI mod 3 == 0`, so every shift-0 cell also has N_ID_2 0. They come apart at
+**`PCI mod 6 == 3`** -- N_ID_2 0 with shift 3. Neither band has such a cell
+among the four found, so that discriminator is not available at this site and
+this may not be resolvable here.
+
+Two candidates remain, and they want different work:
+
+1. **Something else in the N_ID_2 0 broadcast path.** The reference-signal
+   shift now reads correctly against the standard, so the suspicion moves to
+   what else the identity selects -- the reference sequence's Gold
+   initialisation and the broadcast channel's scrambling both take the full
+   PCI. Reading those against 36.211 the way the shift was read, rather than
+   against their own encoder, is the move.
+2. **This carrier may have no normal broadcast channel at all.**
+   Synchronisation signals with nothing readable behind them is what a
+   repeater or a sync-only transmitter looks like, and it would explain every
+   measurement above, including elements that are statistically ordinary
+   noise. Nothing here has tested whether the broadcast region carries power
+   in the pattern a PBCH does, and that test does not require decoding it.
 
 ## Comments
 
