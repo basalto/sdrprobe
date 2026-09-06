@@ -832,39 +832,39 @@ static void check_lte(void) {
          */
         for (int i = 0; i < 3; i++) {
             struct lte_panel_rows rows = lte_panel_rows_for(row[i]);
-            float last = rows.first_y + (float)(rows.capacity - 1) * rows.step;
-            check_msg(rows.capacity >= 0,
+            float last = rows.row.first_y + (float)(rows.row.capacity - 1) * rows.row.step;
+            check_msg(rows.row.capacity >= 0,
                       "%.0fx%.0f: panel %d has a negative row capacity\n", w,
                       h, i);
-            if (rows.capacity > 0)
-                check_msg(last + rows.step <= row[i].y + row[i].height + 0.01f,
+            if (rows.row.capacity > 0)
+                check_msg(last + rows.row.step <= row[i].y + row[i].height + 0.01f,
                           "%.0fx%.0f: panel %d's last row leaves the panel\n",
                           w, h, i);
-            check_msg(rows.footer_y + LTE_PANEL_FOOTER_HEIGHT <=
+            check_msg(rows.row.footer_y + LTE_PANEL_FOOTER_HEIGHT <=
                           row[i].y + row[i].height + 0.01f,
                       "%.0fx%.0f: panel %d's footer leaves the panel\n", w, h,
                       i);
-            check_msg(rows.first_y >= row[i].y + LTE_PANEL_CAPTION_DROP - 0.01f,
+            check_msg(rows.row.first_y >= row[i].y + LTE_PANEL_CAPTION_DROP - 0.01f,
                       "%.0fx%.0f: panel %d's first row is under the caption\n",
                       w, h, i);
             /* Label and value must not overlap, and both must have room. */
-            check_msg(rows.label_x + rows.label_width <= rows.value_x + 0.01f,
+            check_msg(rows.row.label_x + rows.row.label_width <= rows.row.value_x + 0.01f,
                       "%.0fx%.0f: panel %d's label runs into its value\n", w,
                       h, i);
-            check_msg(rows.value_x + rows.value_width <=
+            check_msg(rows.row.value_x + rows.row.value_width <=
                           row[i].x + row[i].width - 12.0f + 0.01f,
                       "%.0fx%.0f: panel %d's value leaves the panel\n", w, h,
                       i);
-            check_msg(rows.value_width > 0.0f && rows.label_width > 0.0f,
+            check_msg(rows.row.value_width > 0.0f && rows.row.label_width > 0.0f,
                       "%.0fx%.0f: panel %d has a collapsed column\n", w, h, i);
             /* The three statistics columns share the value column's span and
                must not overlap each other or leave it. */
             for (int c = 0; c < 3; c++) {
-                check_msg(rows.stat_x[c] >= rows.value_x - 0.01f,
+                check_msg(rows.stat_x[c] >= rows.row.value_x - 0.01f,
                           "%.0fx%.0f: panel %d stat column %d starts before "
                           "the value column\n", w, h, i, c);
                 check_msg(rows.stat_x[c] + rows.stat_width <=
-                              rows.value_x + rows.value_width + 0.01f,
+                              rows.row.value_x + rows.row.value_width + 0.01f,
                           "%.0fx%.0f: panel %d stat column %d leaves the "
                           "value column\n", w, h, i, c);
                 if (c + 1 < 3)
@@ -928,6 +928,50 @@ static void check_lte(void) {
  * the same reason -- a header that models half a screen puts a green tick
  * over the half it does not model.
  */
+/*
+ * Every row a panel is allowed to draw, and the footer under them, inside the
+ * panel.
+ *
+ * This is what could not be checked while the rows were `y += 20` between
+ * draw calls. Measured before it existed: the FM signal panel wants eight
+ * rows and holds four on a 640x400 window, so 101 pixels of it were drawn off
+ * the bottom edge, and check-layout passed because it only ever saw the
+ * rectangle.
+ */
+static void check_panel_rows(const char *what, Rectangle panel,
+                             float caption_drop, float step,
+                             float footer_height, float gutter_fraction,
+                             float gutter_cap, float w, float h) {
+    struct panel_rows rows = panel_rows_for(panel, caption_drop, step,
+                                            footer_height, gutter_fraction,
+                                            gutter_cap);
+    check_msg(rows.capacity >= 0, "%.0fx%.0f: %s has negative capacity\n", w,
+              h, what);
+    if (rows.capacity > 0) {
+        float last = panel_row_y(&rows, rows.capacity - 1);
+        check_msg(last + step <= panel.y + panel.height + 0.01f,
+                  "%.0fx%.0f: %s's last row leaves the panel\n", w, h, what);
+        check_msg(panel_row_visible(&rows, rows.capacity - 1) &&
+                      !panel_row_visible(&rows, rows.capacity),
+                  "%.0fx%.0f: %s admits a row past its capacity\n", w, h,
+                  what);
+    }
+    check_msg(panel_footer_after(&rows, 99) + footer_height <=
+                  panel.y + panel.height + 0.01f,
+              "%.0fx%.0f: %s's footer leaves the panel\n", w, h, what);
+    check_msg(rows.first_y >= panel.y + caption_drop - 0.01f,
+              "%.0fx%.0f: %s's first row is under its caption\n", w, h, what);
+    if (gutter_fraction > 0.0f) {
+        check_msg(rows.label_x + rows.label_width <= rows.value_x + 0.01f,
+                  "%.0fx%.0f: %s's label runs into its value\n", w, h, what);
+        check_msg(rows.value_x + rows.value_width <=
+                      panel.x + panel.width - 12.0f + 0.01f,
+                  "%.0fx%.0f: %s's value leaves the panel\n", w, h, what);
+        check_msg(rows.value_width > 0.0f && rows.label_width > 0.0f,
+                  "%.0fx%.0f: %s has a collapsed column\n", w, h, what);
+    }
+}
+
 static void check_fm_view(void) {
     const float sizes[][2] = { { 1100.0f, 720.0f }, { 1280.0f, 800.0f },
                                { 1000.0f, 540.0f }, { 1920.0f, 1080.0f } };
@@ -938,6 +982,14 @@ static void check_fm_view(void) {
     for (scanning = 0; scanning <= 1; scanning++) {
         struct fm_layout l = fm_layout_for(sizes[c][0], sizes[c][1], scanning);
         Rectangle all[18];
+        /* The rows the two field panels draw, which used to run off the
+           bottom of both at 1000x540 and below. */
+        check_panel_rows("fm signal panel", l.signal_panel,
+                         FM_PANEL_CAPTION_DROP, FM_PANEL_ROW_HEIGHT, 0.0f,
+                         0.50f, 128.0f, sizes[c][0], sizes[c][1]);
+        check_panel_rows("fm station panel", l.station_panel,
+                         FM_PANEL_CAPTION_DROP, FM_PANEL_ROW_HEIGHT, 0.0f,
+                         0.50f, 128.0f, sizes[c][0], sizes[c][1]);
         const char *names[18];
         int n = 0, a, b, i;
 
@@ -1487,6 +1539,13 @@ static void test_tetra_layout(void) {
         struct tetra_layout l = tetra_layout_for(windows[w].width,
                                                  windows[w].height);
         char name[96];
+
+        /* The identity panel's five fields, which needed 146 px in a panel
+           holding 133 at 1000x540 and were drawn off its bottom edge. */
+        check_panel_rows("tetra identity", l.identity,
+                         TETRA_PANEL_CAPTION_DROP, TETRA_PANEL_ROW_HEIGHT,
+                         0.0f, 0.0f, 0.0f, windows[w].width,
+                         windows[w].height);
 
         snprintf(name, sizeof(name), "%s: the toggle is on screen",
                  windows[w].name);

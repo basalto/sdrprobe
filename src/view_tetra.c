@@ -166,8 +166,12 @@ void handle_tetra_input(struct app *app) {
 
 static void draw_identity(const struct app *app, Rectangle box) {
     const struct tetra_view *t = &app->tetra;
+    struct panel_rows rows = panel_rows_for(box, TETRA_PANEL_CAPTION_DROP,
+                                            TETRA_PANEL_ROW_HEIGHT, 0.0f,
+                                            0.0f, 0.0f);
     char text[96];
-    int y = (int)box.y + 30;
+    int y = (int)rows.first_y;
+    int r = 0;
 
     DrawRectangleLinesEx(box, 1.0f, (Color){ 48, 66, 88, 255 });
     DrawText("Network", (int)box.x + 10, (int)box.y + 8, 14,
@@ -177,27 +181,48 @@ static void draw_identity(const struct app *app, Rectangle box) {
                         box.width - 20.0f, (Color){ 120, 140, 160, 255 });
         return;
     }
-    snprintf(text, sizeof(text), "MCC  %d", t->mcc);
-    DrawText(text, (int)box.x + 10, y, 18, (Color){ 226, 236, 245, 255 });
-    y += 26;
-    snprintf(text, sizeof(text), "MNC  %d", t->mnc);
-    DrawText(text, (int)box.x + 10, y, 18, (Color){ 226, 236, 245, 255 });
-    y += 26;
-    snprintf(text, sizeof(text), "colour code  %d", t->colour);
-    DrawText(text, (int)box.x + 10, y, 16, (Color){ 190, 210, 228, 255 });
-    y += 24;
-    if (t->broadcast_total > 0) {
-        snprintf(text, sizeof(text), "location area  %d", t->la);
-        DrawText(text, (int)box.x + 10, y, 16, (Color){ 190, 210, 228, 255 });
-    } else {
-        sdrgui_text_fit("location area unread", (int)box.x + 10, y, 16,
-                        box.width - 20.0f, (Color){ 120, 140, 160, 255 });
+    /*
+     * Ordered so a short panel keeps the identity. A row past the panel's
+     * capacity is not drawn -- these used to run off the bottom edge, five of
+     * them needing 146 px in a panel that holds 133 on a 1000x540 window.
+     */
+    if (panel_row_visible(&rows, r)) {
+        y = (int)panel_row_y(&rows, r);
+        snprintf(text, sizeof(text), "MCC  %d", t->mcc);
+        DrawText(text, (int)box.x + 10, y, 18, (Color){ 226, 236, 245, 255 });
     }
-    y += 26;
-    snprintf(text, sizeof(text), "lock %.2f   offset %+.0f Hz",
-             (double)t->lock, t->offset_hz);
-    sdrgui_text_fit(text, (int)box.x + 10, y, 14, box.width - 20.0f,
-                    (Color){ 150, 176, 202, 255 });
+    r++;
+    if (panel_row_visible(&rows, r)) {
+        y = (int)panel_row_y(&rows, r);
+        snprintf(text, sizeof(text), "MNC  %d", t->mnc);
+        DrawText(text, (int)box.x + 10, y, 18, (Color){ 226, 236, 245, 255 });
+    }
+    r++;
+    if (panel_row_visible(&rows, r)) {
+        y = (int)panel_row_y(&rows, r);
+        snprintf(text, sizeof(text), "colour code  %d", t->colour);
+        DrawText(text, (int)box.x + 10, y, 16, (Color){ 190, 210, 228, 255 });
+    }
+    r++;
+    if (panel_row_visible(&rows, r)) {
+        y = (int)panel_row_y(&rows, r);
+        if (t->broadcast_total > 0) {
+            snprintf(text, sizeof(text), "location area  %d", t->la);
+            DrawText(text, (int)box.x + 10, y, 16,
+                     (Color){ 190, 210, 228, 255 });
+        } else {
+            sdrgui_text_fit("location area unread", (int)box.x + 10, y, 16,
+                            box.width - 20.0f, (Color){ 120, 140, 160, 255 });
+        }
+    }
+    r++;
+    if (panel_row_visible(&rows, r)) {
+        y = (int)panel_row_y(&rows, r);
+        snprintf(text, sizeof(text), "lock %.2f   offset %+.0f Hz",
+                 (double)t->lock, t->offset_hz);
+        sdrgui_text_fit(text, (int)box.x + 10, y, 14, box.width - 20.0f,
+                        (Color){ 150, 176, 202, 255 });
+    }
 }
 
 static void draw_log(const struct app *app, Rectangle box) {
