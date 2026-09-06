@@ -1243,9 +1243,25 @@ static void alamouti(float r0re, float r0im, float r1re, float r1im,
     /* x0 = conj(h0) * r0 + h1 * conj(r1) */
     *x0re = h0re * r0re + h0im * r0im + h1re * r1re + h1im * r1im;
     *x0im = h0re * r0im - h0im * r0re + h1im * r1re - h1re * r1im;
-    /* x1 = conj(h1) * r0 - h0 * conj(r1) */
-    *x1re = h1re * r0re + h1im * r0im - h0re * r1re - h0im * r1im;
-    *x1im = h1re * r0im - h1im * r0re - h0im * r1re + h0re * r1im;
+    /*
+     * x1 = conj(h0) * r1 - h1 * conj(r0)
+     *
+     * Note which received element goes with which channel: x0 is recovered
+     * from r0 against h0, and x1 from *r1* against h0. Writing the second the
+     * other way round -- conj(h1) * r0 - h0 * conj(r1) -- is algebraically
+     * tempting and evaluates to **-conj(x1)**, which inverts the real part
+     * and so flips one bit of every second symbol. That is what this was for
+     * as long as it existed.
+     *
+     * It stayed invisible because nothing that mattered depended on it. The
+     * synthetic round trip shares the convention with its own encoder, and on
+     * air the port hypotheses are tried in the order 1, 2, 4 and stop at the
+     * first that fits -- so a two-port cell strong enough to decode with
+     * single-port combining never reached this code, and the only cell that
+     * needs it is the four-port one that has never decoded.
+     */
+    *x1re = h0re * r1re + h0im * r1im - h1re * r0re - h1im * r0im;
+    *x1im = h0re * r1im - h0im * r1re - h1im * r0re + h1re * r0im;
 }
 
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,
