@@ -42,3 +42,36 @@ to do them together rather than a coincidence.
 A survey that refuses to report anything it cannot fully resolve. The
 full-tuner sweep's job is to say where to look next, and it does that well for
 the strong wide signals. The fault is the missing caveat, not the sweep.
+
+## Answer
+
+Status: resolved for confirmed candidates, by direction 2.
+
+The `confirm` line now carries the width the closer look measured and the
+suspicion flags at that resolution:
+
+```
+# confirm <frequency_hz> <claim> <verdict> <prominence_db> <hits>/<looks> <bandwidth_hz> <flags|->
+confirm 230393982 new confirmed 47.3 6/6 2930  reference,unresolved
+confirm 392127991 new confirmed 31.2 6/6 23438 -
+```
+
+A reader can now tell a 3 kHz tone from a 24 kHz channel among candidates the
+sweep reported identically, because the pass measures at 244 Hz where the
+sweep had 212 kHz. That is the whole of direction 2 and it cost nothing in
+receiver time -- `sdr_carrier_report` already computed the width and the pass
+already discarded it.
+
+## What is left
+
+Direction 1 -- reporting the sweep's own resolution per candidate -- is **not**
+done. A candidate nobody asked about still carries a width of zero and no way
+to tell whether that means narrow or unmeasured, and the saved JSON still
+records `width_hz: 0.0` for every entry of a full-tuner sweep.
+
+That matters for the baseline, which is what this ticket was raised about: a
+sweep saved without confirmation is still a list of 212 kHz maxima presented
+as though they were signals. The cheap version is to record `plan.bin_hz`
+alongside each candidate so a reader knows what the number could have meant;
+the honest version is to run the confirmation pass before saving, which is
+already possible and simply is not the default.

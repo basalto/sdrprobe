@@ -78,6 +78,23 @@ struct survey_confirm_target {
        what a reader needs to tell one burst in six from five. */
     int hits;
     int looks;
+    /*
+     * The width the closer look measured, and zero when it measured none.
+     *
+     * The sweep that raised the candidate could not supply this: a full-tuner
+     * sweep is 1742 MHz in 8192 bins, so a bin is 212 kHz -- wider than a
+     * land-mobile channel -- and a maximum in one says only that something is
+     * there. The pass revisits at 2 MS/s where a bin is 244 Hz, already
+     * computes a width to decide presence, and used to discard it.
+     *
+     * It is what makes the receiver's own comb detectable at all on a coarse
+     * sweep: `survey_suspect()` needs a width, and `survey_comb_harmonic()`
+     * refuses to answer when the tolerance a bin implies is a large fraction
+     * of the comb spacing. Both objections are about the *sweep's*
+     * resolution, and neither applies to a measurement taken at 244 Hz.
+     */
+    double bandwidth_hz;
+    unsigned suspicion;        /* enum survey_suspicion, at the finer look */
 };
 
 /*
