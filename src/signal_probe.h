@@ -257,4 +257,140 @@ int signal_fold_at(const float *i_samples, const float *q_samples,
                    size_t pair_count, size_t lag, size_t window, size_t step,
                    struct signal_fold *out);
 
+/* ------------------------------------------------------------------ *
+ * How long is a burst, and how much of the time is it there?
+ * ------------------------------------------------------------------ */
+
+/*
+ * The one feature of the usual monitoring chain this program had in no form
+ * at all.
+ *
+ * `survey_measure_duty()` folds one *block* at a time, and a block is 65.5 ms,
+ * so a 120 microsecond Mode S squitter and a continuous broadcast carrier are
+ * the same measurement to it -- a factor of five hundred, and the difference
+ * between a transmitter and a transmission. This measures the envelope
+ * instead, at sample resolution.
+ *
+ * **What counts as one burst is the caller's decision, and it has to be**:
+ * Mode S sends 0.5 microsecond pulses inside a 120 microsecond frame, so at
+ * pure sample resolution the answer is "hundreds of one-sample bursts" and
+ * that is true and useless. `min_gap_seconds` is the silence that separates
+ * two bursts rather than dividing one; runs closer together than that are the
+ * same burst. Pass it wider than the modulation's own gaps and narrower than
+ * the spacing between transmissions.
+ */
+
+/*
+ * The threshold is the geometric middle of the envelope, in decibels: halfway
+ * between a low percentile (what the quiet parts read) and a high one (what
+ * the loud parts read). Not an absolute level, because the R820T's gain moves
+ * and nothing here knows the antenna -- the same reason RSRP is dBFS rather
+ * than dBm, and it means a burst measurement does not carry between buffers
+ * at different gains.
+ */
+#define SIGNAL_BURST_FLOOR_PCT 0.10
+#define SIGNAL_BURST_OVER_FLOOR_DB 6.0
+
+/* How many pairs are looked at. One block is 131072, and a longer capture is
+   truncated rather than allocated for: this stays allocation-free like the
+   rest of the file, and a burst pattern is a property of the signal that a
+   longer look does not change. */
+#define SIGNAL_BURST_SAMPLES 262144
+
+/*
+ * Below this much contrast between those two there is no burst structure to
+ * find: the buffer is continuously occupied, or continuously empty, and a run
+ * finder over it returns runs of noise crossing its own threshold. Measured
+ * rather than chosen -- see the table in
+ * `.scratch/signal-probe/issues/04-*.md`.
+ */
+#define SIGNAL_BURST_CONTRAST_DB 12.0
+
+/*
+ * And above this much occupancy there is no burst structure worth reporting
+ * either, however much the envelope varies: a buffer busy more of the time
+ * than not is being described by its modulation rather than by its
+ * transmissions.
+ *
+ * This is the measurement that separates the two cases contrast cannot. At
+ * the default gap an LTE downlink reads 191 "bursts" of 354 us -- which are
+ * its own OFDM symbols -- and 80% occupancy, while Mode S reads 4 bursts of
+ * 114 us and 0.4%. The contrasts are 20.5 dB and 26.1: close enough that no
+ * threshold on contrast tells them apart, and a factor of two hundred apart
+ * in occupancy.
+ *
+ * A genuinely bursty transmitter with a duty above this is reported as busy
+ * rather than as bursts, which is the conservative failure: "occupied most of
+ * the look" is true of it, where a burst list would not be. `adsb_modes1.bin`
+ * is that case -- dense enough that its frames merge -- and it is why the
+ * capture with known provenance is the one the checks rest on.
+ */
+#define SIGNAL_BURST_MAX_OCCUPANCY 0.30
+
+/*
+ * The silence that separates two transmissions rather than dividing one,
+ * measured. Swept over five values across every capture here:
+ *
+ *   at 5 us   an unmodulated carrier reads 345 bursts -- noise crossing
+ *   at 20 us  it still reads 33
+ *   at 100 us it reads none, and Mode S reads 4 bursts of 114 us, which is
+ *             a 112-bit frame's 120 us
+ *   at 500 us Mode S's own frames merge into one and the length is wrong
+ *
+ * So 100 us is the widest gap that still resolves the shortest transmission
+ * this receiver is likely to meet, and the narrowest that does not find
+ * structure in noise. A caller who knows better should pass better.
+ */
+#define SIGNAL_BURST_GAP_DEFAULT 0.0001
+
+/* Hysteresis either side of the threshold, so an envelope hovering on it does
+   not chatter a single burst into dozens. */
+#define SIGNAL_BURST_HYSTERESIS_DB 2.0
+
+/* How many burst lengths are kept for the median. The count is exact however
+   many there are; past this the median is over the first of them, and
+   `sampled` says so rather than leaving a reader to assume otherwise. */
+#define SIGNAL_BURST_KEPT 4096
+
+/*
+ * Why there was nothing to report, when there was nothing. Kept apart because
+ * they are different findings and a reader who takes one for the other looks
+ * in the wrong place: LEVEL is a carrier or an empty channel, and BUSY is a
+ * transmitter that has not stopped.
+ */
+enum signal_burst_verdict {
+    SIGNAL_BURST_LEVEL = 0,  /* the envelope does not vary at this smoothing */
+    SIGNAL_BURST_BUSY,       /* it does, and it is busy more often than not */
+    SIGNAL_BURST_SEPARABLE   /* bursts, with idle between them */
+};
+
+struct signal_bursts {
+    int found;            /* 1 only for SIGNAL_BURST_SEPARABLE */
+    enum signal_burst_verdict verdict;
+    int count;            /* bursts wholly inside the buffer */
+    int truncated;        /* runs touching an edge, excluded from the stats */
+    int sampled;          /* how many of `count` the medians are over */
+    double contrast_db;   /* the high percentile over the low one */
+    double occupancy;     /* fraction of the buffer inside a burst, 0 to 1 */
+    double median_seconds;
+    double shortest_seconds;
+    double longest_seconds;
+    double median_gap_seconds;
+};
+
+/*
+ * Returns 1 when a burst structure was measured.
+ *
+ * A run touching either end of the buffer is **excluded rather than
+ * measured**: it was cut by the buffer and not by the transmitter, so its
+ * length is an artefact. Averaging half a burst into the median biases every
+ * answer the same direction, which is the worst kind of quiet error, so those
+ * runs are counted separately in `truncated` and left out of the statistics.
+ * They still count towards `occupancy`, which is about how much of the buffer
+ * was busy and does not care where a burst began.
+ */
+int signal_find_bursts(const float *i_samples, const float *q_samples,
+                       size_t pair_count, double sample_rate,
+                       double min_gap_seconds, struct signal_bursts *out);
+
 #endif

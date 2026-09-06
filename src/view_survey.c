@@ -1180,6 +1180,7 @@ static void survey_select(struct app *app, int index) {
     s->selected = index;
     s->report_valid = 0;
     s->carrier_valid = 0;
+    memset(&s->bursts, 0, sizeof(s->bursts));
     survey_measure_reset(&s->measure);
     hz = survey_bin_hz(s, s->peaks[index].index);
     s->measure_expected_hz = hz;
@@ -1273,6 +1274,14 @@ static void survey_measure_carrier(struct app *app,
 
     if (channel < SURVEY_CARRIER_MIN_CHANNEL_HZ)
         channel = SURVEY_CARRIER_MIN_CHANNEL_HZ;
+    /* The gap that says what is one burst rather than two is
+       SIGNAL_BURST_GAP_DEFAULT, chosen by measurement across every capture
+       here -- narrow enough to resolve the shortest transmission this
+       receiver is likely to meet, wide enough not to find structure in
+       noise. */
+    signal_find_bursts(app->i_samples, app->q_samples, app->pair_count,
+                       (double)app->applied_sample_rate,
+                       SIGNAL_BURST_GAP_DEFAULT, &s->bursts);
     s->carrier_valid = signal_find_carrier(app->i_samples, app->q_samples,
                                            app->pair_count,
                                            (double)app->applied_sample_rate,
@@ -2288,6 +2297,7 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
         int k;
 
         signal_findings_from(s->carrier_valid ? &s->carrier : NULL,
+                             &s->bursts,
                              survey_measure_duty(&s->measure),
                              s->measure.hits, s->measure.blocks,
                              survey_measure_spread_hz(&s->measure),

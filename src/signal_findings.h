@@ -51,7 +51,7 @@
  * before its qualifier is worse than no caveat, so the sentences are short
  * enough to survive.
  */
-#define SIGNAL_FINDING_LINES 6
+#define SIGNAL_FINDING_LINES 8
 #define SIGNAL_FINDING_FIT 48
 #define SIGNAL_FINDING_TEXT 128
 
@@ -101,6 +101,7 @@ static inline void signal_finding_add(struct signal_findings *f,
  * Returns how many lines were written.
  */
 static inline int signal_findings_from(const struct signal_carrier *carrier,
+                                       const struct signal_bursts *bursts,
                                        double duty, int duty_hits,
                                        int duty_blocks, double spread_hz,
                                        struct signal_findings *out) {
@@ -155,10 +156,18 @@ static inline int signal_findings_from(const struct signal_carrier *carrier,
         signal_finding_add(out,
             "no standing carrier: best line %.0f dB up",
             carrier->carrier_over_noise_db, 0.0);
-        signal_finding_add(out, "a search on noise alone reaches %.0f dB",
-                           SIGNAL_CARRIER_PRESENT_DB, 0.0);
-        signal_finding_text(out,
-            "and a pulsed transmission reads the same");
+        /*
+         * Two things read this way and they are different findings. Before
+         * the envelope was measured this had to name both and leave the
+         * reader to choose; now the burst measurement decides it, so the
+         * speculative half is only printed when nothing settles it.
+         */
+        if (!bursts || bursts->verdict != SIGNAL_BURST_SEPARABLE) {
+            signal_finding_add(out, "a search on noise alone reaches %.0f dB",
+                               SIGNAL_CARRIER_PRESENT_DB, 0.0);
+            signal_finding_text(out,
+                "and a pulsed transmission reads the same");
+        }
         break;
     }
 
@@ -180,6 +189,25 @@ static inline int signal_findings_from(const struct signal_carrier *carrier,
      * where the line is buried. Saying so is the difference between "there is
      * no symbol rate" and "nobody asked".
      */
+    /*
+     * What the envelope says about time, which no amount of spectrum can:
+     * `survey_measure_duty()` folds one 65.5 ms block at a time, so a 120
+     * microsecond squitter and a continuous carrier are the same measurement
+     * to it -- a factor of five hundred, and the difference between a
+     * transmitter and a transmission.
+     */
+    if (bursts && bursts->verdict == SIGNAL_BURST_SEPARABLE) {
+        signal_finding_add(out, "it transmits in bursts, %.0f us long",
+                           bursts->median_seconds * 1e6, 0.0);
+        if (bursts->median_gap_seconds > 0.0)
+            signal_finding_add(out, "one every %.1f ms, busy %.2f%% of it",
+                               bursts->median_gap_seconds * 1e3,
+                               bursts->occupancy * 100.0);
+    } else if (bursts && bursts->verdict == SIGNAL_BURST_BUSY) {
+        signal_finding_add(out, "and it does not stop: busy %.0f%% of the look",
+                           bursts->occupancy * 100.0, 0.0);
+    }
+
     if (verdict == SIGNAL_MODULATED)
         signal_finding_text(out,
             "no symbol rate looked for: needs one channel");

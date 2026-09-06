@@ -444,6 +444,173 @@ static void test_folding_finds_a_period_and_its_phase(void) {
     }
 }
 
+/* ------------------------------------------------------------------ *
+ * How long is a burst, and how much of the time is it there?
+ * ------------------------------------------------------------------ */
+
+/* A carrier keyed on for `on` samples every `period`, starting at `offset`
+   so the first burst does not touch the edge of the buffer. */
+static void add_keyed(size_t period, size_t on, size_t offset,
+                      double amplitude) {
+    int n;
+    for (n = 0; n < N; n++) {
+        size_t phase = ((size_t)n + period - offset % period) % period;
+        if (phase < on) {
+            double p = 2.0 * M_PI * 70000.0 * n / FS;
+            ir[n] += (float)(amplitude * cos(p));
+            qr[n] += (float)(amplitude * sin(p));
+        }
+    }
+}
+
+static void test_a_burst_is_measured_to_its_length(void) {
+    struct signal_bursts b;
+    const double gap = 0.0001;               /* SIGNAL_BURST_GAP_DEFAULT */
+
+    /*
+     * Ten bursts of 1 ms every 10 ms in 0.1 s. The lengths are exact because
+     * the smoothing bias is subtracted: a causal average reaches a
+     * floor-relative threshold almost at the true start and does not fall
+     * back until the window has slid off the end, so every length is long by
+     * exactly the window and every length has the window taken off it.
+     */
+    clear();
+    add_keyed(20000, 2000, 1500, 1.0);
+    add_noise(0.02);
+    check_int("a keyed carrier has a burst structure",
+              signal_find_bursts(ir, qr, N, FS, gap, &b), 1);
+    check_int("and it is separable", b.verdict, SIGNAL_BURST_SEPARABLE);
+    check_int("with one burst per period", b.count, 10);
+    check_close("of the length it was keyed for", b.median_seconds,
+                0.001, 0.00002);
+    check_close("the shortest no shorter", b.shortest_seconds, 0.001,
+                0.00002);
+    check_close("the longest no longer", b.longest_seconds, 0.001, 0.00002);
+    check_close("and the silence between them", b.median_gap_seconds,
+                0.009, 0.0002);
+    check_close("occupancy is the duty it was keyed at", b.occupancy,
+                0.10, 0.012);
+
+    /* The bias is the window and nothing else, so a different length reads
+       correctly with no other change. */
+    clear();
+    add_keyed(20000, 600, 1500, 1.0);
+    add_noise(0.02);
+    signal_find_bursts(ir, qr, N, FS, gap, &b);
+    check_close("a shorter burst reads shorter, by what it is",
+                b.median_seconds, 0.0003, 0.00002);
+    check_int("and there are still ten of them", b.count, 10);
+}
+
+static void test_what_is_not_a_burst_structure(void) {
+    struct signal_bursts b;
+    const double gap = 0.0001;
+
+    /*
+     * A bare carrier is a level, not a burst pattern. This is the case the
+     * first version got wrong in the loudest possible way -- it reported
+     * 134726 bursts in an unmodulated carrier, because a threshold in a *raw*
+     * envelope finds the noise crossing it. The smoothing is what fixed it.
+     */
+    clear();
+    add_tone(70000.0, 1.0);
+    add_noise(0.05);
+    check_int("a bare carrier has no burst structure",
+              signal_find_bursts(ir, qr, N, FS, gap, &b), 0);
+    check_int("and says which kind of nothing", b.verdict,
+              SIGNAL_BURST_LEVEL);
+    check_int("with no burst count to mislead anyone", b.count, 0);
+
+    clear();
+    add_noise(0.5);
+    check_int("noise alone has none either",
+              signal_find_bursts(ir, qr, N, FS, gap, &b), 0);
+    check_int("and reads as a level, not as bursts", b.verdict,
+              SIGNAL_BURST_LEVEL);
+
+    /*
+     * And a transmitter busy more of the time than not is reported busy
+     * rather than as bursts. That is the conservative failure and it is
+     * deliberate: an LTE downlink at the default gap reads 191 "bursts" of
+     * 354 us, which are its own OFDM symbols, at 80% occupancy -- where Mode S
+     * reads 0.4%. No threshold on contrast separates those two; occupancy
+     * separates them by a factor of two hundred.
+     */
+    clear();
+    add_keyed(20000, 12000, 1500, 1.0);      /* 60% duty */
+    add_noise(0.02);
+    check_int("a mostly-on transmitter is not reported as bursts",
+              signal_find_bursts(ir, qr, N, FS, gap, &b), 0);
+    check_int("it is reported busy", b.verdict, SIGNAL_BURST_BUSY);
+    check_true("with the occupancy that says why",
+               b.occupancy > SIGNAL_BURST_MAX_OCCUPANCY);
+    check_int("and no median length it does not stand behind",
+              b.median_seconds == 0.0, 1);
+}
+
+static void test_a_burst_cut_by_the_buffer_is_not_measured(void) {
+    struct signal_bursts b;
+    const double gap = 0.0001;
+
+    /*
+     * A run touching either end was cut by the buffer and not by the
+     * transmitter, so its length is an artefact. Averaging half a burst into
+     * the median biases every answer the same direction, which is the worst
+     * kind of quiet error.
+     */
+    clear();
+    add_keyed(20000, 2000, 0, 1.0);   /* the first burst starts at sample 0 */
+    add_noise(0.02);
+    signal_find_bursts(ir, qr, N, FS, gap, &b);
+    check_true("the burst at the buffer's start is set aside",
+               b.truncated >= 1);
+    check_int("and not counted among the measured ones", b.count, 9);
+    check_close("so the median is still the real length", b.median_seconds,
+                0.001, 0.00002);
+    /* It still counts towards occupancy, which asks how much of the buffer
+       was busy and does not care where a burst began. */
+    check_close("while occupancy keeps it", b.occupancy, 0.10, 0.012);
+}
+
+static void test_the_gap_says_what_is_one_burst(void) {
+    struct signal_bursts wide, narrow;
+
+    /*
+     * Two 200-sample pulses 100 samples apart, every 20000. Whether that is
+     * one burst or two is not a fact about the signal, it is what the caller
+     * asked: a gap wider than the 50 us between them makes it one, a narrower
+     * gap makes it two. Mode S is the case that needs this -- 0.5 us pulses
+     * inside a frame -- and without it the answer is "hundreds of one-sample
+     * bursts", which is true and useless.
+     */
+    clear();
+    add_keyed(20000, 200, 1500, 1.0);
+    add_keyed(20000, 200, 1800, 1.0);
+    add_noise(0.02);
+    signal_find_bursts(ir, qr, N, FS, 0.0002, &wide);
+    signal_find_bursts(ir, qr, N, FS, 0.00002, &narrow);
+    check_int("a wide gap makes the pair one burst", wide.count, 10);
+    check_int("a narrow one makes it two", narrow.count, 20);
+    check_true("and the one burst is the longer",
+               wide.median_seconds > narrow.median_seconds * 1.5);
+}
+
+static void test_burst_refusals(void) {
+    struct signal_bursts b;
+
+    clear();
+    add_keyed(20000, 2000, 1500, 1.0);
+    check_int("a null destination is refused",
+              signal_find_bursts(ir, qr, N, FS, 0.0001, NULL), 0);
+    check_int("too few samples is refused",
+              signal_find_bursts(ir, qr, 16, FS, 0.0001, &b), 0);
+    check_int("and a refusal leaves nothing behind", b.count, 0);
+    check_int("a negative gap is refused",
+              signal_find_bursts(ir, qr, N, FS, -1.0, &b), 0);
+    check_int("a sample rate of zero is refused",
+              signal_find_bursts(ir, qr, N, 0.0, 0.0001, &b), 0);
+}
+
 int main(void) {
     test_a_pure_tone_is_all_line();
     test_only_in_channel_energy_counts();
@@ -454,5 +621,10 @@ int main(void) {
     test_the_symbol_line_is_not_tetras();
     test_repeat_finds_a_grid_that_is_not_tetras();
     test_folding_finds_a_period_and_its_phase();
+    test_a_burst_is_measured_to_its_length();
+    test_what_is_not_a_burst_structure();
+    test_a_burst_cut_by_the_buffer_is_not_measured();
+    test_the_gap_says_what_is_one_burst();
+    test_burst_refusals();
     return check_report("where a carrier is, and whether anything rides it");
 }
