@@ -27,6 +27,7 @@
 #include "view.h"
 #include "tetra_dsp.h"
 #include "tetra_sync.h"
+#include "lte_confirm.h"
 #include "debug_log.h"
 
 /* input_route.h mirrors this so it can stay standalone; if that enum is
@@ -2112,6 +2113,10 @@ static int run_headless(struct app *app) {
         double began, limit = app->options.lte_chain_seconds > 0.0
                                   ? app->options.lte_chain_seconds : 30.0;
         unsigned long blocks = 0, cells = 0, parity = 0, messages = 0;
+        struct lte_cell_tally tally;
+        int primary_read = 0;
+
+        memset(&tally, 0, sizeof(tally));
         struct lte_mib last;
         int have_last = 0;
         uint32_t carrier = 0;
@@ -2230,8 +2235,33 @@ static int run_headless(struct app *app) {
                 for (c = 0; c < count; c++) {
                     if (all[c].pci == cell.pci)
                         continue;
+                    /*
+                     * And whether its broadcast channel decodes under its own
+                     * identity, which is the thing that settles it. Repeating
+                     * is not enough: a search that consistently mistakes a
+                     * sidelobe for a cell reports the same wrong identity
+                     * every block, so a hit count cannot tell a neighbour
+                     * from a habit. A Master Information Block is scrambled
+                     * with the cell identity and checked by a CRC, so it
+                     * cannot fit unless the identity is right.
+                     */
+                    static const int ports[3] = { 1, 2, 4 };
+                    struct lte_mib nm;
+                    int h2, mib_ok = 0;
+                    for (h2 = 0; h2 < 3 && !mib_ok; h2++) {
+                        float soft[LTE_PBCH_SOFT_BITS];
+                        if (lte_pbch_soft_bits(app->i_samples, app->q_samples,
+                                               app->pair_count,
+                                               (double)app->applied_sample_rate,
+                                               &all[c], all[c].subframe0_start,
+                                               ports[h2], soft,
+                                               NULL) != LTE_PBCH_SOFT_BITS)
+                            continue;
+                        mib_ok = lte_mib_decode(soft, all[c].pci, &nm);
+                    }
+                    lte_confirm_saw(&tally, all[c].pci, mib_ok);
                     printf("chain %lu neighbour pci %d n_id_1 %d n_id_2 %d "
-                           "pss %.3f sss %.3f rsrp_dbfs %.1f\n", blocks,
+                           "pss %.3f sss %.3f rsrp_dbfs %.1f mib %s\n", blocks,
                            all[c].pci, all[c].n_id_1, all[c].n_id_2,
                            (double)all[c].pss_correlation,
                            (double)all[c].sss_correlation,
@@ -2239,7 +2269,8 @@ static int run_headless(struct app *app) {
                                                app->pair_count,
                                                (double)app->applied_sample_rate,
                                                &all[c], &np)
-                               ? (double)np.rsrp_dbfs : 0.0);
+                               ? (double)np.rsrp_dbfs : 0.0,
+                           mib_ok ? "yes" : "no");
                 }
             }
             {
@@ -2258,6 +2289,7 @@ static int run_headless(struct app *app) {
                            power.resource_blocks);
             }
 
+            primary_read = 0;
             for (h = 0; h < 3; h++) {
                 float soft[LTE_PBCH_SOFT_BITS];
                 struct lte_mib mib;
@@ -2271,6 +2303,7 @@ static int run_headless(struct app *app) {
                 if (!lte_mib_decode(soft, cell.pci, &mib))
                     continue;
                 parity++;
+                primary_read = 1;
                 /* A parity that passes is not yet a message: sixteen bits
                    accept one block in 65536 and this tries thirty-six a
                    block. What separates them is a repeat that agrees. */
@@ -2293,10 +2326,30 @@ static int run_headless(struct app *app) {
                 }
                 break;
             }
+            /* The cell the block was walked for goes in the tally beside the
+               neighbours, so the verdicts cover the whole carrier. */
+            lte_confirm_saw(&tally, cell.pci, primary_read);
             fflush(stdout);
         }
         printf("lte-chain-summary blocks %lu cells %lu parity %lu messages "
                "%lu\n", blocks, cells, parity, messages);
+        /*
+         * And a verdict per identity, which the per-block lines cannot give.
+         * Seeing an identity often is not evidence that it is a cell: the
+         * search repeats its mistakes, so a sidelobe reported every block
+         * looks exactly like a neighbour. What cannot be repeated into
+         * existence is a broadcast channel scrambled with that identity and
+         * checked by a CRC.
+         */
+        {
+            int t;
+            for (t = 0; t < tally.count; t++) {
+                const struct lte_cell_sighting *seen = &tally.cell[t];
+                printf("lte-chain-cell pci %d looks %d messages %d %s\n",
+                       seen->pci, seen->looks, seen->messages,
+                       lte_cell_verdict_name(lte_cell_verdict_for(seen)));
+            }
+        }
         fflush(stdout);
         if (stop_acquisition(app) < 0)
             return -1;
