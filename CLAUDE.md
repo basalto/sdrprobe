@@ -202,7 +202,10 @@ chose, so the two never fight -- and `config_set_fft_size()` has exactly one
 caller, which is what keeps that true.
 
 `--analysis` opens a decode view on its charts rather than its data — one flag
-for all of them, since every decode view has the same two arrangements.
+for all of them, since every decode view has the same two arrangements. The
+TETRA view's analysis arrangement draws the phase steps and how much of each
+255-symbol slot repeats; its header carries the funnel, because bursts without
+parity is a coding fault and no bursts at all is tuning or band.
 `--view calibration` opens the calibration overlay, and `--calibrate lte`
 alongside it opens on the 4G arrangement. Every screen has to be reachable from
 the command line for the same reason every decision does: the LTE calibration
@@ -560,7 +563,8 @@ acquisition` in `acquisition.h`, and `struct scope_view`, `struct gsm_view`,
 to `struct app`, and if the frame loop needs something from a view, give the
 view an entry point rather than reaching into its fields —
 `view_scope_resize_if_needed()` is the pattern. Each screen has a file — `view_scope.c` (the four Scope views),
-`view_gsm.c`, `view_adsb.c`, `view_lte.c`, `overlay_calibration.c`,
+`view_gsm.c`, `view_adsb.c`, `view_lte.c`, `view_tetra.c`,
+`overlay_calibration.c`,
 `overlay_settings.c` —
 with `src/view.h` declaring what they share. `src/sdrprobe.c` is down to
 acquisition, the tab/header chrome, the frame loop and `main`.

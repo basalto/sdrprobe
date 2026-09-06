@@ -1,4 +1,5 @@
 #include "adsb_layout.h"
+#include "tetra_layout.h"
 #include "lte_layout.h"
 #include "calibration_layout.h"
 #include "fm_layout.h"
@@ -1410,6 +1411,82 @@ static void check_scan_and_help(void) {
     }
 }
 
+/*
+ * The TETRA decode view.
+ *
+ * check-layout compares rectangles and cannot see two panels drawing into the
+ * same one, so overlap is the thing to assert here -- it is exactly what a
+ * screenshot catches and arithmetic does not, unless the arithmetic is asked.
+ * overlaps() is already defined above, for the same reason.
+ */
+static void test_tetra_layout(void) {
+    static const struct { float width, height; const char *name; } windows[] = {
+        { 936.0f, 1018.0f, "the default window" },
+        { 1920.0f, 1080.0f, "a wide one" },
+        { 800.0f, 600.0f, "a small one" },
+        { 640.0f, 480.0f, "smaller than anything sensible" }
+    };
+    size_t w;
+
+    for (w = 0; w < sizeof(windows) / sizeof(*windows); w++) {
+        struct tetra_layout l = tetra_layout_for(windows[w].width,
+                                                 windows[w].height);
+        char name[96];
+
+        snprintf(name, sizeof(name), "%s: the toggle is on screen",
+                 windows[w].name);
+        check_true(name, l.view_toggle.x + l.view_toggle.width <=
+                             windows[w].width);
+        snprintf(name, sizeof(name), "%s: the header stops before the toggle",
+                 windows[w].name);
+        check_true(name, l.header_right <= l.view_toggle.x);
+        snprintf(name, sizeof(name), "%s: and starts before it stops",
+                 windows[w].name);
+        check_true(name, l.header_left < l.header_right);
+
+        /* The four analysis panels must not share a pixel. */
+        snprintf(name, sizeof(name), "%s: constellation clear of the profile",
+                 windows[w].name);
+        check_true(name, !overlaps(l.constellation, l.profile));
+        snprintf(name, sizeof(name), "%s: charts clear of the identity",
+                 windows[w].name);
+        check_true(name, !overlaps(l.constellation, l.identity) &&
+                             !overlaps(l.profile, l.identity));
+        snprintf(name, sizeof(name), "%s: charts clear of the log",
+                 windows[w].name);
+        check_true(name, !overlaps(l.constellation, l.log_split) &&
+                             !overlaps(l.profile, l.log_split));
+        snprintf(name, sizeof(name), "%s: identity clear of the log",
+                 windows[w].name);
+        check_true(name, !overlaps(l.identity, l.log_split));
+        snprintf(name, sizeof(name), "%s: nothing under the toggle",
+                 windows[w].name);
+        check_true(name, !overlaps(l.view_toggle, l.log_full) &&
+                             !overlaps(l.view_toggle, l.constellation) &&
+                             !overlaps(l.view_toggle, l.profile));
+
+        /* The constellation is square, or the four phase steps are drawn on an
+           ellipse and read as drift that is not there. */
+        snprintf(name, sizeof(name), "%s: the constellation is square",
+                 windows[w].name);
+        check_msg(fabsf(l.constellation.width - l.constellation.height) < 0.5f,
+                  "%s: %.1f by %.1f\n", windows[w].name,
+                  (double)l.constellation.width,
+                  (double)l.constellation.height);
+
+        /* Every panel has room to draw something. */
+        snprintf(name, sizeof(name), "%s: every panel has positive size",
+                 windows[w].name);
+        check_true(name, l.log_full.width > 0.0f && l.log_full.height > 0.0f &&
+                             l.identity.width > 0.0f &&
+                             l.identity.height > 0.0f &&
+                             l.profile.width > 0.0f &&
+                             l.profile.height > 0.0f &&
+                             l.log_split.width > 0.0f &&
+                             l.log_split.height > 0.0f);
+    }
+}
+
 int main(void) {
     check_chrome();
     check_calibration_overlay();
@@ -1434,6 +1511,8 @@ int main(void) {
     check_settings_panel();
     check_scope_header();
     check_scope_fields();
+
+    test_tetra_layout();
 
     return check_report("view layout");
 }

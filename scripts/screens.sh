@@ -28,6 +28,7 @@ gsm=testfiles/gsm_arfcn_69.bin
 adsb=testfiles/adsb_cpr_pair.bin
 lte=testfiles/lte_b20_pci28.bin
 fm=testfiles/fm_rds_tsf.bin
+tetra=testfiles/tetra_cc17.bin
 
 # name:arguments. The duration is the settle time as well as the clock, since
 # the frame captured is the last one.
@@ -46,6 +47,8 @@ set -- \
     "lte-charts:--file $lte --view lte --earfcn 6200 --analysis --duration 8" \
     "fm:--file $fm --sample-rate 2048000 --frequency 89.6M --view fm --duration 10" \
     "fm-charts:--file $fm --sample-rate 2048000 --frequency 89.6M --view fm --analysis --duration 10" \
+    "tetra:--file $tetra --sample-rate 2000000 --view tetra --duration 8" \
+    "tetra-charts:--file $tetra --sample-rate 2000000 --view tetra --analysis --duration 8" \
     "calibration-2g:--file $gsm --view calibration --duration 5" \
     "calibration-4g:--file $gsm --view calibration --calibrate lte --duration 5" \
     "settings:--file $gsm --view settings --duration 5" \

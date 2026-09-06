@@ -244,6 +244,11 @@ int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
                           struct sdr_carrier_report *report);
 void handle_survey_input(struct app *app);
 void draw_survey(struct app *app);
+
+/* TETRA (Decode tab): the network's identity, and how it was read. */
+void update_tetra(struct app *app, double now);
+void draw_tetra(struct app *app);
+void handle_tetra_input(struct app *app);
 /* True while a range field is taking typed input, so the frame loop leaves the
    number keys and Esc to the field rather than switching views or quitting. */
 int survey_editing(const struct app *app);
