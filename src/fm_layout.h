@@ -3,6 +3,14 @@
 
 #include <raylib.h>
 
+#include "panel_rows.h"
+
+/* draw_panel() drops its first row 36 px under the panel top, and the rows
+   are 20 apart. Here rather than in the drawing, so check-layout can see
+   whether they fit. */
+#define FM_PANEL_CAPTION_DROP 36.0f
+#define FM_PANEL_ROW_HEIGHT 20.0f
+
 /*
  * Where the FM decode view puts things.
  *
