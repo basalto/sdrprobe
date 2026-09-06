@@ -824,6 +824,40 @@ static void check_lte(void) {
                       i + 1);
         check_msg(l.waterfall.y + l.waterfall.height <= row[0].y + 0.01f,
                   "%.0fx%.0f: the waterfall runs into the panels\n", w, h);
+        /*
+         * The rows inside each panel. These used to be computed between draw
+         * calls, so a panel that held six rows was given ten and nothing
+         * could see it. Every row a caller is allowed to draw must land
+         * inside the rectangle, and the footer under them must too.
+         */
+        for (int i = 0; i < 3; i++) {
+            struct lte_panel_rows rows = lte_panel_rows_for(row[i]);
+            float last = rows.first_y + (float)(rows.capacity - 1) * rows.step;
+            check_msg(rows.capacity >= 0,
+                      "%.0fx%.0f: panel %d has a negative row capacity\n", w,
+                      h, i);
+            if (rows.capacity > 0)
+                check_msg(last + rows.step <= row[i].y + row[i].height + 0.01f,
+                          "%.0fx%.0f: panel %d's last row leaves the panel\n",
+                          w, h, i);
+            check_msg(rows.footer_y + LTE_PANEL_FOOTER_HEIGHT <=
+                          row[i].y + row[i].height + 0.01f,
+                      "%.0fx%.0f: panel %d's footer leaves the panel\n", w, h,
+                      i);
+            check_msg(rows.first_y >= row[i].y + LTE_PANEL_CAPTION_DROP - 0.01f,
+                      "%.0fx%.0f: panel %d's first row is under the caption\n",
+                      w, h, i);
+            /* Label and value must not overlap, and both must have room. */
+            check_msg(rows.label_x + rows.label_width <= rows.value_x + 0.01f,
+                      "%.0fx%.0f: panel %d's label runs into its value\n", w,
+                      h, i);
+            check_msg(rows.value_x + rows.value_width <=
+                          row[i].x + row[i].width - 12.0f + 0.01f,
+                      "%.0fx%.0f: panel %d's value leaves the panel\n", w, h,
+                      i);
+            check_msg(rows.value_width > 0.0f && rows.label_width > 0.0f,
+                      "%.0fx%.0f: panel %d has a collapsed column\n", w, h, i);
+        }
         /* The waterfall spans the row, so the screen reads as one column of
            content rather than two that happen to be stacked. */
         check_msg(fabsf(l.waterfall.x - l.found_panel.x) <= 0.01f,
