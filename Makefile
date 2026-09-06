@@ -34,7 +34,9 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h $(SRC)/app.h $(SRC)/view.h \
 	$(SRC)/version.h \
 	$(SRC)/panel_rows.h $(SRC)/lte_stats.h $(SRC)/lte_confirm.h \
-	$(SRC)/lte_findings.h
+	$(SRC)/lte_findings.h \
+	$(SRC)/chart_window.h $(SRC)/help_layout.h $(SRC)/scan_layout.h \
+	$(SRC)/scope_layout.h $(SRC)/settings_layout.h
 DSP_HDR=$(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
 	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h $(SRC)/lte_scan.h \
 	$(SRC)/fm_dsp.h $(SRC)/rds.h $(SRC)/tetra_dsp.h $(SRC)/tetra_sync.h
