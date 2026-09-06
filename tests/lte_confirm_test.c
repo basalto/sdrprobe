@@ -75,13 +75,53 @@ static void test_the_table_does_not_churn(void) {
     for (i = 0; i < LTE_CONFIRM_MAX_CELLS + 4; i++)
         lte_confirm_saw(&t, 100 + i, 1);
     check_int("the table fills and stops", t.count, LTE_CONFIRM_MAX_CELLS);
-    /* What was there first stays there. A table that evicts reports whatever
-       arrived last, which on a noisy carrier is the newest artefact. */
+    /* Everything in it has a message, so nothing is disposable and the
+       newcomer is turned away rather than displacing a cell. */
     check_int("the first identity is still the first", t.cell[0].pci, 100);
 
     /* And an identity already in the table is still counted once it is full. */
     lte_confirm_saw(&t, 100, 1);
     check_int("a known identity still accumulates", t.cell[0].looks, 2);
+}
+
+/*
+ * A run of singletons must not bury a cell that appears late.
+ *
+ * Measured: an eight-entry table on EARFCN 3625 filled with 187, 410, 191,
+ * 406, 318, 23 and 163 -- one real cell among them -- and PCI 190, confirmed
+ * in other runs of the same channel, never got a slot. Sizing the table helps
+ * and does not settle it, because the supply of artefacts is not bounded.
+ */
+static void test_a_singleton_yields_its_slot(void) {
+    struct lte_cell_tally t;
+    int i;
+    memset(&t, 0, sizeof(t));
+
+    /* One established cell, then a table full of one-look noise. */
+    lte_confirm_saw(&t, 402, 1);
+    lte_confirm_saw(&t, 402, 1);
+    for (i = 1; i < LTE_CONFIRM_MAX_CELLS; i++)
+        lte_confirm_saw(&t, 200 + i, 0);
+    check_int("the table is full", t.count, LTE_CONFIRM_MAX_CELLS);
+
+    /* The late arrival takes a singleton's slot and can then be confirmed. */
+    lte_confirm_saw(&t, 190, 1);
+    lte_confirm_saw(&t, 190, 1);
+    check_int("the table did not grow", t.count, LTE_CONFIRM_MAX_CELLS);
+    for (i = 0; i < t.count; i++) {
+        if (t.cell[i].pci != 190)
+            continue;
+        check_str("the late cell is confirmed",
+                  lte_cell_verdict_name(lte_cell_verdict_for(&t.cell[i])),
+                  "confirmed");
+        break;
+    }
+    check_true("the late cell got in", i < t.count);
+    /* And the established one was not the slot that was taken. */
+    for (i = 0; i < t.count; i++)
+        if (t.cell[i].pci == 402)
+            break;
+    check_true("the cell already read is still there", i < t.count);
 }
 
 static void test_blocks_are_counted_separately(void) {
@@ -103,6 +143,7 @@ int main(void) {
     test_repetition_does_not_confirm();
     test_one_look_is_an_opinion();
     test_the_table_does_not_churn();
+    test_a_singleton_yields_its_slot();
     test_blocks_are_counted_separately();
     return check_report("which cell identities are believed");
 }

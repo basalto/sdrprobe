@@ -2115,6 +2115,8 @@ static int run_headless(struct app *app) {
         unsigned long blocks = 0, cells = 0, parity = 0, messages = 0;
         struct lte_cell_tally tally;
         int primary_read = 0;
+        struct lte_cell on_carrier[LTE_MAX_CELLS_PER_CARRIER];
+        int found_cells = 0;
 
         memset(&tally, 0, sizeof(tally));
         struct lte_mib last;
@@ -2196,10 +2198,34 @@ static int run_headless(struct app *app) {
             if (app->pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE)
                 continue;
             blocks++;
-            if (lte_cell_search(app->i_samples, app->q_samples,
-                                app->pair_count,
-                                (double)app->applied_sample_rate, &cell,
-                                NULL) != 1) {
+            /*
+             * One scan for the whole carrier. This used to search twice --
+             * once for the cell being walked and once again for its
+             * neighbours -- which is eleven milliseconds of a sixty-eight
+             * millisecond block spent finding the same peaks a second time.
+             *
+             * The cell reported first is now the strongest by reference
+             * power rather than by correlation, which is the better
+             * definition of "the cell here" and the one the neighbour list
+             * was already ordered by: a correlation says how well a sequence
+             * matched, not how loud a transmitter is.
+             *
+             * The single-cell search is still called when nothing survives,
+             * and only then -- it fills in what it measured even when it
+             * refuses, which is what the no-cell line reports, and a block
+             * with no cell in it has the time to spare.
+             */
+            found_cells = lte_cell_search_all(app->i_samples, app->q_samples,
+                                              app->pair_count,
+                                              (double)app->applied_sample_rate,
+                                              on_carrier,
+                                              LTE_MAX_CELLS_PER_CARRIER, NULL);
+            if (found_cells > 0) {
+                cell = on_carrier[0];
+            } else if (lte_cell_search(app->i_samples, app->q_samples,
+                                       app->pair_count,
+                                       (double)app->applied_sample_rate, &cell,
+                                       NULL) != 1) {
                 printf("chain %lu pss %.3f %.3f n_id_2 %d timing - "
                        "offset_hz - integer - no-cell\n", blocks,
                        (double)cell.pss_correlation,
@@ -2224,13 +2250,9 @@ static int run_headless(struct app *app) {
                  * cell changing its mind -- which is how EARFCN 3625's pair
                  * were found in the first place.
                  */
-                struct lte_cell all[LTE_MAX_CELLS_PER_CARRIER];
+                struct lte_cell *all = on_carrier;
                 struct lte_reference_power np;
-                int count = lte_cell_search_all(app->i_samples, app->q_samples,
-                                                app->pair_count,
-                                                (double)app->applied_sample_rate,
-                                                all, LTE_MAX_CELLS_PER_CARRIER,
-                                                NULL);
+                int count = found_cells;
                 int c;
                 for (c = 0; c < count; c++) {
                     if (all[c].pci == cell.pci)
