@@ -90,6 +90,15 @@ displays a PNG. Look at the ones your change touched, and at their
 neighbours; bare `make screens` renders all twelve and takes a minute, which
 is the wrong tool for a change that moved one panel.
 
+Panel rows are part of that geometry. `lte_layout.h` gives a panel's row
+positions, its label and value columns and how many rows it *holds*
+(`lte_panel_rows_for`), because the LTE view computed them as `y += 21`
+between draw calls and so drew ten rows and a footer into a rectangle with
+room for six -- invisible to `check-layout`, which only saw the rectangle. A
+row past the capacity is not drawn at all: off the bottom edge is worse than
+absent, so the caller orders its rows and the ones that fit are the ones that
+matter.
+
 `check-layout` is necessary and nowhere near sufficient. It compares
 rectangles, so it cannot see two panels drawing into the *same* rectangle, a
 picker offering bands the receiver cannot tune, a field reading "N/A" under a

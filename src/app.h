@@ -511,6 +511,10 @@ struct lte_view {
        the cell transmits on, before any message decodes. */
     float port_coherence[LTE_PORT_COUNT];
     int port_coherence_valid;
+    /* The channel's delay, its spread, and the drift left after the search's
+       own frequency correction. */
+    struct lte_channel_shape shape;
+    int shape_valid;
     struct lte_mib mib;
     int mib_valid;
     double mib_time;
