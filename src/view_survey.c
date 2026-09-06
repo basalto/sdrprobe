@@ -303,6 +303,8 @@ static int survey_confirm_begin(struct app *app) {
     for (i = 0; i < s->carrier_count && count < SURVEY_CONFIRM_MAX; i++) {
         if (s->carrier_status[i] != SITE_STATUS_NEW)
             continue;
+        memset(&s->confirm.target[count], 0,
+               sizeof(s->confirm.target[count]));
         s->confirm.target[count].hz = s->carriers[i].centre_hz;
         s->confirm.target[count].claim = SURVEY_CLAIM_NEW;
         s->confirm.target[count].verdict = SURVEY_VERDICT_PENDING;
@@ -310,6 +312,8 @@ static int survey_confirm_begin(struct app *app) {
         count++;
     }
     for (i = 0; i < s->missing_count && count < SURVEY_CONFIRM_MAX; i++) {
+        memset(&s->confirm.target[count], 0,
+               sizeof(s->confirm.target[count]));
         s->confirm.target[count].hz = s->missing[i]->hz;
         s->confirm.target[count].claim = SURVEY_CLAIM_MISSING;
         s->confirm.target[count].verdict = SURVEY_VERDICT_PENDING;
@@ -326,7 +330,9 @@ static int survey_confirm_begin(struct app *app) {
     s->confirm.refuted = 0;
     s->confirm.running = 1;
     s->confirm.return_frequency = app->applied_frequency;
-    if (retune_receiver(app, (uint32_t)llround(s->confirm.target[0].hz),
+    if (retune_receiver(app,
+                        (uint32_t)llround(s->confirm.target[0].hz -
+                                          SURVEY_CONFIRM_OFFSET_HZ),
                         app->applied_ppm) < 0) {
         s->confirm.running = 0;
         return -1;
@@ -353,6 +359,53 @@ void survey_confirm_begin_target(struct app *app) {
     app->survey.confirm.measured = 0;
     app->survey.confirm.hits = 0;
     app->survey.confirm.looks = 0;
+    /* Cleared, not carried over: a target the pass never catches must read as
+       never measured rather than inheriting the previous one's answer, which
+       is the quietest way to attribute one signal's kind to another. */
+    app->survey.confirm.kind_measured = 0;
+    memset(&app->survey.confirm.carrier, 0,
+           sizeof(app->survey.confirm.carrier));
+    memset(&app->survey.confirm.bursts, 0, sizeof(app->survey.confirm.bursts));
+    memset(&app->survey.confirm.envelope, 0,
+           sizeof(app->survey.confirm.envelope));
+}
+
+/*
+ * What kind of thing this look found, from the raw samples.
+ *
+ * Only on a look that found the signal at all. Measuring the kind of a block
+ * the carrier was absent from measures the noise -- and it would then
+ * overwrite a look that had caught it, which for anything bursty is most of
+ * them. The pass already holds its best look for the same reason.
+ *
+ * The search window is centred where the target was *put* rather than where
+ * the spectrum says it is: the pass tunes SURVEY_CONFIRM_OFFSET_HZ below it
+ * so the signal lands clear of the receiver's own DC spike, and that offset
+ * is also the guard signal_find_carrier() needs.
+ */
+static void survey_confirm_measure_kind(struct app *app,
+                                        const struct sdr_carrier_report *block) {
+    struct survey_view *s = &app->survey;
+    double at = SURVEY_CONFIRM_OFFSET_HZ;
+    double channel = block->bandwidth_hz;
+
+    if (channel < SURVEY_CARRIER_MIN_CHANNEL_HZ)
+        channel = SURVEY_CARRIER_MIN_CHANNEL_HZ;
+    if (!signal_find_carrier(app->i_samples, app->q_samples, app->pair_count,
+                             (double)app->applied_sample_rate,
+                             at - SURVEY_CARRIER_SEARCH_HZ,
+                             at + SURVEY_CARRIER_SEARCH_HZ,
+                             SURVEY_CONFIRM_OFFSET_HZ / 2.0, channel,
+                             &s->confirm.carrier))
+        return;
+    signal_find_bursts(app->i_samples, app->q_samples, app->pair_count,
+                       (double)app->applied_sample_rate,
+                       SIGNAL_BURST_GAP_DEFAULT, &s->confirm.bursts);
+    signal_envelope_stats(app->i_samples, app->q_samples, app->pair_count,
+                          (double)app->applied_sample_rate,
+                          s->confirm.carrier.offset_hz, channel,
+                          &s->confirm.envelope);
+    s->confirm.kind_measured = 1;
 }
 
 /*
@@ -383,10 +436,20 @@ void survey_confirm_look(struct app *app, double hz) {
         s->confirm.hits++;
     /* Kept even when it did not clear the bar: a refuted target saying how
        close it came is worth more than one saying nothing. */
-    if (!s->confirm.measured ||
-        block.prominence_db > s->confirm.best.prominence_db) {
+    if (survey_confirm_better(s->confirm.measured,
+                              s->confirm.best.prominence_db,
+                              block.prominence_db)) {
         s->confirm.best = block;
         s->confirm.measured = 1;
+        /*
+         * And the kind comes from the same look, so every number reported
+         * about a target describes one block of signal. Only when the signal
+         * was actually present: measuring the kind of a block it was absent
+         * from measures the noise, and for anything bursty that is most of
+         * them.
+         */
+        if (survey_confirm_present(block.prominence_db))
+            survey_confirm_measure_kind(app, &block);
     }
 }
 
@@ -417,6 +480,10 @@ int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
      */
     target->bandwidth_hz = s->confirm.measured ? s->confirm.best.bandwidth_hz
                                                : 0.0;
+    target->kind_measured = s->confirm.kind_measured;
+    target->carrier = s->confirm.carrier;
+    target->bursts = s->confirm.bursts;
+    target->envelope = s->confirm.envelope;
     target->suspicion = s->confirm.measured
                             ? survey_suspect_confirmed(
                                   s->confirm.best.centre_hz,
@@ -544,7 +611,9 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
         return;
     }
     if (retune_receiver(app,
-                        (uint32_t)llround(s->confirm.target[s->confirm.index].hz),
+                        (uint32_t)llround(
+                            s->confirm.target[s->confirm.index].hz -
+                            SURVEY_CONFIRM_OFFSET_HZ),
                         app->applied_ppm) < 0) {
         survey_confirm_finish(app);
         return;
@@ -1264,9 +1333,6 @@ static void survey_walk_to(struct app *app, int rank, Rectangle list) {
  * signal's, and a channel narrower than the line itself compares the carrier
  * against nothing.
  */
-#define SURVEY_CARRIER_SEARCH_HZ 40000.0
-#define SURVEY_CARRIER_MIN_CHANNEL_HZ 20000.0
-
 static void survey_measure_carrier(struct app *app,
                                    const struct sdr_carrier_report *report) {
     struct survey_view *s = &app->survey;

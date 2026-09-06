@@ -1,6 +1,9 @@
 #ifndef SURVEY_CONFIRM_H
 #define SURVEY_CONFIRM_H
 
+#include "signal_probe.h"
+#include "survey_sweep.h"
+
 /*
  * Asking again about the handful of things that changed.
  *
@@ -36,6 +39,28 @@
  * expensive error: it teaches the history that a real transmitter is noise.
  */
 #define SURVEY_CONFIRM_PROMINENCE_DB 6.0f
+
+/*
+ * The pass tunes this far below each target rather than onto it.
+ *
+ * `signal_find_carrier()` guards a band around zero so it cannot lock onto
+ * the receiver's own DC offset -- the strongest thing in any capture, at an
+ * empty frequency as readily as an occupied one, and the mistake that cost
+ * `.scratch/signal-probe/` ticket 01 four attempts. Tuned onto the target,
+ * a guarded search would skip the very signal it was pointed at.
+ *
+ * `survey_select()` already does this and says so. What it costs was measured
+ * rather than assumed, because an earlier reading of this had it backwards:
+ * the same 75.0005 MHz carrier recorded at both tunings reads 21.9 dB of
+ * prominence tuned onto it and 20.1 dB tuned 300 kHz below. Two decibels, and
+ * in that direction -- the DC filter subtracts the sample mean, and a carrier
+ * at the tuned frequency sits at the tuning error rather than at exactly
+ * zero, so its mean is near nothing and the filter does not touch it.
+ *
+ * Two decibels against a 6 dB bar that the sweep's own threshold already
+ * clears with margin.
+ */
+#define SURVEY_CONFIRM_OFFSET_HZ SURVEY_OFFSET_HZ
 
 /* What the sweep claimed about a frequency. */
 enum survey_claim {
@@ -95,7 +120,43 @@ struct survey_confirm_target {
      */
     double bandwidth_hz;
     unsigned suspicion;        /* enum survey_suspicion, at the finer look */
+    /*
+     * And what kind of thing it is, from `signal_probe` -- is there a
+     * standing carrier, does it transmit in bursts, how much does its
+     * envelope vary. Taken here rather than only in the window because a
+     * saved survey that records level and width and nothing about kind
+     * cannot answer "was this carrier bare in June and modulated in
+     * September", which is the comparison the history exists for.
+     *
+     * `kind_measured` is separate from the numbers and load-bearing: a target
+     * the pass never caught must read as never measured rather than as zero,
+     * and zero is the most misleading value each of these can take -- a
+     * carrier fraction of 0 is "heavily modulated" and a burst count of 0 is
+     * "continuous".
+     */
+    int kind_measured;
+    struct signal_carrier carrier;
+    struct signal_bursts bursts;
+    struct signal_envelope envelope;
 };
+
+/*
+ * Should this look replace the one being kept?
+ *
+ * The pass keeps the best single look rather than an average, and everything
+ * it reports about a target has to come from *that* look -- the level, the
+ * width, and now the kind. Taking the kind from whichever look happened to be
+ * last would put a carrier fraction beside a prominence measured in a
+ * different block, and for anything bursty those are different signals: one
+ * caught the transmission and one caught the gap.
+ *
+ * `measured` is whether anything is being kept yet, so the first look that
+ * finds the signal always wins.
+ */
+static inline int survey_confirm_better(int measured, float kept_db,
+                                        float look_db) {
+    return !measured || look_db > kept_db;
+}
 
 /*
  * Was it there, and how often?
