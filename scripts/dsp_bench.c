@@ -119,7 +119,8 @@ int main(int argc, char **argv) {
 
     start = now_ms();
     for (int r = 0; r < runs; r++)
-        sdr_dsp_spectrum(&dsp, i_samples, q_samples, pairs, average, maximum);
+        sdr_dsp_spectrum(&dsp, i_samples, q_samples, pairs, SDR_DSP_FFT_SIZE,
+                         average, maximum);
     report("spectrum: 64 x 2048-point FFT", now_ms() - start, runs);
 
     struct adsb_decoder decoder;
@@ -228,6 +229,57 @@ int main(int argc, char **argv) {
             printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
                    "  and the message behind them", per,
                    100.0 * per / lte_budget_ms);
+        }
+
+        /*
+         * And what one block of --lte-chain actually runs, which is not the
+         * same as what the cell search costs. Each of these reads symbols and
+         * runs its own transforms; they were added one at a time and nobody
+         * added them up.
+         */
+        if (cell.detected) {
+            struct lte_cell carrier[LTE_MAX_CELLS_PER_CARRIER];
+            struct lte_reference_power power;
+            struct lte_channel_shape shape;
+            float coherence[LTE_PORT_COUNT];
+
+            puts("  what one --lte-chain block runs on top of that");
+
+            start = now_ms();
+            for (int r = 0; r < lte_runs; r++)
+                lte_cell_search_all(i_samples, q_samples, pairs,
+                                    LTE_SAMPLE_RATE_HZ, carrier,
+                                    LTE_MAX_CELLS_PER_CARRIER, NULL);
+            per = (now_ms() - start) / lte_runs;
+            printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
+                   "  every cell on the carrier", per,
+                   100.0 * per / lte_budget_ms);
+
+            start = now_ms();
+            for (int r = 0; r < runs; r++)
+                lte_reference_power(i_samples, q_samples, pairs,
+                                    LTE_SAMPLE_RATE_HZ, &cell, &power);
+            per = (now_ms() - start) / runs;
+            printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
+                   "  reference power, x3 a block", per,
+                   100.0 * per / lte_budget_ms);
+
+            start = now_ms();
+            for (int r = 0; r < runs; r++)
+                lte_port_coherence(i_samples, q_samples, pairs,
+                                   LTE_SAMPLE_RATE_HZ, &cell, coherence);
+            per = (now_ms() - start) / runs;
+            printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
+                   "  port coherence, x2 a block", per,
+                   100.0 * per / lte_budget_ms);
+
+            start = now_ms();
+            for (int r = 0; r < runs; r++)
+                lte_channel_shape(i_samples, q_samples, pairs,
+                                  LTE_SAMPLE_RATE_HZ, &cell, &shape);
+            per = (now_ms() - start) / runs;
+            printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
+                   "  channel shape", per, 100.0 * per / lte_budget_ms);
         }
     }
 
