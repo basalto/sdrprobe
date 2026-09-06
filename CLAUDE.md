@@ -91,18 +91,25 @@ neighbours; bare `make screens` renders all twelve and takes a minute, which
 is the wrong tool for a change that moved one panel.
 
 `src/lte_findings.h` turns those numbers into sentences, in the broadcast
-panel and as `lte-chain-finding` lines. **Two of the five are refusals and
-they are the point.** The 3GPP channel profiles -- EPA 45 ns, EVA 357, ETU 991
-(36.104 annex B.2) -- all sit under the ~1010 ns this receiver resolves, since
-references six subcarriers apart put twelve of them across 990 kHz and the
-resolution is its reciprocal; printing "EVA" from a measurement that cannot
-separate it from EPA would be inventing the answer a reader wanted. And a
-Doppler and a residual tuning error are one phase, so at 1.16 km/h per hertz
-the drift measures the crystal with any motion buried inside it. Each caveat
-shares a line with the claim it qualifies, because the first version had them
-separate and the panel ran out of room after the claim.
+panel and as `lte-chain-finding` lines. One of them is a refusal and it is the point: a Doppler and a residual tuning
+error are one phase, so at 1.16 km/h per hertz the drift measures the crystal
+with any motion buried inside it, and indoor against outdoor is not measured
+at all.
 
-The cell panel is a table of what each measurement *did*, not what it says
+**The delay spread is bounded at both ends and the bounds are not the obvious
+one.** An earlier version refused to place it among 36.104's profiles because
+EPA (45 ns), EVA (357) and ETU (991) are all finer than the ~1010 ns of one
+over the references' 990 kHz span. That was the wrong criterion: 1/span
+resolves individual taps, and this estimator measures the *scatter* of the
+phase steps, which for a spread tau is 2*pi*90kHz*tau. Its floor is the noise,
+`1/sqrt(rho)` of phase error per step -- 559 ns at 10 dB of RS-SINR, 177 at 20,
+70 at 28 -- so EVA and ETU are comfortably measurable at the 28 dB the cells
+here read and only EPA is out of reach. The real limit is at the top: the
+scatter follows sin(phi) rather than phi, so it reads 9% low by three quarters
+of a radian (1326 ns) and the steps wrap at one (1768 ns), past which the
+number is not a delay. All three cases are named on screen for what they are.
+
+The cell panel is a table of what each measurement The cell panel is a table of what each measurement *did*, not what it says
 this block: smallest, mean and largest since the identity last changed
 (`src/lte_stats.h`, and `lte-chain-stat` lines in the headless report). Every
 one of those moves -- a correlation drops when somebody walks past the

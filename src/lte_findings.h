@@ -21,18 +21,27 @@
  * here rather than omitted, because a reader who is not told cannot know the
  * question was asked.
  *
- * **The 3GPP channel profile cannot be named.** EPA, EVA and ETU (36.104
- * annex B.2) have rms delay spreads of 45, 357 and 991 nanoseconds, and this
- * receiver resolves about 1010: reference signals sit six subcarriers apart,
- * so twelve of them span 990 kHz and the delay resolution is its reciprocal.
- * **All three profiles sit under the floor.** Printing "EVA" from a
- * measurement that cannot separate it from EPA would be inventing the answer
- * a reader wanted.
+ * **What the delay spread can and cannot reach.** An earlier version of this
+ * refused to say anything about the 3GPP profiles at all, on the grounds that
+ * EPA (45 ns), EVA (357) and ETU (991) all sit under the ~1010 ns given by
+ * one over the references' 990 kHz span. That was the wrong criterion and the
+ * refusal was too strong: 1/span is the resolution for separating individual
+ * multipath taps, and this estimator does not separate taps. It measures the
+ * *scatter* of the phase steps, which for an rms delay spread tau is
+ * 2*pi*90kHz*tau, and its floor is set by the noise rather than by the span:
  *
- * **Motion cannot be separated from the crystal.** A Doppler shift and a
- * residual tuning error are the same phase. At 927 MHz one hertz is 1.16 km/h
- * and the drift here spans tens to hundreds of hertz, so what is measured is
- * the receiver's own oscillator with any motion buried inside it.
+ *   RS-SINR 10 dB -> 0.32 rad of noise per step -> 559 ns
+ *   RS-SINR 20 dB -> 0.10                       -> 177 ns
+ *   RS-SINR 28 dB -> 0.040                      ->  70 ns
+ *
+ * At the 28 dB the cells here read, EVA and ETU are comfortably measurable --
+ * EVA's scatter is five times the noise -- and only EPA is out of reach.
+ *
+ * The real limit is at the other end. A step reaches a radian at 1768 ns and
+ * the estimate saturates, so a spread near that is a **lower bound**: a more
+ * dispersive channel reads compressed towards it and cannot be told from one
+ * sitting exactly there. That is fixed by the 90 kHz grid and no receiver
+ * changes it.
  *
  * And indoor against outdoor is not measured at all: what arrives describes
  * the path it took, not where either end of it stands.
@@ -44,9 +53,26 @@
 #define LTE_FINDING_LINES 8
 #define LTE_FINDING_TEXT 120
 
-/* References six subcarriers apart, twelve of them: 11 * 90 kHz of span, and
-   the delay resolution is one over that. */
-#define LTE_DELAY_RESOLUTION_NS 1010.0
+/*
+ * Nanoseconds of rms delay spread per radian of step scatter: the references
+ * are 90 kHz apart and the scatter is 2*pi*df*tau, so one radian is
+ * 1/(2*pi*90kHz).
+ */
+#define LTE_SPREAD_PER_RADIAN_NS 1768.4
+
+/* Where a step reaches a radian and the estimate stops growing with the
+   channel. Read anything near it as a lower bound. */
+#define LTE_SPREAD_SATURATION_NS LTE_SPREAD_PER_RADIAN_NS
+
+/*
+ * And where it has started to matter, chosen by the error rather than by
+ * taste. The scatter follows sin(phi) rather than phi, so the reading falls
+ * short by 1 - sin(phi)/phi: 4.1% at half a radian, 9.1% at three quarters,
+ * 15.9% at one. Three quarters is where a tenth of the answer has gone, which
+ * is the point at which calling it a value rather than a bound would be
+ * misleading.
+ */
+#define LTE_SPREAD_COMPRESSED_NS (LTE_SPREAD_PER_RADIAN_NS * 0.75)
 
 /* 36.104 annex B.2, rms delay spread. Named so the refusal can be specific:
    a reader deserves to know which profiles were ruled out and by what. */
@@ -58,6 +84,32 @@
    than a stock dongle ships with; ADR-0004's calibration works in ppm and
    this is the same unit. */
 #define LTE_CRYSTAL_GOOD_PPM 2.0
+
+/*
+ * The smallest delay spread this can distinguish from noise, at a given
+ * signal to noise: each step carries about 1/sqrt(rho) of phase error, and
+ * below that the scatter is the receiver rather than the channel.
+ */
+static inline double lte_spread_floor_ns(double sinr_db) {
+    double rho = pow(10.0, sinr_db / 10.0);
+
+    if (!(rho > 0.0))
+        return LTE_SPREAD_SATURATION_NS;
+    return LTE_SPREAD_PER_RADIAN_NS / sqrt(rho);
+}
+
+/* Where a spread sits among the 36.104 annex B.2 profiles. They are conformance
+   models rather than a taxonomy of places, so this says where the measurement
+   falls among them and never that the channel "is" one. */
+static inline const char *lte_spread_against_profiles(double ns) {
+    if (ns < LTE_PROFILE_EPA_NS)
+        return "flatter than EPA's 45 ns";
+    if (ns < LTE_PROFILE_EVA_NS)
+        return "between EPA's 45 ns and EVA's 357";
+    if (ns < LTE_PROFILE_ETU_NS)
+        return "between EVA's 357 ns and ETU's 991";
+    return "past ETU's 991 ns";
+}
 
 struct lte_findings {
     char line[LTE_FINDING_LINES][LTE_FINDING_TEXT];
@@ -142,24 +194,47 @@ static inline int lte_findings_from(const struct lte_cell_stats *st,
      */
     if (st->spread_ns.count) {
         /*
-         * The claim and its limit are one line, not two.
-         *
-         * They were two, and the panel ran out of room after the first: a
-         * reader saw "dispersive, 1.4 us" and never the sentence saying no
-         * 3GPP profile follows from it. A caveat that can be dropped
-         * separately from the claim it qualifies is not a caveat.
+         * The claim and its limit are one line, not two. They were two, the
+         * panel ran out of room after the first, and a reader saw
+         * "dispersive, 1.4 us" and never the sentence qualifying it. A caveat
+         * that can be dropped separately from its claim is not a caveat.
          */
+        char text[LTE_FINDING_TEXT];
+        double sinr = st->sinr_db.count
+                          ? (double)lte_stat_mean(&st->sinr_db) : 0.0;
+        double floor_ns = lte_spread_floor_ns(sinr);
+
         spread = (double)lte_stat_mean(&st->spread_ns);
-        if (spread >= LTE_DELAY_RESOLUTION_NS)
-            lte_finding_add(out, "Dispersive: %.1f us of spread, over the "
-                                 "%.1f us resolved -- so no 3GPP profile "
-                                 "follows; EPA and EVA are both finer.",
-                            spread / 1e3, LTE_DELAY_RESOLUTION_NS / 1e3);
+        if (spread < floor_ns)
+            snprintf(text, sizeof(text),
+                     "Flat: %.0f ns of spread, under the %.0f ns that %.0f dB "
+                     "of RS-SINR can tell from noise.",
+                     spread, floor_ns, sinr);
+        else if (spread >= LTE_SPREAD_SATURATION_NS)
+            /*
+             * Past a radian the steps wrap, and a wrapped scatter is not a
+             * delay at all. The number is reported because hiding it would
+             * leave a reader wondering, but it is named for what it is.
+             */
+            snprintf(text, sizeof(text),
+                     "Beyond measure: %.1f us is past the %.1f us where "
+                     "90 kHz references wrap. More dispersive than this says.",
+                     spread / 1e3, LTE_SPREAD_SATURATION_NS / 1e3);
+        else if (spread >= LTE_SPREAD_COMPRESSED_NS)
+            /* Approaching a radian a step stops growing with the channel, so
+               this is where the number is a bound and not a value. */
+            snprintf(text, sizeof(text),
+                     "Dispersive: %.1f us, %s -- reading low as it nears the "
+                     "%.1f us wrap, so a floor.",
+                     spread / 1e3, lte_spread_against_profiles(spread),
+                     LTE_SPREAD_SATURATION_NS / 1e3);
         else
-            lte_finding_add(out, "Flat: %.0f ns of spread, under the %.0f ns "
-                                 "resolved -- so no 3GPP profile follows; "
-                                 "EPA and EVA are both finer.",
-                            spread, LTE_DELAY_RESOLUTION_NS);
+            snprintf(text, sizeof(text),
+                     "Spread %.0f ns, %s. Above the %.0f ns floor that "
+                     "%.0f dB of RS-SINR sets.",
+                     spread, lte_spread_against_profiles(spread), floor_ns,
+                     sinr);
+        lte_finding_text(out, text);
     }
 
     /* Motion, and why it is not measurable here. */
