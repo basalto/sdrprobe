@@ -2252,9 +2252,10 @@ static int run_headless(struct app *app) {
                                         (double)app->applied_sample_rate,
                                         &cell, &power))
                     printf("chain %lu power rsrp_dbfs %.1f rssi_dbfs %.1f "
-                           "rsrq_db %.1f blocks %d\n", blocks,
+                           "rsrq_db %.1f sinr_db %.1f blocks %d\n", blocks,
                            (double)power.rsrp_dbfs, (double)power.rssi_dbfs,
-                           (double)power.rsrq_db, power.resource_blocks);
+                           (double)power.rsrq_db, (double)power.sinr_db,
+                           power.resource_blocks);
             }
 
             for (h = 0; h < 3; h++) {

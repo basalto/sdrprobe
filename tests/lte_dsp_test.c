@@ -207,6 +207,20 @@ static void place_sync(int pci) {
             grid_add(pss_symbol, sc, 0, pss_re[n], pss_im[n]);
             grid_add(sss_symbol, sc, 0, sss[n], 0.0);
         }
+        /*
+         * And the five either side, which 36.211 clause 6.11.1.2 reserves and
+         * does not transmit. `fill_other_traffic` writes across the whole
+         * span, so without this the buffer carries data where the air carries
+         * nothing -- and those ten resource elements are the only place a
+         * receiver can measure noise without a channel in the way.
+         */
+        for (n = LTE_SYNC_SUBCARRIERS / 2; n < LTE_SYNC_SUBCARRIERS / 2 + 5;
+             n++) {
+            grid_set_silent(pss_symbol, n + 1);
+            grid_set_silent(sss_symbol, n + 1);
+            grid_set_silent(pss_symbol, -(n + 1));
+            grid_set_silent(sss_symbol, -(n + 1));
+        }
     }
 }
 
@@ -1208,6 +1222,60 @@ static void test_one_cell_stays_one(void) {
     check_int("and it is the one that was built", cells[0].pci, 227);
 }
 
+/*
+ * RS-SINR, checked against noise that was put there on purpose.
+ *
+ * A single value proves nothing here -- any arithmetic returns one. What
+ * makes this a measurement is that it *tracks*: `build_buffer` takes the
+ * noise amplitude, so quadrupling it must cost twelve decibels, and the
+ * reference power must not move while it does, because the signal did not.
+ *
+ * Measured across sigma 0.001 to 0.016, the estimate falls 32.7, 27.3, 20.4,
+ * 15.1, 9.0 dB against a 24 dB rise in noise -- linear over the range that
+ * matters.
+ */
+static void test_reference_sinr(void) {
+    struct lte_cell cell;
+    struct lte_reference_power quiet, noisy;
+
+    build_buffer(227, 2, 0.0, 0.001, 71u);
+    if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                        LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1 ||
+        !lte_reference_power(buffer_i, buffer_q, BUFFER_SAMPLES,
+                             LTE_SAMPLE_RATE_HZ, &cell, &quiet)) {
+        check_true("RS-SINR: the quiet cell is measured", 0);
+        return;
+    }
+    check_msg(quiet.sinr_db > 25.0f,
+              "a clean buffer reads a high RS-SINR, got %.1f dB\n",
+              (double)quiet.sinr_db);
+
+    build_buffer(227, 2, 0.0, 0.004, 72u);
+    if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                        LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1 ||
+        !lte_reference_power(buffer_i, buffer_q, BUFFER_SAMPLES,
+                             LTE_SAMPLE_RATE_HZ, &cell, &noisy)) {
+        check_true("RS-SINR: the noisy cell is measured", 0);
+        return;
+    }
+
+    /* Four times the noise amplitude is twelve decibels of power, and both
+       the noise term and the ratio have to move by it. */
+    check_close("four times the noise raises the noise term 12 dB",
+                noisy.noise_dbfs - quiet.noise_dbfs, 12.0, 2.0);
+    check_close("and costs the ratio the same",
+                quiet.sinr_db - noisy.sinr_db, 12.0, 2.0);
+    /* The signal did not change, so the reference power must not either --
+       which is what separates a noise estimate from a gain measurement. */
+    check_close("while the reference power stays put", noisy.rsrp_dbfs,
+                quiet.rsrp_dbfs, 1.0);
+    /* Noise below signal, or the subtraction that forms the ratio is
+       meaningless. */
+    check_msg(quiet.noise_dbfs < quiet.rsrp_dbfs &&
+                  noisy.noise_dbfs < noisy.rsrp_dbfs,
+              "the noise sits below the reference power\n");
+}
+
 int main(void) {
     twiddles_init();
 
@@ -1223,6 +1291,7 @@ int main(void) {
     test_cell_search_refuses();
     test_broadcast_channel();
     test_reference_power();
+    test_reference_sinr();
     test_port_coherence();
     test_two_cells_on_one_carrier();
     test_two_cells_needs_similar_levels();
