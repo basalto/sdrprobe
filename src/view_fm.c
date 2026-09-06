@@ -7,6 +7,7 @@
 #include "app.h"
 #include "fm_scan.h"
 #include "fm_layout.h"
+#include "panel_rows.h"
 #include "sdrgui.h"
 #include "view.h"
 #include "debug_log.h"
@@ -285,6 +286,25 @@ static int draw_panel(Rectangle rect, const char *caption) {
     return (int)rect.y + 36;
 }
 
+/*
+ * A row at an index, positioned by panel_rows.h rather than by counting
+ * pixels between calls. A row past the panel's capacity is not drawn: this
+ * panel wants eight rows and holds four on a 640x400 window, and the four it
+ * could not fit used to be drawn off the bottom edge.
+ */
+static void draw_row_at(const struct panel_rows *rows, int index,
+                        const char *label, const char *value, Color colour) {
+    int y;
+
+    if (!panel_row_visible(rows, index))
+        return;
+    y = (int)panel_row_y(rows, index);
+    sdrgui_text_fit(label, (int)rows->label_x, y, 15, rows->label_width,
+                    row_label);
+    sdrgui_text_fit(value, (int)rows->value_x, y, 15, rows->value_width,
+                    colour);
+}
+
 static void draw_row(Rectangle rect, int y, const char *label,
                      const char *value, Color colour) {
     int label_x = (int)rect.x + 12;
@@ -407,70 +427,77 @@ static void draw_scan_list(const struct app *app, Rectangle rect) {
 static void draw_signal_panel(const struct app *app, Rectangle rect) {
     const struct fm_view *fm = &app->fm;
     int locked = fm_pilot_locked(&fm->front.pilot);
-    int y = draw_panel(rect, "Signal");
+    /* 128 pixels of label gutter was a constant here; as a fraction with the
+       same cap it holds on a wide panel and gives the value room on a narrow
+       one, where these values are the part worth reading. */
+    struct panel_rows rows = panel_rows_for(rect, FM_PANEL_CAPTION_DROP,
+                                            FM_PANEL_ROW_HEIGHT, 0.0f,
+                                            0.50f, 128.0f);
     char text[96];
+    int r = 0;
 
-    draw_row(rect, y, "pilot", locked ? "locked" : "no lock",
-             locked ? row_good : row_weak);
-    y += 20;
+    draw_panel(rect, "Signal");
+    /*
+     * Ordered so a short panel keeps what says whether anything is being
+     * received at all. The rows below the lock are how well, and a panel with
+     * room for four should spend them on whether rather than how well.
+     */
+    draw_row_at(&rows, r++, "pilot", locked ? "locked" : "no lock",
+                locked ? row_good : row_weak);
     if (fm->audio_error[0]) {
-        draw_row(rect, y, "audio", fm->audio_error, row_weak);
-        y += 20;
+        draw_row_at(&rows, r++, "audio", fm->audio_error, row_weak);
     } else if (fm->playing) {
         snprintf(text, sizeof(text), "%.0f Hz %s", fm_audio_rate(&fm->audio),
                  fm_audio_is_stereo(&fm->audio) ? "stereo" : "mono");
-        draw_row(rect, y, "audio", text, row_good);
-        y += 20;
+        draw_row_at(&rows, r++, "audio", text, row_good);
     }
     /* Whether the station sends stereo, which is a fact about it rather than
        about the sound card, so it is worth saying even when nothing is
        playing. */
-    draw_row(rect, y, "broadcast",
-             fm_audio_is_stereo(&fm->audio) ? "stereo" : "mono",
-             fm_audio_is_stereo(&fm->audio) ? row_good : row_value);
-    y += 20;
+    draw_row_at(&rows, r++, "broadcast",
+                fm_audio_is_stereo(&fm->audio) ? "stereo" : "mono",
+                fm_audio_is_stereo(&fm->audio) ? row_good : row_value);
     if (locked) {
         snprintf(text, sizeof(text), "%.2f Hz", fm_pilot_hz(&fm->front.pilot));
-        draw_row(rect, y, "at", text, row_value);
-        y += 20;
+        draw_row_at(&rows, r++, "at", text, row_value);
         /* Not "sample clock": five stations here read between +2 and -57 ppm
            on one receiver, so this is the transmitter's pilot far more than
            it is this receiver's clock. */
         snprintf(text, sizeof(text), "%+.1f ppm",
                  fm_pilot_ppm(&fm->front.pilot));
-        draw_row(rect, y, "pilot offset", text, row_value);
-        y += 20;
+        draw_row_at(&rows, r++, "pilot offset", text, row_value);
     }
     snprintf(text, sizeof(text), "%.2f", fm->front.pilot.coherence);
-    draw_row(rect, y, "coherence", text,
-             fm->front.pilot.coherence >= FM_PILOT_MIN_COHERENCE ? row_good
-                                                                 : row_weak);
-    y += 20;
+    draw_row_at(&rows, r++, "coherence", text,
+                fm->front.pilot.coherence >= FM_PILOT_MIN_COHERENCE
+                    ? row_good : row_weak);
     if (locked) {
         snprintf(text, sizeof(text), "%d/%d", fm->timing_offset,
                  FM_RDS_SAMPLES_PER_SYMBOL);
-        draw_row(rect, y, "symbol timing", text, row_value);
-        y += 20;
+        draw_row_at(&rows, r++, "symbol timing", text, row_value);
         snprintf(text, sizeof(text), "%+.2f rad", fm->axis_radians);
-        draw_row(rect, y, "subcarrier axis", text, row_value);
+        draw_row_at(&rows, r++, "subcarrier axis", text, row_value);
     }
 }
 
 static void draw_station_panel(const struct app *app, Rectangle rect) {
     const struct rds_station *s = &app->fm.station;
-    int y = draw_panel(rect, "Station");
+    struct panel_rows rows = panel_rows_for(rect, FM_PANEL_CAPTION_DROP,
+                                            FM_PANEL_ROW_HEIGHT, 0.0f,
+                                            0.50f, 128.0f);
     char text[96];
+    int r = 0;
 
+    draw_panel(rect, "Station");
+    /* The identity first: a panel with room for four rows should spend them
+       on which station this is rather than on how sure the decoder is. */
     if (s->pi_valid) {
         snprintf(text, sizeof(text), "0x%04X", s->pi);
-        draw_row(rect, y, "identification", text, row_value);
-        y += 20;
+        draw_row_at(&rows, r++, "identification", text, row_value);
         snprintf(text, sizeof(text), "%d agreeing", s->pi_repeats);
-        draw_row(rect, y, "", text, row_label);
-        y += 20;
+        draw_row_at(&rows, r++, "", text, row_label);
     } else {
-        draw_row(rect, y, "identification", "--", row_label);
-        y += 20;
+        draw_row_at(&rows, r++, "identification", "--", row_label);
     }
 
     /*
@@ -480,24 +507,21 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
      * tell a half-arrived name from a short one.
      */
     if (s->ps_valid) {
-        draw_row(rect, y, "name", s->ps, row_good);
+        draw_row_at(&rows, r++, "name", s->ps, row_good);
     } else if (s->ps_segments) {
         snprintf(text, sizeof(text), "%d of 4 segments",
                  __builtin_popcount((unsigned)s->ps_segments));
-        draw_row(rect, y, "name", text, row_weak);
+        draw_row_at(&rows, r++, "name", text, row_weak);
     } else {
-        draw_row(rect, y, "name", "--", row_label);
+        draw_row_at(&rows, r++, "name", "--", row_label);
     }
-    y += 20;
 
     if (s->pty_valid) {
         const char *name = rds_pty_name(s->pty);
         snprintf(text, sizeof(text), "%s", name ? name : "?");
-        draw_row(rect, y, "programme type", text, row_value);
-        y += 20;
-        draw_row(rect, y, "", rds_traffic_name(s->tp, s->ta),
-                 s->tp && s->ta ? row_weak : row_label);
-        y += 20;
+        draw_row_at(&rows, r++, "programme type", text, row_value);
+        draw_row_at(&rows, r++, "", rds_traffic_name(s->tp, s->ta),
+                    s->tp && s->ta ? row_weak : row_label);
     }
     /*
      * Radio text, wrapped rather than ellipsised.
@@ -513,9 +537,16 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
         float room = rect.width - 24.0f;
         int columns = (int)(room / (float)MeasureText("n", 15));
         int count, i;
+        /* Radio text follows the rows rather than sitting at a fixed offset,
+           and its own lines are 18 apart rather than 20 -- close enough that
+           the panel reads as one column, tight enough that a four-line
+           message fits under the fields. */
+        int y = (int)panel_footer_after(&rows, r);
 
-        draw_row(rect, y, "radio text", "", row_label);
-        y += 18;
+        if (!panel_row_visible(&rows, r))
+            return;
+        draw_row_at(&rows, r++, "radio text", "", row_label);
+        y = (int)panel_row_y(&rows, r - 1) + 18;
         if (columns < 8)
             columns = 8;
         count = text_wrap(s->rt, columns, lines,
@@ -528,6 +559,10 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
                 length = (int)sizeof(line) - 1;
             memcpy(line, s->rt + lines[i].start, (size_t)length);
             line[length] = '\0';
+            /* And stop at the panel's floor, which is what the rows above
+               now respect and this used to run past. */
+            if ((float)y + 18.0f > rect.y + rect.height)
+                break;
             sdrgui_text_fit(line, (int)rect.x + 12, y, 15, room, row_value);
             y += 18;
         }

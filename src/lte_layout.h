@@ -3,6 +3,8 @@
 
 #include <raylib.h>
 
+#include "panel_rows.h"
+
 /*
  * Where the LTE decode view puts things.
  *
@@ -48,110 +50,52 @@ struct lte_layout {
 };
 
 /*
- * Where the rows inside a panel go.
+ * The LTE panels' row metrics, which are `panel_rows.h`'s arithmetic with this
+ * view's spacing filled in. It used to be the arithmetic itself; three other
+ * views wanted the same thing and copying it four times is how five panels end
+ * up with four row heights.
  *
- * This lived in `view_lte.c` as `y += 21` between draw calls, which is the
- * arrangement CLAUDE.md warns about: a layout header modelling half a screen
- * puts a green tick over the half it does not. The panel drew ten rows and a
- * footer into a rectangle that holds six on a 900x540 window, and
- * check-layout could not see it because the positions were not here.
- *
- * `capacity` is how many rows fit between the caption and the footer. A
- * caller with more to say than that draws what fits, in the order it thinks
- * matters, rather than off the bottom edge.
- *
- * The label gutter is proportional with a cap, not a constant. At 170 pixels
- * -- what it was -- a half-panel on a narrow window leaves about thirteen
- * characters for the value, which truncated "-35.8 dBFS   RSRQ -17.8 dB" to
- * "-35.8 dBFS   RS...". Labels are drawn with the same truncation as values
- * now, so a long one gives way instead of running under the number.
+ * The statistics columns below are the one part that stays here: only this
+ * view draws a row as a smallest, a mean and a largest.
  */
 #define LTE_PANEL_ROW_HEIGHT 21.0f
 #define LTE_PANEL_ROW_FONT 15
 #define LTE_PANEL_CAPTION_DROP 36.0f
 #define LTE_PANEL_FOOTER_HEIGHT 24.0f
+#define LTE_PANEL_GUTTER_FRACTION 0.45f
+#define LTE_PANEL_GUTTER_CAP 170.0f
 
 struct lte_panel_rows {
-    float first_y;      /* baseline of row 0 */
-    float step;         /* to the next row */
-    float label_x;
-    float label_width;  /* before the value begins */
-    float value_x;
-    float value_width;
-    float footer_y;     /* the "last seen" line, under the rows */
-    int capacity;       /* rows that fit without leaving the panel */
+    struct panel_rows row;
     /*
      * The value column split three ways, for a row carrying the smallest,
      * mean and largest of a measurement rather than one reading. Same right
-     * edge as `value_x + value_width`, so a plain row and a statistics row
-     * end in the same place and the panel reads as one table.
+     * edge as the value column, so a plain row and a statistics row end in
+     * the same place and the panel reads as one table.
      */
     float stat_x[3];
     float stat_width;
 };
 
 static inline struct lte_panel_rows lte_panel_rows_for(Rectangle panel) {
-    struct lte_panel_rows r;
-    float inner = panel.width - 24.0f;
-    float gutter;
-    float room;
+    struct lte_panel_rows l;
+    const float gap = 6.0f;
+    float each;
+    int c;
 
-    r.first_y = panel.y + LTE_PANEL_CAPTION_DROP;
-    r.step = LTE_PANEL_ROW_HEIGHT;
-    r.label_x = panel.x + 12.0f;
-
-    gutter = inner * 0.45f;
-    if (gutter > 170.0f)
-        gutter = 170.0f;
-    if (gutter < 60.0f)
-        gutter = 60.0f;
-    r.label_width = gutter - 8.0f;
-    if (r.label_width < 1.0f)
-        r.label_width = 1.0f;
-    r.value_x = r.label_x + gutter;
-    r.value_width = panel.x + panel.width - 12.0f - r.value_x;
-    if (r.value_width < 1.0f)
-        r.value_width = 1.0f;
-
-    {
-        /* Three columns and two gaps. The gap is small because the numbers
-           are short and the space is not: five characters of "-35.8" against
-           a column that has to hold "1579". */
-        const float gap = 6.0f;
-        float each = (r.value_width - 2.0f * gap) / 3.0f;
-        int c;
-        if (each < 1.0f)
-            each = 1.0f;
-        r.stat_width = each;
-        for (c = 0; c < 3; c++)
-            r.stat_x[c] = r.value_x + (float)c * (each + gap);
-    }
-
-    room = panel.y + panel.height - LTE_PANEL_FOOTER_HEIGHT - r.first_y;
-    r.capacity = room > 0.0f ? (int)(room / r.step) : 0;
-    r.footer_y = r.first_y + (float)r.capacity * r.step;
-    return r;
-}
-
-/*
- * Where the footer goes when the caller drew fewer rows than fit.
- *
- * `footer_y` above is the worst case -- the panel's own floor -- and putting
- * the "last seen" line there on a tall panel leaves a hand's width of gap
- * between it and the last row, with the note that follows it landing on the
- * version in the window's corner. The footer belongs under whatever was
- * actually drawn, and never past where it would leave the panel.
- */
-static inline float lte_panel_footer_after(const struct lte_panel_rows *rows,
-                                           int used) {
-    float y;
-
-    if (used < 0)
-        used = 0;
-    if (used > rows->capacity)
-        used = rows->capacity;
-    y = rows->first_y + (float)used * rows->step + 4.0f;
-    return y > rows->footer_y ? rows->footer_y : y;
+    l.row = panel_rows_for(panel, LTE_PANEL_CAPTION_DROP,
+                           LTE_PANEL_ROW_HEIGHT, LTE_PANEL_FOOTER_HEIGHT,
+                           LTE_PANEL_GUTTER_FRACTION, LTE_PANEL_GUTTER_CAP);
+    /* Three columns and two gaps. The gap is small because the numbers are
+       short and the space is not: five characters of "-35.8" against a column
+       that has to hold "1579". */
+    each = (l.row.value_width - 2.0f * gap) / 3.0f;
+    if (each < 1.0f)
+        each = 1.0f;
+    l.stat_width = each;
+    for (c = 0; c < 3; c++)
+        l.stat_x[c] = l.row.value_x + (float)c * (each + gap);
+    return l;
 }
 
 static inline struct lte_layout lte_layout_for(float width, float height) {

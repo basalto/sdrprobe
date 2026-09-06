@@ -103,14 +103,23 @@ primary cell by reference power, an invented identity's power reads high often
 enough to take first place, and the primary flipped often enough to reset a
 run of 146 blocks to 3.
 
-Panel rows are part of that geometry. `lte_layout.h` gives a panel's row
-positions, its label and value columns and how many rows it *holds*
-(`lte_panel_rows_for`), because the LTE view computed them as `y += 21`
-between draw calls and so drew ten rows and a footer into a rectangle with
-room for six -- invisible to `check-layout`, which only saw the rectangle. A
-row past the capacity is not drawn at all: off the bottom edge is worse than
-absent, so the caller orders its rows and the ones that fit are the ones that
-matter.
+Panel rows are part of that geometry, and `src/panel_rows.h` owns it for every
+view that has a table of fields. It gives a panel's row positions, its label
+and value columns and how many rows it *holds*; a row past that capacity is
+not drawn at all, because off the bottom edge is worse than absent, so a
+caller orders its rows and the ones that fit are the ones that matter.
+
+It is shared rather than copied for the reason `sdrgui_geometry.h` is shared,
+and because four copies of a row step is how five panels end up with four row
+heights. The spacing stays per-view -- eighteen-point network fields and
+fifteen-point decode statistics do not want the same step -- so each layout
+header names its own and passes it in.
+
+The measurement behind it: the views computed rows as `y +=` between draw
+calls, so `check-layout` saw only the rectangle and passed while the FM signal
+panel drew **101 pixels past its bottom edge at 640x400** and TETRA's identity
+panel 56. `check_panel_rows()` in the layout check now walks all of them, and
+adding three to a capacity fails it sixty-three times.
 
 `check-layout` is necessary and nowhere near sufficient. It compares
 rectangles, so it cannot see two panels drawing into the *same* rectangle, a

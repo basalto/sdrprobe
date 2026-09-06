@@ -3,6 +3,15 @@
 
 #include <raylib.h>
 
+#include "panel_rows.h"
+
+/* The identity panel's rows. The drawing had them 26, 26, 24 and 26 apart --
+   the 24 an inconsistency rather than a decision -- and nothing could see
+   that five of them need 146 px in a panel that holds 133 on a 1000x540
+   window. Uniform and here, so check-layout can. */
+#define TETRA_PANEL_CAPTION_DROP 30.0f
+#define TETRA_PANEL_ROW_HEIGHT 26.0f
+
 /*
  * Where the TETRA decode view puts things.
  *

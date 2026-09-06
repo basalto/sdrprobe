@@ -622,11 +622,11 @@ static void draw_stat_row(const struct lte_panel_rows *rows, int index,
     float values[3];
     int y, c;
 
-    if (index < 0 || index >= rows->capacity)
+    if (index < 0 || index >= rows->row.capacity)
         return;
-    y = (int)(rows->first_y + (float)index * rows->step);
-    sdrgui_text_fit(label, (int)rows->label_x, y, LTE_PANEL_ROW_FONT,
-                    rows->label_width, row_label);
+    y = (int)(rows->row.first_y + (float)index * rows->row.step);
+    sdrgui_text_fit(label, (int)rows->row.label_x, y, LTE_PANEL_ROW_FONT,
+                    rows->row.label_width, row_label);
     if (!stat->count) {
         sdrgui_text_fit("--", (int)rows->stat_x[1], y, LTE_PANEL_ROW_FONT,
                         rows->stat_width, row_muted);
@@ -656,13 +656,13 @@ static void draw_row_at(const struct lte_panel_rows *rows, int index,
                         const char *label, const char *value, Color colour) {
     int y;
 
-    if (index < 0 || index >= rows->capacity)
+    if (index < 0 || index >= rows->row.capacity)
         return;
-    y = (int)(rows->first_y + (float)index * rows->step);
-    sdrgui_text_fit(label, (int)rows->label_x, y, LTE_PANEL_ROW_FONT,
-                    rows->label_width, row_label);
-    sdrgui_text_fit(value, (int)rows->value_x, y, LTE_PANEL_ROW_FONT,
-                    rows->value_width, colour);
+    y = (int)(rows->row.first_y + (float)index * rows->row.step);
+    sdrgui_text_fit(label, (int)rows->row.label_x, y, LTE_PANEL_ROW_FONT,
+                    rows->row.label_width, row_label);
+    sdrgui_text_fit(value, (int)rows->row.value_x, y, LTE_PANEL_ROW_FONT,
+                    rows->row.value_width, colour);
 }
 
 /* Which row of the scan list the pointer is over, or -1. Shared by the click
@@ -785,7 +785,7 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
     if (!app->lte.cell_valid) {
         sdrgui_text_fit(app->lte.status[0] ? app->lte.status
                                            : "Waiting for samples...",
-                        (int)rows.label_x, (int)rows.first_y,
+                        (int)rows.row.label_x, (int)rows.row.first_y,
                         LTE_PANEL_ROW_FONT, rect.width - 24.0f,
                         lte_on_grid(app) ? row_muted : warning);
         return;
@@ -833,12 +833,12 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
      * marginal cell from a steady one -- which is the distinction a reader
      * actually wants.
      */
-    if (r < rows.capacity) {
+    if (r < rows.row.capacity) {
         /* Each heading over the column it names. Written as one string in
            the value column first, which lined up only by luck and only at
            one window width. */
         static const char *heading[3] = { "min", "mean", "max" };
-        int hy = (int)(rows.first_y + (float)r * rows.step), c;
+        int hy = (int)(rows.row.first_y + (float)r * rows.row.step), c;
         for (c = 0; c < 3; c++)
             sdrgui_text_fit(heading[c], (int)rows.stat_x[c], hy,
                             LTE_PANEL_ROW_FONT, rows.stat_width, row_label);
@@ -857,8 +857,8 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
 
     snprintf(text, sizeof(text), "%lu blocks, last seen %.1f s ago",
              st->rsrp_dbfs.count, now - app->lte.cell_time);
-    sdrgui_text_fit(text, (int)rows.label_x,
-                    (int)lte_panel_footer_after(&rows, r), 14,
+    sdrgui_text_fit(text, (int)rows.row.label_x,
+                    (int)panel_footer_after(&rows.row, r), 14,
                     rect.width - 24.0f, row_muted);
 }
 
@@ -874,9 +874,9 @@ static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
                 ? "A cell is there; its broadcast has not survived its "
                   "parity yet."
                 : "Nothing to read until a cell is found.";
-        sdrgui_text_fit(note, (int)rows.label_x, (int)rows.first_y, 15,
+        sdrgui_text_fit(note, (int)rows.row.label_x, (int)rows.row.first_y, 15,
                         rect.width - 24.0f, row_muted);
-        y = (int)rows.first_y + 28;
+        y = (int)rows.row.first_y + 28;
     } else {
         int r = 0;
         snprintf(text, sizeof(text), "%d blocks, %.2f MHz",
@@ -894,10 +894,10 @@ static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
         draw_row_at(&rows, r++, "Antenna ports", text, row_value);
         snprintf(text, sizeof(text), "last read %.1f s ago",
                  now - app->lte.mib_time);
-        sdrgui_text_fit(text, (int)rows.label_x,
-                        (int)lte_panel_footer_after(&rows, r), 14,
+        sdrgui_text_fit(text, (int)rows.row.label_x,
+                        (int)panel_footer_after(&rows.row, r), 14,
                         rect.width - 24.0f, row_muted);
-        y = (int)lte_panel_footer_after(&rows, r) + 24;
+        y = (int)panel_footer_after(&rows.row, r) + 24;
     }
 
     /*
