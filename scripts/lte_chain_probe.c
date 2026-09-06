@@ -241,15 +241,132 @@ static void repetition_report(const struct repetition *acc, const char *label) {
     printf("\n");
 }
 
+/*
+ * Are the reference signals where we think, carrying the sequence we think?
+ *
+ * Everything measured so far has been of the broadcast elements *after* the
+ * channel estimate was applied, so a wrong estimate and a wrong extraction
+ * look identical from there. This looks at the estimate itself.
+ *
+ * A reference symbol has unit magnitude, so dividing the received value by the
+ * expected one keeps the magnitude whatever sequence is used -- which is why
+ * trace->channel_db cannot answer this and why it has to be the phase.
+ *
+ * Taken against the right sequence, the per-reference estimates differ from
+ * their neighbours by one consistent rotation: the channel's delay, a phase
+ * ramp across the band. Taken against the wrong one they differ randomly. So
+ * the statistic is the coherence of the *difference* between neighbours,
+ * exactly as the secondary sequence is read differentially and for the same
+ * reason -- it survives any channel while a wrong sequence cannot fake it.
+ *
+ * Near 1: the references are being read correctly. Near 0: they are not, and
+ * every soft bit downstream was equalised with noise.
+ */
+static double crs_coherence(const float *i_samples, const float *q_samples,
+                            size_t pairs, const struct lte_cell *cell,
+                            int symbol, int port) {
+    float row_re[LTE_PBCH_SUBCARRIERS], row_im[LTE_PBCH_SUBCARRIERS];
+    float ref_re[LTE_PBCH_SUBCARRIERS / 6], ref_im[LTE_PBCH_SUBCARRIERS / 6];
+    int positions[LTE_PBCH_SUBCARRIERS / 6];
+    double tr[LTE_PBCH_SUBCARRIERS / 6], ti[LTE_PBCH_SUBCARRIERS / 6];
+    double sr = 0.0, si = 0.0, mag = 0.0;
+    int count, m;
+
+    if (cell->subframe0_start + LTE_SUBFRAME_SAMPLES > pairs)
+        return 0.0;
+    read_slot1_symbol(i_samples, q_samples, cell->subframe0_start, symbol,
+                      cell->frequency_offset_hz, LTE_SAMPLE_RATE_HZ,
+                      row_re, row_im);
+    count = lte_crs_subcarriers(cell->pci, 1, symbol, port, positions);
+    if (count <= 0)
+        return 0.0;
+    if (lte_crs_sequence(cell->pci, 1, symbol, port, 0, ref_re, ref_im) <= 0)
+        return 0.0;
+    for (m = 0; m < count; m++) {
+        int k = positions[m];
+        tr[m] = (double)row_re[k] * ref_re[m] + (double)row_im[k] * ref_im[m];
+        ti[m] = (double)row_im[k] * ref_re[m] - (double)row_re[k] * ref_im[m];
+    }
+    for (m = 0; m + 1 < count; m++) {
+        /* t[m+1] * conj(t[m]) */
+        double dr = tr[m + 1] * tr[m] + ti[m + 1] * ti[m];
+        double di = ti[m + 1] * tr[m] - tr[m + 1] * ti[m];
+        sr += dr;
+        si += di;
+        mag += sqrt(dr * dr + di * di);
+    }
+    if (mag <= 0.0)
+        return 0.0;
+    return sqrt(sr * sr + si * si) / mag;
+}
+
+/*
+ * How close the decode gets, rather than whether it arrives.
+ *
+ * "No parity fits" is one bit of information and it is the same bit whether
+ * the elements are noise or whether one convention is inverted. Rebuilding
+ * the chain here and counting *how many* of the sixteen parity bits disagree
+ * turns it into a measurement: eight is what a random block gives, so a best
+ * of eight says the soft bits carry nothing, and a best of one or two says
+ * everything is nearly right and something small is inverted.
+ *
+ * All three port masks are tried against the same decoded block, because the
+ * mask is what the parity is exclusive-ored with and the count is the thing
+ * being read out of it.
+ */
+static int crc_distance(const float soft[LTE_MIB_QUARTER_BITS], int pci,
+                        int *best_quarter, int *best_ports) {
+    int quarter, best = LTE_MIB_CRC_BITS + 1;
+    static const int candidates[3] = { 1, 2, 4 };
+
+    for (quarter = 0; quarter < LTE_MIB_QUARTERS; quarter++) {
+        float attempt[LTE_MIB_QUARTER_BITS];
+        float whole[LTE_MIB_RATE_MATCHED_BITS];
+        float coded[LTE_MIB_CODED_BITS];
+        uint8_t block[LTE_MIB_BLOCK_BITS];
+        int n, c, from = quarter * LTE_MIB_QUARTER_BITS;
+
+        memcpy(attempt, soft, sizeof(attempt));
+        lte_mib_descramble(pci, quarter, attempt);
+        for (n = 0; n < LTE_MIB_RATE_MATCHED_BITS; n++)
+            whole[n] = 0.0f;
+        for (n = 0; n < LTE_MIB_QUARTER_BITS; n++)
+            whole[from + n] = attempt[n];
+        lte_mib_rate_dematch(whole, coded);
+        lte_mib_convolutional_decode(coded, block);
+
+        for (c = 0; c < 3; c++) {
+            uint8_t parity[LTE_MIB_CRC_BITS];
+            int wrong = 0;
+            lte_mib_parity(block, candidates[c], parity);
+            for (n = 0; n < LTE_MIB_CRC_BITS; n++)
+                if (parity[n] != block[LTE_MIB_BITS + n])
+                    wrong++;
+            if (wrong < best) {
+                best = wrong;
+                if (best_quarter)
+                    *best_quarter = quarter;
+                if (best_ports)
+                    *best_ports = candidates[c];
+            }
+        }
+    }
+    return best;
+}
+
 int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : NULL;
     FILE *f;
     int block = 0, cells = 0, messages = 0;
     int swept = 0;
-    struct repetition on_pbch, off_pbch;
+    int dist_sum[3] = { 0, 0, 0 }, dist_min[3] = { 0, 0, 0 };
+    int dist_n[3] = { 0, 0, 0 };
+    double crs_sum[4] = { 0.0, 0.0, 0.0, 0.0 };
+    int crs_n[4] = { 0, 0, 0, 0 };
+    struct repetition on_pbch[3], off_pbch[3];
 
-    memset(&on_pbch, 0, sizeof(on_pbch));
-    memset(&off_pbch, 0, sizeof(off_pbch));
+    memset(on_pbch, 0, sizeof(on_pbch));
+    memset(off_pbch, 0, sizeof(off_pbch));
 
     if (!path) {
         fprintf(stderr, "usage: %s <capture.bin>\n", argv[0]);
@@ -345,13 +462,53 @@ int main(int argc, char **argv) {
                cell.timing_shift, (double)cell.timing_sidelobe,
                (double)cell.pss_correlation);
 
+        {
+            int pt;
+            for (pt = 0; pt < 4; pt++) {
+                crs_sum[pt] += crs_coherence(i_samples, q_samples, pairs,
+                                             &cell, pt < 2 ? 0 : 1, pt);
+                crs_n[pt]++;
+            }
+        }
+
         /* Accumulated over every block and reported once at the end: one
            block's correlation is a single draw and these are small numbers. */
-        repetition_add(&on_pbch, i_samples, q_samples, pairs, &cell, 1,
-                       cell.subframe0_start);
-        repetition_add(&off_pbch, i_samples, q_samples, pairs, &cell, 1,
-                       cell.subframe0_start +
-                           (size_t)(7 * LTE_SUBFRAME_SAMPLES));
+        {
+            static const int pp[3] = { 1, 2, 4 };
+            int pi;
+            for (pi = 0; pi < 3; pi++) {
+                float soft[LTE_PBCH_SOFT_BITS];
+                int q = -1, pt = 0, d;
+                if (lte_pbch_soft_bits(i_samples, q_samples, pairs,
+                                       LTE_SAMPLE_RATE_HZ, &cell,
+                                       cell.subframe0_start, pp[pi], soft,
+                                       NULL) != LTE_PBCH_SOFT_BITS)
+                    continue;
+                d = crc_distance(soft, cell.pci, &q, &pt);
+                dist_sum[pi] += d;
+                if (!dist_n[pi] || d < dist_min[pi])
+                    dist_min[pi] = d;
+                dist_n[pi]++;
+            }
+        }
+
+        {
+            /* Once per port hypothesis. The 40 ms repetition is a grade for
+               the *extraction*, needing no decode: read the elements the way
+               the cell actually transmits them and the same coded block comes
+               back four frames later; read them the wrong way and it does
+               not. It is the only handle on which hypothesis is right for a
+               cell that never decodes under any of them. */
+            static const int ports[3] = { 1, 2, 4 };
+            int pi;
+            for (pi = 0; pi < 3; pi++) {
+                repetition_add(&on_pbch[pi], i_samples, q_samples, pairs,
+                               &cell, ports[pi], cell.subframe0_start);
+                repetition_add(&off_pbch[pi], i_samples, q_samples, pairs,
+                               &cell, ports[pi], cell.subframe0_start +
+                                   (size_t)(7 * LTE_SUBFRAME_SAMPLES));
+            }
+        }
 
         {
             static const int ports[3] = { 1, 2, 4 };
@@ -534,9 +691,25 @@ int main(int argc, char **argv) {
     printf("\n%d blocks, %d with a cell, %d with a message\n", block, cells,
            messages);
     if (cells > 0) {
+        static const int pp[3] = { 1, 2, 4 };
+        int pt;
+        printf("\nparity bits wrong, over the blocks with a cell "
+               "(8 is a random block):\n");
+        for (pt = 0; pt < 3; pt++)
+            printf("  %d-port combining:  best %d   mean %.1f\n", pp[pt],
+                   dist_n[pt] ? dist_min[pt] : -1,
+                   dist_n[pt] ? (double)dist_sum[pt] / dist_n[pt] : 0.0);
+        printf("\nreference coherence, mean over the blocks with a cell:\n ");
+        for (pt = 0; pt < 4; pt++)
+            printf("  port %d %.3f", pt,
+                   crs_n[pt] ? crs_sum[pt] / (double)crs_n[pt] : 0.0);
+        printf("\n  chance is about 0.30 -- eleven phase differences per "
+               "port -- so a port near it is carrying no references\n");
         printf("\nbroadcast repetition, mean over the blocks with a cell:\n");
-        repetition_report(&on_pbch, "subframe 0 (has a PBCH)");
-        repetition_report(&off_pbch, "subframe 7 (has none)");
+        repetition_report(&on_pbch[0], "subframe 0, 1 port");
+        repetition_report(&on_pbch[1], "subframe 0, 2 port");
+        repetition_report(&on_pbch[2], "subframe 0, 4 port");
+        repetition_report(&off_pbch[0], "subframe 7, 1 port (no PBCH)");
         printf("  a broadcast channel repeats at +4 and nowhere else, and "
                "only in subframe 0\n");
     }

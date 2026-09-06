@@ -258,13 +258,82 @@ picks the right resource elements, because a wrong extraction of a periodic
 signal repeats just as faithfully. Presence was the question it was asked, and
 presence is all it answers.
 
-What has not been looked at: the channel estimate itself. `estimate_port()`
-interpolates across the block from references every sixth subcarrier, and
-every measurement here has been of the elements *after* it was applied. A
-cell whose centre sits in a notch, or whose references are being read at the
-right positions with the wrong sequence, would produce exactly this -- soft
-bits with ordinary magnitude and no information in them. `trace->channel_db`
-already records that channel and nothing has ever plotted it.
+The channel estimate has now been looked at -- see section 9 -- and it is
+sound. What it revealed instead is that this is a four-antenna-port cell.
+
+### 9. It is a four-antenna-port cell, and that is the only path never proven
+
+The channel estimate was the last thing never looked at, and looking at it
+answered the question the whole ticket has been circling.
+
+**The references are read correctly, and there are four of them.** A reference
+symbol has unit magnitude, so dividing the received value by the expected one
+preserves the magnitude whatever sequence is used -- which is why
+`trace->channel_db` could never answer this and why it has to be phase. Taken
+against the right sequence, neighbouring per-reference estimates differ by one
+consistent rotation, the channel's delay; against the wrong one they differ
+randomly. The coherence of that difference, averaged over every block:
+
+```
+                        port 0   port 1   port 2   port 3
+band 20 PCI 28 (2 port)  0.729    0.901    0.411    0.326
+band 8  PCI 330          0.805    0.746    0.867    0.918
+```
+
+Chance is about 0.30 -- there are twelve references per port per symbol, so
+eleven differences. The control sits **at chance on ports 2 and 3**, exactly as
+a two-port cell must. Band 8 is coherent on all four.
+
+So **PCI 330 transmits on four antenna ports**, it is the only such cell here,
+and its reference signals are being read correctly at shift 0. The channel
+estimate is sound. Every cell that decodes -- 28, 59, 190 -- reports two ports.
+
+**Which makes the four-port combining the only path in the chain never proven
+against a real signal**, and its element-to-port pairing, conjugation and
+output ordering are conventions a synthetic round trip cannot check, because
+`build_buffer(101, 4, ...)` places the elements with the same function that
+reads them.
+
+### 10. Two measurements that grade rather than judge
+
+`probe-lte-chain` now reports both, for every capture:
+
+**Port hypothesis by 40 ms repetition.** Reading the elements the way the cell
+transmits them makes the same coded block come back four frames later. It
+picks correctly: the control peaks at the 2-port hypothesis (0.175 against
+0.160 and 0.150) and band 8 at the 4-port one (0.162 against 0.145 and 0.141).
+But note its limit -- **it tests determinism, not correctness.** A systematically
+wrong extraction of a periodic signal repeats just as faithfully, so this
+cannot distinguish "read right" from "read wrong the same way every time",
+and band 8's peak is not evidence that its four-port extraction is correct.
+
+**How close the decode gets.** "No parity fits" is one bit of information;
+counting how many of the sixteen parity bits disagree, minimised over four
+quarters and three masks, is a measurement:
+
+```
+                    best   mean        (a block carrying nothing: mean 4.80)
+band 20 PCI 28
+  1-port combining     0    0.0        <- decodes every block
+  2-port combining     3    3.9
+  4-port combining     3    4.7
+band 8 PCI 330
+  1-port combining     3    4.5
+  2-port combining     4    5.1
+  4-port combining     1    4.2
+```
+
+The null was simulated rather than assumed: the minimum over twelve draws from
+Binomial(16, 0.5) has mean 4.80, `P(best <= 1)` is 0.0030 per block and 0.035
+over twelve. **Band 8's soft bits are indistinguishable from carrying no
+information** -- 4.2 against a null of 4.80, in the same range as the control's
+two *wrong* hypotheses. The control's 1-port reads 0 in every block, which the
+null gives with probability 0.00016.
+
+A correction worth keeping: the single `best 1` looked like a near miss and was
+reported as one for about a minute. Across blocks it is noise, and with six
+hypothesis-capture pairs examined the chance of seeing at least one somewhere
+is about one in five. One block's outlier is not a measurement.
 
 ## Next
 
@@ -276,7 +345,24 @@ Shift and N_ID_2 are confounded in the evidence: `PCI mod 6 == 0` implies
 among the four found, so that discriminator is not available at this site and
 this may not be resolvable here.
 
-One candidate remains; the other has been measured and refuted.
+Both original candidates are now measured and refuted, and the evidence
+points somewhere neither of them named.
+
+**The four-port transmit-diversity path is the only stage in the chain that
+has never decoded a real signal.** PCI 330 is the only four-port cell reachable
+here, everything upstream of the combining is measured and sound, and the
+soft bits that come out of it carry nothing. Three element-to-port pairings
+were tried and none decodes, but a pairing is only one of the conventions in
+that path: the conjugation and sign in the four-port case, the grouping of
+resource elements into fours, and the order the four symbols are written out
+are all shared between `build_buffer(101, 4, ...)` and the code that reads it,
+so the synthetic check passes against any of them.
+
+Reading that path against 36.211 section 6.3.4.3 and against an independent
+implementation -- srsRAN's `srsran_predecoding_diversity` -- is the work, and
+it is real work rather than a measurement. Whoever does it should know there
+is exactly one cell to test against and no synthetic check that can confirm
+the answer.
 
 1. **Something else in the N_ID_2 0 broadcast path.** The reference-signal
    shift now reads correctly against the standard, so the suspicion moves to
