@@ -461,21 +461,28 @@ static void test_a_ripple_on_a_multiplex_is_not_a_signal(void) {
 }
 
 /*
- * The cost of that rule, stated rather than discovered.
+ * A carrier with twelve decibels of headroom, which is over both bars and
+ * under the twenty the extent walk looks for.
  *
- * A carrier standing less than `bandwidth_db` above its own noise has no
- * -bandwidth_db point either, so its extent does not close and it is not
- * reported -- even alone in quiet spectrum. ADR-0013 recorded this as the
- * accident's consequence and ADR-0017 keeps it deliberately, because the same
- * rule is what removes the ripples above and nothing measured tells the two
- * apart. It is a real loss: a bare tone at 102.4 MHz, 18 dB above its floor,
- * is found by an 88-108 MHz sweep whose walk happened to terminate and lost by
- * one whose walk did not.
+ * This used to assert that it was *dropped*, and the comment beside it called
+ * that a real loss and pointed at `.scratch/survey-extent/`. The walk was
+ * unbounded, so a maximum with no -20 dB point ran to the ends of the array,
+ * `local_floor()` was left nothing outside the hump to measure, returned a
+ * NaN and the candidate went. Three real signals went with it: a bare tone at
+ * 102.4 MHz standing 18 dB above its floor, the 1090 MHz carrier in
+ * `adsb_cpr_pair.bin` that yields six decoded frames, and ARFCN 63 in
+ * `gsm_arfcn_69.bin`, which the cell's own System Information 2 names as a
+ * neighbour.
  *
- * The way out is a narrower range, which gives finer bins and a deeper hold --
- * or the trough walk `.scratch/survey-extent/` is about.
+ * Bounding the walk recovers all three. What ADR-0017 measured and reverted
+ * was bounding it **and** measuring the floor outward from the hump's edges,
+ * and it was the second half that admitted the ripples: with the floor rule
+ * left alone, a ripple on a multiplex still has a hump too wide for its floor
+ * window to fit beside it, so it still has no measurable floor and is still
+ * dropped. On 470-690 MHz, three sweeps each: 36/34/35 carriers becomes
+ * 42/43/41, where that variant gave 58/60/60.
  */
-static void test_a_carrier_with_no_end_is_not_reported(void) {
+static void test_a_carrier_with_little_headroom_is_reported(void) {
     static float power[SURVEY_BINS];
     static float workspace[SURVEY_BINS];
     struct sdr_peak peaks[8];
@@ -485,22 +492,18 @@ static void test_a_carrier_with_no_end_is_not_reported(void) {
     for (i = 0; i < SURVEY_BINS; i++)
         power[i] = -95.0f;
     /* Twelve decibels above the noise: over both bars, under the 20 dB the
-       extent walk looks for. */
+       extent walk looks for, so its walk never closes. */
     place_hump(power, 300, 5, -83.0f, -95.0f);
     found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &gate,
                                workspace, peaks, 8);
-    check_int("twelve decibels of headroom is not enough", found, 0);
-
-    /* Give it the headroom and it is found, at the level it actually stands. */
-    place_hump(power, 300, 5, -70.0f, -95.0f);
-    found = sdr_dsp_find_peaks(power, SURVEY_BINS, SURVEY_SENTINEL, &gate,
-                               workspace, peaks, 8);
-    check_int("twenty-five is", found, 1);
-    if (found == 1) {
-        check_int("at the right bin", peaks[0].index, 300);
-        check_close("standing where it actually stands",
-                    peaks[0].prominence_db, 25.0, 1.5);
-    }
+    check_int("twelve decibels of headroom is enough", found, 1);
+    if (found != 1)
+        return;
+    check_true("and its floor is measured, not a NaN",
+               isfinite(peaks[0].floor_dbfs));
+    /* The prominence it really stands, rather than the 20 the walk wanted. */
+    check_close("its prominence is the headroom it has",
+                peaks[0].prominence_db, 12.0, 1.5);
 }
 
 /* Unswept bins bound a hump instead of joining it, so a gap in the sweep
@@ -840,7 +843,7 @@ int main(void) {
     test_peak_beside_a_strong_neighbour();
     test_a_maximum_below_its_own_floor();
     test_a_ripple_on_a_multiplex_is_not_a_signal();
-    test_a_carrier_with_no_end_is_not_reported();
+    test_a_carrier_with_little_headroom_is_reported();
     test_sentinel_splits_humps();
     test_measuring_a_carrier_close_to_its_noise();
     test_a_measurement_cannot_swallow_the_spectrum();

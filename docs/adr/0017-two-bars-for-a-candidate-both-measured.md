@@ -112,3 +112,38 @@ rule is, at nearer 20 dB. The difference from ADR-0013 is that it is now a rule
 with a name and a reason, the reported figure can no longer contradict the
 gate, and the noise claim underneath it all has been measured instead of
 assumed.
+
+
+## 2026-09-06: bounding the walk alone, without touching the floor
+
+The variant measured above was **two** changes -- bound the walk *and* measure
+the floor outward from the hump's edges -- and this records that the second is
+what admitted the ripples. Bounded walk, `local_floor()` left exactly as it
+was, three sweeps of 470-690 MHz at a 0.2 s dwell:
+
+| | candidates | carriers |
+| --- | --- | --- |
+| the extent rule | 36, 34, 35 | 36, 34, 35 |
+| bounded walk, floor rule unchanged | 42, 43, 41 | 42, 43, 41 |
+| bounded walk **and** floor outside the hump | 59, 61, 61 | 58, 60, 60 |
+
+Seven more rather than twenty-one, and the carrier count tracks the candidate
+count exactly -- nothing clustered inside a multiplex. Checked directly: of 42
+candidates, **none** sits inside a wider, stronger carrier.
+
+The mechanism is that the two halves filter different things. A ripple on a
+multiplex has a hump far wider than an isolated tone's, so its floor window --
+eight times the width -- still does not fit beside it, `local_floor()` still
+returns a NaN, and it is still dropped. Measuring outward from the hump's edges
+is what removed that filter. The bound only ever needed to leave *something*
+outside the hump, and a quarter of the array does.
+
+All three signals ADR-0017 recorded as the cost come back: the 102.4 MHz tone
+at 17.6 dB of prominence, the 1090 MHz carrier in `adsb_cpr_pair.bin` at
+1089.96 MHz, and ARFCN 63 in `gsm_arfcn_69.bin`. `check-pipelines` asserts the
+first two by name now, where it used to assert their absence.
+
+**So the decision above is reversed on its narrow point** -- the unbounded walk
+and the NaN are gone -- and upheld on the wide one: a fixed threshold is still
+the wrong instrument, and what settled this was measuring each half of a change
+separately rather than the pair.

@@ -1,6 +1,6 @@
 # 01 — Find a candidate's edges the way the carrier grouping already does
 
-Status: needs-triage
+Status: resolved
 
 ## Where to start
 
@@ -97,3 +97,57 @@ silently not finding it.
 Not started. The ordering matters -- candidates are currently computed before
 carriers in all three call sites -- and that is a real piece of work, not a
 patch.
+
+## Answer
+
+Status: resolved, and by neither of the things this ticket proposed.
+
+Not the trough walk -- the 2026-09-05 comment above ruled that out, because
+the ratchet never terminates in flat noise. And not the carrier-holding
+reporting it pointed at instead, which turned out not to be needed.
+
+**The whole fix is bounding the extent walk and changing nothing else.**
+
+ADR-0017 measured "bound the walk and measure the floor outward from the
+hump's edges" and reverted it for admitting 28 ripples. That is two changes,
+and the second is the one that did the damage. With `local_floor()` left
+alone, a ripple on a multiplex still has a hump far wider than an isolated
+tone's, so its floor window -- eight times the width -- still does not fit
+beside it, it still has no measurable floor, and it is still dropped.
+
+Three sweeps of 470-690 MHz at a 0.2 s dwell:
+
+```
+the extent rule                       36/34/35 candidates,  36/34/35 carriers
+bounded walk, floor rule unchanged    42/43/41              42/43/41
+bounded walk AND floor outside hump   59/61/61              58/60/60
+```
+
+Seven more rather than twenty-one, carriers tracking candidates one for one,
+and of 42 candidates **none** sits inside a wider, stronger carrier.
+
+All three signals the ADR recorded as the cost are back:
+
+- **ARFCN 63** at 947.63 MHz in `gsm_arfcn_69.bin`, named by the cell's own
+  System Information 2 -- two subsystems agreeing on a channel.
+- **The 1090 MHz carrier** in `adsb_cpr_pair.bin`, at 1089.96 MHz with 15.1 dB
+  of prominence, corroborated by six decoded frames from the same capture.
+- **The 102.4 MHz tone**, at 17.6 dB -- the spec said 18.
+
+`check-pipelines` asserted the absence of the first two, with the reason
+written beside them so that recovering them would show as a change rather than
+as luck. Both assertions are now inverted and name the signals.
+
+The bound is a quarter of the array, and its only job is to leave something
+outside the hump for `local_floor()` to measure. It is deliberately not a
+statement about how wide a signal may be, and the comment says so -- a bound
+that meant that would be the fixed threshold this ticket spent three attempts
+ruling out.
+
+## What did not happen
+
+`struct survey_candidate` did not gain the carrier holding it, and the call
+sites still compute candidates before carriers. That was the plan the previous
+comment left, and it was aimed at a flood of ripples that does not arrive.
+Worth remembering if the floor rule is ever revisited, and not worth building
+now.
