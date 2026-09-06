@@ -193,11 +193,11 @@ int signal_find_carrier(const float *i_samples, const float *q_samples,
     out->found = 1;
     out->offset_hz = carrier;
     out->magnitude = line;
-    out->line_over_floor_db = floor_est > 0.0
+    out->carrier_over_noise_db = floor_est > 0.0
                                   ? 20.0 * log10(line / floor_est) : 0.0;
-    out->in_line = constant_fraction(i_samples, q_samples, pair_count,
+    out->carrier_power_fraction = constant_fraction(i_samples, q_samples, pair_count,
                                      carrier, sample_rate, channel_hz);
-    if (out->in_line > 1.0)
-        out->in_line = 1.0;
+    if (out->carrier_power_fraction > 1.0)
+        out->carrier_power_fraction = 1.0;
     return 1;
 }
