@@ -977,6 +977,67 @@ static void check_real_capture(const char *path, int pci, int integer_offset,
               path, advanced, steps);
 }
 
+/*
+ * Reference signal power, and the one property that makes it worth having
+ * without a calibrated receiver.
+ *
+ * RSRP is measured in the converter's full-scale units, so it moves with any
+ * gain in front of it and is only comparable between cells read the same way.
+ * RSRQ is N * RSRP / RSSI, two powers through the same chain, so every fixed
+ * gain cancels -- and that is not an argument, it is a testable claim:
+ * multiply the whole buffer by two and RSRP must rise by 6.02 dB while RSRQ
+ * must not move at all.
+ */
+static void test_reference_power(void) {
+    struct lte_cell cell;
+    struct lte_reference_power quiet, loud;
+    size_t n;
+
+    build_buffer(227, 2, 0.0, 0.004, 41u);
+    if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                        LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1) {
+        check_true("reference power: the synthetic cell is found", 0);
+        return;
+    }
+    if (lte_reference_power(buffer_i, buffer_q, BUFFER_SAMPLES,
+                            LTE_SAMPLE_RATE_HZ, &cell, &quiet) != 1) {
+        check_true("reference power: measured", 0);
+        return;
+    }
+
+    check_int("reference power: blocks measured over",
+              quiet.resource_blocks, LTE_PBCH_SUBCARRIERS / 12);
+    check_msg(quiet.references > 0 && quiet.references % 12 == 0,
+              "twelve references per frame, %d in all\n", quiet.references);
+    /*
+     * Six blocks hold seventy-two subcarriers and twelve of them are
+     * references, so even a carrier with all its power in the references
+     * reaches only 6 * (P/12) / P. RSRQ cannot exceed -3.01 dB, whatever the
+     * signal, and a reading above it is an arithmetic fault rather than a
+     * strong cell.
+     */
+    check_msg(quiet.rsrq_db <= -3.0f,
+              "RSRQ %.2f dB is at or below the -3.01 dB ceiling\n",
+              quiet.rsrq_db);
+
+    for (n = 0; n < BUFFER_SAMPLES; n++) {
+        buffer_i[n] *= 2.0f;
+        buffer_q[n] *= 2.0f;
+    }
+    if (lte_reference_power(buffer_i, buffer_q, BUFFER_SAMPLES,
+                            LTE_SAMPLE_RATE_HZ, &cell, &loud) != 1) {
+        check_true("reference power: measured at twice the amplitude", 0);
+        return;
+    }
+
+    check_close("RSRP follows the gain", loud.rsrp_dbfs,
+                quiet.rsrp_dbfs + 6.0206, 0.01);
+    check_close("RSSI follows the gain", loud.rssi_dbfs,
+                quiet.rssi_dbfs + 6.0206, 0.01);
+    /* The whole point: the ratio does not know the gain changed. */
+    check_close("RSRQ does not", loud.rsrq_db, quiet.rsrq_db, 0.001);
+}
+
 int main(void) {
     twiddles_init();
 
@@ -991,6 +1052,7 @@ int main(void) {
     test_cell_search_from_the_second_half_frame();
     test_cell_search_refuses();
     test_broadcast_channel();
+    test_reference_power();
     test_broadcast_channel_refuses();
 
     /*
