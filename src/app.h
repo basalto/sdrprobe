@@ -838,6 +838,18 @@ struct survey_view {
         struct sdr_carrier_report best;
         int measured;   /* whether `best` holds anything at all */
         int hits;
+        /*
+         * What kind of thing the best look found, scratch until
+         * survey_confirm_decide() copies it into the caller's target. Kept
+         * here rather than written straight into a target because the
+         * headless pass keeps its own array and does not advance
+         * `confirm.index`, so a function writing through that index would put
+         * every target's measurement into the first one.
+         */
+        int kind_measured;
+        struct signal_carrier carrier;
+        struct signal_bursts bursts;
+        struct signal_envelope envelope;
     } confirm;
     int focus;                  /* 0 from, 1 to, 2 dwell, 3 site, 4 antenna */
     double dwell_seconds;       /* parsed at the start of a sweep */

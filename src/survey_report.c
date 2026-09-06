@@ -147,6 +147,37 @@ static int survey_carriers_now(const struct survey_plan *plan,
  * across a swept range the spectrum belongs to whichever step happened to be
  * last, and a bandwidth read from it would be a number about the wrong signal.
  */
+/*
+ * What kind of thing the pass found, on its own line.
+ *
+ * Separate from the `confirm` line rather than appended to it: that line has
+ * a documented shape and readers parse it, and a target the pass never caught
+ * has no kind to report at all. One record per line, keyword first
+ * (docs/band-surveys.md).
+ *
+ * The words are signal_probe's own verdicts rather than new ones. Two
+ * vocabularies for the same measurement is how a saved survey and a screen
+ * come to disagree about the same signal.
+ *
+ * The envelope reads -1 when it refused, which it does for a signal down in
+ * the quantiser's floor. Zero would mean "does not vary at all", which is the
+ * strongest claim the statistic can make and the wrong one to make by
+ * accident.
+ */
+static void survey_report_kind(const struct survey_confirm_target *target) {
+    if (!target->kind_measured)
+        return;
+    printf("kind %.0f %s %.1f %.3f %.3f %s %.4f\n", target->hz,
+           signal_verdict_name(signal_carrier_verdict(&target->carrier)),
+           target->carrier.carrier_over_noise_db,
+           target->carrier.carrier_power_fraction,
+           target->envelope.found ? target->envelope.variation : -1.0,
+           target->bursts.verdict == SIGNAL_BURST_SEPARABLE ? "bursts"
+               : target->bursts.verdict == SIGNAL_BURST_BUSY ? "busy"
+                                                             : "level",
+           target->bursts.occupancy);
+}
+
 static void report_candidates(struct app *app, const struct survey_plan *plan,
                               const struct sdr_peak *peaks, int count,
                               const float *spectrum) {
@@ -275,12 +306,20 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
     memset(&snapshot, 0, sizeof(snapshot));
     printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
            "<hits>/<looks>\n");
+    printf("# kind <frequency_hz> <carrier> <over_noise_db> <standing_share> "
+           "<envelope> <bursts> <occupancy>\n");
     for (i = 0; i < asked && !stop_requested(); i++) {
         struct sdr_carrier_report report;
         double started;
         int settled = 0;
 
-        if (retune_receiver(app, (uint32_t)llround(targets[i].hz),
+        /* Below the target, not onto it: signal_find_carrier() guards DC so
+           it cannot lock onto the receiver's own offset, and tuned onto the
+           target a guarded search would skip it. survey_confirm.h has what
+           the offset costs, measured. */
+        if (retune_receiver(app,
+                            (uint32_t)llround(targets[i].hz -
+                                              SURVEY_CONFIRM_OFFSET_HZ),
                             app->applied_ppm) < 0) {
             fprintf(stderr, "The receiver would not tune to %.3f MHz.\n",
                     targets[i].hz / 1e6);
@@ -327,6 +366,7 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
                    survey_flag_text(targets[i].suspicion, flags,
                                     sizeof(flags)));
         }
+        survey_report_kind(&targets[i]);
     }
     printf("confirm-summary asked %d confirmed %d intermittent %d refuted "
            "%d\n", asked, confirmed, intermittent, refuted);

@@ -230,6 +230,28 @@ static void test_a_burst_is_recorded(void) {
                                            SURVEY_VERDICT_REFUTED), 1);
 }
 
+/*
+ * Everything reported about a target comes from one look.
+ *
+ * The pass keeps the best rather than an average, and the level, the width
+ * and the kind all have to come from that same block: a carrier fraction
+ * beside a prominence measured elsewhere describes two different signals when
+ * the transmitter is bursty, one look having caught the transmission and the
+ * other the gap.
+ */
+static void test_one_look_supplies_everything(void) {
+    check_int("the first look is always taken",
+              survey_confirm_better(0, 0.0f, -20.0f), 1);
+    check_int("even a look below the bar, when nothing is kept",
+              survey_confirm_better(0, 40.0f, 1.0f), 1);
+    check_int("a louder look replaces the one kept",
+              survey_confirm_better(1, 10.0f, 12.0f), 1);
+    check_int("a quieter one does not",
+              survey_confirm_better(1, 10.0f, 9.9f), 0);
+    check_int("nor an equal one, so the earliest of a tie is kept",
+              survey_confirm_better(1, 10.0f, 10.0f), 0);
+}
+
 int main(void) {
     test_the_sense_of_a_verdict();
     test_what_gets_remembered();
@@ -239,5 +261,6 @@ int main(void) {
     test_intermittent_is_its_own_answer();
     test_a_burst_is_recorded();
 
+    test_one_look_supplies_everything();
     return check_report("asking again about what changed");
 }
