@@ -234,6 +234,36 @@ struct lte_cell {
     int integer_offset;
     float sss_correlation;      /* best candidate, normalised to [0, 1] */
     float sss_runner_up;        /* second best, so the margin can be judged */
+    /*
+     * What the two cyclic-prefix hypotheses actually scored, and whether each
+     * was tried at all.
+     *
+     * `extended_cp` above is a verdict, and until this was here it was a
+     * verdict with nothing behind it: the search stops as soon as one
+     * hypothesis clears LTE_SSS_CONFIDENT, so a cell whose secondary sequence
+     * reads 0.83 under the normal prefix has the extended one *never
+     * measured*. The chain then printed "normal CP" as a fact about a
+     * comparison it had not made. `.scratch/lte-band8-mib/` is that cell.
+     *
+     * Filled only when a trace is asked for -- the extra hypothesis costs one
+     * more secondary-sequence read, which the live path should not pay for a
+     * number nobody is looking at. `cp_measured[k]` is 0 where nothing was
+     * tried, and a score of 0 is otherwise a real reading.
+     */
+    float cp_score[2];          /* [0] normal, [1] extended */
+    int cp_measured[2];
+    /*
+     * How far pss_refine_timing moved the primary sequence's peak once the
+     * whole tuning error was known, and what the best correlation was outside
+     * LTE_TIMING_GUARD samples of where it settled.
+     *
+     * A frequency error moves a Zadoff-Chu peak as well as weakening it, so a
+     * large shift is ordinary. A *sidelobe* close to the peak is not: it means
+     * the sample the whole frame is measured from was chosen on a thin
+     * margin, and four symbols of broadcast channel are read from it.
+     */
+    int timing_shift;
+    float timing_sidelobe;
 };
 
 /*
@@ -258,6 +288,13 @@ struct lte_cell {
    once the offset is known. A cyclic prefix is nine samples, so anything
    beyond a few tens is a different symbol. */
 #define LTE_TIMING_SEARCH 48
+
+/* How far from the chosen peak a correlation has to be before it counts as a
+   sidelobe rather than as the peak's own shoulder. A cyclic prefix is nine
+   samples at this rate, so a competitor inside that costs the broadcast
+   channel a phase ramp and no more; one beyond it is a different symbol
+   boundary and reads a different frame. */
+#define LTE_TIMING_GUARD 9
 
 /*
  * SSS is read differentially -- each subcarrier times the conjugate of its

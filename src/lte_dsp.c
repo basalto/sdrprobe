@@ -746,7 +746,7 @@ static int sss_try(const float *i_samples, const float *q_samples,
 static size_t pss_refine_timing(const float *i_samples, const float *q_samples,
                                 size_t pair_count, double sample_rate,
                                 double offset_hz, int n_id_2, size_t around,
-                                float *peak) {
+                                float *peak, float *sidelobe) {
     struct pss_reference reference;
     double step = -2.0 * M_PI * offset_hz / sample_rate;
     long from = (long)around - LTE_TIMING_SEARCH;
@@ -754,6 +754,11 @@ static size_t pss_refine_timing(const float *i_samples, const float *q_samples,
     size_t best_start = around;
     float best = -1.0f;
     long start;
+    /* Every score the walk produces, so the sidelobe can be taken relative to
+       wherever the peak finally lands -- which is not known until the walk is
+       over, so it cannot be decided as we go. */
+    float score[2 * LTE_TIMING_SEARCH + 1];
+    int count = 0;
 
     pss_reference_build(n_id_2, &reference);
     if (from < 0)
@@ -779,6 +784,8 @@ static size_t pss_refine_timing(const float *i_samples, const float *q_samples,
         magnitude = sqrt(cr * cr + ci * ci) /
                     sqrt(energy * (reference.half_energy[0] +
                                    reference.half_energy[1]));
+        if (count < (int)(sizeof(score) / sizeof(score[0])))
+            score[count++] = (float)magnitude;
         if ((float)magnitude > best) {
             best = (float)magnitude;
             best_start = (size_t)start;
@@ -786,6 +793,19 @@ static size_t pss_refine_timing(const float *i_samples, const float *q_samples,
     }
     if (peak)
         *peak = best;
+    if (sidelobe) {
+        int peak_at = (int)((long)best_start - from);
+        int n;
+        float worst = 0.0f;
+        for (n = 0; n < count; n++) {
+            if (n - peak_at <= -LTE_TIMING_GUARD ||
+                n - peak_at >= LTE_TIMING_GUARD) {
+                if (score[n] > worst)
+                    worst = score[n];
+            }
+        }
+        *sidelobe = worst;
+    }
     return best_start;
 }
 
@@ -804,6 +824,10 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
     int leads[2] = { LTE_SSS_LEAD_NORMAL, LTE_SSS_LEAD_EXTENDED };
     int best_index = -1, best_id = 0, best_half = 0, best_integer = 0;
     float best_score = -2.0f, best_runner_up = 0.0f;
+    /* What each cyclic-prefix hypothesis reached, kept apart from the winner
+       so a verdict of "normal" can be read beside the number that beat. */
+    float cp_best[2] = { 0.0f, 0.0f };
+    int cp_seen[2] = { 0, 0 };
     double offset;
     long start;
     int k, integer;
@@ -850,6 +874,10 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
                         offset, leads[k], &n_id_1, &subframe5, &score,
                         &runner_up, trace ? scores[k] : NULL) < 0)
                 continue;
+            if (!cp_seen[k] || score > cp_best[k]) {
+                cp_best[k] = score;
+                cp_seen[k] = 1;
+            }
             if (score > best_score) {
                 best_score = score;
                 best_runner_up = runner_up;
@@ -880,12 +908,46 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
      */
     offset = pss.frequency_offset_hz +
              (double)best_integer * LTE_SUBCARRIER_SPACING_HZ;
+
+    /*
+     * The hypothesis the search never reached, measured now that it cannot
+     * change anything.
+     *
+     * The loop above stops at the first prefix that clears LTE_SSS_CONFIDENT,
+     * so on a strong cell the other one is not merely beaten, it is unasked --
+     * and "normal CP" was printed as though a comparison had happened. Doing
+     * it here rather than inside the loop is deliberate: the decision keeps
+     * exactly the early exit it had, and this cannot promote a hypothesis the
+     * search declined to try.
+     *
+     * Unconditional, and cheap for the same reason the early exit is not: what
+     * that exit avoids is up to eleven integer hypotheses times two prefixes,
+     * and this is one secondary-sequence read at an offset already known.
+     */
     {
-        float refined_peak = 0.0f;
+        int other = best_index == 0 ? 1 : 0;
+        if (!cp_seen[other]) {
+            int n_id_1 = 0, subframe5 = 0;
+            float score = 0.0f, runner_up = 0.0f;
+            if (sss_try(i_samples, q_samples, pair_count, &pss, sample_rate,
+                        offset, leads[other], &n_id_1, &subframe5, &score,
+                        &runner_up, NULL) == 0) {
+                cp_best[other] = score;
+                cp_seen[other] = 1;
+            }
+        }
+    }
+
+    {
+        float refined_peak = 0.0f, sidelobe = 0.0f;
         size_t refined = pss_refine_timing(i_samples, q_samples, pair_count,
                                            sample_rate, offset, pss.n_id_2,
-                                           pss.useful_start, &refined_peak);
+                                           pss.useful_start, &refined_peak,
+                                           &sidelobe);
+        cell->timing_sidelobe = sidelobe;
         if (refined_peak > pss.peak) {
+            cell->timing_shift = (int)((long)refined -
+                                       (long)pss.useful_start);
             pss.useful_start = refined;
             pss.peak = refined_peak;
         }
@@ -928,6 +990,10 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
     cell->pss_runner_up = pss.runner_up;
     cell->sss_correlation = best_score;
     cell->sss_runner_up = best_runner_up;
+    cell->cp_score[0] = cp_best[0];
+    cell->cp_score[1] = cp_best[1];
+    cell->cp_measured[0] = cp_seen[0];
+    cell->cp_measured[1] = cp_seen[1];
     if (trace) {
         memcpy(trace->candidate, winning_scores, sizeof(trace->candidate));
         trace->candidate_count = LTE_N_ID_1_COUNT;
