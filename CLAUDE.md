@@ -490,6 +490,20 @@ Tabs are presentation only, not the boundary (ADR-0010).
   20.5 dB) from Mode S (4 bursts, 26.1 dB) -- occupancy does, 0.796 against
   0.0037. Lengths are long by exactly the smoothing window and it is
   subtracted; synthetic bursts of 100, 300 and 1000 us then read exact.
+  `signal_envelope_stats()` is the envelope's shape, in the channel mixed to
+  zero and filtered to its own width -- **that isolation is the measurement**,
+  since across a 2 MHz span the envelope of a narrow signal is the envelope of
+  the noise beside it. Read against Rayleigh's 0.5227, which is what complex
+  Gaussian noise gives and depends on nothing: FM broadcast reads 0.032, a
+  bare carrier 0.137-0.248, TETRA 0.25-0.27, an empty channel 0.545, Mode S
+  1.057 and an LTE downlink 1.098. It is a scale and not a classifier -- a
+  bare carrier in noise and filtered pi/4-DQPSK read the same number -- and it
+  measures the envelope over the *look*: GSM is constant-envelope by
+  construction and reads up to 0.79, because it is also TDMA. **The
+  instantaneous-frequency histogram that would name FSK is deliberately not
+  built**: an empty 25 kHz channel spreads 8.7 kHz against TETRA's 5.0 in the
+  same channel, so the noise is wider than the signal and its modes would be
+  the noise's.
 - `src/signal_findings.h` — one layer over that, and the same relation to it
   that `lte_findings.h` has to the LTE measurements: sentences with their
   numbers attached, and refusals where the measurement cannot reach. It is
