@@ -5,6 +5,8 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include <stdio.h>
+
 #include "check.h"
 #include "signal_probe.h"
 
@@ -703,6 +705,91 @@ static void test_envelope_refusals(void) {
               signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, &e), 0);
 }
 
+/* ------------------------------------------------------------------ *
+ * On air
+ * ------------------------------------------------------------------ */
+
+/*
+ * A real capture, because everything above is synthetic and a synthetic
+ * signal agrees with whatever assumption built it. This repository has lost
+ * months to that twice -- a conjugated primary sequence and a scattered SCH
+ * field layout, both green throughout -- and the rule it learned is that a
+ * real-signal invariant is the only check a shared mistake cannot satisfy.
+ *
+ * `carrier_75000_bare.bin` is 2 s of the 75.0005 MHz clock harmonic, recorded
+ * 300 kHz below it so the carrier lands clear of the receiver's own DC
+ * offset. It is the case the whole of `.scratch/signal-probe/` was raised
+ * for: a signal the band plan calls an ILS marker beacon, standing 42 dB over
+ * its floor, with nothing riding it.
+ */
+static void test_a_real_bare_carrier(void) {
+    static float ci[400000], cq[400000];
+    struct signal_carrier c;
+    unsigned char raw[8];
+    FILE *f = fopen("testfiles/carrier_75000_bare.bin", "rb");
+    size_t n = 0;
+
+    if (!f) {
+        check_true("the capture is present", 0);
+        return;
+    }
+    while (n < 400000 && fread(raw, 1, 2, f) == 2) {
+        ci[n] = ((float)raw[0] - 127.5f) / 127.5f;
+        cq[n] = ((float)raw[1] - 127.5f) / 127.5f;
+        n++;
+    }
+    fclose(f);
+    check_size("the capture reads", n, 400000);
+
+    check_int("a carrier is found where it was put",
+              signal_find_carrier(ci, cq, n, 2000000.0, 260000.0, 340000.0,
+                                  150000.0, 20000.0, &c), 1);
+    check_close("at +300 kHz, to the tuning error", c.offset_hz, 299478.0,
+                200.0);
+    check_true("standing well over the floor beside it",
+               c.carrier_over_noise_db > 35.0);
+    check_true("with most of the channel standing still",
+               c.carrier_power_fraction > 0.80);
+    check_int("so it is a bare carrier", signal_carrier_verdict(&c),
+              SIGNAL_BARE);
+    check_int("and signal_is_bare_tone agrees", signal_is_bare_tone(&c), 1);
+
+    /*
+     * And the window is the caller's, which this capture shows better than a
+     * DC spike would. Searched across the whole span it finds something else
+     * entirely -- a real neighbour at +176 kHz, which is 74.877 MHz, a
+     * frequency the survey also raises as a candidate in this band -- at
+     * 38 dB against the target's 47.
+     *
+     * So a search told to look in the wrong place returns a confident answer
+     * about a different signal, and nothing in the result says so. The DC
+     * offset is the other way this goes wrong and is not what happens here:
+     * this receiver's offset is small enough that it does not win, which is
+     * exactly why the guard has to be a parameter rather than a threshold
+     * somebody tuned once.
+     */
+    {
+        struct signal_carrier wide;
+        check_int("a search across the whole span still finds something",
+                  signal_find_carrier(ci, cq, n, 2000000.0, -340000.0,
+                                      340000.0, 0.0, 20000.0, &wide), 1);
+        check_true("but it is a different signal",
+                   fabs(wide.offset_hz - c.offset_hz) > 100000.0);
+        check_true("and a weaker one, so nothing flags the mistake",
+                   wide.carrier_over_noise_db <
+                       c.carrier_over_noise_db);
+    }
+
+    /* A continuous carrier is a level, not a burst pattern. */
+    {
+        struct signal_bursts b;
+        check_int("and it does not transmit in bursts",
+                  signal_find_bursts(ci, cq, n, 2000000.0,
+                                     SIGNAL_BURST_GAP_DEFAULT, &b), 0);
+        check_int("it is a level", b.verdict, SIGNAL_BURST_LEVEL);
+    }
+}
+
 int main(void) {
     test_a_pure_tone_is_all_line();
     test_only_in_channel_energy_counts();
@@ -722,5 +809,6 @@ int main(void) {
     test_noise_reads_rayleigh();
     test_an_on_off_envelope_varies_more_than_noise();
     test_envelope_refusals();
+    test_a_real_bare_carrier();
     return check_report("where a carrier is, and whether anything rides it");
 }

@@ -912,6 +912,18 @@ share the header -- which is exactly what makes it hard to notice.
   estimator pinned at the edge of its range and half the blocks failed — and
   since TETRA channels are 25 kHz apart, a search wide enough to cover that is
   wide enough to select the neighbour.
+  `carrier_75000_bare.bin` is not a technology and that is the point: 2 s of
+  the 75.0005 MHz clock harmonic -- 25 MHz x 3 -- which the band plan calls an
+  ILS marker beacon and which carries nothing. Recorded **300 kHz below it**,
+  so the carrier lands at +300 kHz and clear of the receiver's own DC offset;
+  `signal_find_carrier()` guards a band around zero and would otherwise find
+  the DC spike. It must keep reading a bare carrier at about 47 dB over its
+  floor with about 0.92 of the channel standing still, and no burst structure.
+  It is the only real-signal check `signal_probe` has -- everything else there
+  is synthetic, and a synthetic signal agrees with whatever assumption built
+  it. Searched across the whole span instead of its own window it returns a
+  real neighbour at +176 kHz at 38 dB, which is what makes the search window
+  the caller's responsibility rather than a default.
   `fm_rds_tsf.bin` is at **2.048 MS/s**, tuned to 89.5 where TSF is, and
   three seconds long. It must keep reading identification 0x8343 and the name
   `TSF`; the name alone would pass with the differential sense backwards, so

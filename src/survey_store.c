@@ -259,8 +259,59 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
      * be able to tell "nothing held up" from "nothing was checked".
      */
     fprintf(file, "  \"confirmation\": {\"asked\": %d, \"confirmed\": %d, "
-                  "\"intermittent\": %d, \"refuted\": %d},\n", target_count,
-            confirmed, intermittent, refuted);
+                  "\"intermittent\": %d, \"refuted\": %d, \"targets\": [",
+            target_count, confirmed, intermittent, refuted);
+    /*
+     * And what the pass asked and found, one entry each.
+     *
+     * The counts above are a summary and this is the evidence: which
+     * frequencies were asked about, what was claimed of each, how many looks
+     * it was up in, and the width and the suspicion flags measured at the
+     * pass's own resolution -- 244 Hz, where the sweep that raised the
+     * candidate may have had 212 kHz bins.
+     *
+     * The ingest script has recorded this from the start and this writer did
+     * not, so the same sweep saved two ways carried different evidence. The
+     * kind sits on the carrier in both, because that is what `diff` compares;
+     * this is the rest of the pass's answer.
+     */
+    for (i = 0; i < target_count; i++) {
+        const struct survey_confirm_target *t = &targets[i];
+        char flags[64];
+        const char *text = survey_flag_text(t->suspicion, flags,
+                                            sizeof(flags));
+
+        fprintf(file, "%s\n    {\"hz\": %.0f, \"claim\": \"%s\", "
+                      "\"verdict\": \"%s\", \"prominence_db\": %.1f, "
+                      "\"hits\": %d, \"looks\": %d, \"width_hz\": %.0f, "
+                      "\"flags\": ",
+                i ? "," : "", t->hz,
+                t->claim == SURVEY_CLAIM_MISSING ? "missing" : "new",
+                survey_verdict_name(t->verdict), (double)t->prominence_db,
+                t->hits, t->looks, t->bandwidth_hz);
+        if (strcmp(text, "-") == 0)
+            fprintf(file, "null");
+        else
+            fprintf(file, "\"%s\"", text);
+        /* And the kind here too, not only on the carrier. A target the window
+           revisits because the history remembers it may have no carrier in
+           this sweep at all, and its kind would otherwise have nowhere to
+           go. */
+        if (t->kind_measured)
+            fprintf(file,
+                    ", \"kind\": {\"carrier\": \"%s\", "
+                    "\"over_noise_db\": %.1f, \"standing_share\": %.3f, "
+                    "\"envelope\": %.3f, \"bursts\": \"%s\", "
+                    "\"occupancy\": %.4f}",
+                    signal_verdict_name(signal_carrier_verdict(&t->carrier)),
+                    t->carrier.carrier_over_noise_db,
+                    t->carrier.carrier_power_fraction,
+                    t->envelope.found ? t->envelope.variation : -1.0,
+                    survey_burst_name(t->bursts.verdict),
+                    t->bursts.occupancy);
+        fprintf(file, "}");
+    }
+    fprintf(file, "%s]},\n", target_count ? "\n   " : "");
     fprintf(file, "  \"candidates\": [\n");
     for (i = 0; i < count; i++) {
         const struct survey_candidate *c = &candidates[i];
@@ -275,6 +326,21 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
                     c->centre_hz, c->width_hz);
         else
             fprintf(file, "\"centre_hz\": null, \"width_hz\": null, ");
+        /*
+         * The width in the sweep's own bins, and whether that is a
+         * measurement or the instrument's floor.
+         *
+         * This writer did not record either and the ingest script did, so a
+         * file written here and a file written there described the same sweep
+         * differently -- and `report` said of a file from this writer that
+         * the sweep "predates the extent being recorded", which was false and
+         * blamed the sweep for the writer's omission. A reader cannot tell a
+         * field a writer never wrote from one the data never had.
+         */
+        fprintf(file, "\"extent_hz\": %.0f, \"resolved\": %s, ",
+                c->extent_hz,
+                survey_extent_is_floor(c->extent_hz, plan->bin_hz) ? "false"
+                                                                   : "true");
         fprintf(file, "\"flags\": [");
         if (strcmp(text, "-") != 0) {
             const char *from = text;

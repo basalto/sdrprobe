@@ -343,7 +343,8 @@ check-signal-findings: $(TESTS)/signal_findings_test.c $(TESTS)/check.h \
 	$(Q)./$(BUILD)/signal_findings_test
 
 check-signal-probe: $(TESTS)/signal_probe_test.c $(TESTS)/check.h \
-		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+		$(SRC)/signal_probe.c $(SRC)/signal_probe.h \
+		testfiles/carrier_75000_bare.bin
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_probe_test \
 		$(TESTS)/signal_probe_test.c $(SRC)/signal_probe.c -lm

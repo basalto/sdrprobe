@@ -10,6 +10,43 @@
 
 #include "app.h"
 
+/*
+ * Whether every container the file opens is closed, ignoring what is inside
+ * a string.
+ *
+ * Not a parser: it cannot see a missing comma or a duplicated key. It catches
+ * exactly the fault this writer has shipped twice in one day -- a field
+ * emitted in the wrong place and an array never closed, both of them a format
+ * string with a bracket missing -- and both survived every substring
+ * assertion in this file, because a substring is there whether or not the
+ * thing around it is well formed.
+ */
+static int json_balanced(const char *text) {
+    int curly = 0, square = 0, in_string = 0;
+    const char *at;
+
+    for (at = text; *at; at++) {
+        if (in_string) {
+            if (*at == '\\' && at[1])
+                at++;
+            else if (*at == '"')
+                in_string = 0;
+            continue;
+        }
+        switch (*at) {
+        case '"': in_string = 1; break;
+        case '{': curly++; break;
+        case '}': curly--; break;
+        case '[': square++; break;
+        case ']': square--; break;
+        default: break;
+        }
+        if (curly < 0 || square < 0)
+            return 0;    /* closed something that was never opened */
+    }
+    return !in_string && curly == 0 && square == 0;
+}
+
 /* How many times `needle` appears in `hay`. */
 static int count_occurrences(const char *hay, const char *needle) {
     int n = 0;
@@ -272,7 +309,7 @@ static void test_the_file_it_writes(void) {
         check_true("the file says a pass ran and what it found",
                    strstr(text, "\"confirmation\": {\"asked\": 1, "
                                 "\"confirmed\": 1, \"intermittent\": 0, "
-                                "\"refuted\": 0}") != NULL);
+                                "\"refuted\": 0, \"targets\": [") != NULL);
         check_true("the carrier it asked about carries the verdict",
                    strstr(text, "\"maxima\": 2, \"confirmed\": \"confirmed\"")
                        != NULL);
@@ -291,6 +328,7 @@ static void test_the_file_it_writes(void) {
          * fixture carried one. A branch nothing exercises is a green tick
          * over untested code.
          */
+        check_true("the file is well formed", json_balanced(text));
         check_true("the carrier carries what kind of thing it was",
                    strstr(text,
                           "\"kind\": {\"carrier\": \"a bare carrier\", "
@@ -302,8 +340,33 @@ static void test_the_file_it_writes(void) {
         /* And a carrier the pass never caught has no kind at all, rather
            than a zeroed one: a standing share of 0.000 reads as "heavily
            modulated" and a burst count of zero as "continuous". */
-        check_int("a carrier with no kind measured omits the field",
-                  count_occurrences(text, "\"kind\": {"), 1);
+        /* Once on the carrier and once on the target that asked, and nowhere
+           else: the one carrier the pass never caught has none. */
+        check_int("the kind is written where it belongs and nowhere else",
+                  count_occurrences(text, "\"kind\": {"), 2);
+        /*
+         * And the pass's own evidence, not only its four counts. Which
+         * frequencies were asked about, what was claimed, how many looks each
+         * was up in, and the width measured at the pass's resolution rather
+         * than the sweep's.
+         */
+        check_true("the confirmation carries its targets",
+                   strstr(text, "\"targets\": [") != NULL);
+        check_true("each saying what was asked and what came back",
+                   strstr(text, "\"claim\": \"new\", "
+                                "\"verdict\": \"confirmed\"") != NULL);
+        check_true("with the count behind the verdict",
+                   strstr(text, "\"hits\": 0, \"looks\": 0") != NULL);
+        /*
+         * The extent and whether it was resolvable. This writer recorded
+         * neither and the ingest script did, so `report` told a reader that a
+         * file from here "predates the extent being recorded" -- blaming the
+         * sweep for the writer's omission, about a sweep taken that morning.
+         */
+        check_true("a candidate says how wide it was in the sweep's own bins",
+                   strstr(text, "\"extent_hz\":") != NULL);
+        check_true("and whether that was a measurement or the floor",
+                   strstr(text, "\"resolved\": ") != NULL);
     }
     if (chdir(cwd) != 0)
         exit(2);

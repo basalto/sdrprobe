@@ -305,8 +305,12 @@ these: what is known, what is new, and what is worth measuring next.
 
 `schema`, `recorded_at`, `range_hz`, `sweep` (steps, bins, dwell, blocks,
 settling), `receiver` (tuner, antenna, gain_db), `site` (label, fingerprint),
-`totals`, `confirmation` (asked, confirmed, refuted), `candidates` -- each with
-`hz`, `dbfs`, `prominence_db`, `centre_hz`, `width_hz`, `flags`, `confirmed`
+`totals`, `confirmation` (asked, confirmed, intermittent, refuted, and
+`targets` -- one per frequency the pass revisited, with `hz`, `claim`,
+`verdict`, `prominence_db`, `hits`, `looks`, `width_hz` and `flags`),
+`candidates` -- each with
+`hz`, `dbfs`, `prominence_db`, `centre_hz`, `width_hz`, `extent_hz`,
+`resolved`, `flags`, `confirmed`
 and `allocation` -- and `carriers`, each with `centre_hz`, `power_centre_hz`,
 `lower_hz`, `upper_hz`, `width_hz`, `dbfs`, `prominence_db`, `maxima`,
 `confirmed`, `allocation`, and -- where the confirmation pass caught the
@@ -319,6 +323,16 @@ carrier is what `diff` compares and what the history remembers, and it is
 **absent rather than zeroed** when the pass never caught the signal: a
 standing share of 0.000 reads as "heavily modulated" and a burst count of
 zero as "continuous", so a zero would be a claim rather than a gap.
+
+**Both writers produce the same shape.** The window and `--survey-save` write
+through `survey_store.c`; a script writes through `survey_tool.py ingest`; and
+the two used to differ -- the C side alone recorded `confirmed` on each
+candidate and carrier, the script alone recorded `extent_hz`, `resolved` and
+the `targets` array. That was not academic: `report` reads `resolved`, so of a
+file written by the window it said the sweep "predates the extent being
+recorded", which blamed the sweep for the writer's omission about a sweep
+taken that morning. The only field one has and the other cannot is `note`,
+which is an argument to `ingest` and has no equivalent when a window saves.
 
 `report` calls out any carrier with nothing riding it, and `diff` reports a
 **change of kind** on its own line. That is the comparison this archive exists
