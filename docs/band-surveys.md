@@ -309,7 +309,22 @@ settling), `receiver` (tuner, antenna, gain_db), `site` (label, fingerprint),
 `hz`, `dbfs`, `prominence_db`, `centre_hz`, `width_hz`, `flags`, `confirmed`
 and `allocation` -- and `carriers`, each with `centre_hz`, `power_centre_hz`,
 `lower_hz`, `upper_hz`, `width_hz`, `dbfs`, `prominence_db`, `maxima`,
-`confirmed` and `allocation`.
+`confirmed`, `allocation`, and -- where the confirmation pass caught the
+signal -- `kind`: `carrier` (its verdict in words), `over_noise_db`,
+`standing_share`, `envelope` (Rayleigh's 0.52 being what noise reads, and -1
+where the measurement refused), `bursts` and `occupancy`.
+
+`kind` is on the carrier rather than in the confirmation block because the
+carrier is what `diff` compares and what the history remembers, and it is
+**absent rather than zeroed** when the pass never caught the signal: a
+standing share of 0.000 reads as "heavily modulated" and a burst count of
+zero as "continuous", so a zero would be a claim rather than a gap.
+
+`report` calls out any carrier with nothing riding it, and `diff` reports a
+**change of kind** on its own line. That is the comparison this archive exists
+for and it is invisible in every other number: a carrier that was bare in one
+sweep and modulated in the next has the same frequency, much the same level
+and much the same width.
 
 Two conventions worth knowing before comparing anything:
 

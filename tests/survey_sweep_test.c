@@ -233,6 +233,40 @@ static void test_measuring_waits_for_the_tuner(void) {
                SURVEY_SETTLE_SECONDS < SURVEY_MEASURE_SECONDS / 4.0);
 }
 
+/*
+ * The carrier search has to cover the extent it was aimed into.
+ *
+ * A candidate is aimed at its carrier's centre_hz, the *middle of the
+ * extent*, and survey_carrier.h warns that parts company with where the
+ * energy sits. On one sweep the middle landed 72 kHz from the 75.000 MHz
+ * clock harmonic's line: a fixed 40 kHz search looked past it and measured
+ * the noise beside it at 15.8 dB with 2% standing still, where the same
+ * signal aimed at properly reads 42 dB and 87%.
+ */
+static void test_the_search_covers_the_extent(void) {
+    check_close("a narrow candidate keeps the fixed width",
+                survey_carrier_search_hz(1000.0), SURVEY_CARRIER_SEARCH_HZ,
+                0.1);
+    check_close("and so does one exactly twice it",
+                survey_carrier_search_hz(2.0 * SURVEY_CARRIER_SEARCH_HZ),
+                SURVEY_CARRIER_SEARCH_HZ, 0.1);
+    check_close("a wider one is searched to its own half width",
+                survey_carrier_search_hz(200000.0), 100000.0, 0.1);
+    /*
+     * And never into the guard. The search sits at SURVEY_OFFSET_HZ and the
+     * carrier search is told to skip half that either side of zero, so a
+     * window reaching further would find the receiver's own DC offset --
+     * which is the strongest thing in any capture and the mistake the guard
+     * exists to prevent.
+     */
+    check_true("a very wide one stops clear of the guard",
+               SURVEY_OFFSET_HZ - survey_carrier_search_hz(4000000.0) >
+                   SURVEY_OFFSET_HZ / 2.0);
+    check_true("however wide it is asked for",
+               SURVEY_OFFSET_HZ - survey_carrier_search_hz(1e9) >
+                   SURVEY_OFFSET_HZ / 2.0);
+}
+
 /* The step machine: settle, dwell, advance, finish. */
 static void test_step_phases(void) {
     const double dwell = 0.5;
@@ -427,6 +461,7 @@ int main(void) {
     test_fold_mapping();
     test_fold_discards_the_edges();
     test_fold_holds_the_peak();
+    test_the_search_covers_the_extent();
     test_measuring_waits_for_the_tuner();
     test_step_phases();
     test_leaving_a_step();

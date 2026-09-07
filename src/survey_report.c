@@ -172,9 +172,7 @@ static void survey_report_kind(const struct survey_confirm_target *target) {
            target->carrier.carrier_over_noise_db,
            target->carrier.carrier_power_fraction,
            target->envelope.found ? target->envelope.variation : -1.0,
-           target->bursts.verdict == SIGNAL_BURST_SEPARABLE ? "bursts"
-               : target->bursts.verdict == SIGNAL_BURST_BUSY ? "busy"
-                                                             : "level",
+           survey_burst_name(target->bursts.verdict),
            target->bursts.occupancy);
 }
 
@@ -299,6 +297,7 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
     asked = carrier_count < max ? carrier_count : max;
     for (i = 0; i < asked; i++) {
         targets[i].hz = carriers[i].centre_hz;
+        targets[i].power_centre_hz = carriers[i].power_centre_hz;
         targets[i].claim = SURVEY_CLAIM_NEW;
         targets[i].verdict = SURVEY_VERDICT_PENDING;
         targets[i].prominence_db = 0.0f;
@@ -339,7 +338,7 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
                 continue;          /* still the previous target's spectrum */
             settled = 1;
             if (got > 0) {
-                survey_confirm_look(app, targets[i].hz);
+                survey_confirm_look(app, &targets[i]);
             } else if (elapsed > SURVEY_CONFIRM_SETTLE_SECONDS + 3.0) {
                 break;             /* the blocks stopped coming */
             }

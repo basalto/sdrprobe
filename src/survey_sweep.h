@@ -145,6 +145,37 @@ static inline int survey_blocks_in(double dwell_seconds) {
 #define SURVEY_CARRIER_SEARCH_HZ 40000.0
 #define SURVEY_CARRIER_MIN_CHANNEL_HZ 20000.0
 
+/*
+ * How far the carrier search looks either side of where it was aimed.
+ *
+ * A fixed 40 kHz is not enough, and the 75.000 MHz clock harmonic is the case
+ * that shows it. A candidate is aimed at its carrier's `centre_hz`, which
+ * survey_carrier.h defines as the middle of the extent and warns "parts
+ * company" with where the energy sits on a lopsided carrier. On one sweep the
+ * grouping put that middle 72 kHz from the line, so a 40 kHz search looked
+ * past it entirely and measured the noise beside it: 15.8 dB over the floor
+ * with 2% of the channel standing still, where the same signal aimed at
+ * properly reads 42 dB and 87%.
+ *
+ * So the search covers the extent the sweep measured -- the line is somewhere
+ * inside it by construction -- with the fixed width as a floor for a
+ * candidate too narrow to have a useful one.
+ *
+ * The ceiling is the guard. The search sits at SURVEY_OFFSET_HZ and
+ * signal_find_carrier() is told to skip half that either side of zero, so a
+ * window reaching further would run into the band the guard exists to
+ * protect and find the receiver's own offset instead.
+ */
+static inline double survey_carrier_search_hz(double width_hz) {
+    double half = width_hz / 2.0;
+
+    if (half < SURVEY_CARRIER_SEARCH_HZ)
+        half = SURVEY_CARRIER_SEARCH_HZ;
+    if (half > SURVEY_OFFSET_HZ / 2.0 - SURVEY_CARRIER_SEARCH_HZ)
+        half = SURVEY_OFFSET_HZ / 2.0 - SURVEY_CARRIER_SEARCH_HZ;
+    return half;
+}
+
 /* Of each step's span, the middle that is kept. The tuner's response rolls off
    at the edges, so a signal there reads low; the steps overlap by the rest. */
 #define SURVEY_USABLE_SPAN 0.8

@@ -239,7 +239,16 @@ void update_survey(struct app *app, double now, int spectrum_updated);
  * block it was up in.
  */
 void survey_confirm_begin_target(struct app *app);
-void survey_confirm_look(struct app *app, double hz);
+/*
+ * One of a target's looks. The target itself rather than its frequency,
+ * because the kind measurement needs to aim at the energy and not at the
+ * middle of the extent -- and because reaching for it through
+ * `confirm.index` would work on screen and put every headless target's
+ * measurement into the first one, the headless pass keeping its own array
+ * and never advancing that index.
+ */
+void survey_confirm_look(struct app *app,
+                         const struct survey_confirm_target *target);
 int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
                           struct sdr_carrier_report *report);
 void handle_survey_input(struct app *app);
