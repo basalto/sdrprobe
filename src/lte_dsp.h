@@ -5,9 +5,9 @@
 #include <stdint.h>
 
 /*
- * LTE (E-UTRA) technology plugin.
+ * LTE (E-UTRA) technology DSP module.
  *
- * Like the GSM plugin (gsm_dsp.h) it provides a channel -> frequency map and a
+ * Like the GSM module (gsm_dsp.h) it provides a channel -> frequency map and a
  * sync detector, and like it, it goes one step past calibration-grade
  * detection: the sync detector here is a full cell search, and it hands the
  * Decoder side (lte_mib.h) the soft bits of the broadcast channel.
@@ -17,10 +17,10 @@
  * THE SAMPLE RATE IS NOT THE HOUSE RATE. Everything below is arithmetic on
  * LTE's own grid -- 128 subcarriers of 15 kHz, which is 1.92 MS/s exactly --
  * and the functions that take a sample rate reject anything else rather than
- * quietly resampling. A capture for this plugin is recorded at 1.92 MS/s. See
+ * quietly resampling. A capture for this module is recorded at 1.92 MS/s. See
  * docs/adr/0014-lte-runs-on-lte-s-sample-grid.md.
  *
- * What the plugin can see is bounded by that rate, and the bound is the
+ * What the module can see is bounded by that rate, and the bound is the
  * standard's doing rather than a shortcoming here: PSS, SSS and PBCH all live
  * in the central 1.08 MHz of a carrier whatever its real bandwidth, precisely
  * so a handset can find a cell before it knows how wide it is. Everything

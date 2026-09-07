@@ -40,6 +40,11 @@ decode stage behind the same per-technology boundary.
 > expectation below applies to calibration-grade plugins, not the decode stage;
 > the preserved invariant is the plugin *seam*, not literal primitive reuse.
 
+> **Revised by ADR-0023.** Later technologies do not share the two-operation
+> plugin contract described here. The generic-core boundary remains; the
+> per-technology units are DSP modules sharing dependency and testability
+> constraints rather than a uniform interface.
+
 ## Consequences
 
 - Only the DSP layer is split. The GSM *application* logic (calibration/scan
