@@ -588,6 +588,122 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
     return result;
 }
 
+/*
+ * Borrowing the receiver, and giving it back in the order it was taken.
+ *
+ * The rule and the reason are in receiver_lease.h. These are the half that
+ * touches hardware: they call the two retune functions below and nothing
+ * else, so rollback behaviour and spectrum invalidation stay exactly where
+ * they were.
+ *
+ * File playback is not a second tuning adapter. A capture holds one tuning,
+ * retune_receiver() already refuses to move it, and every one of these
+ * reports success without recording anything -- so a view can call them
+ * unconditionally instead of wrapping each in `if (app->receiver_mode)`,
+ * which is how three of the nine restore sites came to disagree about when
+ * they applied.
+ */
+int receiver_borrow(struct app *app, struct receiver_lease_token *token) {
+    struct receiver_tuning here;
+
+    if (!app->receiver_mode)
+        return 0;
+    here.center_hz = app->applied_frequency;
+    here.sample_rate_hz = app->applied_sample_rate;
+    if (receiver_lease_acquire(&app->lease, here, token) < 0) {
+        snprintf(app->calibration_status, sizeof(app->calibration_status),
+                 "Too many screens are borrowing the receiver at once");
+        return -1;
+    }
+    return 0;
+}
+
+int receiver_borrow_at(struct app *app, struct receiver_lease_token *token,
+                       uint32_t frequency, uint32_t sample_rate) {
+    int moved;
+
+    if (!app->receiver_mode)
+        return retune_receiver(app, frequency, app->applied_ppm);
+    if (receiver_borrow(app, token) < 0)
+        return -1;
+    /* The rate is only worth the more expensive path when it actually
+       differs; retune_receiver_at_rate() says the same and would delegate
+       anyway, but saying it here keeps the two callers legible. */
+    if (sample_rate != 0 && sample_rate != app->applied_sample_rate)
+        moved = retune_receiver_at_rate(app, frequency, sample_rate,
+                                        app->applied_ppm);
+    else
+        moved = retune_receiver(app, frequency, app->applied_ppm);
+    if (moved < 0) {
+        /* The retune already put the hardware back, so the snapshot describes
+           a borrowing that never happened. */
+        receiver_lease_cancel(&app->lease, token);
+        return -1;
+    }
+    return 0;
+}
+
+int receiver_restore_held(struct app *app,
+                          const struct receiver_lease_token *token) {
+    struct receiver_tuning back;
+
+    if (!app->receiver_mode)
+        return 0;
+    if (receiver_lease_begin_return(&app->lease, token, &back) < 0) {
+        debug_log_write("lease", "restore out of order, ignored");
+        return -1;
+    }
+    if (back.sample_rate_hz != app->applied_sample_rate)
+        return retune_receiver_at_rate(app, back.center_hz,
+                                       back.sample_rate_hz, app->applied_ppm);
+    return retune_receiver(app, back.center_hz, app->applied_ppm);
+}
+
+int receiver_return(struct app *app, struct receiver_lease_token *token) {
+    struct receiver_tuning back;
+    int restored;
+
+    if (!app->receiver_mode)
+        return 0;
+    if (!receiver_lease_token_active(token))
+        return 0;               /* never borrowed, or already given back */
+    if (receiver_lease_begin_return(&app->lease, token, &back) < 0) {
+        /* An owner returning out of turn would put back a frequency belonging
+           to somebody else. Refuse, change nothing, and say so: this is the
+           failure the lease exists to make visible rather than silent. */
+        debug_log_write("lease", "return out of order, refused");
+        return -1;
+    }
+    /*
+     * The current PPM, not the one in force when the tuning was borrowed. A
+     * calibration applied while the receiver was lent out is deliberate
+     * persistent state and must survive the return -- which is why the
+     * snapshot has no third field to get this wrong with.
+     */
+    if (back.sample_rate_hz != app->applied_sample_rate)
+        restored = retune_receiver_at_rate(app, back.center_hz,
+                                           back.sample_rate_hz,
+                                           app->applied_ppm);
+    else
+        restored = retune_receiver(app, back.center_hz, app->applied_ppm);
+    if (restored < 0)
+        return -1;              /* the token stays live, and retryable */
+    receiver_lease_finish_return(&app->lease, token);
+    return 0;
+}
+
+int receiver_commit(struct app *app, struct receiver_lease_token *token) {
+    if (!app->receiver_mode)
+        return 0;
+    if (!receiver_lease_token_active(token))
+        return 0;
+    if (receiver_lease_commit(&app->lease, token) < 0) {
+        debug_log_write("lease", "commit out of order, refused");
+        return -1;
+    }
+    return 0;
+}
+
 int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     /* Logged before the attempt, not after: a retune that fails is exactly
        the one worth having a record of, and the failure path returns from
@@ -2552,7 +2668,9 @@ static int run_headless(struct app *app) {
                      app->options.earfcn);
         }
         app->cal.channel_length = (int)strlen(app->cal.channel);
-        app->cal.return_frequency = app->applied_frequency;
+        /* No lease here on purpose: a headless calibration exits when it is
+           done, so there is nobody to give the receiver back to. The window's
+           paths borrow because a screen outlives the measurement. */
 
         if (app->options.calibrate == 2 && app->options.calibrate_band) {
             /* Find something to calibrate against rather than being told. */
@@ -2851,6 +2969,9 @@ int main(int argc, char **argv) {
     }
     app->options = options;
     app->config = loaded_config;
+    /* A calloc'd lease is already empty and its generations already start at
+       one; this says so rather than leaving it to be rediscovered. */
+    receiver_lease_reset(&app->lease);
     app->receiver_mode = options.file_path == NULL;
     app->remove_dc = options.remove_dc;
     view_gsm_defaults(app);

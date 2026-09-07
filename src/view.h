@@ -25,6 +25,36 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm);
 /* The same, changing the sample rate with the tuning. Only LTE needs it. */
 int retune_receiver_at_rate(struct app *app, uint32_t frequency,
                             uint32_t sample_rate, int ppm);
+
+/*
+ * Borrowing the receiver's tuning, in the order it was borrowed.
+ *
+ * These are the only way a screen should take the receiver somewhere it will
+ * later come back from; `receiver_lease.h` is the rule they enforce and says
+ * why. All of them are no-ops that report success in file mode, because a
+ * capture holds one tuning and nothing can move it -- so a caller does not
+ * have to guard each one with `app->receiver_mode`.
+ */
+
+/* Take the receiver where it stands, without moving it. For an owner that
+   tunes later, or several times, or not at all. */
+int receiver_borrow(struct app *app, struct receiver_lease_token *token);
+/* Take it and move it in one step: on a refusal the token is cancelled, since
+   retune_receiver*() has already put the hardware back. `sample_rate` of 0
+   means "leave the rate alone". */
+int receiver_borrow_at(struct app *app, struct receiver_lease_token *token,
+                       uint32_t frequency, uint32_t sample_rate);
+/* Back to where this owner started, still holding it. The survey between
+   sweeps: it has finished walking the band but still owns the right to sweep
+   again. */
+int receiver_restore_held(struct app *app,
+                          const struct receiver_lease_token *token);
+/* Give it back. Restores with the *current* PPM, so a calibration applied
+   while borrowed survives the return. A failed retune leaves the token live
+   and retryable. */
+int receiver_return(struct app *app, struct receiver_lease_token *token);
+/* Give up the claim and keep the tuning: the survey's "Open waterfall". */
+int receiver_commit(struct app *app, struct receiver_lease_token *token);
 int process_block(struct app *app, double now);
 double monotonic_seconds(void);
 int stop_requested(void);
@@ -44,6 +74,8 @@ void adjust_waterfall_scale(struct app *app, int zoom_in);
 int scan_strongest_arfcn(const struct app *app);
 int scan_strongest_bcch(const struct app *app);
 int start_scan(struct app *app);
+/* Give the receiver back if a scan is holding it. A no-op otherwise. */
+void scan_release_receiver(struct app *app);
 /* Start a timestamped capture in captures/, with the sidecar describing the
    tuning it was taken at. `basename` names the file, `technology` goes in the
    sidecar, and the GSM fields are 0 for a technology that has no channel.

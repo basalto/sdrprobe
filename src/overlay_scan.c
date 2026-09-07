@@ -47,12 +47,23 @@ int start_scan(struct app *app) {
         app->scan_bcch_conf[arfcn] = 0.0f;
     }
     app->scan_selected_arfcn = 0;
-    app->bandscan.return_frequency = app->applied_frequency;
     app->scan_step = 0;
-    if (retune_receiver(app,
-                        (uint32_t)llround(app->bandscan.plan.first_center_hz),
-                        app->applied_ppm) < 0)
+    /*
+     * Borrowed from whatever the GSM view had tuned, so finishing puts the
+     * receiver back on the channel being inspected rather than on whatever
+     * was on screen before GSM was entered. A rescan while the claim is still
+     * held keeps it: where the scan should return to has not changed.
+     */
+    if (receiver_lease_token_active(&app->bandscan.lease_token)) {
+        if (retune_receiver(app,
+                            (uint32_t)llround(app->bandscan.plan.first_center_hz),
+                            app->applied_ppm) < 0)
+            return -1;
+    } else if (receiver_borrow_at(app, &app->bandscan.lease_token,
+                                  (uint32_t)llround(app->bandscan.plan.first_center_hz),
+                                  0) < 0) {
         return -1;
+    }
     app->bandscan.step_started_at = GetTime();
     app->scan_running = 1;
     app->scan_open = 1;
@@ -111,14 +122,23 @@ void update_scan(struct app *app) {
             app->gsm_autoselect_pending = 0;
             app->gsm_analysis_mode = 1;     /* Default to Burst mode after scan */
             gsm_tune_selected(app, chosen); /* show the best channel above */
+            /* Keeping this channel is the point of having scanned, so the
+               claim is given up rather than returned -- the same shape as the
+               survey's "Open waterfall" handoff. */
+            receiver_commit(app, &app->bandscan.lease_token);
         } else {
+            /* Nobody asked to go anywhere, so put the receiver back on the
+               channel the GSM view was inspecting. It used to be left on the
+               last step of the sweep, which is a frequency nobody chose. */
             app->scan_selected_arfcn = chosen;
+            receiver_return(app, &app->bandscan.lease_token);
         }
         return;
     }
     double next = scan_plan_step_centre(&app->bandscan.plan, app->scan_step);
     if (retune_receiver(app, (uint32_t)llround(next), app->applied_ppm) < 0) {
         app->scan_running = 0;
+        receiver_return(app, &app->bandscan.lease_token);
         return;
     }
     app->bandscan.step_started_at = GetTime();
@@ -170,14 +190,25 @@ void draw_scan(struct app *app) {
     sdrgui_scan_chart(&params);
 }
 
+/*
+ * Stop owning the receiver, for the paths that abandon a scan from outside it
+ * -- leaving the GSM view while one runs, or opening calibration. The lease
+ * refuses an out-of-order return, so the inner claim has to go first or the
+ * outer owner cannot give the receiver back at all.
+ *
+ * A no-op when no scan is running, so callers need no guard.
+ */
+void scan_release_receiver(struct app *app) {
+    receiver_return(app, &app->bandscan.lease_token);
+}
+
 void handle_scan_input(struct app *app) {
     struct scan_layout l = scan_layout_for((float)GetScreenWidth());
     Rectangle back = l.back;
     Rectangle rescan = l.rescan;
 
     if (clicked(back) || IsKeyPressed(KEY_ESCAPE)) {
-        if (app->receiver_mode)
-            retune_receiver(app, app->bandscan.return_frequency, app->applied_ppm);
+        receiver_return(app, &app->bandscan.lease_token);
         app->scan_running = 0;
         app->scan_open = 0;
         return;
