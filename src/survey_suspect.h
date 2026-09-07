@@ -126,7 +126,27 @@ enum survey_suspicion {
     /* Narrower than the FFT can resolve: a bare carrier. On its own this is an
        observation rather than a suspicion -- plenty of real services are
        narrow -- but it is what makes the two above worth believing. */
-    SURVEY_SUSPECT_UNRESOLVED = 1 << 2
+    SURVEY_SUSPECT_UNRESOLVED = 1 << 2,
+    /*
+     * The closer look found no standing carrier here, and the envelope varies
+     * exactly as much as noise does.
+     *
+     * Unlike the three above this is not about the receiver, and it is set
+     * only by the confirmation pass -- a sweep has nothing to set it from.
+     * It exists because presence and reality are different questions and the
+     * pass only ever answered the first: five frequencies in one 290-310 MHz
+     * sweep were confirmed **six looks out of six** while reading no carrier,
+     * under one per cent of the channel standing still, and an envelope
+     * variation of 0.520 to 0.539 against Rayleigh's 0.5227. A prominence bar
+     * is cleared by noise structure every time it is offered, so counting
+     * looks cannot separate them; a second, independent statistic can.
+     *
+     * What it claims is "indistinguishable from noise", not "is noise". A
+     * real spread signal buried at its own noise floor would read the same,
+     * and nothing here can tell those apart -- which is why the words on
+     * screen say what was measured rather than what it is (ADR-0015).
+     */
+    SURVEY_SUSPECT_NO_CARRIER = 1 << 3
 };
 
 /* Which tone of a comb spaced `spacing_hz` the frequency sits on, or 0. */
@@ -364,6 +384,19 @@ static inline unsigned survey_suspect_confirmed(double hz,
 static inline int survey_suspect_warns(unsigned flags) {
     return (flags & (SURVEY_SUSPECT_REFERENCE | SURVEY_SUSPECT_STEP_CENTRE)) !=
            0;
+}
+
+/*
+ * Whether the flags say there is nothing here at all.
+ *
+ * Kept apart from survey_suspect_warns() because the two say different things
+ * and a reader acts differently on each: "this looks like the receiver" means
+ * unplug the antenna and sweep again, and "there is no carrier here" means
+ * the frequency is empty however often it was seen. Marked differently on
+ * screen for the same reason.
+ */
+static inline int survey_suspect_empty(unsigned flags) {
+    return (flags & SURVEY_SUSPECT_NO_CARRIER) != 0;
 }
 
 /*

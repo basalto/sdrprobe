@@ -2,6 +2,7 @@
 #define SURVEY_CONFIRM_H
 
 #include "signal_probe.h"
+#include "survey_suspect.h"
 #include "survey_sweep.h"
 
 /*
@@ -157,6 +158,58 @@ struct survey_confirm_target {
     struct signal_bursts bursts;
     struct signal_envelope envelope;
 };
+
+/*
+ * How close to Rayleigh an envelope has to read before it is called noise's.
+ *
+ * Rayleigh is 0.5227 exactly -- the coefficient of variation of a complex
+ * Gaussian's magnitude -- and it depends on nothing at all: not on level, not
+ * on gain, not on bandwidth. That is what makes it usable as a reference and
+ * what makes five independent frequencies landing on it evidence rather than
+ * coincidence.
+ *
+ * The window is measured from both sides. The five noise readings that raised
+ * this ran 0.520 to 0.539, at most 0.017 out. The nearest thing that must
+ * *not* be caught is a GSM carrier at 0.792, which is 0.27 out, and every
+ * other real signal measured here is further: an LTE downlink 1.098, Mode S
+ * 1.057, TETRA 0.252-0.272, a bare carrier 0.137-0.248, FM broadcast 0.032.
+ * A tenth sits five times the noise spread away from the noise and less than
+ * a third of the way to the nearest signal.
+ */
+#define SURVEY_NOISE_ENVELOPE_TOLERANCE 0.10
+
+/*
+ * Nothing here, however often it was seen.
+ *
+ * Two independent statistics have to agree, and the pass has both: no
+ * standing line above the floor beside it -- SIGNAL_CARRIER_PRESENT_DB is 15
+ * because a search over thousands of frequencies reliably reaches 8 to 14 on
+ * pure noise -- *and* an envelope varying as much as noise and no more.
+ *
+ * Either alone is not enough and both failures are on record. A pulsed
+ * transmission has real energy and no standing carrier, so the first test
+ * alone would call Mode S empty. A weak signal buried at its own noise floor
+ * reads Rayleigh, so the second alone would call it empty too. Together they
+ * describe a frequency where a closer look found a prominence and nothing
+ * else, which is what noise structure looks like and what nothing else does.
+ *
+ * `measured` is whether the kind was measured at all; a target the pass never
+ * caught is not evidence of emptiness, it is evidence of nothing.
+ */
+static inline int survey_confirm_is_empty(
+    int measured, const struct signal_carrier *carrier,
+    const struct signal_envelope *envelope) {
+    double distance;
+
+    if (!measured || !carrier || !envelope || !envelope->found)
+        return 0;
+    if (signal_carrier_verdict(carrier) != SIGNAL_NOTHING)
+        return 0;
+    distance = envelope->variation - SIGNAL_ENVELOPE_RAYLEIGH;
+    if (distance < 0.0)
+        distance = -distance;
+    return distance <= SURVEY_NOISE_ENVELOPE_TOLERANCE;
+}
 
 /*
  * Should this look replace the one being kept?
@@ -343,7 +396,23 @@ static inline const char *survey_verdict_name(int verdict) {
  * listening. Left out, a bursty transmitter is refuted on every sweep for
  * ever and the history never learns it exists.
  */
-static inline int survey_confirm_should_record(int claim, int verdict) {
+static inline int survey_confirm_should_record(int claim, int verdict,
+                                              unsigned suspicion) {
+    /*
+     * Nothing empty enters the history, however many looks saw it.
+     *
+     * This is the fault the flag was added for: five frequencies confirmed
+     * six looks out of six, each with no standing carrier and an envelope at
+     * Rayleigh, all five on their way into the site's memory as signals --
+     * where they would be remembered for ever and reported "gone" whenever a
+     * later sweep failed to find the same noise.
+     *
+     * Checked before the verdict rather than after, because it overrides all
+     * three: a confirmed empty frequency is still empty, and an intermittent
+     * one is noise that came and went.
+     */
+    if (survey_suspect_empty(suspicion))
+        return 0;
     if (verdict == SURVEY_VERDICT_INTERMITTENT)
         return 1;
     if (claim == SURVEY_CLAIM_NEW)

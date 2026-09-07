@@ -174,6 +174,34 @@ all twenty-four broadcast stations. Refuted entries are still reported and
 still written down -- the verdict goes beside the signal, never in place of it
 (ADR-0015).
 
+### A prominence and nothing else
+
+Some frequencies clear the pass's bar and are still empty. Five in one
+290-310 MHz sweep were confirmed **six looks out of six** while reading no
+standing carrier, under one per cent of the channel standing still, and an
+envelope variation of 0.520 to 0.539 -- against Rayleigh's **0.5227**, which
+is the coefficient of variation of a complex Gaussian's magnitude and depends
+on nothing at all. Five independent frequencies landing there to two decimals
+are five measurements of noise.
+
+A prominence bar is cleared by noise structure every time it is offered, so
+counting looks cannot separate them and more looks cannot help. Two
+independent statistics can, and the pass has both, so those frequencies are
+flagged `no-carrier` and **kept out of the site history whatever their
+verdict** -- otherwise they are remembered for ever and reported "gone"
+whenever a later sweep fails to find the same noise.
+
+They are marked `~` in the candidate list and counted separately in its
+header, beside the `*` that means the receiver's own comb. The two are
+different findings and a reader acts differently on each: `*` means unplug the
+antenna and sweep again, `~` means the frequency is empty however often it was
+seen.
+
+**What the flag claims is "indistinguishable from noise", not "is noise".** A
+real spread signal buried at its own noise floor reads the same, and nothing
+here can tell those apart -- which is why the words on screen say what was
+measured (ADR-0015).
+
 ### What kind of thing it was
 
 The pass has the receiver settled on one frequency for six blocks, which is

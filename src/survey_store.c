@@ -24,6 +24,9 @@ const char *survey_flag_text(unsigned int flags, char *buffer, size_t size) {
     if (flags & SURVEY_SUSPECT_UNRESOLVED)
         used += (size_t)snprintf(buffer + used, size - used, "%sunresolved",
                                  used ? "," : "");
+    if (flags & SURVEY_SUSPECT_NO_CARRIER)
+        used += (size_t)snprintf(buffer + used, size - used, "%sno-carrier",
+                                 used ? "," : "");
     return used ? buffer : "-";
 }
 
