@@ -410,6 +410,15 @@ static inline int survey_confirm_should_record(int claim, int verdict,
      * Checked before the verdict rather than after, because it overrides all
      * three: a confirmed empty frequency is still empty, and an intermittent
      * one is noise that came and went.
+     *
+     * That last case is an amendment to ADR-0019, which makes three verdicts
+     * first class and says an intermittent new carrier may enter the history
+     * -- otherwise every later sweep rediscovers and rejects the same bursty
+     * transmitter. The amendment is recorded in the ADR itself: a verdict
+     * answers *was it there when I looked* and all three assume something was
+     * there to look at, so a measurement establishing there is nothing
+     * overrides rather than competes. The verdict is still reported; only the
+     * history entry is barred.
      */
     if (survey_suspect_empty(suspicion))
         return 0;
