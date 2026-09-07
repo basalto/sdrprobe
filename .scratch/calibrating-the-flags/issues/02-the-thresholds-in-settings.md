@@ -1,9 +1,10 @@
-# 03 - The flag thresholds in Settings, with their arithmetic
+# 02 - The flag thresholds in Settings, with their arithmetic
 
 Status: needs-triage
 
-Depends on 01 and 02. Deliberately last: the comb is the constant that is
-certainly wrong on another device, and these are constants that are merely
+Depends on 01, and on `.scratch/deepening/03` for anywhere to keep the
+answers. Deliberately last: the comb is the constant whose value is
+unverified on any other setup, and these are constants that are merely
 *chosen*.
 
 ## What goes in

@@ -70,9 +70,35 @@ comb was established exactly that way.
 
 1. A **calibration** the operator starts, which sweeps with the antenna
    disconnected and derives the comb from what it finds.
-2. The answer **stored per device**, so it is not re-measured every session.
-3. A **recommendation** when an unknown device appears, because a wrong comb is
+2. The answer **stored against the receiving setup**, and *not* per device --
+   see below, because that was the wrong answer at first.
+3. A **recommendation** when no calibration matches, because a wrong comb is
    silent: it does not look like a fault, it looks like signals.
 4. The thresholds reachable from **Settings**, since the numbers above are
    defaults rather than laws -- with the arithmetic that constrains each of
    them enforced, not just displayed.
+
+## Keyed by the receiving setup, and the reason is in the measurement
+
+An earlier version of this said the comb belongs to the **device**: a crystal
+travels with the hardware, so the same dongle has the same comb in every room,
+unlike the tuning correction that ADR-0018 keys by receiver *and* site.
+
+**That is wrong, and `survey_suspect.h` already had the evidence.** Unplugging
+the antenna sorts the comb tones into two kinds: three of twelve --
+489.6, 547.2 and 604.8 MHz -- stay exactly where they were, made and heard
+entirely inside the receiver. **The other nine go with the antenna**, because
+the dongle radiates its clock and hears itself coming back.
+
+So the majority of the observable comb is *radiated and received*, which makes
+it a property of the antenna as much as of the crystal. A calibration measured
+on a telescopic whip does not describe what a rooftop antenna will hear back.
+
+That puts it exactly where ADR-0022 puts the history: on a **receiving setup**
+-- receiver, receiving site and antenna. Which is also the answer that needs
+no special case, since the installation module in `.scratch/deepening/03`
+already owns that identity.
+
+The spacing itself is a property of the crystal and does not change. What
+changes is which harmonics are strong enough to be found, and a fit needs
+enough of them.

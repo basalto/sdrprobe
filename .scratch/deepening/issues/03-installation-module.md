@@ -56,3 +56,33 @@ separate histories; commit writes each store once.
 
 Changing the on-disk formats beyond what ADR-0018/0022 require, which is a
 public-interface change under ADR-0016 and gets its own MINOR bump.
+
+
+## Comments
+
+**2026-09-07 — one more thing belongs in the profile.**
+
+`.scratch/calibrating-the-flags/01` measures the receiver's reference comb from
+a sweep taken with the antenna disconnected, replacing the 14.4 MHz constant
+compiled into `survey_suspect.h`. That number belongs in the calibration
+profile beside the tuning correction, and for the same reason ADR-0018 gives:
+it describes one physical setup and applying another's is silent rather than
+wrong-looking.
+
+**It is keyed by the receiving setup rather than by the receiver**, which is
+the one place it differs from the correction. Unplugging the antenna sorts the
+comb tones into two kinds: three of twelve stay exactly where they were, made
+and heard entirely inside the receiver, and **the other nine go with the
+antenna**, because the dongle radiates its clock and hears itself coming back.
+Most of the observable comb is therefore a property of the antenna too, which
+is precisely ADR-0022's argument for the history.
+
+So the profile this module owns carries at least: the tuning correction
+(receiver + site, ADR-0018), and the comb (receiver + site + antenna,
+ADR-0022). Whether those are one record with a wider key or two is a design
+question for this ticket rather than for the one that measures the number.
+
+The consequence if it is missing is worth stating because it is invisible: a
+wrong comb does not look like a fault, it looks like signals. Unflagged
+artifacts enter the history and are remembered, then reported "gone" whenever
+a later sweep misses them.
