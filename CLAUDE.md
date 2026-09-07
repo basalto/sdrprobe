@@ -15,8 +15,8 @@ make check            # everything below, ~55 s, no window and no receiver
 make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
 make check-sdr-dsp    # one check in isolation — generic core
-make check-gsm-dsp    # GSM plugin (+ the core it reuses)
-make check-adsb-dsp   # Mode S / ADS-B plugin
+make check-gsm-dsp    # GSM module (+ the core it reuses)
+make check-adsb-dsp   # Mode S / ADS-B module
 make check-band-plan  # the frequency allocation table
 make check-options    # the command line: every flag, value, and rejection
 make check-survey     # the survey window's zoom, pan and clamp arithmetic
@@ -184,7 +184,7 @@ in `testfiles/` and greps its stdout, which is what proves the units are wired
 together.
 
 White-box diagnostics (not tests — they print a walk through a decode chain and
-compile the plugin's `.c` in to reach its statics):
+compile the module's `.c` in to reach its statics):
 
 ```sh
 make probe-gsm-chain                        # defaults to testfiles/gsm_arfcn_69.bin
@@ -196,7 +196,7 @@ make probe-fm-filter FILE_FM_FILTER=testfiles/fm_rds_tsf.bin  # RDS: which bipha
 ```
 
 `probe-periodicity` is the odd one out: it demodulates nothing, and works on a
-signal no plugin here understands. Two lag correlations -- a burst folded over
+signal no technology module here understands. Two lag correlations -- a burst folded over
 its own period, and the cyclic prefix against itself -- say whether a carrier
 is LTE (a burst every 5 ms) or 5G NR (every 20, and none at 5), and whether it
 runs at 15 or 30 kHz. It is how band 28 was found to be carrying NR rather than
@@ -436,11 +436,11 @@ Built binaries (`./sdrprobe`, `build/`) and `captures/` are gitignored.
 
 `CONTEXT-MAP.md` splits the domain in two, and the split is load-bearing for
 naming: the **Probe** context (`CONTEXT.md`) acquires samples and stops at signal
-statistics — it must never claim to have decoded a message; the **Decoder**
-context (`docs/contexts/decoder/CONTEXT.md`) starts where bits become a message.
-Tabs are presentation only, not the boundary (ADR-0010).
+measurements; the **Decoder** context (`docs/contexts/decoder/CONTEXT.md`) owns
+the interpretation of standardized modulation as transmitted information.
+Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
 
-### DSP: generic core + technology plugins
+### DSP: generic core + technology modules
 
 - `src/sdr_dsp.{c,h}` (`sdr_dsp_`) — technology-independent primitives: byte→float
   I/Q, DC removal, peak binning, signal stats, a hand-written 2048-point
@@ -504,8 +504,9 @@ Tabs are presentation only, not the boundary (ADR-0010).
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →
   CRC-16 masked by the antenna-port count → a Master Information Block.
   `src/lte_gold.h` holds the length-31 Gold sequence both sides need.
-- `src/lte_turbo.{c,h}` and `src/lte_transport.{c,h}` — the transport layer
-  above the MIB. Built for System Information Block 1 and **with no consumer**:
+- `src/lte_turbo.{c,h}` and `src/lte_transport.{c,h}` — experimental
+  groundwork for the transport layer above the MIB, **with no consumer and
+  outside the supported Decoder outcomes**. Built for System Information Block 1:
   SIB1 does not fit this receiver, because the cell is 50 resource blocks and
   1.92 MS/s sees six of them, so the control message that locates it cannot be
   assembled (`.scratch/lte-sib1/spec.md`). Kept because turbo coding and
@@ -611,9 +612,9 @@ Tabs are presentation only, not the boundary (ADR-0010).
   the number behind it. On `testfiles/fm_rds_tsf.bin` it reads 0x8343, `TSF`,
   news.
 
-A plugin supplies a channel map and a reference-tone detector and reuses the core
-for everything else (ADR-0001); a decode stage sits behind the same seam even when
-it reuses almost nothing of the core (ADR-0009, true of ADS-B).
+A technology DSP module exposes the operations its standard needs and reuses
+the generic core where those primitives fit (ADR-0023); modules share dependency
+and testability boundaries, not a uniform interface.
 
 Two hard constraints on this layer:
 - **No external DSP library** — the FFT and estimators are deliberately

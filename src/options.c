@@ -380,7 +380,7 @@ int parse_options(int argc, char **argv, struct options *options) {
                 options->lte_scan_band != 28)
                 return -1;
         } else if (strcmp(option, "--earfcn") == 0) {
-            /* The range is every band the plugin knows, checked properly
+            /* The range is every band the module knows, checked properly
                against the table in main(); this only refuses what could not
                be a channel number at all. */
             if (options->earfcn || i + 1 >= argc ||
@@ -696,7 +696,7 @@ int parse_options(int argc, char **argv, struct options *options) {
         options->technology = "gsm";
     }
     /* An EARFCN implies LTE, and LTE implies its own sample rate: 1.92 MS/s
-       is 128 subcarriers of 15 kHz, and the plugin refuses anything else
+    is 128 subcarriers of 15 kHz, and the module refuses anything else
        rather than resampling (ADR-0014). Setting it here means a capture
        recorded with --earfcn is on the right grid without being asked, and an
        explicit --sample-rate that disagrees is a contradiction rather than

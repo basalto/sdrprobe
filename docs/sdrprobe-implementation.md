@@ -119,7 +119,7 @@ pacing. `--gain` is invalid because gain cannot change recorded samples.
   view state, drawing, and orderly shutdown.
 - `src/sdr_dsp.h` / `src/sdr_dsp.c`: generic SDR DSP core — raw I/Q conversion, magnitude
   reduction, Hann windowing, radix-2 complex FFT, and spectrum calculation.
-- `src/gsm_dsp.h` / `src/gsm_dsp.c`: GSM technology plugin (ARFCN map, FCCH tone
+- `src/gsm_dsp.h` / `src/gsm_dsp.c`: GSM technology DSP module (ARFCN map, FCCH tone
   detector) layered on the generic core; see
   `docs/adr/0001-technology-plugin-dsp-architecture.md`.
 - `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c`: deterministic checks against the

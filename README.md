@@ -235,12 +235,12 @@ surveys/    saved sweeps and per-site history (gitignored)
 build/      compiled artifacts (gitignored)
 ```
 
-The DSP is split into a generic core and per-technology plugins, and a decoder
+The DSP is split into a generic core and per-technology modules, and a decoder
 sits behind the same seam even where it reuses almost none of the core. The
 domain is split in two and the split is load-bearing for naming: the **Probe**
-context acquires samples and stops at signal statistics -- it must never claim
-to have decoded a message -- and the **Decoder** context starts where bits
-become a message. `CONTEXT-MAP.md` has both. The key decisions are recorded as ADRs in
+context acquires, surveys and measures signals, stopping before modulation is
+interpreted as transmitted information; the **Decoder** context owns that
+interpretation. `CONTEXT-MAP.md` has both. The key decisions are recorded as ADRs in
 [`docs/adr/`](docs/adr/), and the ubiquitous language in
 [`CONTEXT.md`](CONTEXT.md).
 
