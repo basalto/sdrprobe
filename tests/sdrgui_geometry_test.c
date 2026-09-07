@@ -1,4 +1,6 @@
 #include "sdrgui_geometry.h"
+#include "sdrgui.h"
+#include "survey_suspect.h"
 #include "check.h"
 
 #include <stdio.h>
@@ -292,6 +294,53 @@ static void test_drag_band(void) {
     check_true("nor is any drag on a chart with no span", !b.visible);
 }
 
+/*
+ * Which mark a candidate gets above the survey's trace.
+ *
+ * The tick was one filled dot for everything, so a spur, an empty frequency
+ * and a broadcast station drew identically on the one screen where telling
+ * them apart matters most -- the candidate list said so in a column nobody
+ * reading the chart was looking at.
+ *
+ * The precedence is the decision worth pinning: **empty wins over
+ * receiver-like**, because "there is nothing here" is what a reader acts on,
+ * and because the candidate list resolves it the same way. If the two
+ * disagreed, the chart and the list would show different things about the
+ * same peak.
+ */
+static void test_peak_marks(void) {
+    check_int("nothing known against it draws a filled dot",
+              sdrgui_survey_peak_mark(0u), SDRGUI_PEAK_SIGNAL);
+    check_int("the receiver's comb draws a cross",
+              sdrgui_survey_peak_mark(SDRGUI_PEAK_FLAG_RECEIVER),
+              SDRGUI_PEAK_RECEIVER);
+    check_int("so does a step centre, where its DC offset lands",
+              sdrgui_survey_peak_mark(SDRGUI_PEAK_FLAG_STEP),
+              SDRGUI_PEAK_RECEIVER);
+    check_int("a closer look finding nothing draws a hollow dot",
+              sdrgui_survey_peak_mark(SDRGUI_PEAK_FLAG_EMPTY),
+              SDRGUI_PEAK_EMPTY);
+    check_int("and empty wins when a frequency is both",
+              sdrgui_survey_peak_mark(SDRGUI_PEAK_FLAG_EMPTY |
+                                      SDRGUI_PEAK_FLAG_RECEIVER),
+              SDRGUI_PEAK_EMPTY);
+    check_int("however many other flags are set",
+              sdrgui_survey_peak_mark(0xffffffffu), SDRGUI_PEAK_EMPTY);
+    /*
+     * The bits are the survey's own, duplicated in sdrgui.h because a
+     * component may not include the survey's headers (ADR-0007). Nothing but
+     * a check can hold the two definitions together, and a chart drawing the
+     * wrong mark for the right flag is exactly the kind of fault that looks
+     * like a rendering bug for an afternoon.
+     */
+    check_int("the receiver bit is the survey's",
+              (int)SDRGUI_PEAK_FLAG_RECEIVER, (int)SURVEY_SUSPECT_REFERENCE);
+    check_int("the step-centre bit is the survey's",
+              (int)SDRGUI_PEAK_FLAG_STEP, (int)SURVEY_SUSPECT_STEP_CENTRE);
+    check_int("the empty bit is the survey's",
+              (int)SDRGUI_PEAK_FLAG_EMPTY, (int)SURVEY_SUSPECT_NO_CARRIER);
+}
+
 int main(void) {
     test_the_plot_sits_inside_its_chart();
     test_a_tiny_chart();
@@ -304,5 +353,6 @@ int main(void) {
     test_waterfall_span();
     test_drag_band();
 
+    test_peak_marks();
     return check_report("chart geometry");
 }

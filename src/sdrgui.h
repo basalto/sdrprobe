@@ -253,7 +253,62 @@ struct sdrgui_survey_params {
     double drag_lower_hz;
     double drag_upper_hz;
     const char *empty_notice;
+    /*
+     * One flag word per peak, or NULL for none known. Passed in rather than
+     * looked up, because this component never sees `struct app` (ADR-0007) --
+     * and the survey's suspicion words are the caller's vocabulary, so what
+     * arrives here is only ever read through sdrgui_survey_peak_mark().
+     *
+     * **Last on purpose.** Every caller builds this struct with positional
+     * initialisers, so a field added in the middle shifts every one after it.
+     * Adding this one there was caught by the compiler because the types
+     * happened to differ; between two doubles it would have compiled and been
+     * silently wrong. A new field goes here, or every initialiser becomes
+     * designated.
+     */
+    const unsigned *peak_flags;
 };
+
+/*
+ * Which mark a candidate gets above the trace.
+ *
+ * The tick used to be one filled dot for everything, which made a spur, an
+ * empty frequency and a broadcast station identical on the one screen where
+ * telling them apart matters most -- the candidate list said so in a column
+ * nobody reading the chart was looking at.
+ *
+ * Three shapes rather than three colours: the chart already spends colour on
+ * selection and hover, and a reader looking for "which of these is real" is
+ * scanning shapes at three pixels rather than comparing hues.
+ */
+enum sdrgui_peak_mark {
+    SDRGUI_PEAK_SIGNAL = 0,  /* a filled dot: nothing is known against it */
+    SDRGUI_PEAK_RECEIVER,    /* a cross: on the receiver's own comb */
+    SDRGUI_PEAK_EMPTY        /* a hollow dot: a closer look found nothing */
+};
+
+/*
+ * `flags` is the survey's suspicion word. The bits are the caller's and this
+ * takes them as opaque, which is what keeps ADR-0007 true -- but the
+ * *precedence* is a decision and belongs here rather than inside a draw call,
+ * so a check can reach it.
+ *
+ * Empty wins over receiver-like, and deliberately: "there is nothing here" is
+ * what a reader acts on, and a frequency that is both is, in the end, empty.
+ * The candidate list resolves it the same way, and the two must agree or the
+ * chart and the list disagree about the same peak.
+ */
+#define SDRGUI_PEAK_FLAG_RECEIVER 0x1u   /* SURVEY_SUSPECT_REFERENCE */
+#define SDRGUI_PEAK_FLAG_STEP 0x2u       /* SURVEY_SUSPECT_STEP_CENTRE */
+#define SDRGUI_PEAK_FLAG_EMPTY 0x8u      /* SURVEY_SUSPECT_NO_CARRIER */
+
+static inline enum sdrgui_peak_mark sdrgui_survey_peak_mark(unsigned flags) {
+    if (flags & SDRGUI_PEAK_FLAG_EMPTY)
+        return SDRGUI_PEAK_EMPTY;
+    if (flags & (SDRGUI_PEAK_FLAG_RECEIVER | SDRGUI_PEAK_FLAG_STEP))
+        return SDRGUI_PEAK_RECEIVER;
+    return SDRGUI_PEAK_SIGNAL;
+}
 
 /* Power against absolute frequency across a swept range, with candidates
    ticked above the trace. The tick matters: at 1.7 GHz across a 1000 px panel

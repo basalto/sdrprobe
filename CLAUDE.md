@@ -377,6 +377,24 @@ Its candidate list carries each maximum's width and shape (`src/survey_carrier.h
 and what the site has heard of it -- new, steady, on/off, gone
 (`site_history_seen()`).
 
+**A candidate's mark says which of three things it is**, in the chart and in
+the list, because one filled dot for everything made a spur, an empty
+frequency and a broadcast station identical on the screen where telling them
+apart matters most. A **filled dot** is a candidate with nothing known against
+it; a **cross** (`*` in the list) is the receiver's own comb; a **hollow dot**
+(`~`) is a frequency where the confirmation pass found a prominence and
+nothing else. `sdrgui_survey_peak_mark()` is the precedence -- empty wins over
+receiver-like, because "there is nothing here" is what a reader acts on -- and
+the caption counts what it drew rather than what the sweep thought, because a
+caption that disagrees with the picture above it is worse than none.
+
+`docs/what-is-on-air.md` is the assessment over all of it: every allocation,
+what this program does about each, and where something was ruled out the
+measurement that ruled it out. `.scratch/calibrating-the-flags/` is the open
+question underneath it -- every threshold behind those marks was measured on
+one dongle at one site and compiled in, and the 14.4 MHz comb is derived from
+a 28.8 MHz crystal that another device may not have.
+
 The site and the antenna are combos over lists the configuration keeps
 (`config_remember_site()`, `config_remember_antenna()`), because one place or
 one antenna named two ways is two of them and levels only compare within one of

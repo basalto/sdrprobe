@@ -1978,7 +1978,8 @@ void handle_survey_input(struct app *app) {
         s->selected, -1,
         s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
                     : s->bins,
-        s->sweeping, 0, 0.0, 0.0, ""
+        s->sweeping, 0, 0.0, 0.0, "",
+        NULL   /* peak_flags: this copy only hit-tests, and never draws */
     };
     Vector2 mouse = GetMousePosition();
     double hz_at = sdrgui_survey_chart_hz_at(l.chart, &params, mouse);
@@ -2917,8 +2918,30 @@ void draw_survey(struct app *app) {
                     : s->bins,
         s->sweeping, s->drag_active, s->drag_from_hz, s->drag_to_hz,
         app->receiver_mode ? "press Sweep to survey the range"
-                           : "a sweep needs a live receiver"
+                           : "a sweep needs a live receiver",
+        NULL   /* peak_flags: filled in below where the chart is drawn */
     };
+    /*
+     * One flag word per peak, in the order the chart reads them, so a spur, an
+     * empty frequency and a station do not draw the same mark. Through the
+     * carrier each maximum belongs to, for the reason the candidate list
+     * records: the pass asks about carriers at their measured centre and a
+     * station's shoulders are maxima several kilohertz away.
+     */
+    {
+        static unsigned flags[SURVEY_MAX_PEAKS];
+        int i;
+
+        for (i = 0; i < s->peak_count && i < SURVEY_MAX_PEAKS; i++) {
+            double hz = survey_bin_hz(s, s->peaks[i].index);
+            const struct survey_carrier *held = survey_carrier_at(s, hz);
+
+            flags[i] = survey_suspect_at(app, hz, 0.0) |
+                       survey_confirmed_flags_at(app,
+                                                 held ? held->centre_hz : hz);
+        }
+        params.peak_flags = flags;
+    }
     sdrgui_survey_chart(&params);
     survey_draw_history_marks(app, &l, &params);
     draw_peak_list(app, l.peak_list);
