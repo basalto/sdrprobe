@@ -7,11 +7,10 @@
 /*
  * FM broadcast: the multiplex, and the front end of the RDS subcarrier.
  *
- * Probe side of the context map. Everything here says what the signal looks
- * like -- how strong the pilot is, whether it is locked, what the symbols
- * measured to -- and nothing here claims to have read a message. Soft symbols
- * are where it stops; blocks, groups and a station's name belong to the
- * decoder that follows (CONTEXT.md, and the same seam gsm_dsp.c stops at).
+ * The context boundary crosses this module. Pilot presence and multiplex
+ * shape are Probe measurements; recovering audio and RDS soft symbols
+ * interprets standardized modulation and belongs to Decoder. Blocks, groups
+ * and a station's identity follow in rds.c.
  *
  * It links libm and nothing else: no raylib, no librtlsdr (ADR-0012).
  *

@@ -5,10 +5,10 @@
 #include <stdint.h>
 
 /*
- * ADS-B / Mode S technology plugin (the Decoder context).
+ * ADS-B / Mode S technology DSP module (the Decoder context).
  *
- * Unlike the calibration-grade plugins described in sdr_dsp.h/gsm_dsp.h, this
- * plugin decodes transmitted messages. Mode S demodulation is magnitude-domain
+ * Unlike the calibration-grade operations described in sdr_dsp.h/gsm_dsp.h,
+ * this module decodes transmitted messages. Mode S demodulation is magnitude-domain
  * preamble correlation plus pulse-position bit-slicing, so it reuses none of the
  * generic FFT / centroid / channel-power primitives; it consumes only the
  * per-pair magnitude that sdr_dsp_convert_iq already produces. See
