@@ -416,5 +416,5 @@ int main(void) {
 
     test_arfcn_for_hz();
 
-    return check_report("GSM 900 plugin");
+    return check_report("GSM 900 module");
 }

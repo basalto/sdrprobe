@@ -146,11 +146,12 @@ waterfall views. It does not open another receiver stream or invoke
 | --- | --- |
 | `src/sdrprobe.c` | Calibration screen, channel-scan sweep and chart, application state, input handling, receiver stop/retune/restart, FCCH-vs-centroid selection, robust stability accumulation, waterfall markers, and PPM application |
 | `src/sdr_dsp.h` / `src/sdr_dsp.c` | Generic SDR primitives reused by calibration: byte→float I/Q, DC removal, signal stats, FFT/dBFS spectrum, two-stage carrier estimator, evenly-spaced channel-power reducer, and PPM correction |
-| `src/gsm_dsp.h` / `src/gsm_dsp.c` | GSM 900 technology plugin: ARFCN→frequency map and the FCCH tone detector |
+| `src/gsm_dsp.h` / `src/gsm_dsp.c` | GSM 900 technology DSP module: ARFCN→frequency map and the FCCH tone detector |
 | `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` | Hardware-free checks — generic primitives, and GSM calibration (ARFCN conversion, carrier estimation, correction sign, FCCH detection/rejection) respectively |
 
-The generic-core / per-technology-plugin split is recorded in
-[docs/adr/0001-technology-plugin-dsp-architecture.md](./adr/0001-technology-plugin-dsp-architecture.md).
+The generic-core / per-technology-module split is recorded in
+[ADR-0001](./adr/0001-technology-plugin-dsp-architecture.md) and its generalized
+module contract in [ADR-0023](./adr/0023-technology-dsp-modules-share-boundaries-not-an-interface.md).
 
 ## DSP Public Interface
 

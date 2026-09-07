@@ -3,16 +3,17 @@
 `sdrprobe` is a raylib SDR visualizer and GSM 900 frequency-calibration probe
 for RTL-SDR receivers, modeled after dump1090's `modesInitRTLSDR()` acquisition.
 Its DSP is split into a generic core (`src/sdr_dsp.c`/`.h`) and per-technology
-plugins (`src/gsm_dsp.c`/`.h` for GSM calibration, `src/lte_dsp.c`/`.h` for
+modules (`src/gsm_dsp.c`/`.h` for GSM calibration, `src/lte_dsp.c`/`.h` for
 LTE cell search, `src/adsb_dsp.c`/`.h` for
 Mode S / ADS-B message decoding), and its UI into an SDR component layer
 (`src/sdrgui.c`/`.h`) over vendored raygui widgets (see "Files" below). The
-window is organised into two top-level tabs — Scope (the four signal views,
-keys 1-4) and Decode (message decoders selected by number keys: 1 ADS-B,
-2 GSM band analysis, 3 LTE cell search) — recorded in
-`docs/adr/0008-top-level-tab-navigation.md`. Calibration remains a button-driven,
-global full-screen overlay orthogonal to the tabs. Message decoding lives in a
-second bounded context (see `CONTEXT-MAP.md`). No CI.
+window is organised into three top-level tabs — Survey, Scope (the four signal
+views, keys 1-4), and Decode (1 FM, 2 ADS-B, 3 GSM, 4 LTE, 5 TETRA) — recorded
+in `docs/adr/0008-top-level-tab-navigation.md` and
+`docs/adr/0020-survey-is-a-top-level-tab.md`. Calibration remains a
+button-driven, global full-screen overlay orthogonal to the tabs. Interpreting
+transmitted information lives in a second bounded context (see
+`CONTEXT-MAP.md`). No CI.
 
 ## Build & run
 
@@ -34,7 +35,7 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
 - `make check-dsp` — builds and runs deterministic, hardware-free DSP
   checks; it does not require raylib. It runs the per-technology checks
   `check-sdr-dsp` (generic core),
-  `check-gsm-dsp` (GSM plugin), `check-adsb-dsp` (Mode S / ADS-B plugin),
+  `check-gsm-dsp` (GSM module), `check-adsb-dsp` (Mode S / ADS-B module),
   `check-lte-dsp` (LTE cell search), `check-lte-mib` (the LTE broadcast
   channel) and `check-band-plan` (the frequency allocation table); each can be
   built and run on its own.
@@ -128,9 +129,9 @@ second bounded context (see `CONTEXT-MAP.md`). No CI.
   opens magnitude, spectrum, I/Q scatter, waterfall and band-survey views. It needs a real
   RTL-SDR dongle by default; `--file capture.bin` (e.g.
   `testfiles/adsb_modes1.bin`) enables paced, looping hardware-free playback. A
-  top-of-window tab bar switches between Scope and Decode. In the Scope tab,
-  keys 1/2/3/4/5 switch views, the fifth being the band survey: it sweeps an
-  operator-set range (default 24-1766 MHz, the R820T's span) in 1.6 MHz steps,
+  top-of-window tab bar switches among Survey, Scope and Decode. Survey is the
+  opening tab: it sweeps an operator-set range (default 24-1766 MHz, the
+  R820T's span) in 1.6 MHz steps,
   charts the power across it, and marks the peaks standing 8 dB above their
   local floor by topographic prominence -- not height above a floor, which
   reports a strong carrier's shoulder as a signal. A candidate clears **two** bars, and
@@ -252,20 +253,21 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   stats, Hann-windowed complex FFT / dBFS spectra, power-centroid carrier
   estimate, evenly-spaced channel-power reducer, and PPM correction. Prefix
   `sdr_dsp_`.
-- `src/gsm_dsp.h` / `src/gsm_dsp.c` — GSM 900 technology plugin: ARFCN→frequency
+- `src/gsm_dsp.h` / `src/gsm_dsp.c` — GSM 900 technology DSP module: ARFCN→frequency
   map, the FCCH reference-tone detector, and the SCH (Synchronisation Channel)
   decoder — differential-GMSK demod, extended-training-sequence sync, rate-1/2
   Viterbi, parity, and BSIC (NCC/BCC) + reduced-frame-number parse. Reuses the
   generic core for everything else. Prefix `gsm_`. The per-technology DSP split
-  (a generic core plus reference-tone plugins) is recorded in
-  `docs/adr/0001-technology-plugin-dsp-architecture.md`.
-- `src/adsb_dsp.h` / `src/adsb_dsp.c` — Mode S / ADS-B technology plugin (the
+  (a generic core plus technology DSP modules) is recorded in
+  `docs/adr/0001-technology-plugin-dsp-architecture.md` and revised by
+  `docs/adr/0023-technology-dsp-modules-share-boundaries-not-an-interface.md`.
+- `src/adsb_dsp.h` / `src/adsb_dsp.c` — Mode S / ADS-B technology DSP module (the
   Decoder context): magnitude-domain preamble detection, pulse-position bit
   demod, CRC-24 validation, DF17/18 field parsing (ICAO, callsign, altitude,
   velocity), and CPR global position decode with a minimal even/odd pairing
   cache. Prefix `adsb_`. It reuses only the core's per-pair magnitude, not the
   FFT/centroid primitives; recorded in `docs/adr/0009-mode-s-decode-plugin.md`.
-- `src/lte_dsp.h` / `src/lte_dsp.c` — LTE (E-UTRA) technology plugin:
+- `src/lte_dsp.h` / `src/lte_dsp.c` — LTE (E-UTRA) technology DSP module:
   EARFCN→frequency map, primary-synchronisation-signal correlation against the
   three Zadoff-Chu roots, secondary-sequence detection over the 336 candidates,
   physical cell identity, cyclic-prefix length, frame boundary, and a frequency
