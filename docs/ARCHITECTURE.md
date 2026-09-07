@@ -99,7 +99,45 @@ screens, not one screen's private business.
 
 Only `acquisition` is a module in the full sense: its state lives with its code
 and it names nothing of the application. The others own their fields but are
-declared beside the record they were carved out of.
+declared beside the record they were carved out of. `receiver_lease.h` is the
+second: plain integers, no receiver and no window, so it is checked without
+either.
+
+### Who borrowed the tuning
+
+`applied_frequency` and `applied_sample_rate` say where the receiver *is*.
+Where it is to be **put back** is a different question, and it used to be
+answered nine times: every screen that retunes kept its own `return_frequency`
+and restored it itself. Each was individually right and no rule connected them,
+so nothing said that overlapping owners give the receiver back in the reverse
+order they took it — and the overlaps are real. LTE opens calibration; GSM
+starts a band scan; the survey asks its candidates again; the automatic drift
+check interrupts whatever is on screen.
+
+`struct receiver_lease` is that rule: a strict LIFO stack of prior
+`{center_hz, sample_rate_hz}` snapshots, with each owner holding an opaque
+token rather than a frequency. Screens call the five helpers in `view.h` —
+borrow, borrow-and-tune, restore-while-held, return, commit — and never a bare
+`retune_receiver()` for a tuning they mean to undo.
+
+Three properties are load-bearing:
+
+- **Out of order is refused**, changing neither hardware nor the stack. An
+  owner returning out of turn would put back a frequency belonging to somebody
+  else, which is silent and looks exactly like a correct return.
+- **Returning is two-phase.** The receiver can refuse a frequency it accepted a
+  minute ago, so the pop waits for the restore to succeed and a failure leaves
+  the token live and retryable. The peek takes a `const` lease, so a one-phase
+  return is a compile error rather than a check failure.
+- **PPM is not leased.** Applying a calibration is deliberate persistent state
+  that must survive every return, including the return of the overlay that
+  measured it. A snapshot has no third field to undo it with, and restores use
+  the *current* correction.
+
+Giving the claim up without restoring is `receiver_commit()`, and it is written
+as a commit rather than a cleared flag so that "keep this tuning" and "I forgot
+to put it back" do not look the same in the source. The survey's **Open
+waterfall** is what it is for.
 
 ## Two bounded contexts
 

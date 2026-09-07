@@ -22,6 +22,7 @@
 #include "lte_stats.h"
 #include "lte_mib.h"
 #include "lte_scan.h"
+#include "receiver_lease.h"
 #include "options.h"
 #include "sdr_dsp.h"
 #include "signal_findings.h"
@@ -34,6 +35,11 @@
  * Acquisition now owns its own (struct acquisition, in acquisition.h). What
  * is left here is still one record every view reads, so the view files are an
  * organisation of that coupling rather than modules in their own right.
+ *
+ * One exception is worth naming, because it used to be nine: no view stores
+ * the tuning it means to put back. `struct receiver_lease` below owns every
+ * temporary borrowing of the receiver, each owner holds a token rather than a
+ * frequency, and receiver_lease.h is the rule they unwind by.
  */
 #define GSM900_BASE_HZ 935000000.0
 #define GSM900_ARFCN_SPACING_HZ 200000.0
@@ -132,8 +138,9 @@ struct fm_scan {
      */
     int naming;
     int naming_pass;            /* pass two is done; this one is running */
-    uint32_t return_frequency;
-    int return_valid;
+    /* Band II is walked in thirteen tunings and then revisited; this is where
+       the operator had the receiver before any of that (receiver_lease.h). */
+    struct receiver_lease_token lease_token;
     char status[160];
 };
 
@@ -320,7 +327,9 @@ enum view_kind {
 struct band_scan {
     double step_started_at;
     struct scan_plan plan;      /* how the downlink is covered, in scan_plan.h */
-    uint32_t return_frequency;
+    /* Borrowed from whatever the GSM view had tuned, and given back to it --
+       not to whatever was on screen before GSM (receiver_lease.h). */
+    struct receiver_lease_token lease_token;
 };
 
 struct calibration {
@@ -346,7 +355,10 @@ struct calibration {
        gate is satisfied -- all in calibration_gate.h, where it can be
        checked. */
     struct calibration_tracker track;
-    uint32_t return_frequency;
+    /* The receiver, while a measurement or the band scan looking for one owns
+       it. One claim covers both: they are phases of one borrowing, and Back
+       ends whichever is running (receiver_lease.h). */
+    struct receiver_lease_token lease_token;
     int suggested_ppm;
     uint32_t gsm_cal_expected_hz;  /* calibrated carrier */
     uint32_t gsm_cal_tune_hz;      /* receiver center used for the re-check */
@@ -354,7 +366,10 @@ struct calibration {
     double drift_ppm;              /* last measured residual drift */
     double drift_last_check_at;
     double drift_phase_started_at;
-    uint32_t drift_saved_frequency; /* view frequency to return to */
+    /* The automatic drift check's own claim. It interrupts whatever decode
+       view is on screen, so it nests inside that view's -- and it never runs
+       while calibration is open, so it is not a third level inside this. */
+    struct receiver_lease_token drift_token;
     double drift_recent_ppm[DRIFT_RECENT];
     int drift_recent_count;
 };
@@ -566,9 +581,10 @@ struct lte_view {
      * It borrows the receiver the way the GSM view borrows the tuning, and
      * gives both back on the way out.
      */
-    uint32_t return_frequency;
-    uint32_t return_sample_rate;
-    int return_valid;
+    /* Where the receiver was and at what rate, before this view took it to
+       1.92 MS/s. One snapshot holds both, which is what retires the separate
+       cal_return_sample_rate the calibration overlay used to need. */
+    struct receiver_lease_token lease_token;
 
     struct lte_band_scan scan;
 
@@ -616,8 +632,9 @@ struct gsm_view {
     struct chart_window window;
 
     double selected_hz;         /* carrier of the selected ARFCN (0 = none) */
-    uint32_t return_frequency;  /* view frequency to restore on leave */
-    int return_valid;
+    /* The tuning this view borrowed on the way in (receiver_lease.h). The
+       band scan nests inside it, so the two unwind in order. */
+    struct receiver_lease_token lease_token;
     struct gsm_sch_continuity continuity;
     struct gsm_sch_result sch;
     struct gsm_sch_symbols sch_symbols;
@@ -820,7 +837,10 @@ struct survey_view {
         int looks;
         int settled;
         double started_at;
-        uint32_t return_frequency;
+        /* Nested inside the survey view's own claim: the pass walks the
+           receiver across the candidates and hands it back to the sweep's
+           tuning, not to whatever was on screen before the survey. */
+        struct receiver_lease_token lease_token;
         int confirmed;
         int intermittent;
         int refuted;
@@ -874,8 +894,11 @@ struct survey_view {
     int step_count;
     double step_started_at;
     int step_folded;            /* a block has been folded into this step */
-    uint32_t return_frequency;  /* tuning to restore when the view is left */
-    int return_valid;
+    /* Where the operator had the receiver before a sweep walked it across a
+       band. Held for as long as the view is up, because it still owns the
+       right to sweep again; given up for good by "Open waterfall", which is
+       a deliberate handoff rather than a forgotten restore. */
+    struct receiver_lease_token lease_token;
 
     struct sdr_peak peaks[SURVEY_MAX_PEAKS];
     int peak_count;
@@ -951,6 +974,10 @@ struct app {
     int supported_gain_count;
     uint32_t applied_frequency;
     uint32_t applied_sample_rate;
+    /* Who borrowed the tuning above, and what they put back when they give it
+       up. The truth about where the receiver *is* stays in the two fields
+       above; this is only the stack of where it was (receiver_lease.h). */
+    struct receiver_lease lease;
     char source_label[320];
     char tuner_label[32];
     struct sigaction old_sigint;
@@ -1023,7 +1050,6 @@ struct app {
     int lte_cal_valid;
     int lte_cal_earfcn;
     int lte_cal_ppm;               /* what the LTE reference suggested */
-    uint32_t cal_return_sample_rate;  /* LTE calibration borrows the rate */
     int gsm_cal_ppm;               /* PPM applied at calibration */
     int gsm_cal_arfcn;             /* channel, for the notice text */
     int drift_health;              /* enum cal_health */

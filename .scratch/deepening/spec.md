@@ -35,6 +35,13 @@ callers it was earning its keep.
 
 1. **Receiver lease** (`01`) -- smallest interface, nine callers, a bug class
    no check reaches. Tickets 02 and 04 borrow the receiver through it.
+   **Done, 2026-09-07**: `src/receiver_lease.h` and `check-receiver-lease`,
+   63 checks where there were none. All nine return fields deleted; the five
+   helpers are in `view.h`. It corrected one place where the receiver was left
+   on a frequency nobody chose, and it made abandoning an inner owner
+   (`leave_gsm` and the calibration reset, both walking away from a band scan)
+   an obligation that has to be written down rather than a habit that happened
+   to work.
 2. **Decode sessions** (`02`) -- the largest duplication; makes ADR-0012's
    layer 1 reachable for decode orchestration.
 3. **Installation** (`03`) -- where ADR-0018 and ADR-0022 have to land anyway.

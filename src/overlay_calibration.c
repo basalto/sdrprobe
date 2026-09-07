@@ -78,9 +78,9 @@ void open_calibration(struct app *app) {
     app->cal.fcch_confidence = 0.0f;
     app->scan_open = 0;
     app->scan_running = 0;
+    scan_release_receiver(app);
     app->cal.measured_hz = 0.0;
     app->cal.offset_hz = 0.0;
-    app->cal.return_frequency = app->applied_frequency;
     app->cal.suggested_ppm = app->applied_ppm;
     snprintf(app->calibration_status, sizeof(app->calibration_status),
              "Select GSM 900 ARFCN 1-124, then press Start");
@@ -99,6 +99,22 @@ void open_calibration(struct app *app) {
  * It runs on LTE's own 1.92 MS/s grid and refuses anything else (ADR-0014),
  * so the calibration borrows the rate and gives it back on the way out.
  */
+/*
+ * Calibration takes the receiver once, whichever phase takes it first: a band
+ * scan looking for something worth measuring against, or the measurement
+ * itself. `acquired` says whether this call was the one that took it, so a
+ * refused retune cancels only a claim it created.
+ */
+static int calibration_borrow(struct app *app, int *acquired) {
+    *acquired = 0;
+    if (receiver_lease_token_active(&app->cal.lease_token))
+        return 0;
+    if (receiver_borrow(app, &app->cal.lease_token) < 0)
+        return -1;
+    *acquired = 1;
+    return 0;
+}
+
 static int start_lte_calibration(struct app *app) {
     int earfcn;
     uint32_t carrier;
@@ -123,12 +139,15 @@ static int start_lte_calibration(struct app *app) {
     app->cal.offset_hz = 0.0;
     calibration_tracker_init(&app->cal.track);
     app->cal.track.source = CALIBRATION_SOURCE_LTE;
-    if (!app->cal_return_sample_rate)
-        app->cal_return_sample_rate = app->applied_sample_rate;
+    int acquired;
+    if (calibration_borrow(app, &acquired) < 0)
+        return -1;
     if (retune_receiver_at_rate(app, app->cal.tune_hz, LTE_SAMPLE_RATE_HZ,
                                 app->applied_ppm) < 0) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "The receiver would not take LTE's 1.92 MS/s");
+        if (acquired)
+            receiver_lease_cancel(&app->lease, &app->cal.lease_token);
         return -1;
     }
     app->cal.started_at = monotonic_seconds();
@@ -174,8 +193,14 @@ int start_calibration(struct app *app) {
     app->cal.measured_hz = 0.0;
     app->cal.offset_hz = 0.0;
     calibration_tracker_init(&app->cal.track);
-    if (retune_receiver(app, app->cal.tune_hz, app->applied_ppm) < 0)
+    int acquired;
+    if (calibration_borrow(app, &acquired) < 0)
         return -1;
+    if (retune_receiver(app, app->cal.tune_hz, app->applied_ppm) < 0) {
+        if (acquired)
+            receiver_lease_cancel(&app->lease, &app->cal.lease_token);
+        return -1;
+    }
     app->cal.started_at = monotonic_seconds();
     app->cal.running = 1;
     snprintf(app->calibration_status, sizeof(app->calibration_status),
@@ -415,9 +440,15 @@ void update_drift_check(struct app *app, int have_block) {
     if (app->drift_phase == DRIFT_IDLE) {
         if (now - app->cal.drift_last_check_at < DRIFT_CHECK_INTERVAL_SECONDS)
             return;
-        app->cal.drift_saved_frequency = app->applied_frequency;
         app->cal.drift_health_prev = app->drift_health;
+        /* Borrowed from whichever decode view is on screen, and given back
+           before that view can leave. */
+        if (receiver_borrow(app, &app->cal.drift_token) < 0) {
+            app->cal.drift_last_check_at = now;
+            return;
+        }
         if (retune_receiver(app, app->cal.gsm_cal_tune_hz, app->gsm_cal_ppm) < 0) {
+            receiver_lease_cancel(&app->lease, &app->cal.drift_token);
             app->cal.drift_last_check_at = now; /* retry next interval */
             return;
         }
@@ -455,7 +486,7 @@ void update_drift_check(struct app *app, int have_block) {
     if (now - app->cal.drift_phase_started_at < DRIFT_CHECK_MEASURE_SECONDS)
         return;
 
-    retune_receiver(app, app->cal.drift_saved_frequency, app->gsm_cal_ppm);
+    receiver_return(app, &app->cal.drift_token);
     app->drift_phase = DRIFT_IDLE;
     app->cal.drift_last_check_at = monotonic_seconds();
 
@@ -495,19 +526,15 @@ void update_drift_check(struct app *app, int have_block) {
  * screen -- which is the step that did not exist before.
  */
 int calibration_stop_measuring(struct app *app) {
-    if (app->cal_return_sample_rate &&
-        app->cal_return_sample_rate != app->applied_sample_rate) {
-        if (retune_receiver_at_rate(app, app->cal.return_frequency,
-                                    app->cal_return_sample_rate,
-                                    app->applied_ppm) < 0)
-            return -1;
-        app->cal_return_sample_rate = 0;
-    } else if (app->cal.running) {
-        if (retune_receiver(app, app->cal.return_frequency,
-                            app->applied_ppm) < 0)
-            return -1;
-    }
-    app->cal_return_sample_rate = 0;
+    /*
+     * One claim, so one return, and the snapshot carries the rate as well as
+     * the frequency -- which is what retired the separate
+     * cal_return_sample_rate this used to have to reason about. A PPM applied
+     * while the receiver was borrowed survives, because the restore uses the
+     * current correction and the snapshot has no field to undo it with.
+     */
+    if (receiver_return(app, &app->cal.lease_token) < 0)
+        return -1;
     app->cal.running = 0;
     return 0;
 }
@@ -574,9 +601,9 @@ void handle_calibration_input(struct app *app) {
             } else {
                 /* The scan runs on LTE's own grid, like everything else that
                    looks for a cell (ADR-0014). */
-                if (!app->cal_return_sample_rate)
-                    app->cal_return_sample_rate = app->applied_sample_rate;
-                if (retune_receiver_at_rate(app, app->applied_frequency,
+                int acquired;
+                if (calibration_borrow(app, &acquired) == 0 &&
+                    retune_receiver_at_rate(app, app->applied_frequency,
                                             LTE_SAMPLE_RATE_HZ,
                                             app->applied_ppm) == 0 &&
                     band &&

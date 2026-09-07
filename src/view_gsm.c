@@ -79,13 +79,11 @@ void gsm_tune_selected(struct app *app, int arfcn) {
     app->gsm.sch_valid = 0;
     gsm_continuity_reset(&app->gsm.continuity);
     memset(&app->gsm.cell, 0, sizeof(app->gsm.cell)); /* a different cell */
-    if (app->receiver_mode) {
-        if (!app->gsm.return_valid) {
-            app->gsm.return_frequency = app->applied_frequency;
-            app->gsm.return_valid = 1;
-        }
+    /* Moves the receiver; does not borrow it. Every caller reaches here with
+       the GSM view already entered, and a tune that quietly took ownership
+       was how one screen could end up owning the receiver twice. */
+    if (app->receiver_mode)
         retune_receiver(app, expected - 400000U, app->applied_ppm);
-    }
 }
 
 /* Note an SCH decode that cannot be right: T1 advances once per 1326 frames,
@@ -616,10 +614,8 @@ void view_gsm_defaults(struct app *app) {
    channel the user selected, else run a band scan and auto-pick the strongest
    BCCH when it finishes. */
 void enter_gsm(struct app *app) {
-    if (app->receiver_mode && !app->gsm.return_valid) {
-        app->gsm.return_frequency = app->applied_frequency;
-        app->gsm.return_valid = 1;
-    }
+    /* Borrow where the operator had it, before anything below moves it. */
+    receiver_borrow(app, &app->gsm.lease_token);
     int arfcn = 0;
     if (app->gsm_cal_arfcn > 0)
         arfcn = app->gsm_cal_arfcn;
@@ -641,9 +637,10 @@ void leave_gsm(struct app *app) {
     app->scan_running = 0;
     app->scan_open = 0;
     app->gsm_autoselect_pending = 0;
-    if (app->receiver_mode && app->gsm.return_valid)
-        retune_receiver(app, app->gsm.return_frequency, app->applied_ppm);
-    app->gsm.return_valid = 0;
+    /* Inside out: a scan borrowed the receiver from this view, and the lease
+       refuses to let this view return while somebody else still holds it. */
+    scan_release_receiver(app);
+    receiver_return(app, &app->gsm.lease_token);
     app->gsm.selected_hz = 0.0;
     app->gsm.sch_valid = 0;
 }
