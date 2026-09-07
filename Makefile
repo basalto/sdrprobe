@@ -559,6 +559,30 @@ probe-survey-threshold: scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c \
 		scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_threshold_probe $(DRAWS)
 
+# What signal_probe says about a capture, at a signal and at its controls.
+# The shape is signal-against-controls because a measurement at one frequency
+# is a number and the same measurement where nothing should be is what makes
+# it evidence.
+FILE_SIGNAL?=testfiles/carrier_75000_bare.bin
+RATE_SIGNAL?=2000000
+AT_SIGNAL?=300000
+CONTROLS_SIGNAL?=-200000,600000
+CHANNEL_SIGNAL?=20000
+SEARCH_SIGNAL?=0
+GUARD_SIGNAL?=150000
+# How much of the capture to use. The answer depends on it: a fixed-frequency
+# mix cannot follow a drifting carrier, so the standing fraction falls as the
+# observation lengthens.
+PAIRS_SIGNAL?=0
+probe-signal: scripts/signal_report.c $(SRC)/signal_probe.c \
+		$(SRC)/signal_probe.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_report \
+		scripts/signal_report.c $(SRC)/signal_probe.c -lm
+	$(Q)./$(BUILD)/signal_report $(FILE_SIGNAL) $(RATE_SIGNAL) \
+		$(AT_SIGNAL) $(CONTROLS_SIGNAL) $(CHANNEL_SIGNAL) \
+		$(SEARCH_SIGNAL) $(GUARD_SIGNAL) $(PAIRS_SIGNAL)
+
 probe-periodicity: scripts/signal_periodicity.c $(SRC)/signal_probe.c \
 		$(SRC)/signal_probe.h
 	@mkdir -p $(BUILD)
@@ -597,4 +621,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-periodicity probe-survey-threshold bench-dsp screens clean
+.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens clean

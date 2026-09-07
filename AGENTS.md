@@ -517,6 +517,19 @@ open.
 
 ## Agent skills
 
+### Is it on air, or is that noise?
+
+`make probe-signal FILE_SIGNAL=... AT_SIGNAL=... CONTROLS_SIGNAL=...` measures
+a capture at a frequency **and at controls where nothing should be**, printing
+whether a standing carrier is there and how much of the channel stands still,
+the burst structure, and the envelope against Rayleigh. The controls are the
+point: a measurement at one frequency is a number, and the same measurement
+where nothing should be is what makes it evidence.
+
+`PAIRS_SIGNAL` limits the look, and the answer depends on it -- see
+`.scratch/standing-fraction-drifts/` for why, and for what has to be
+re-measured before that is fixed.
+
 ### Keeping the skills worth having
 
 **When the context has grown long, stop and assess the skills before
