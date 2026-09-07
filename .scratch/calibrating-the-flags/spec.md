@@ -20,12 +20,27 @@ reason to think they are right for another.
 | `SURVEY_MIN_PROMINENCE_DB` | 8 | the descent a maximum must make to be a candidate |
 | `SURVEY_CONFIRM_PROMINENCE_DB` | 6 | deliberately under the sweep's own bar |
 
-**The comb is the one that is certainly wrong elsewhere.** 28.8 MHz is common
-on RTL2832U dongles and it is not universal -- 26 MHz and 24 MHz parts exist,
-and a receiver that is not an RTL-SDR at all shares none of this. A survey run
-on such a device flags the wrong frequencies as the instrument and, worse,
-fails to flag the right ones: the spurs then enter the site history as
-signals and are remembered for ever.
+**The comb is the one that might be wrong elsewhere, and the "might" is the
+honest word.** An earlier draft of this said 26 MHz and 24 MHz parts exist.
+**That was asserted without checking and should not be repeated.** 28.8 MHz is
+what the RTL2832U's datasheet specifies, so it may be near-universal on these
+dongles.
+
+What *is* established is narrower: the comb here was measured, and no other
+receiver's has been. So the case is not "the constant is wrong elsewhere" but
+"the constant is unverified elsewhere, and a measured one would be evidence
+rather than assumption".
+
+The asymmetry of the harm is worth stating too, because an earlier draft
+paired the two directions as though they were the same size. A real signal
+wrongly flagged is a coincidence at 2 x 25 kHz / 14.4 MHz = **0.35% per
+candidate**, about one in a 342-candidate sweep, and it is *marked rather than
+dropped* -- the report says "nothing has been removed" and
+`survey_confirm_should_record()` bars only the empty flag from the history.
+Failing to flag the real spurs is the whole comb: **91 of 342 candidates** in
+the reference sweep, which would enter the site history as signals and be
+reported "gone" whenever a later sweep missed them. The second direction is
+two orders larger than the first.
 
 ## Why the numbers cannot simply be widened
 
