@@ -146,6 +146,15 @@ The profile holds, at minimum:
    only for a real 12-bit part**; they are different numbers about different
    things.
 2. **The profile itself** (`02`) -- pure data, pure check.
+   **Done, 2026-09-08**: `src/device_profile.h` and `check-device-profile`, 82
+   checks, nothing reading it yet. `full_scale` is a field and
+   `device_default_full_scale()` returns **0 for S16**, because the rescaled
+   corpus and a real 12-bit part are both S16 and rail at 2040.0 and 2047.5 --
+   deriving it from the format would be wrong about one of them. Each field is
+   pinned against the constant it will replace by including that header, so the
+   two cannot drift apart while both exist. One honest gap: librtlsdr's rate
+   range has a hole (225001-300000, 900001-3200000) that min/max cannot say,
+   left documented rather than invented around.
 3. **Full scale out of the DSP** (`03`).
 4. **Block arithmetic in samples** (`04`) -- the silent one.
 5. **Tuner reach from the profile** (`05`).

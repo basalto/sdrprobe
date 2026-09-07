@@ -32,6 +32,7 @@ make check-tetra-dsp  # a TETRA carrier to dibits
 make check-tetra-sync # descramble, depuncture, Viterbi, and the parity
 make check-acquisition # the block slot, both its modes, and its shutdown
 make check-sample-format # the same signal in an 8- and a 16-bit container
+make check-device-profile # what a receiver is, in the terms the numbers need
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
 make check-input      # which control a key press reaches
@@ -280,6 +281,36 @@ pins both directions so nobody restores it.
 
 The corpus is generated and never committed: `build/testfiles16/` is a
 prerequisite of the check rule, and nothing in `testfiles/` is touched.
+
+`src/device_profile.h` is the contract those tickets fill in: the facts that do
+**not** transfer between receivers -- format and full scale, bytes per pair,
+tuning and rate reach, the gain model, whether ppm drifts, the reference clock,
+the retune settle. It is **data, not a vtable**; function pointers wait for a
+second backend to satisfy them (ticket 07), because an adapter with one
+implementation is a pass-through. No driver header, no GUI header, no `struct
+app`, and **nothing reads it yet** -- `check-device-profile` is its only
+consumer, deliberately, since tickets 03 to 06 move one area each.
+
+**`full_scale` is carried rather than derived from the format, and that is the
+finding, not a convenience.** Ticket 01's rescaled corpus and a real 12-bit
+part are both `SAMPLE_FORMAT_S16` and rail at 2040.0 and 2047.5 respectively,
+so a profile deriving full scale from its format would have to pick one and be
+wrong about the other. `device_default_full_scale()` therefore returns **0 for
+S16** -- a caller that gets it has to go and find out, which is correct, and a
+default there would quietly have supplied 2047.5 to the corpus it disagrees
+with everywhere.
+
+The check pins each field against the constant it will replace --
+`SURVEY_TUNER_LOWER_HZ`, `SURVEY_SETTLE_SECONDS`, `RECEIVER_REFERENCE_HZ` --
+by including those headers rather than restating their numbers, so the two
+cannot drift apart while both exist. `acquisition.h` is the one it cannot
+include, since that pulls `<rtl-sdr.h>` and a check here links `-lm` only.
+
+One thing the profile deliberately cannot say: **librtlsdr's rate range has a
+hole in it** -- 225001-300000 and 900001-3200000 Hz, with nothing between --
+and `rate_min_hz`/`rate_max_hz` cannot express that. Nothing here tunes into
+the gap (2.0, 2.048 and 1.92 MS/s are all in the upper span), so it is left as
+a known limitation rather than a representation invented for one device.
 
 What the DSP costs, against the 65.5 ms of signal one block covers:
 
