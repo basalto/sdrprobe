@@ -1056,7 +1056,7 @@ static int handle_tab_input(struct app *app) {
     return 0;
 }
 
-/* --- Decode tab: numbered sub-views (1 ADS-B, 2 GSM, 3 LTE) --- */
+/* --- Decode tab: numbered sub-views (1 FM, 2 ADS-B, 3 GSM, 4 LTE, 5 TETRA) --- */
 
 /* --- GSM analysis view (band survey: channel scan + ARFCN waterfall) --- */
 

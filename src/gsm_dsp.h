@@ -5,9 +5,9 @@
 #include <stdint.h>
 
 /*
- * GSM 900 technology plugin.
+ * GSM 900 technology DSP module.
  *
- * A "technology plugin" is a small, testable DSP module for one cellular
+ * A technology DSP module is a small, independently testable unit for one
  * technology. It provides two things and reuses the generic SDR primitives in
  * sdr_dsp.h for everything else (FFT/spectrum, centroid estimate, per-channel
  * power, PPM correction):

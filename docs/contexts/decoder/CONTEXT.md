@@ -1,12 +1,17 @@
 # Decoder
 
-Turns an acquired sample stream into decoded messages. This context begins where
-the Probe context ends: at the recovery of bits from the signal. It owns the
-vocabulary of demodulation and message parsing across technologies — Mode S /
-ADS-B aircraft messages and the GSM Synchronisation Channel — and says nothing
-about how samples were acquired or how signal quality is judged.
+Recovers standardized transmitted information from an acquired sample stream.
+This context begins where the Probe context ends: when modulation is
+interpreted as synchronization identities, symbols or bits, messages, or
+audio. It owns the vocabulary of that interpretation across technologies and
+says nothing about how samples were acquired or how signal quality is judged.
 
 ## Language
+
+**Transmitted information**:
+Content recovered by interpreting a technology's standardized modulation,
+including synchronization identity, symbols or bits, messages, and audio.
+_Avoid_: Signal activity, signal quality, carrier measurement
 
 **Mode S frame**:
 One complete Mode S transmission recovered from the sample stream: a preamble
@@ -159,6 +164,8 @@ _Avoid_: Power, amplitude, SNR
 The accumulated symbol-to-symbol phase change across a burst, illustrating the underlying GMSK modulation.
 _Avoid_: FM waveform, phase drift
 
+## LTE synchronisation and broadcast
+
 **Primary synchronisation signal**:
 The Zadoff-Chu sequence on the central 62 subcarriers of the last symbol of an
 LTE half-frame, which a receiver finds first; it carries N_ID_2 and fixes the
@@ -212,3 +219,66 @@ The Alamouti pairing across two neighbouring resource elements by which two or
 four antenna ports carry the broadcast channel; undoing it recovers both
 symbols with the interference between them cancelled.
 _Avoid_: MIMO decode, diversity combining, beamforming
+
+## FM broadcast and RDS
+
+**FM multiplex**:
+The demodulated content of an FM broadcast carrier, containing mono audio,
+stereo information, a pilot, and optionally Radio Data System information.
+_Avoid_: RF spectrum, audio channel, RDS message
+
+**FM pilot**:
+The 19 kHz reference within an FM multiplex that establishes the phase and
+timing used to recover stereo audio and Radio Data System information.
+_Avoid_: Calibration reference, carrier, RDS subcarrier
+
+**Radio Data System**:
+Digital information carried within an FM multiplex through which a station
+identifies itself and describes its programme.
+_Avoid_: Radio text, programme service name, FM audio
+
+**RDS block**:
+One protected unit of Radio Data System information, carrying data and an
+offset word that identifies its position within a group.
+_Avoid_: Sample block, packet, message
+
+**RDS group**:
+Four ordered RDS blocks that together carry one group type's fields.
+_Avoid_: Message log, block, frame
+
+**Programme identification**:
+The stable code by which an RDS service identifies itself across its groups.
+_Avoid_: Frequency, programme service name, callsign
+
+**Programme service name**:
+The short station name assembled from repeated RDS groups and shown only after
+all of its segments agree.
+_Avoid_: Callsign, radio text, programme identification
+
+## TETRA synchronisation and broadcast
+
+**TETRA dibit**:
+Two transmitted bits represented by one differential phase step between
+successive TETRA symbols.
+_Avoid_: I/Q pair, pulse-position bit, absolute phase
+
+**TETRA timeslot**:
+One repeating interval of the TETRA downlink burst structure within which
+synchronisation and broadcast information occupy defined positions.
+_Avoid_: Sample block, frame, channel
+
+**TETRA synchronisation block**:
+The protected information in a synchronisation burst that identifies the
+network and establishes its timing.
+_Avoid_: Training sequence, sync word, sample block
+
+**Extended colour code**:
+The TETRA network identity used to descramble network-specific broadcast
+information, comprising the mobile country code, mobile network code, and
+colour code.
+_Avoid_: BSIC, physical cell identity, encryption key
+
+**Broadcast network channel**:
+The TETRA broadcast information recovered after the synchronisation block has
+provided the network's extended colour code.
+_Avoid_: BCCH, synchronization block, traffic channel

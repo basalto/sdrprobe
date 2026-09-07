@@ -346,5 +346,5 @@ int main(void) {
     test_trace_confidence();
     test_trace_latches_failure();
 
-    return check_report("Mode S / ADS-B plugin");
+    return check_report("Mode S / ADS-B module");
 }
