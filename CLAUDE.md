@@ -420,7 +420,7 @@ receiver-like, because "there is nothing here" is what a reader acts on -- and
 the caption counts what it drew rather than what the sweep thought, because a
 caption that disagrees with the picture above it is worse than none.
 
-`docs/spur-detection.md` is the reference for those marks: every algorithm
+`docs/receiver-artifacts.md` is the reference for those marks: every algorithm
 behind them, every formula, every adjustable parameter and what constrains it,
 with a worked example of each. Two of the parameters are not free -- Rayleigh's
 0.5227 is `sqrt(4/pi - 1)` and changing it means comparing against something

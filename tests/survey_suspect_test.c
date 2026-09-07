@@ -123,7 +123,7 @@ static void test_real_signals_are_left_alone(void) {
 static void test_the_tolerance(void) {
     struct survey_plan plan = uhf_plan();
     double tolerance = tolerance_of(&plan);
-    double exact = 40.0 * RECEIVER_COMB_HZ;
+    double exact = 40.0 * RECEIVER_COMB_SPACING_HZ;
 
     check_close("the comb's tolerance is its floor on this sweep", tolerance,
                 RECEIVER_COMB_TOLERANCE_HZ, 1.0);
@@ -145,7 +145,7 @@ static void test_the_tolerance(void) {
     check_int("7 MHz, under the first multiple",
               survey_reference_harmonic(7e6, tolerance), 0);
     check_int("14.4 MHz itself is the first",
-              survey_reference_harmonic(RECEIVER_COMB_HZ, tolerance), 1);
+              survey_reference_harmonic(RECEIVER_COMB_SPACING_HZ, tolerance), 1);
 }
 
 /*
@@ -500,7 +500,7 @@ static void test_the_fine_comb(void) {
     /* The spacing is a ninth of the coarse comb, and the coarse tones are on
        both -- 244.8 is 17 x 14.4 and 153 x 1.6. */
     check_close("nine fine tones to a coarse one",
-                RECEIVER_COMB_HZ / RECEIVER_FINE_COMB_HZ, 9.0, 1e-9);
+                RECEIVER_COMB_SPACING_HZ / RECEIVER_FINE_COMB_SPACING_HZ, 9.0, 1e-9);
     check_int("244.8 MHz is on the coarse comb",
               survey_reference_harmonic(244.8e6, vhf_tol), 17);
     check_int("and on the fine one",
@@ -601,7 +601,7 @@ static void test_the_fine_comb_refuses_a_coarse_sweep(void) {
 
     survey_plan_make(24e6, 1766e6, RATE, FFT, 0.10, &wide);
     tolerance = survey_comb_tolerance(&wide, RATE, FFT);
-    check_msg(tolerance > RECEIVER_FINE_COMB_HZ * RECEIVER_COMB_MAX_FRACTION,
+    check_msg(tolerance > RECEIVER_FINE_COMB_SPACING_HZ * RECEIVER_COMB_MAX_FRACTION,
               "a full-tuner sweep's %.0f Hz tolerance should be too coarse "
               "for a 1.6 MHz comb\n", tolerance);
     check_int("so the fine comb declines to answer",
@@ -626,7 +626,7 @@ static void test_the_fine_comb_refuses_a_coarse_sweep(void) {
 
         survey_plan_make(240e6, 270e6, RATE, FFT, 0.20, &band);
         fine = survey_comb_tolerance(&band, RATE, FFT);
-        check_msg(fine <= RECEIVER_FINE_COMB_HZ * RECEIVER_COMB_MAX_FRACTION,
+        check_msg(fine <= RECEIVER_FINE_COMB_SPACING_HZ * RECEIVER_COMB_MAX_FRACTION,
                   "a 30 MHz sweep's %.0f Hz tolerance should be fine enough\n",
                   fine);
         check_int("259.2 MHz is tone 162", survey_fine_harmonic(259.2e6, fine),
