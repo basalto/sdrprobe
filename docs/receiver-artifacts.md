@@ -1,4 +1,4 @@
-# Spur detection and flag classification
+# Receiver artifacts and flag classification
 
 Why a survey candidate might have been made by the receiver rather than
 received by it, and why one might be nothing at all. Every algorithm, every
@@ -9,6 +9,15 @@ Source: `src/survey_suspect.h` (the frequency and width tests),
 measurements behind it). Checked by `check-suspect`, `check-survey-confirm`
 and `check-signal-probe`, none of which needs a window or a receiver
 (ADR-0012).
+
+**Two words, both from `CONTEXT.md`.** A **receiver artifact** is a candidate
+produced inside the receiver rather than received by it. A **reference comb**
+is the regularly spaced set of tones its clock leaves across the band -- a
+comb in the ordinary sense, as in a comb generator or an optical frequency
+comb: spectral lines at a constant interval. The glossary lists *spur*,
+*birdie*, *ghost* and *interference* under _Avoid_ for the first, and this
+document was called `spur-detection.md` until somebody read its own quotation
+of the vocabulary rule.
 
 **Nothing here removes a candidate.** A flag says a frequency has the
 signature of an artifact; it never says a peak *is* one. Removing peaks would
@@ -76,8 +85,8 @@ when the tolerance is too loose to mean anything — see the chance rate below.
 
 ```
    RECEIVER_REFERENCE_HZ   = 28 800 000        the crystal
-   RECEIVER_COMB_HZ        = 28.8 MHz / 2  = 14.4 MHz      the coarse comb
-   RECEIVER_FINE_COMB_HZ   = 28.8 MHz / 18 =  1.6 MHz      the fine comb
+   RECEIVER_COMB_SPACING_HZ        = 28.8 MHz / 2  = 14.4 MHz      the coarse comb
+   RECEIVER_FINE_COMB_SPACING_HZ   = 28.8 MHz / 18 =  1.6 MHz      the fine comb
 ```
 
 14.4 MHz is every ninth tone of the 1.6 MHz comb. Three independent things
@@ -410,8 +419,8 @@ measure them per device and reach them from Settings.
 | parameter | value | file | what constrains it |
 | --- | --- | --- | --- |
 | `RECEIVER_REFERENCE_HZ` | 28.8 MHz | `survey_suspect.h` | the RTL2832U's specified crystal on **this** dongle |
-| `RECEIVER_COMB_HZ` | 14.4 MHz | derived, /2 | measured on a disconnected sweep |
-| `RECEIVER_FINE_COMB_HZ` | 1.6 MHz | derived, /18 | three independent arguments above |
+| `RECEIVER_COMB_SPACING_HZ` | 14.4 MHz | derived, /2 | measured on a disconnected sweep |
+| `RECEIVER_FINE_COMB_SPACING_HZ` | 1.6 MHz | derived, /18 | three independent arguments above |
 | `RECEIVER_COMB_TOLERANCE_HZ` | 25 kHz | `survey_suspect.h` | covers three measured reporting errors of 5.3–18.1 kHz; costs 0.35% to chance |
 | `RECEIVER_COMB_MAX_FRACTION` | 1/40 | `survey_suspect.h` | past it a flag is chance: at 1.6 MHz a 106 kHz tolerance is 13% |
 | `RECEIVER_TONE_BINS` | 4 | `survey_suspect.h` | the window's own −20 dB response |
