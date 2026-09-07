@@ -332,13 +332,42 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
                       "\"lower_hz\": %.0f, \"upper_hz\": %.0f, "
                       "\"width_hz\": %.0f, \"dbfs\": %.1f, "
                       "\"prominence_db\": %.1f, \"maxima\": %d, "
-                      "\"confirmed\": \"%s\", \"allocation\": ",
+                      "\"confirmed\": \"%s\", ",
                 c->centre_hz, c->power_centre_hz, c->lower_hz, c->upper_hz,
                 c->width_hz, (double)c->peak_dbfs, (double)c->prominence_db,
                 c->peaks,
                 survey_verdict_name(
                     survey_confirm_verdict_at(targets, target_count,
                                               c->centre_hz, match_hz)));
+        /*
+         * And what kind of thing the pass found here, when it caught one.
+         *
+         * On the carrier rather than in a confirmation block, because the
+         * carrier is what `diff` compares and what the history remembers; a
+         * target is a thing somebody happened to ask about. Omitted entirely
+         * when there is nothing to say -- writing zeros would be worse than
+         * writing nothing, since a standing fraction of 0.000 reads as
+         * "heavily modulated" and a burst count of zero as "continuous".
+         */
+        {
+            const struct survey_confirm_target *kind =
+                survey_confirm_kind_at(targets, target_count, c->centre_hz,
+                                       match_hz);
+            if (kind)
+                fprintf(file,
+                        "\"kind\": {\"carrier\": \"%s\", "
+                        "\"over_noise_db\": %.1f, \"standing_share\": %.3f, "
+                        "\"envelope\": %.3f, \"bursts\": \"%s\", "
+                        "\"occupancy\": %.4f}, ",
+                        signal_verdict_name(
+                            signal_carrier_verdict(&kind->carrier)),
+                        kind->carrier.carrier_over_noise_db,
+                        kind->carrier.carrier_power_fraction,
+                        kind->envelope.found ? kind->envelope.variation : -1.0,
+                        survey_burst_name(kind->bursts.verdict),
+                        kind->bursts.occupancy);
+        }
+        fprintf(file, "\"allocation\": ");
         if (entry) {
             if (survey_json_escape(entry->name, escaped, sizeof(escaped)) < 0)
                 escaped[0] = '\0';

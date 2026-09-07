@@ -95,6 +95,24 @@ enum survey_verdict {
 
 struct survey_confirm_target {
     double hz;
+    /*
+     * Where the energy is, when the caller knows -- zero when it does not.
+     *
+     * `hz` is the carrier's `centre_hz`, the middle of its extent, and that
+     * is the right thing to *identify* a signal by: it is what the history
+     * matches on and what every report prints. It is the wrong thing to
+     * point a carrier search at, and survey_carrier.h says so outright --
+     * the middle and the centre of energy "part company on a lopsided
+     * carrier".
+     *
+     * Measured: on one sweep of 74-76 MHz the middle of the 75.000 MHz clock
+     * harmonic's extent landed 42 kHz from the line, and the search looked
+     * past it and measured the noise beside it -- 15.4 dB over the floor with
+     * 1% of the channel standing still, where the same signal searched around
+     * its own energy reads 44.2 dB and 92%. Widening the search does not fix
+     * it: the extent is 2.9 kHz, so there is nothing in the width to widen by.
+     */
+    double power_centre_hz;
     signed char claim;         /* enum survey_claim */
     signed char verdict;       /* enum survey_verdict */
     float prominence_db;       /* what the closer look measured */
@@ -273,6 +291,35 @@ static inline int survey_confirm_verdict_at(
         survey_confirm_for(targets, count, hz, tolerance_hz);
 
     return target ? target->verdict : SURVEY_VERDICT_PENDING;
+}
+
+/*
+ * What kind of thing was found at a frequency, or NULL when nothing was --
+ * either because no target sits there or because the pass never caught the
+ * one that does.
+ *
+ * NULL rather than a zeroed struct, so a caller cannot write a kind it does
+ * not have. Every field of that struct has a plausible-looking zero: a
+ * standing fraction of 0.000 reads as "heavily modulated" and a burst count
+ * of zero as "continuous".
+ */
+static inline const struct survey_confirm_target *survey_confirm_kind_at(
+    const struct survey_confirm_target *targets, int count, double hz,
+    double tolerance_hz) {
+    const struct survey_confirm_target *target =
+        survey_confirm_for(targets, count, hz, tolerance_hz);
+
+    return target && target->kind_measured ? target : NULL;
+}
+
+/* The word for the envelope's own verdict, spelled once so the report, the
+   saved file and the screen cannot drift apart. */
+static inline const char *survey_burst_name(int verdict) {
+    switch (verdict) {
+    case SIGNAL_BURST_SEPARABLE: return "bursts";
+    case SIGNAL_BURST_BUSY:      return "busy";
+    default:                     return "level";
+    }
 }
 
 /* The word for a verdict, as the reports and the saved file both spell it. */

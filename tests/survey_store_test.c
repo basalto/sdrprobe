@@ -10,6 +10,19 @@
 
 #include "app.h"
 
+/* How many times `needle` appears in `hay`. */
+static int count_occurrences(const char *hay, const char *needle) {
+    int n = 0;
+    const char *at = hay;
+
+    while ((at = strstr(at, needle)) != NULL) {
+        n++;
+        at++;
+    }
+    return n;
+}
+
+
 /*
  * The two parts of saving a sweep that can go wrong quietly.
  *
@@ -199,6 +212,15 @@ static void test_the_file_it_writes(void) {
         target.claim = SURVEY_CLAIM_NEW;
         target.verdict = SURVEY_VERDICT_CONFIRMED;
         target.prominence_db = 33.0f;
+        /* The numbers a real pass measured on the 75.000 MHz clock harmonic,
+           so the fixture exercises the branch rather than inventing one. */
+        target.kind_measured = 1;
+        target.carrier.found = 1;
+        target.carrier.carrier_over_noise_db = 44.2;
+        target.carrier.carrier_power_fraction = 0.923;
+        target.envelope.found = 1;
+        target.envelope.variation = 0.195;
+        target.bursts.verdict = SIGNAL_BURST_LEVEL;
         check_int("it writes", survey_store_write(app, &plan, c, 2, &carrier,
                                                   1, &target, 1, path,
                                                   sizeof(path)), 0);
@@ -258,6 +280,30 @@ static void test_the_file_it_writes(void) {
            borrowing the verdict of the one that was. */
         check_true("a candidate nobody asked about is unconfirmed",
                    strstr(text, "\"confirmed\": \"unconfirmed\"") != NULL);
+        /*
+         * And what kind of thing the pass found, which is the field that
+         * makes "bare in June, modulated in September" answerable at all.
+         *
+         * The whole object is asserted rather than a fragment of it, because
+         * the way this shipped broken was a field emitted in the wrong place:
+         * the kind landed after `"allocation": ` had already been written,
+         * which is malformed JSON, and every check here passed because no
+         * fixture carried one. A branch nothing exercises is a green tick
+         * over untested code.
+         */
+        check_true("the carrier carries what kind of thing it was",
+                   strstr(text,
+                          "\"kind\": {\"carrier\": \"a bare carrier\", "
+                          "\"over_noise_db\": 44.2, "
+                          "\"standing_share\": 0.923, "
+                          "\"envelope\": 0.195, \"bursts\": \"level\", "
+                          "\"occupancy\": 0.0000}, \"allocation\": ")
+                       != NULL);
+        /* And a carrier the pass never caught has no kind at all, rather
+           than a zeroed one: a standing share of 0.000 reads as "heavily
+           modulated" and a burst count of zero as "continuous". */
+        check_int("a carrier with no kind measured omits the field",
+                  count_occurrences(text, "\"kind\": {"), 1);
     }
     if (chdir(cwd) != 0)
         exit(2);
