@@ -51,7 +51,8 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
-	$(SRC)/receiver_lease.h $(SRC)/app.h $(SRC)/view.h \
+	$(SRC)/receiver_lease.h $(SRC)/device_profile.h \
+	$(SRC)/app.h $(SRC)/view.h \
 	$(SRC)/version.h \
 	$(SRC)/panel_rows.h $(SRC)/lte_stats.h $(SRC)/lte_confirm.h \
 	$(SRC)/lte_findings.h \
@@ -388,6 +389,15 @@ $(BUILD)/testfiles16/%.bin: testfiles/%.bin testfiles/%.json \
 rescale-capture: $(BUILD)/rescale_capture
 	$(Q)./$(BUILD)/rescale_capture $(FILE_RESCALE) $(OUT_RESCALE)
 
+check-device-profile: $(TESTS)/device_profile_test.c $(TESTS)/check.h \
+		$(SRC)/device_profile.h $(SRC)/survey_bands.h \
+		$(SRC)/survey_sweep.h $(SRC)/survey_suspect.h $(SRC)/band_plan.h \
+		$(SRC)/sdr_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/device_profile_test \
+		$(TESTS)/device_profile_test.c -lm
+	$(Q)./$(BUILD)/device_profile_test
+
 check-sample-format: $(TESTS)/sample_format_test.c $(TESTS)/check.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(FORMAT16)
 	@mkdir -p $(BUILD)
@@ -482,7 +492,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
 	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
 	check-signal-probe check-signal-findings check-receiver-lease \
-	check-sample-format
+	check-sample-format check-device-profile
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -667,4 +677,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format clean
+.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile clean
