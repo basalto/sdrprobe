@@ -38,16 +38,16 @@ static void test_what_gets_remembered(void) {
      */
     check_true("a confirmed new signal is remembered",
                survey_confirm_should_record(SURVEY_CLAIM_NEW,
-                                            SURVEY_VERDICT_CONFIRMED));
+                                            SURVEY_VERDICT_CONFIRMED, 0u));
     check_true("a refuted one is not",
                !survey_confirm_should_record(SURVEY_CLAIM_NEW,
-                                             SURVEY_VERDICT_REFUTED));
+                                             SURVEY_VERDICT_REFUTED, 0u));
     check_true("a missing signal that turned up is recorded as heard",
                survey_confirm_should_record(SURVEY_CLAIM_MISSING,
-                                            SURVEY_VERDICT_REFUTED));
+                                            SURVEY_VERDICT_REFUTED, 0u));
     check_true("one that really is gone changes nothing",
                !survey_confirm_should_record(SURVEY_CLAIM_MISSING,
-                                             SURVEY_VERDICT_CONFIRMED));
+                                             SURVEY_VERDICT_CONFIRMED, 0u));
 }
 
 static void test_presence(void) {
@@ -211,23 +211,23 @@ static void test_intermittent_is_its_own_answer(void) {
 static void test_a_burst_is_recorded(void) {
     check_int("a new signal heard some of the time is heard",
               survey_confirm_should_record(SURVEY_CLAIM_NEW,
-                                           SURVEY_VERDICT_INTERMITTENT), 1);
+                                           SURVEY_VERDICT_INTERMITTENT, 0u), 1);
     check_int("and so is a missing one that came back sometimes",
               survey_confirm_should_record(SURVEY_CLAIM_MISSING,
-                                           SURVEY_VERDICT_INTERMITTENT), 1);
+                                           SURVEY_VERDICT_INTERMITTENT, 0u), 1);
     /* The two that were already right stay right. */
     check_int("a new signal that held up",
               survey_confirm_should_record(SURVEY_CLAIM_NEW,
-                                           SURVEY_VERDICT_CONFIRMED), 1);
+                                           SURVEY_VERDICT_CONFIRMED, 0u), 1);
     check_int("a new signal that was noise",
               survey_confirm_should_record(SURVEY_CLAIM_NEW,
-                                           SURVEY_VERDICT_REFUTED), 0);
+                                           SURVEY_VERDICT_REFUTED, 0u), 0);
     check_int("a missing one that really is gone",
               survey_confirm_should_record(SURVEY_CLAIM_MISSING,
-                                           SURVEY_VERDICT_CONFIRMED), 0);
+                                           SURVEY_VERDICT_CONFIRMED, 0u), 0);
     check_int("a missing one that turned up",
               survey_confirm_should_record(SURVEY_CLAIM_MISSING,
-                                           SURVEY_VERDICT_REFUTED), 1);
+                                           SURVEY_VERDICT_REFUTED, 0u), 1);
 }
 
 /*
@@ -252,6 +252,121 @@ static void test_one_look_supplies_everything(void) {
               survey_confirm_better(1, 10.0f, 10.0f), 0);
 }
 
+/*
+ * Nothing here, however often it was seen.
+ *
+ * The fixture is five real readings from one confirmed sweep of 290-310 MHz
+ * on 2026-09-07. All five were confirmed **six looks out of six** and all
+ * five are noise: no standing carrier, under one per cent of the channel
+ * standing still, and an envelope variation on Rayleigh's 0.5227. The control
+ * is the bare carrier from the same sweep, which must survive.
+ */
+static void test_a_prominence_and_nothing_else(void) {
+    struct { double hz; double over_floor; double standing; double envelope; }
+    noise[5] = {
+        { 292.9480e6, 11.9, 0.006, 0.533 },
+        { 307.3560e6, 11.9, 0.007, 0.537 },
+        { 303.1018e6, 10.8, 0.008, 0.525 },
+        { 308.9612e6, 11.3, 0.005, 0.520 },
+        { 300.6519e6, 11.0, 0.005, 0.539 },
+    };
+    struct signal_carrier c;
+    struct signal_envelope e;
+    int i;
+
+    for (i = 0; i < 5; i++) {
+        memset(&c, 0, sizeof(c));
+        memset(&e, 0, sizeof(e));
+        c.found = 1;
+        c.carrier_over_noise_db = noise[i].over_floor;
+        c.carrier_power_fraction = noise[i].standing;
+        e.found = 1;
+        e.variation = noise[i].envelope;
+        check_msg(survey_confirm_is_empty(1, &c, &e),
+                  "%.4f MHz is a prominence and nothing else", noise[i].hz / 1e6);
+        /* And it stays out of the history whatever the count of looks said,
+           which is the whole reason the flag exists: confirmed six looks out
+           of six, and still nothing. */
+        check_msg(!survey_confirm_should_record(SURVEY_CLAIM_NEW,
+                                                SURVEY_VERDICT_CONFIRMED,
+                                                SURVEY_SUSPECT_NO_CARRIER),
+                  "%.4f MHz does not enter the history", noise[i].hz / 1e6);
+    }
+    /* Every verdict is overridden, not just the confirmed one. */
+    check_int("an intermittent empty frequency stays out too",
+              survey_confirm_should_record(SURVEY_CLAIM_NEW,
+                                           SURVEY_VERDICT_INTERMITTENT,
+                                           SURVEY_SUSPECT_NO_CARRIER), 0);
+    check_int("and a missing one that 'turned up' as noise stays out",
+              survey_confirm_should_record(SURVEY_CLAIM_MISSING,
+                                           SURVEY_VERDICT_REFUTED,
+                                           SURVEY_SUSPECT_NO_CARRIER), 0);
+
+    /* The control, from the same sweep: 302.3999 MHz, 48.8 dB over its floor
+       with 0.969 of the channel standing still. A bare carrier is a signal. */
+    memset(&c, 0, sizeof(c));
+    memset(&e, 0, sizeof(e));
+    c.found = 1;
+    c.carrier_over_noise_db = 48.8;
+    c.carrier_power_fraction = 0.969;
+    e.found = 1;
+    e.variation = 0.130;
+    check_int("a bare carrier is not empty", survey_confirm_is_empty(1, &c, &e),
+              0);
+    check_int("and it does enter the history",
+              survey_confirm_should_record(SURVEY_CLAIM_NEW,
+                                           SURVEY_VERDICT_CONFIRMED, 0u), 1);
+
+    /*
+     * Both statistics have to agree, and each alone gets a case wrong that
+     * the other catches.
+     *
+     * A pulsed transmission has real energy and no standing carrier -- Mode S
+     * reads -2.0 dB here -- so the carrier test alone would call it empty.
+     */
+    memset(&c, 0, sizeof(c));
+    memset(&e, 0, sizeof(e));
+    c.found = 1;
+    c.carrier_over_noise_db = -2.0;
+    c.carrier_power_fraction = 0.0;
+    e.found = 1;
+    e.variation = 1.057;              /* Mode S, measured */
+    check_int("a pulsed transmission is not called empty",
+              survey_confirm_is_empty(1, &c, &e), 0);
+
+    /* And an OFDM downlink varies past noise, so it is not empty either. */
+    e.variation = 1.098;              /* an LTE downlink, measured */
+    check_int("nor is an OFDM carrier", survey_confirm_is_empty(1, &c, &e), 0);
+
+    /* The nearest real signal to the noise band: a GSM carrier at 0.792,
+       which is 0.27 from Rayleigh against the noise readings' 0.017. */
+    memset(&c, 0, sizeof(c));
+    c.found = 1;
+    c.carrier_over_noise_db = 11.0;   /* weak enough to fail the carrier test */
+    e.variation = 0.792;
+    check_int("a GSM carrier's envelope is too restless to be noise",
+              survey_confirm_is_empty(1, &c, &e), 0);
+
+    /* A target the pass never caught is not evidence of emptiness. */
+    check_int("an unmeasured kind claims nothing",
+              survey_confirm_is_empty(0, &c, &e), 0);
+    e.found = 0;
+    check_int("nor does a refused envelope",
+              survey_confirm_is_empty(1, &c, &e), 0);
+    check_int("a null carrier is refused", survey_confirm_is_empty(1, 0, &e), 0);
+
+    /* The two markings are different statements and are kept apart. */
+    check_int("empty is not the same as resembling the receiver",
+              survey_suspect_warns(SURVEY_SUSPECT_NO_CARRIER), 0);
+    check_int("and resembling the receiver is not the same as empty",
+              survey_suspect_empty(SURVEY_SUSPECT_REFERENCE), 0);
+    check_int("though one frequency can be both",
+              survey_suspect_warns(SURVEY_SUSPECT_REFERENCE |
+                                   SURVEY_SUSPECT_NO_CARRIER) &&
+              survey_suspect_empty(SURVEY_SUSPECT_REFERENCE |
+                                   SURVEY_SUSPECT_NO_CARRIER), 1);
+}
+
 int main(void) {
     test_the_sense_of_a_verdict();
     test_what_gets_remembered();
@@ -262,5 +377,6 @@ int main(void) {
     test_a_burst_is_recorded();
 
     test_one_look_supplies_everything();
+    test_a_prominence_and_nothing_else();
     return check_report("asking again about what changed");
 }

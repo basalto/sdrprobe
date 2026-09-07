@@ -496,7 +496,17 @@ int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
     target->carrier = s->confirm.carrier;
     target->bursts = s->confirm.bursts;
     target->envelope = s->confirm.envelope;
-    target->suspicion = s->confirm.measured
+    /*
+     * And a frequency where the closer look found a prominence and nothing
+     * else is flagged as empty, whatever the count of looks said. The two
+     * live in the same field because they are the same kind of statement --
+     * "do not believe this at face value" -- and different flags because a
+     * reader acts differently on each.
+     */
+    if (survey_confirm_is_empty(s->confirm.kind_measured, &s->confirm.carrier,
+                                &s->confirm.envelope))
+        target->suspicion |= SURVEY_SUSPECT_NO_CARRIER;
+    target->suspicion |= s->confirm.measured
                             ? survey_suspect_confirmed(
                                   s->confirm.best.centre_hz,
                                   s->confirm.best.bandwidth_hz,
@@ -598,7 +608,8 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
          * call it missing and the noise becomes a permanent ghost.
          */
         if (app->config.site[0] && s->history_loaded &&
-            survey_confirm_should_record(target->claim, target->verdict)) {
+            survey_confirm_should_record(target->claim, target->verdict,
+                                         target->suspicion)) {
             /*
              * Recorded at the carrier's measured centre, not at the peak that
              * pointed here. A 200 kHz FM signal has several local maxima and
@@ -2154,6 +2165,27 @@ void handle_survey_input(struct app *app) {
     }
 }
 
+/*
+ * What the confirmation pass concluded about this frequency, or 0 when it
+ * never asked.
+ *
+ * The sweep's own suspicion comes from arithmetic on the frequency
+ * (`survey_suspect_at`) and is available for every candidate; this comes from
+ * a measurement and only exists where somebody looked. They live in the same
+ * field and are read together, because a row wants to show both.
+ */
+static unsigned survey_confirmed_flags_at(const struct app *app, double hz) {
+    const struct survey_view *s = &app->survey;
+    const struct survey_confirm_target *target;
+    double tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
+
+    if (s->confirm.count <= 0)
+        return 0u;
+    target = survey_confirm_for(s->confirm.target, s->confirm.count, hz,
+                               tolerance);
+    return target ? target->suspicion : 0u;
+}
+
 static void draw_peak_list(const struct app *app, Rectangle rect) {
     const struct survey_view *s = &app->survey;
     char text[160];
@@ -2172,12 +2204,31 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
     /* A sweep that is mostly the receiver talking to itself should say so
        before anyone clicks into it. */
     int suspicious = survey_suspicious_now(app);
-    if (suspicious > 0) {
-        snprintf(text, sizeof(text), "%d marked *", suspicious);
-        sdrgui_text_fit(text, (int)rect.x + 12 + MeasureText("Candidates (000)",
-                                                             16) + 14,
-                        (int)rect.y + 10, 16, rect.width - 190.0f,
-                        (Color){ 250, 190, 74, 255 });
+    {
+        /* And how many the closer look found nothing at, which is a separate
+           count because it is a separate finding -- and one only a
+           confirmation pass can produce. */
+        int empty = 0, k;
+        for (k = 0; k < s->confirm.count; k++)
+            if (survey_suspect_empty(s->confirm.target[k].suspicion))
+                empty++;
+        /* Short enough to survive the panel. "%d marked *   %d marked ~" did
+           not: at the default window it came out "1 marked *   10 mar...",
+           losing the symbol that names the second count. */
+        if (suspicious > 0 && empty > 0)
+            snprintf(text, sizeof(text), "* %d   ~ %d", suspicious, empty);
+        else if (suspicious > 0)
+            snprintf(text, sizeof(text), "%d marked *", suspicious);
+        else if (empty > 0)
+            snprintf(text, sizeof(text), "%d marked ~", empty);
+        else
+            text[0] = '\0';
+        if (text[0])
+            sdrgui_text_fit(text,
+                            (int)rect.x + 12 +
+                                MeasureText("Candidates (000)", 16) + 14,
+                            (int)rect.y + 10, 16, rect.width - 190.0f,
+                            (Color){ 250, 190, 74, 255 });
     }
     DrawText("   FREQUENCY       LEVEL    WIDTH   SHAPE      SEEN",
              (int)rect.x + 12, (int)rect.y + 30, 15,
@@ -2210,7 +2261,24 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
             color = (Color){ 255, 255, 255, 255 };
         }
         double hz = survey_bin_hz(s, s->peaks[i].index);
-        int suspect = survey_suspect_warns(survey_suspect_at(app, hz, 0.0));
+        /*
+         * Through the carrier this maximum belongs to, not through its own
+         * frequency. The pass asks about carriers at their measured centre,
+         * and a station's shoulders are maxima of the same signal several
+         * kilohertz away -- matching each on its own frequency against a
+         * 2.4 kHz tolerance found nothing at all, and the count in the header
+         * disagreed with the rows. survey_store.c matches the same way and
+         * for the same reason.
+         */
+        const struct survey_carrier *row_carrier = survey_carrier_at(s, hz);
+        unsigned asked = survey_confirmed_flags_at(
+            app, row_carrier ? row_carrier->centre_hz : hz);
+        int suspect = survey_suspect_warns(survey_suspect_at(app, hz, 0.0) |
+                                           asked);
+        /* Its own marker, because it is its own finding: the receiver's comb
+           says unplug the antenna, and this says the frequency is empty
+           however often it was seen. */
+        int empty = survey_suspect_empty(asked);
 
         /* The marker leads the row. Trailing it put it at the end of the
            longest line in the panel, where sdrgui_text_fit ellipsised it away
@@ -2242,14 +2310,14 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
                 snprintf(width, sizeof(width), "-");
             snprintf(text, sizeof(text),
                      "%s %10.4f MHz  %6.1f dBFS  %6s  %-9s  %s",
-                     suspect ? "*" : " ", hz / 1e6,
+                     empty ? "~" : suspect ? "*" : " ", hz / 1e6,
                      (double)s->peaks[i].power_dbfs, width,
                      carrier ? survey_shape_name(
                                    survey_carrier_shape(carrier->width_hz))
                              : "-",
                      site_seen_name(seen));
         }
-        if (suspect && i != s->selected && i != s->hover)
+        if ((suspect || empty) && i != s->selected && i != s->hover)
             color = (Color){ 178, 168, 140, 255 };
         sdrgui_text_fit(text, (int)rect.x + 12, (int)y, 17,
                         rect.width - 24.0f, color);
@@ -2413,7 +2481,20 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
     unsigned suspect = survey_suspect_at(app, shown_hz,
                                          s->report_valid
                                              ? s->report.bandwidth_hz
-                                             : 0.0);
+                                             : 0.0) |
+                       survey_confirmed_flags_at(app, shown_hz);
+    if (survey_suspect_empty(suspect)) {
+        y += 6;
+        detail_line(l, &y, 12, 17, line,
+                    "the closer look found nothing here",
+                    (Color){ 250, 190, 74, 255 });
+        detail_line(l, &y, 24, 16, line - 2,
+                    "no carrier, and the envelope varies like noise",
+                    (Color){ 200, 165, 110, 255 });
+        detail_line(l, &y, 24, 15, line - 2,
+                    "however many looks saw it: a bar is cleared by noise",
+                    (Color){ 126, 151, 166, 255 });
+    }
     if (survey_suspect_warns(suspect)) {
         y += 6;
         detail_line(l, &y, 12, 17, line,
