@@ -35,11 +35,18 @@
  * Plain arithmetic, checked by tests/survey_suspect_test.c (ADR-0012).
  */
 
-/* The RTL2832U's reference crystal, and the comb its harmonics land on. The
-   spacing is half the crystal: a divider somewhere in the chain puts a tone
-   every 14.4 MHz, which is what a disconnected sweep shows. */
+/*
+ * The RTL2832U's reference crystal, and the **spacing** of the comb its
+ * harmonics land on: a divider somewhere in the chain puts a tone every
+ * 14.4 MHz, which is what a disconnected sweep shows.
+ *
+ * `_SPACING_` and not just `_HZ`, because a comb has no single frequency --
+ * that is what makes it a comb -- and this was called `RECEIVER_COMB_HZ`,
+ * which reads like the frequency of one. CONTEXT.md carries both terms:
+ * "reference comb" for the set of tones, "comb spacing" for the interval.
+ */
 #define RECEIVER_REFERENCE_HZ 28800000.0
-#define RECEIVER_COMB_HZ (RECEIVER_REFERENCE_HZ / 2.0)
+#define RECEIVER_COMB_SPACING_HZ (RECEIVER_REFERENCE_HZ / 2.0)
 
 /*
  * And the comb underneath that one, which is nine times finer.
@@ -62,7 +69,7 @@
  * 11 of 14, of which the old test flagged the two that are also multiples of
  * 14.4.
  */
-#define RECEIVER_FINE_COMB_HZ (RECEIVER_REFERENCE_HZ / 18.0)
+#define RECEIVER_FINE_COMB_SPACING_HZ (RECEIVER_REFERENCE_HZ / 18.0)
 
 /*
  * The widest a comb test may reach before the flag is guessing.
@@ -176,14 +183,14 @@ static inline int survey_comb_harmonic(double hz, double spacing_hz,
  * measured.
  */
 static inline int survey_reference_harmonic(double hz, double tolerance_hz) {
-    return survey_comb_harmonic(hz, RECEIVER_COMB_HZ, tolerance_hz);
+    return survey_comb_harmonic(hz, RECEIVER_COMB_SPACING_HZ, tolerance_hz);
 }
 
 /* And of the fine one, which needs a tighter tolerance to mean anything --
    survey_comb_harmonic() refuses rather than guessing when it does not have
    one. */
 static inline int survey_fine_harmonic(double hz, double tolerance_hz) {
-    return survey_comb_harmonic(hz, RECEIVER_FINE_COMB_HZ, tolerance_hz);
+    return survey_comb_harmonic(hz, RECEIVER_FINE_COMB_SPACING_HZ, tolerance_hz);
 }
 
 /* Whether `hz` sits where a survey step was tuned, within `tolerance_hz`. */

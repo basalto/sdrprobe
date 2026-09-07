@@ -170,6 +170,22 @@ _Avoid_: Channel width, baud, bitrate
 A candidate produced inside the receiver rather than received by it -- a harmonic of its reference clock, or its center-frequency offset landing in a step. Reported as a resemblance beside the measurement and never removed from the survey, because a real transmitter may sit on the same frequency.
 _Avoid_: Spur, birdie, false positive, ghost, interference
 
+**Reference comb**:
+The regularly spaced set of tones a receiver's own clock leaves across the
+band -- a comb in the ordinary sense of the word, as in a comb generator or an
+optical frequency comb: spectral lines at a constant interval. Here the
+interval is half the RTL2832U's 28.8 MHz reference, with a finer one at a
+eighteenth. A frequency sitting on a multiple of either is evidence that a
+candidate is a **receiver artifact**, never proof: the comb names where to be
+suspicious, and the width and a closer look decide.
+_Avoid_: Spur comb, clock noise, interference pattern, birdie spacing
+
+**Comb spacing**:
+The interval between adjacent tones of a reference comb, which is what the
+`RECEIVER_COMB_SPACING_HZ` constants hold. Not the frequency of any one tone
+-- a comb has no single frequency, which is the point of it.
+_Avoid_: Comb frequency, harmonic frequency
+
 **Band plan**:
 A static table mapping frequency ranges to the service allocated there; it says what a frequency is *for*, never what a signal *is*, and a carrier found inside an allocation has not thereby been identified.
 _Avoid_: Identification, classification, detection
