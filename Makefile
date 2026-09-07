@@ -296,7 +296,7 @@ check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h \
 # Chart geometry: where the plot sits inside a chart, and which bar the
 # pointer is over. Needs raylib's headers for Rectangle but not the library.
 check-geometry: $(TESTS)/sdrgui_geometry_test.c $(TESTS)/check.h \
-		$(SRC)/sdrgui_geometry.h
+		$(SRC)/sdrgui_geometry.h $(SRC)/sdrgui.h $(SRC)/survey_suspect.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/sdrgui_geometry_test \

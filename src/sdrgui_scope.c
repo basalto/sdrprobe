@@ -781,7 +781,22 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
         else if (i == params->hover)
             color = (Color){ 235, 242, 246, 255 };
         DrawLine((int)x, (int)y - 12, (int)x, (int)y - 2, color);
-        DrawCircle((int)x, (int)y - 14, 3.0f, color);
+        switch (sdrgui_survey_peak_mark(params->peak_flags
+                                            ? params->peak_flags[i] : 0u)) {
+        case SDRGUI_PEAK_RECEIVER:
+            /* A cross: this is the instrument, not the band. */
+            DrawLine((int)x - 4, (int)y - 18, (int)x + 4, (int)y - 10, color);
+            DrawLine((int)x - 4, (int)y - 10, (int)x + 4, (int)y - 18, color);
+            break;
+        case SDRGUI_PEAK_EMPTY:
+            /* A hollow dot: a closer look found a prominence and nothing
+               else. Hollow because there is nothing in it. */
+            DrawCircleLines((int)x, (int)y - 14, 4.0f, color);
+            break;
+        default:
+            DrawCircle((int)x, (int)y - 14, 3.0f, color);
+            break;
+        }
         if (i == params->selected)
             DrawLine((int)x, (int)plot.y, (int)x, (int)(plot.y + plot.height),
                      (Color){ 255, 174, 62, 90 });
@@ -841,6 +856,20 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
         DrawText(text, at, (int)(plot.y + plot.height + 8), 16,
                  (Color){ 151, 174, 188, 255 });
     }
+    int crossed = 0, hollow = 0;
+    /* What was actually marked, so the caption and the picture cannot
+       disagree. */
+    {
+        int i;
+        for (i = 0; i < params->peak_count; i++) {
+            unsigned f = params->peak_flags ? params->peak_flags[i] : 0u;
+            switch (sdrgui_survey_peak_mark(f)) {
+            case SDRGUI_PEAK_RECEIVER: crossed++; break;
+            case SDRGUI_PEAK_EMPTY:    hollow++; break;
+            default: break;
+            }
+        }
+    }
     if (params->lower_hz > params->data_lower_hz + 1.0 ||
         params->upper_hz < params->data_upper_hz - 1.0)
         snprintf(text, sizeof(text),
@@ -849,15 +878,25 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
                  params->peak_count, params->lower_hz / 1e6,
                  params->upper_hz / 1e6, params->data_lower_hz / 1e6,
                  params->data_upper_hz / 1e6);
-    else if (params->suspicious_count > 0)
-        /* The zoom hint gives way to the warning, which is the more urgent
-           of the two and only appears when there is something to warn about.
-           What the mark means is in the help overlay, with the rest of the
-           explanations. */
+    else if (crossed > 0 || hollow > 0)
+        /*
+         * The zoom hint gives way to the warning, which is the more urgent of
+         * the two and only appears when there is something to warn about.
+         * What the mark means is in the help overlay, with the rest of the
+         * explanations.
+         *
+         * **Counted from the same array the marks are drawn from.** Using the
+         * caller's `suspicious_count` said "1 crossed" over two crosses: that
+         * count is the sweep's own arithmetic on the frequencies, and the
+         * marks include what the confirmation pass measured at 244 Hz, which
+         * the sweep could not see. A caption that disagrees with the picture
+         * above it is worse than no caption.
+         */
         snprintf(text, sizeof(text),
-                 "frequency (MHz)   %d candidates, %d marked * look like "
-                 "the receiver",
-                 params->peak_count, params->suspicious_count);
+                 "frequency (MHz)   %d candidates   %d crossed %s the "
+                 "receiver   %d hollow %s empty",
+                 params->peak_count, crossed, crossed == 1 ? "is" : "are",
+                 hollow, hollow == 1 ? "is" : "are");
     else
         snprintf(text, sizeof(text),
                  "frequency (MHz)   %d candidates above the local floor"
