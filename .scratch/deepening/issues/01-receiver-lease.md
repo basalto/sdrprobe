@@ -1,6 +1,6 @@
 # 01 - One receiver lease instead of nine `return_frequency` fields
 
-Status: ready-for-agent
+Status: resolved
 
 Every screen that retunes the receiver keeps its own copy of what to put back:
 
@@ -219,3 +219,84 @@ Final validation: `make check-touched`, then `make check`.
 - A generic receiver adapter/vtable with only one real implementation.
 - A uniform interface across technology DSP modules.
 - Moving unrelated state out of `struct app`.
+
+## Comments
+
+**2026-09-07 — implemented.** All seven steps. `src/receiver_lease.h` is the
+pure state (header-only, `static inline`, no receiver and no window);
+`tests/receiver_lease_test.c` is 63 checks behind `make check-receiver-lease`,
+which is in `CHECK_UNITS`, with the header in `APP_HDR`. Both Makefile audits
+in `CLAUDE.md` come back clean.
+
+The checks were mutation-tested rather than trusted for passing first run.
+Making `receiver_lease_is_top()` ignore the token fails six of them, naming the
+out-of-order and stale-token cases specifically. The second mutation --
+`begin_return` popping, the one-phase bug -- **would not compile**, because the
+peek takes a `const struct receiver_lease *`. That is a stronger guarantee than
+the check and it is now said in the header.
+
+All nine owners converted and every old field deleted: `grep` for
+`return_frequency`, `return_sample_rate`, `return_valid`,
+`drift_saved_frequency` and `cal_return_sample_rate` finds nothing outside
+prose about what they used to be.
+
+### Three things the ticket did not anticipate
+
+1. **Abandoning an inner owner became something that must be handled.**
+   `leave_gsm()` sets `scan_running = 0`, and the calibration reset does too --
+   both walking away from a band scan that still held the receiver. Under the
+   old flags this was harmless: `leave_gsm` retuned straight to its own saved
+   frequency, which is the right end state, and the scan's stale
+   `return_frequency` was simply never read again.
+
+   **Under the lease it is a regression unless handled**, because the outer
+   owner's return is refused while an inner claim stands, and the receiver
+   would be stranded on the scan step. `scan_release_receiver()` is the fix,
+   called inside out before the outer return; the survey does the same for its
+   confirmation pass.
+
+   Stated honestly: the lease did not *find* a live bug here. It converted an
+   informal habit -- outer owners quietly overriding inner ones -- into an
+   obligation that must be met explicitly. That is the trade: LIFO buys a
+   refusal where an out-of-order return used to be silent, and charges for it
+   by making abandonment something you have to write down.
+
+2. **The band scan's finish is two different things.** Auto-selecting a channel
+   is a *commit* -- the whole point of having scanned -- while finishing
+   without one is a *return*. The old code did neither on the second path and
+   left the receiver on the last step of the sweep, a frequency nobody chose.
+   That is the one behavioural change here, and it is the discriminator the
+   ticket asked for.
+
+   How visible it was is not established. The path is taken when nothing is
+   waiting to auto-select -- a calibration-driven scan, or a scan finishing
+   while another screen is up -- and in at least the calibration case the next
+   action retunes anyway, so the stale tuning may never have shown. What
+   changed is that the end state is now decided rather than incidental.
+
+3. **The FM scan has no `leave_fm()` to release it.** A tab switch mid-sweep
+   leaves that view still owning the receiver, exactly as `return_valid`
+   staying set did. `fm_scan_begin()` therefore reuses an active claim instead
+   of stacking a second one, which keeps the behaviour identical to before
+   rather than quietly changing it. **Worth its own ticket**: giving FM a leave
+   hook would fix it properly, and is out of scope here.
+
+### Open waterfall
+
+Pinned as the ticket demanded: commit after the retune succeeds and *before*
+`recreate_waterfall()`. A waterfall that cannot be rebuilt keeps the chosen
+tuning and stays on the survey, which is exactly what the path did before --
+the commit simply says so out loud where `s->return_valid = 0` used to imply
+it.
+
+### Validation
+
+`make check`: 43 suites, no failures, `check-pipelines` included -- every
+capture in `testfiles/` decodes identically. **Not proven here:** every restore
+site is behind `if (app->receiver_mode)`, so file playback cannot exercise a
+single nested restore. The ordering algebra is covered by
+`check-receiver-lease` and "nothing moved" by `check-pipelines`, but
+LTE -> calibration rate restoration and GSM -> band scan nesting are only
+established against the dongle. A live smoke run read off `--debug-log` is
+what would close that, and the log already records every retune with its
+from-frequency.

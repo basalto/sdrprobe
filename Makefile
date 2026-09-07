@@ -50,7 +50,8 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
-	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h $(SRC)/app.h $(SRC)/view.h \
+	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
+	$(SRC)/receiver_lease.h $(SRC)/app.h $(SRC)/view.h \
 	$(SRC)/version.h \
 	$(SRC)/panel_rows.h $(SRC)/lte_stats.h $(SRC)/lte_confirm.h \
 	$(SRC)/lte_findings.h \
@@ -427,6 +428,17 @@ check-freq-window: $(TESTS)/freq_window_test.c $(TESTS)/check.h \
 # Each suite prints one line saying what it covers and how much it proved, and
 # appends its counts to CHECK_TALLY so the total below is real rather than a
 # claim. Sub-makes rather than prerequisites, so the sections stay in order.
+# Who borrowed the receiver's tuning, and in what order they give it back.
+# Nine views each restored their own frequency and no rule connected them, so
+# an out-of-order return was expressible and silent. Plain integers here, so
+# the ordering is reachable without a receiver or a window (ADR-0012).
+check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
+		$(SRC)/receiver_lease.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/receiver_lease_test \
+		$(TESTS)/receiver_lease_test.c -lm
+	$(Q)./$(BUILD)/receiver_lease_test
+
 CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-lte-scan check-band-plan \
 	check-options check-freq-window check-survey-sweep check-suspect \
@@ -436,7 +448,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-row-list check-survey-bands check-text-wrap \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
 	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
-	check-signal-probe check-signal-findings
+	check-signal-probe check-signal-findings check-receiver-lease
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe

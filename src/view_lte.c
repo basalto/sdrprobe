@@ -103,11 +103,14 @@ static void park_in_band(struct app *app) {
 void enter_lte(struct app *app) {
     if (!app->receiver_mode)
         return;
-    if (!app->lte.return_valid) {
-        app->lte.return_frequency = app->applied_frequency;
-        app->lte.return_sample_rate = app->applied_sample_rate;
-        app->lte.return_valid = 1;
-    }
+    if (receiver_borrow(app, &app->lte.lease_token) < 0)
+        return;
+    /*
+     * The cell search refuses any rate but 1.92 MS/s (ADR-0014), so this view
+     * borrows the rate as well as the tuning. A receiver that will not move
+     * cancels the claim -- retune_receiver_at_rate() has already put both
+     * halves back, so there is nothing left to return.
+     */
     if (!lte_on_grid(app) &&
         retune_receiver_at_rate(app, app->applied_frequency,
                                 (uint32_t)LTE_SAMPLE_RATE_HZ,
@@ -115,6 +118,7 @@ void enter_lte(struct app *app) {
         snprintf(app->lte.status, sizeof(app->lte.status),
                  "The receiver would not move to 1.92 MS/s: %.100s",
                  app->calibration_status);
+        receiver_lease_cancel(&app->lease, &app->lte.lease_token);
         return;
     }
     park_in_band(app);
@@ -122,13 +126,9 @@ void enter_lte(struct app *app) {
 
 void leave_lte(struct app *app) {
     app->lte.scan.running = 0;
-    if (!app->receiver_mode || !app->lte.return_valid) {
-        app->lte.return_valid = 0;
-        return;
-    }
-    retune_receiver_at_rate(app, app->lte.return_frequency,
-                            app->lte.return_sample_rate, app->applied_ppm);
-    app->lte.return_valid = 0;
+    /* Both halves of the snapshot: the frequency the operator was on and the
+       rate they were sampling at, neither of which this view chose. */
+    receiver_return(app, &app->lte.lease_token);
 }
 
 

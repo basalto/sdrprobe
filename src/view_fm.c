@@ -1151,10 +1151,21 @@ void fm_scan_begin(struct app *app) {
     scan->naming_pass = 0;
     scan->step = 0;
     scan->sweeping = 1;
-    scan->return_frequency = app->applied_frequency;
-    scan->return_valid = 1;
-    if (retune_receiver(app, (uint32_t)llround(scan->plan.first_center_hz),
-                        app->applied_ppm) < 0) {
+    /*
+     * Rescanning while the claim is still held keeps it. There is no
+     * leave_fm(), so a tab switch during a sweep leaves this view still
+     * owning the receiver -- exactly as the return_valid flag it replaced
+     * did -- and acquiring again each time would stack claims nobody returns.
+     */
+    if (receiver_lease_token_active(&scan->lease_token)) {
+        if (retune_receiver(app, (uint32_t)llround(scan->plan.first_center_hz),
+                            app->applied_ppm) < 0) {
+            scan->sweeping = 0;
+            return;
+        }
+    } else if (receiver_borrow_at(app, &scan->lease_token,
+                                  (uint32_t)llround(scan->plan.first_center_hz),
+                                  0) < 0) {
         scan->sweeping = 0;
         return;
     }
@@ -1173,8 +1184,7 @@ void fm_scan_stop(struct app *app) {
         return;
     scan->running = 0;
     scan->sweeping = 0;
-    if (app->receiver_mode && scan->return_valid)
-        retune_receiver(app, scan->return_frequency, app->applied_ppm);
+    receiver_return(app, &scan->lease_token);
     snprintf(scan->status, sizeof(scan->status),
              "Stopped; %d carrier%s found.", scan->found_count,
              scan->found_count == 1 ? "" : "s");

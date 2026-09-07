@@ -331,11 +331,10 @@ static int survey_confirm_begin(struct app *app) {
     s->confirm.intermittent = 0;
     s->confirm.refuted = 0;
     s->confirm.running = 1;
-    s->confirm.return_frequency = app->applied_frequency;
-    if (retune_receiver(app,
-                        (uint32_t)llround(s->confirm.target[0].hz -
-                                          SURVEY_CONFIRM_OFFSET_HZ),
-                        app->applied_ppm) < 0) {
+    if (receiver_borrow_at(app, &s->confirm.lease_token,
+                           (uint32_t)llround(s->confirm.target[0].hz -
+                                             SURVEY_CONFIRM_OFFSET_HZ),
+                           0) < 0) {
         s->confirm.running = 0;
         return -1;
     }
@@ -524,8 +523,7 @@ static void survey_confirm_finish(struct app *app) {
     struct survey_view *s = &app->survey;
 
     s->confirm.running = 0;
-    if (app->receiver_mode && s->confirm.return_frequency)
-        retune_receiver(app, s->confirm.return_frequency, app->applied_ppm);
+    receiver_return(app, &s->confirm.lease_token);
     /*
      * Printed as well as shown. A pass started from the command line has
      * nobody watching the status line, and a verdict nobody can read is a
@@ -957,10 +955,10 @@ void view_survey_enter(struct app *app) {
     survey_load_installation(app);
     survey_history_refresh(app);
 
-    if (app->receiver_mode && !s->return_valid) {
-        s->return_frequency = app->applied_frequency;
-        s->return_valid = 1;
-    }
+    /* Re-entering a view that never gave the receiver back keeps the claim it
+       already has: where the operator had it has not changed. */
+    if (!receiver_lease_token_active(&s->lease_token))
+        receiver_borrow(app, &s->lease_token);
     /* A range given on the command line arrives here, and sweeps without
        being asked twice: someone who typed it has already asked. */
     if (app->options.survey_seen && !s->sweeping) {
@@ -983,9 +981,11 @@ void view_survey_leave(struct app *app) {
 
     s->sweeping = 0;
     s->measuring = 0;
-    if (app->receiver_mode && s->return_valid)
-        retune_receiver(app, s->return_frequency, app->applied_ppm);
-    s->return_valid = 0;
+    /* Inside out: a confirmation pass borrows from this view, and the lease
+       refuses to let this view return while the pass still holds it. */
+    s->confirm.running = 0;
+    receiver_return(app, &s->confirm.lease_token);
+    receiver_return(app, &s->lease_token);
 }
 
 static void survey_clear(struct survey_view *s) {
@@ -1484,9 +1484,10 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
                     return;
                 s->watching = 0;
             }
-            /* Back where the operator was, until they pick a candidate. */
-            if (app->receiver_mode && s->return_valid)
-                retune_receiver(app, s->return_frequency, app->applied_ppm);
+            /* Back where the operator was, until they pick a candidate --
+               and still holding the receiver, because this view keeps the
+               right to sweep again. */
+            receiver_restore_held(app, &s->lease_token);
             /*
              * Unless a script asked for one. The detail panel and its Inspect
              * button only exist once a candidate has been chosen and
@@ -1826,8 +1827,7 @@ void handle_survey_input(struct app *app) {
         snprintf(s->status, sizeof(s->status),
                  "Stopped after %d of %d steps; %d candidates so far.",
                  s->step, s->step_count, s->peak_count);
-        if (app->receiver_mode && s->return_valid)
-            retune_receiver(app, s->return_frequency, app->applied_ppm);
+        receiver_restore_held(app, &s->lease_token);
         return;
     }
 
@@ -2080,10 +2080,15 @@ void handle_survey_input(struct app *app) {
                      "The receiver would not tune to %.4f MHz.", centre / 1e6);
             return;
         }
-        /* Keep this tuning: leaving the survey normally puts back whatever it
-           was before the sweep, which is the opposite of what was just asked
-           for. */
-        s->return_valid = 0;
+        /*
+         * The handoff, and it is a commit rather than a restore: the operator
+         * picked this candidate, so putting back whatever the sweep started
+         * from is the opposite of what was just asked for. Committed here,
+         * after the retune succeeded and before the waterfall is rebuilt, so
+         * a waterfall that cannot be rebuilt still keeps the chosen tuning --
+         * which is what this path has always done, now said out loud.
+         */
+        receiver_commit(app, &s->lease_token);
         if (recreate_waterfall(app, app->plot, 1) < 0)
             return;
         /*
@@ -2094,8 +2099,9 @@ void handle_survey_input(struct app *app) {
          * looking at and the button did nothing at all.
          *
          * view_survey_leave normally puts back the tuning the sweep borrowed,
-         * which is the opposite of what has just been asked for -- the
-         * return_valid = 0 above is what stops it.
+         * which is the opposite of what has just been asked for -- the lease
+         * commit above is what stops it, by giving the claim up without
+         * asking for a restore.
          */
         app->view = VIEW_WATERFALL;
         set_tab(app, TAB_SCOPE);
