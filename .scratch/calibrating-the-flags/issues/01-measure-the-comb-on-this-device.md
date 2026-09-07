@@ -49,6 +49,14 @@ recovered exactly; a comb with a few real signals mixed in still recovered;
 a list of real signals returning no comb; and a list of pure noise returning
 no comb. The last two matter more than the first two.
 
-Then on air, which is the only evidence that counts here: the disconnected
-sweep of this receiver must return 14.4 MHz, because that is what was measured
-by hand and written into the header.
+Then on air -- and this is where the ticket is weakest, so it is worth saying
+before anybody starts. The disconnected sweep of *this* receiver must return
+14.4 MHz, because that is what was measured by hand and written into the
+header. **That is a round trip**: a fit returning the constant it was meant to
+replace, on the one device whose answer is already known.
+`.claude/skills/dsp-validation/` says what a round trip cannot establish.
+
+**A second dongle is the prerequisite**, ideally one whose comb differs. Until
+then the fit can be shown to be self-consistent and cannot be shown to be
+right, which is precisely the position this repository has twice spent months
+in.
