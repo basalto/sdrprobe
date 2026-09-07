@@ -1,4 +1,23 @@
-CFLAGS?=-O2 -g -Wall -W $(shell pkg-config --cflags librtlsdr)
+# -O3 rather than -O2, and the reason is one stage.
+#
+# Measured three times each, alternating so a drifting machine cannot fake it:
+# the GSM SCH decode goes from 20.4/23.1/21.7 ms a block to 14.5/15.8/15.7,
+# about 30% off the largest single stage in the program -- 33% of a 65.5 ms
+# block down to 23%. Everything else moves within noise: the LTE cell search
+# 9.75 to 10.03 ms, every cell on a carrier 20.07 to 20.56, the spectrum's 64
+# transforms 4.44 to 4.55.
+#
+# Nothing was over budget at -O2, so this buys no capability today. What it
+# buys is headroom, and headroom is not free here: ADR-0002 has a slow
+# renderer *drop* blocks rather than lag, so a machine slower than this one
+# loses decodes rather than falling behind, and the biggest stage is where
+# that starts.
+#
+# No -ffast-math, and the whole suite passes at -O3 -- 16750 checks including
+# every real-capture invariant: BSIC 59, LTE cell 32, TETRA colour codes 17
+# and 32, RDS 0x8343, six ADS-B frames with a position. `make bench-dsp` is
+# how to re-measure, and CFLAGS is overridable for anyone who would rather not.
+CFLAGS?=-O3 -g -Wall -W $(shell pkg-config --cflags librtlsdr)
 LDLIBS+=$(shell pkg-config --libs librtlsdr) -lm
 CC?=gcc
 
