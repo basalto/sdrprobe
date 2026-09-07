@@ -1119,8 +1119,19 @@ int gsm_normal_bursts(const float *i_samples, const float *q_samples,
         double rq[GSM_NB_SYMBOLS];
         double hr[NB_TAPS];
         double hi[NB_TAPS];
-        double best_hr[NB_TAPS];
-        double best_hi[NB_TAPS];
+        /*
+         * Zeroed rather than left to the loop below, which writes them only
+         * when a fit beats 1e30. That is every fit in practice and not every
+         * fit in principle: one NaN residual compares false against anything,
+         * so a fit that failed for all NB_TAPS delays would leave these
+         * holding whatever was on the stack, and the search for the strongest
+         * tap a few lines down would read it. Zeros make that case a defined
+         * answer -- tap 0, magnitude 0 -- instead of a silent one.
+         *
+         * -O3 is what found this; -O2 could not see far enough to warn.
+         */
+        double best_hr[NB_TAPS] = { 0.0 };
+        double best_hi[NB_TAPS] = { 0.0 };
         double best_residual = 1e30;
         int best_delay = 2;
 

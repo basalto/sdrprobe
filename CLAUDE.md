@@ -236,7 +236,18 @@ make bench-dsp BENCH_ARCH=-march=native     # with this machine's SIMD
 ```
 
 The answer as of this writing: the Scope path uses about 7 ms of the 65.5,
-the GSM view about 28, and `-march=native` changes none of it beyond noise.
+the GSM view about 22, and `-march=native` changes none of it beyond noise.
+
+**`-O3` is the default and one stage is why.** Measured three times each,
+alternating so a drifting machine cannot fake it: the GSM SCH decode goes from
+20.4/23.1/21.7 ms a block at `-O2` to 14.5/15.8/15.7 at `-O3` -- about 30% off
+the largest single stage, 33% of a block down to 23%. Everything else moves
+within noise, the LTE cell search and the spectrum's transforms included.
+Nothing was over budget at `-O2`, so this buys no capability; what it buys is
+headroom, and headroom is not free here because ADR-0002 has a slow renderer
+*drop* blocks rather than lag -- a machine slower than this one loses decodes,
+and the biggest stage is where that starts. The whole suite passes at `-O3`,
+real-capture invariants included, and there is no `-ffast-math`.
 LTE is reported against its own budget, because 131072 pairs at 1.92 MS/s is
 68.3 ms rather than 65.5: the cell search costs about 14 ms of it -- 11 for the
 PSS correlation over 9600 offsets against three roots, the rest for the integer
