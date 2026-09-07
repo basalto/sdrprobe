@@ -13,7 +13,10 @@ device and a capture can carry one.
 - `enum sample_format` -- `SAMPLE_FORMAT_U8` and `SAMPLE_FORMAT_S16`, room for
   `CF32`. The enum is the discriminator; nothing else switches on the device.
 - `struct device_profile` holding: format; `full_scale` (127.5 for u8, 2047.5
-  for 12-in-16); `bytes_per_pair`; `tune_lower_hz` / `tune_upper_hz`;
+  for a real 12-in-16 part -- but **2040.0 for a capture rescaled by ticket
+  01**, which is 127.5 x 16 and not the same number; see that ticket's
+  Finding 1, where 2047.5 agreed with none of the 256 byte values);
+  `bytes_per_pair`; `tune_lower_hz` / `tune_upper_hz`;
   `rate_min_hz` / `rate_max_hz`; `can_retune`; a gain model
   (`GAIN_MODEL_LIST` with the list, or `GAIN_MODEL_RANGE` with min/max/step,
   and a unit); `has_ppm_correction` and `ppm_drifts`; `reference_clock_hz`;
@@ -27,6 +30,12 @@ device and a capture can carry one.
 
 `tests/device_profile_test.c` and `check-device-profile`, in `CHECK_UNITS`,
 with `device_profile.h` in `APP_HDR`.
+
+The 2040/2047.5 split is the reason `full_scale` belongs in the profile at all
+rather than being derived from the format: two sources with the same
+`SAMPLE_FORMAT_S16` can have different full scales, and only the source knows
+which. `device_profile_capture()` must take it as an argument and read it from
+the sidecar's `full_scale` field, which `rescale_capture` already writes.
 
 Checks: the RTL profile reproduces today's constants exactly -- full scale
 127.5, two bytes a pair, 131072 pairs a block, 65.5 ms at 2 MS/s, 24 to

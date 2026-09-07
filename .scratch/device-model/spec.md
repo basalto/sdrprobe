@@ -132,6 +132,19 @@ The profile holds, at minimum:
 
 1. **Prove a format change moves no answer** (`01`) -- needs no hardware, and
    is the gate every later ticket is measured against.
+   **Done, 2026-09-08**: `make rescale-capture` and `check-sample-format`, 64
+   checks. The hypothesis holds -- and two of the ticket's own claims did not.
+   Full scale of the rescaled corpus is **2040.0**, not the 2047.5 named in
+   this spec and in ticket 02, which agrees with none of the 256 byte values
+   and misses by 366 times the tolerance the ticket set; the check asserts
+   **exact** equality instead, since nothing in the scaling rounds. And the
+   expensive half -- the built program over both corpora -- moves to 03,
+   because the program cannot read a 16-bit file until 02 and 03 exist. It is
+   not needed: there is exactly one byte-to-float seam in the program, so
+   identical floats mean identical answers by construction rather than by
+   measurement. **Ticket 02 must use 2040.0 for a rescaled capture and 2047.5
+   only for a real 12-bit part**; they are different numbers about different
+   things.
 2. **The profile itself** (`02`) -- pure data, pure check.
 3. **Full scale out of the DSP** (`03`).
 4. **Block arithmetic in samples** (`04`) -- the silent one.

@@ -362,6 +362,39 @@ check-signal-findings: $(TESTS)/signal_findings_test.c $(TESTS)/check.h \
 		$(TESTS)/signal_findings_test.c -lm
 	$(Q)./$(BUILD)/signal_findings_test
 
+# The 16-bit corpus, and the gate every later device-model ticket is measured
+# against. `.scratch/device-model/issues/01-a-format-change-moves-no-answer.md`.
+#
+# testfiles/ is 8-bit and its answers are pinned; build/testfiles16/ is the
+# same signal in the container a 12-bit device delivers, generated here and
+# never committed. The check asserts the two arrive as bit-identical floats,
+# which settles it for the whole program: there is exactly one byte-to-float
+# seam (sdr_dsp_convert_iq, called at sdrprobe.c:311) and everything past it
+# takes floats.
+FORMAT_CAPTURES=gsm_arfcn_69 gsm_arfcn_113 adsb_cpr_pair lte_b20_pci28 \
+	tetra_cc17 fm_rds_tsf
+FORMAT16=$(patsubst %,$(BUILD)/testfiles16/%.bin,$(FORMAT_CAPTURES))
+
+$(BUILD)/rescale_capture: scripts/rescale_capture.c
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -o $@ scripts/rescale_capture.c
+
+$(BUILD)/testfiles16/%.bin: testfiles/%.bin testfiles/%.json \
+		$(BUILD)/rescale_capture
+	@mkdir -p $(BUILD)/testfiles16
+	$(Q)./$(BUILD)/rescale_capture $< $@ >/dev/null
+
+# One capture by hand, for a capture outside the corpus above.
+rescale-capture: $(BUILD)/rescale_capture
+	$(Q)./$(BUILD)/rescale_capture $(FILE_RESCALE) $(OUT_RESCALE)
+
+check-sample-format: $(TESTS)/sample_format_test.c $(TESTS)/check.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(FORMAT16)
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/sample_format_test \
+		$(TESTS)/sample_format_test.c $(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/sample_format_test
+
 check-signal-probe: $(TESTS)/signal_probe_test.c $(TESTS)/check.h \
 		$(SRC)/signal_probe.c $(SRC)/signal_probe.h \
 		testfiles/carrier_75000_bare.bin
@@ -448,7 +481,8 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-row-list check-survey-bands check-text-wrap \
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
 	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
-	check-signal-probe check-signal-findings check-receiver-lease
+	check-signal-probe check-signal-findings check-receiver-lease \
+	check-sample-format
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -633,4 +667,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens clean
+.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format clean

@@ -31,6 +31,7 @@ make check-lte-transport # CRC-24A, the fillers, and the circular buffer
 make check-tetra-dsp  # a TETRA carrier to dibits
 make check-tetra-sync # descramble, depuncture, Viterbi, and the parity
 make check-acquisition # the block slot, both its modes, and its shutdown
+make check-sample-format # the same signal in an 8- and a 16-bit container
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
 make check-input      # which control a key press reaches
@@ -247,6 +248,38 @@ put back.
 ```sh
 make probe-survey-threshold                 # and DRAWS=12 for more of them
 ```
+
+**A second receiver is coming, and the gate against it is a format the
+program cannot yet read.** `.scratch/device-model/` is the spec; ticket 01 is
+done. `scripts/rescale_capture.c`, behind `make rescale-capture`, writes an
+8-bit capture into the 16-bit container a 12-bit device delivers, and
+`check-sample-format` asserts the two arrive as **bit-identical** floats --
+identical, not close, because `(byte - 127.5) * 16` is exact and 2040 is
+exactly 127.5 times sixteen.
+
+```sh
+make check-sample-format                    # rebuilds build/testfiles16/ first
+make rescale-capture FILE_RESCALE=captures/x.bin OUT_RESCALE=/tmp/x16.bin
+```
+
+That float comparison settles the whole program, which is why no capture is
+decoded twice to establish it: **there is exactly one byte-to-float seam**,
+`sdr_dsp_convert_iq()` at `sdrprobe.c:311`, and everything downstream takes
+floats -- the byte-taking `fm_discriminate()` survives with no caller outside
+tests, `view_fm.c` having moved to `fm_discriminate_f()`. Identical floats
+means identical answers by construction rather than by measurement.
+
+**Full scale of that corpus is 2040.0 and not a 12-bit part's 2047.5**, and
+the ticket asked for 2047.5. It is the ordinary shape of a wrong claim beside
+right arithmetic: 2047.5 is correct for an AD9361 and wrong for these files,
+which hold 8-bit samples shifted left by four. Normalising by it agrees with
+**none** of the 256 byte values and is off by up to 3.7e-3 -- 366 times the
+1e-6 the ticket allowed -- so the check as specified would have failed on
+every capture and read as a decode fault. `test_the_full_scale_that_matters`
+pins both directions so nobody restores it.
+
+The corpus is generated and never committed: `build/testfiles16/` is a
+prerequisite of the check rule, and nothing in `testfiles/` is touched.
 
 What the DSP costs, against the 65.5 ms of signal one block covers:
 
