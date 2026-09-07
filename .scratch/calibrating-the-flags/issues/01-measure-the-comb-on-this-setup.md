@@ -1,9 +1,15 @@
-# 01 - Measure the comb on the device that is plugged in
+# 01 - Measure the comb on the receiving setup in front of you
 
 Status: needs-triage
 
 The comb spacing is derived from a crystal frequency compiled into
 `survey_suspect.h`. Measure it instead.
+
+**Against the receiving setup, not the device.** Three of twelve comb tones
+stay when the antenna is unplugged and nine go with it, because the dongle
+radiates its clock and hears itself coming back -- so most of the observable
+comb depends on the antenna as much as on the crystal. The spec has the
+argument; ADR-0022 has the identity.
 
 ## The procedure
 
@@ -19,6 +25,17 @@ strongly each stands. A spacing that explains twenty peaks is evidence; one
 that explains three is arithmetic on noise, and the result has to be able to
 come back **"no comb found"** rather than always returning its best guess --
 which is the failure mode of every fit ever written.
+
+## Where the answer is kept, and it is not this ticket
+
+`.scratch/deepening/03` owns the installation module: receiver identity, the
+calibration profile, the receiving setup history, one `commit()`. The comb
+belongs in that profile beside the tuning correction, and this ticket does not
+design a second store for it. ADR-0018 already settles the identity -- USB
+serial when unique, a stable operator label otherwise, never the device index.
+
+This ticket produces the number. Storing it, recommending it when it is
+missing, and migrating what exists are all `deepening/03`.
 
 ## What has to be true of the answer before it is kept
 

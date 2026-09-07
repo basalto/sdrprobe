@@ -395,8 +395,10 @@ which is why the words on screen say what was measured (ADR-0015).
 
 ### The consequence, and it is the only one
 
-A frequency flagged `no-carrier` is **barred from the site history**, checked
-*before* the verdict rather than after because it overrides all three: a
+A frequency flagged `no-carrier` is **barred from the receiving setup's
+history** (ADR-0022), checked *before* the verdict rather than after because it
+overrides all three -- an amendment recorded in ADR-0019, which otherwise
+admits an intermittent new carrier: a
 confirmed empty frequency is still empty and an intermittent one is noise that
 came and went. Without that, five noise readings enter the site's memory as
 signals, are remembered for ever, and are reported "gone" whenever a later
