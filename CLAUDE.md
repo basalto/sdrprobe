@@ -238,6 +238,18 @@ make bench-dsp BENCH_ARCH=-march=native     # with this machine's SIMD
 The answer as of this writing: the Scope path uses about 7 ms of the 65.5,
 the GSM view about 22, and `-march=native` changes none of it beyond noise.
 
+**gcc, not clang, and that was measured too.** Alternating three runs each,
+clang 22 against gcc 16 at `-O3`: the GSM SCH decode 20.3 ms a block against
+15.2, the LTE cell search 16.1 against 10.1, every cell on a carrier 27.6
+against 20.3 -- 33% to 59% slower on every stage that matters, and slower on
+the small ones too. It produces no diagnostic gcc does not, so it is not
+earning its place as a second opinion on warnings either. Where clang *is*
+worth running is as a second implementation: it passes 41 of 42 suites, and
+the one it fails is `check-lte-dsp`'s two-cell fixture, which its own comment
+documents as sitting at the exact edge of what the search can do
+(`.scratch/two-cell-fixture/`). That is a fragile check rather than a bug --
+gcc with `-fsanitize=undefined,address` runs the same suite clean.
+
 **`-O3` is the default and one stage is why.** Measured three times each,
 alternating so a drifting machine cannot fake it: the GSM SCH decode goes from
 20.4/23.1/21.7 ms a block at `-O2` to 14.5/15.8/15.7 at `-O3` -- about 30% off
@@ -972,6 +984,24 @@ share the header -- which is exactly what makes it hard to notice.
 
 ## Working in this repo
 
+- **When the context has grown long, assess the skills before continuing.** A
+  long session is the only time there is evidence to assess them with: by then
+  it is on record which skill was reached for, which was ignored, and what had
+  to be worked out from scratch anyway. Three questions, each answered by a
+  change to `.claude/skills/` rather than a note: **did a skill earn its
+  place** -- one that was loaded and not followed, or whose advice had to be
+  worked around, costs context on every invocation and is trusted, so improve
+  it or delete it; **was the same script written more than once** -- a scratch
+  harness written three times is a tool, and belongs in `scripts/` behind a
+  `make` target where the numbers land in a ticket instead of a transcript,
+  the test being repetition rather than usefulness; and **was something
+  learned that no skill knows** -- the failures worth writing down are the
+  ones where the arithmetic was right and the claim was false, and the skill
+  that should have prevented it is the one to amend. **Say what changed**: a
+  skill is instructions that will be followed without being re-read, so a
+  silent edit to one silently changes how this repository is worked on. Name
+  the skill, the change, and the part of the session that was the evidence.
+  `AGENTS.md` has the long form.
 - **Vocabulary is enforced by `CONTEXT.md`.** Each term lists an _Avoid_ line
   (e.g. the scatter view is never a "constellation" in Probe language, "sample
   block" is never a "packet"). Use the glossary's term in code, comments, UI text,
