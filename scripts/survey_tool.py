@@ -145,8 +145,12 @@ def parse(text):
             # dropped, which threw away the only honest measurement of either.
             if len(f) >= 7:
                 target["width_hz"] = int(float(f[6]))
-            if len(f) >= 8 and f[7] != "-":
-                target["flags"] = f[7]
+            # Always written, null when there are none. Omitting the field
+            # rather than writing null made the same sweep saved two ways
+            # carry different keys, and a reader comparing two files cannot
+            # tell a field a writer skipped from one the data never had.
+            if len(f) >= 8:
+                target["flags"] = None if f[7] == "-" else f[7]
             out["confirmation"]["targets"].append(target)
         elif line.startswith("kind ") and len(f) >= 8:
             # What kind of thing the pass found. Kept against the frequency
@@ -180,6 +184,37 @@ def parse(text):
     # asked, by nearest frequency. On the carrier because that is what `diff`
     # compares and what the history remembers; on the target because that is
     # where the rest of the pass's answer lives.
+    # A carrier's verdict, and a candidate's from the carrier it belongs to.
+    #
+    # The C writer records this on both and this one did not, so the same
+    # sweep saved two ways carried different fields -- and the shape a reader
+    # gets depended on which button was pressed. A candidate takes its
+    # carrier's verdict because the pass asks about carriers: a station's own
+    # shoulders are maxima of the same signal a few bins away, and reading
+    # each of those as "never asked" would leave most of a confirmed station
+    # marked unconfirmed.
+    verdicts = {t["hz"]: t["verdict"] for t in out["confirmation"]["targets"]}
+
+    def verdict_at(hz):
+        if not verdicts:
+            return "unconfirmed"
+        near = min(verdicts, key=lambda k: abs(k - hz))
+        return verdicts[near] if abs(near - hz) <= SAME_SIGNAL_HZ \
+            else "unconfirmed"
+
+    for carrier in out["carriers"]:
+        carrier["confirmed"] = verdict_at(carrier["centre_hz"])
+    for candidate in out["candidates"]:
+        # Through the carrier holding it, when one does; the candidate's own
+        # frequency otherwise.
+        holder = None
+        for carrier in out["carriers"]:
+            if carrier["lower_hz"] <= candidate["hz"] <= carrier["upper_hz"]:
+                holder = carrier
+                break
+        candidate["confirmed"] = holder["confirmed"] if holder \
+            else verdict_at(candidate["hz"])
+
     for group in (out["carriers"], out["confirmation"]["targets"]):
         for item in group:
             hz = item.get("centre_hz", item.get("hz"))
