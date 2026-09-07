@@ -54,6 +54,7 @@ def parse(text):
         "candidates": [],
         "carriers": [],
     }
+    kinds = {}
     for line in text.splitlines():
         f = line.split()
         if not f:
@@ -139,7 +140,28 @@ def parse(text):
             if len(f) >= 6 and "/" in f[5]:
                 hits, _, looks = f[5].partition("/")
                 target["hits"], target["looks"] = int(hits), int(looks)
+            # The width and the flags the *pass* measured, at 244 Hz where the
+            # sweep could only see 212 kHz bins. Both were being read past and
+            # dropped, which threw away the only honest measurement of either.
+            if len(f) >= 7:
+                target["width_hz"] = int(float(f[6]))
+            if len(f) >= 8 and f[7] != "-":
+                target["flags"] = f[7]
             out["confirmation"]["targets"].append(target)
+        elif line.startswith("kind ") and len(f) >= 8:
+            # What kind of thing the pass found. Kept against the frequency
+            # rather than appended to the last target, so a reordering of the
+            # output cannot attribute one signal's kind to another.
+            kinds[int(float(f[1]))] = {
+                # The carrier verdict is several words, and the numbers after
+                # it are fixed in count, so it is read from the end.
+                "carrier": " ".join(f[2:-5]),
+                "over_noise_db": float(f[-5]),
+                "standing_share": float(f[-4]),
+                "envelope": float(f[-3]),
+                "bursts": f[-2],
+                "occupancy": float(f[-1]),
+            }
         elif f[:1] == ["confirm-summary"]:
             pairs = dict(zip(f[1::2], f[2::2]))
             for key in ("asked", "confirmed", "intermittent", "refuted"):
@@ -154,7 +176,25 @@ def parse(text):
             tuner = re.match(r"Found (.+) tuner", line)
             if tuner:
                 out["receiver"]["tuner"] = tuner.group(1)
+    # Attach each kind to the carrier it describes and to the target that
+    # asked, by nearest frequency. On the carrier because that is what `diff`
+    # compares and what the history remembers; on the target because that is
+    # where the rest of the pass's answer lives.
+    for group in (out["carriers"], out["confirmation"]["targets"]):
+        for item in group:
+            hz = item.get("centre_hz", item.get("hz"))
+            if hz is None or not kinds:
+                continue
+            near = min(kinds, key=lambda k: abs(k - hz))
+            if abs(near - hz) <= KIND_MATCH_HZ:
+                item["kind"] = kinds[near]
     return out
+
+
+# How far a `kind` line may sit from the carrier it describes. The pass asks
+# at a carrier's measured centre and reports at the same number, so this is
+# slack for rounding rather than for searching.
+KIND_MATCH_HZ = 2000
 
 
 # Obfuscation, not secrecy: enough that a survey file does not carry the
@@ -264,6 +304,17 @@ def cmd_ingest(args):
              record["totals"].get("suspicious", 0)))
 
 
+def kind_lines(record):
+    """One line per signal the confirmation pass measured the kind of."""
+    rows = []
+    for c in record.get("carriers") or []:
+        kind = c.get("kind")
+        if not kind:
+            continue
+        rows.append((c, kind))
+    return rows
+
+
 def cmd_report(args):
     record = load(args.survey)
     lo, hi = record["range_hz"]
@@ -293,6 +344,26 @@ def cmd_report(args):
     # anything narrower than that comes back as one or two bins whatever it
     # is. Saying so beside the count is the difference between a list of
     # signals and a list of places where something might be.
+    # What kind of thing the confirmation pass found. Only signals it asked
+    # about have one, so this is a subset of the list above rather than a
+    # summary of it.
+    kinds = kind_lines(record)
+    if kinds:
+        bare = [(c, k) for c, k in kinds if "bare" in k["carrier"]]
+        print("  the pass measured what kind of thing %d of them were%s"
+              % (len(kinds),
+                 ", and %d %s nothing"
+                 % (len(bare), "carries" if len(bare) == 1 else "carry")
+                 if bare else ""))
+        for c, k in sorted(bare, key=lambda p: -p[0]["dbfs"])[:6]:
+            # Worth its own line: strong, confirmed, continuous and with
+            # nothing riding it is the answer that saves somebody an
+            # afternoon, and it is what 75.000 MHz turned out to be.
+            print("    %10.3f MHz  %6.1f dBFS  bare carrier, %.0f%% of the"
+                  " channel standing still  %s"
+                  % (c["centre_hz"] / 1e6, c["dbfs"],
+                     k["standing_share"] * 100.0,
+                     c.get("allocation") or "no entry"))
     bin_hz = (record.get("sweep") or {}).get("bin_hz")
     floors = [c for c in record["candidates"] if c.get("resolved") is False]
     unknown = sum(1 for c in record["candidates"] if c.get("resolved") is None)
@@ -410,6 +481,26 @@ def cmd_diff(args):
     o_clean = [c for c in o_clean if lo <= c["hz"] <= hi]
     n_clean = [c for c in n_clean if lo <= c["hz"] <= hi]
 
+    # A change of kind is the comparison this archive exists for, and it is
+    # not visible in any of the numbers below: a carrier that was bare in one
+    # sweep and modulated in the next has the same frequency, much the same
+    # level and much the same width. Only sweeps that both asked can be
+    # compared, so a file recorded before the pass measured kind contributes
+    # nothing here rather than reading as a change.
+    kind_changes = []
+    o_carriers = [c for c in (old.get("carriers") or [])
+                  if lo <= c["centre_hz"] <= hi and c.get("kind")]
+    n_carriers = [c for c in (new.get("carriers") or [])
+                  if lo <= c["centre_hz"] <= hi and c.get("kind")]
+    for c in n_carriers:
+        was = min(o_carriers,
+                  key=lambda w: abs(w["centre_hz"] - c["centre_hz"]),
+                  default=None)
+        if not was or abs(was["centre_hz"] - c["centre_hz"]) > SAME_SIGNAL_HZ:
+            continue
+        if was["kind"]["carrier"] != c["kind"]["carrier"]:
+            kind_changes.append((c, was))
+
     appeared = [c for c in n_clean if not nearest(c, o_clean)]
     gone = [c for c in o_clean if not nearest(c, n_clean)]
     moved = []
@@ -438,6 +529,17 @@ def cmd_diff(args):
          lambda p: "    %10.3f MHz  %6.1f -> %6.1f dBFS  %s"
                    % (p[0]["hz"] / 1e6, p[1]["dbfs"], p[0]["dbfs"],
                       p[0]["allocation"] or "no entry"))
+    show("changed kind", kind_changes,
+         lambda p: "    %10.3f MHz  %s -> %s%s  %s"
+                   % (p[0]["centre_hz"] / 1e6,
+                      p[1]["kind"]["carrier"], p[0]["kind"]["carrier"],
+                      "   standing %.3f -> %.3f"
+                      % (p[1]["kind"]["standing_share"],
+                         p[0]["kind"]["standing_share"]),
+                      p[0].get("allocation") or "no entry"))
+    if kind_changes:
+        print("    A signal that stops being a bare carrier, or starts, has"
+              "\n    changed in a way no level and no width would show.")
     print("\n  A signal is 'gone' only where both surveys looked. Absence in a"
           "\n  single sweep is weak evidence: a 0.12 s dwell catches a bursty"
           "\n  transmitter about as often as it misses it.")

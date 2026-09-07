@@ -306,6 +306,8 @@ static int survey_confirm_begin(struct app *app) {
         memset(&s->confirm.target[count], 0,
                sizeof(s->confirm.target[count]));
         s->confirm.target[count].hz = s->carriers[i].centre_hz;
+        s->confirm.target[count].power_centre_hz =
+            s->carriers[i].power_centre_hz;
         s->confirm.target[count].claim = SURVEY_CLAIM_NEW;
         s->confirm.target[count].verdict = SURVEY_VERDICT_PENDING;
         s->confirm.target[count].prominence_db = 0.0f;
@@ -384,17 +386,26 @@ void survey_confirm_begin_target(struct app *app) {
  * is also the guard signal_find_carrier() needs.
  */
 static void survey_confirm_measure_kind(struct app *app,
+                                        const struct survey_confirm_target *target,
                                         const struct sdr_carrier_report *block) {
     struct survey_view *s = &app->survey;
-    double at = SURVEY_CONFIRM_OFFSET_HZ;
+    /*
+     * Aimed at the energy rather than at the middle of the extent, when the
+     * caller supplied one. The receiver is tuned SURVEY_CONFIRM_OFFSET_HZ
+     * below the target's `hz`, so the line sits that far up plus however far
+     * the energy is from the middle.
+     */
+    double at = SURVEY_CONFIRM_OFFSET_HZ +
+                (target->power_centre_hz > 0.0
+                     ? target->power_centre_hz - target->hz : 0.0);
     double channel = block->bandwidth_hz;
+    double search = survey_carrier_search_hz(block->bandwidth_hz);
 
     if (channel < SURVEY_CARRIER_MIN_CHANNEL_HZ)
         channel = SURVEY_CARRIER_MIN_CHANNEL_HZ;
     if (!signal_find_carrier(app->i_samples, app->q_samples, app->pair_count,
                              (double)app->applied_sample_rate,
-                             at - SURVEY_CARRIER_SEARCH_HZ,
-                             at + SURVEY_CARRIER_SEARCH_HZ,
+                             at - search, at + search,
                              SURVEY_CONFIRM_OFFSET_HZ / 2.0, channel,
                              &s->confirm.carrier))
         return;
@@ -421,7 +432,8 @@ static void survey_confirm_measure_kind(struct app *app,
  * The best look is also the right one to report. "How far above the floor did
  * it stand" means when it was transmitting, not averaged over the silence.
  */
-void survey_confirm_look(struct app *app, double hz) {
+void survey_confirm_look(struct app *app,
+                         const struct survey_confirm_target *target) {
     struct survey_view *s = &app->survey;
     struct sdr_carrier_report block;
 
@@ -429,7 +441,7 @@ void survey_confirm_look(struct app *app, double hz) {
     if (!sdr_dsp_characterise_carrier(
             app->spectrum_average, SDR_DSP_FFT_SIZE,
             (double)app->applied_frequency,
-            (double)app->applied_sample_rate, hz, 200000.0, 20.0f,
+            (double)app->applied_sample_rate, target->hz, 200000.0, 20.0f,
             app->magnitude_sorted, &block))
         return;
     if (survey_confirm_present(block.prominence_db))
@@ -449,7 +461,7 @@ void survey_confirm_look(struct app *app, double hz) {
          * them.
          */
         if (survey_confirm_present(block.prominence_db))
-            survey_confirm_measure_kind(app, &block);
+            survey_confirm_measure_kind(app, target, &block);
     }
 }
 
@@ -558,7 +570,7 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
         return;
     }
     if (have_block) {
-        survey_confirm_look(app, target->hz);   /* counts the look too */
+        survey_confirm_look(app, target);      /* counts the look too */
         if (s->confirm.looks < SURVEY_CONFIRM_LOOKS)
             return;
     } else if (now - s->confirm.started_at < 3.0) {
