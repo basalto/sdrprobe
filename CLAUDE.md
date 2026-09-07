@@ -192,6 +192,8 @@ make probe-gsm-chain FILE=captures/x.bin
 make probe-adsb-chain FILE_ADSB=testfiles/adsb_modes1.bin
 make probe-lte-chain FILE_LTE=testfiles/lte_b20_pci28.bin
 make probe-periodicity FILE_PERIODICITY=captures/x.bin   # LTE or NR? which grid?
+make probe-signal FILE_SIGNAL=captures/x.bin AT_SIGNAL=300000 \
+    CONTROLS_SIGNAL=-200000,600000                      # on air, or noise?
 make probe-fm-filter FILE_FM_FILTER=testfiles/fm_rds_tsf.bin  # RDS: which biphase filter?
 ```
 
@@ -214,6 +216,24 @@ later. **`FILE_NBIOT=--self-test` lays the sequence into noise and finds it at
 worth anything: a negative from a detector nobody has seen fire is not a
 finding. Six band 8 carriers read 2.9 to 5.1 deviations and 50 to 79%, against
 a known-empty LTE capture at 4.0 and 68%.
+
+`probe-signal` is what `signal_probe` says about a capture **at a signal and
+at its controls**, and the shape is the point: a measurement at one frequency
+is a number, and the same measurement where nothing should be is what makes it
+evidence. An AIS null was worth nothing until the same code put a known TETRA
+carrier 16 dB clear of its own controls. It exists because one session wrote
+six variants of it -- for the symbol-rate line, the bursts, the envelope, the
+spectral shape, the AIS channels and the ILS sidebands -- and threw every one
+away with the answer left in a transcript.
+
+`PAIRS_SIGNAL` limits how much of the capture is used, and the answer depends
+on it: `carrier_power_fraction` mixes at one fixed frequency, so a drifting
+carrier walks out of phase over a long look and the mean cancels. The
+75.0005 MHz harmonic reads 0.888 to 0.921 from 0.07 s to 1 s and **0.779 at
+2 s**, which crosses `SIGNAL_BARE_FRACTION` and turns a bare carrier into a
+modulated one. No shipped path hits it -- both callers pass one block -- and
+`.scratch/standing-fraction-drifts/` is the fix, which cannot be made without
+re-measuring the whole table behind that threshold.
 
 `probe-survey-threshold` answers a different kind of question: what a survey of
 *nothing* reports. Pure noise through the real transform and the real fold, at
