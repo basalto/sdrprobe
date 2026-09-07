@@ -9,7 +9,7 @@
  *
  * Nothing in this file knows about any particular radio technology: it works on
  * raw interleaved 8-bit I/Q, centred float I/Q, magnitudes, and dBFS spectra.
- * Per-technology plugins (see gsm_dsp.h) build on top of these primitives.
+ * Per-technology DSP modules (see gsm_dsp.h) build on these primitives.
  */
 
 /*

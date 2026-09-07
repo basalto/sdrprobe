@@ -1,6 +1,8 @@
 # RTL-SDR Signal Probes
 
-Small diagnostic tools that acquire and inspect raw RTL-SDR signals, using ADS-B-oriented settings by default. This context ends at signal statistics and visualization; it does not demodulate or decode transmitted messages.
+Small diagnostic tools that acquire and inspect raw RTL-SDR signals. This
+context ends before modulation is interpreted as transmitted information; it
+does not recover synchronization identities, content, or messages.
 
 ## Language
 
@@ -15,6 +17,11 @@ _Avoid_: Input device, backend
 **RTL-SDR receiver**:
 The radio hardware that tunes, samples, and supplies a live signal stream.
 _Avoid_: Dongle, antenna
+
+**Antenna**:
+The physical receiving element whose placement and frequency response shape
+what a receiving setup can observe.
+_Avoid_: RTL-SDR receiver, LTE antenna port, signal source
 
 **Capture**:
 A recording of raw samples that can stand in for a live receiver during repeatable, hardware-free inspection.
@@ -110,6 +117,28 @@ _Avoid_: High-pass filter, notch
 A parts-per-million adjustment applied to the receiver's tuning to compensate for its sample-clock error.
 _Avoid_: Tuning offset, drift fix
 
+**Receiving site**:
+The physical place where a receiver and antenna are used, naming the local
+conditions and reference transmitters against which observations can be
+compared.
+_Avoid_: Receiver, antenna, survey name
+
+**Receiver identity**:
+The identity of one physical RTL-SDR receiver, whose crystal error must not be
+assumed to match another receiver of the same model.
+_Avoid_: Device index, signal source, receiving site
+
+**Receiving setup**:
+The combination of one receiver identity, receiving site, and antenna under
+which survey observations can be compared meaningfully.
+_Avoid_: Receiving site, signal source, calibration profile
+
+**Calibration profile**:
+A saved frequency correction for one receiver measured at one receiving site;
+the receiver owns the crystal error, while the site records where and against
+which available reference it was measured.
+_Avoid_: Site correction, global PPM, calibration result
+
 **Channel calibration**:
 A guided procedure that measures a known transmitter's carrier to estimate and suggest a frequency correction.
 _Avoid_: Auto-tune, alignment
@@ -162,6 +191,47 @@ _Avoid_: Sample block, channel, bin
 A peak standing far enough above its local floor to be worth looking at, before anything is known about what it carries.
 _Avoid_: Signal, transmitter, detection, station
 
+**Survey carrier**:
+One observed signal inferred by grouping candidate maxima that are not
+separated by a sustained trough; one carrier may account for several
+candidates.
+_Avoid_: Signal candidate, station, transmitter, allocation
+
+**Carrier extent**:
+The frequency span of a survey carrier between the surrounding troughs that
+separate it from neighbouring signals.
+_Avoid_: Occupied bandwidth, channel width, allocation
+
+**Carrier shape**:
+A broad description of a survey carrier from its measured extent, such as
+tone, narrow, medium, wide, or very wide; it describes appearance and does not
+identify what the carrier is.
+_Avoid_: Signal type, technology, allocation
+
+**Confirmation pass**:
+A closer observation that revisits survey claims with several independent
+looks to determine whether the reported carrier is consistently present,
+intermittent, or absent.
+_Avoid_: Second sweep, decode, verification test
+
+**Confirmation verdict**:
+The result of a confirmation pass: confirmed when the closer observation
+supports the survey claim, refuted when it contradicts the claim, or
+intermittent when the carrier appears in only some looks regardless of the
+claim.
+_Avoid_: Detection, confidence, history status
+
+**Receiving setup history**:
+The accumulated record of survey carriers observed with one receiving setup,
+including how often and when each has been present.
+_Avoid_: Site history, survey archive, message log, capture collection
+
+**History status**:
+A long-term description derived from receiving setup history: new, steady,
+intermittent, diurnal, or missing. It summarizes repeated surveys rather than
+the several looks of one confirmation pass.
+_Avoid_: Confirmation verdict, detection, availability
+
 **Occupied bandwidth**:
 The width of a candidate between the points where it falls a stated number of decibels below its peak, the drop being held clear of the noise floor and reported alongside the width.
 _Avoid_: Channel width, baud, bitrate
@@ -212,16 +282,19 @@ _Avoid_: Spread, standard deviation, error bar
 A technology-independent DSP operation on raw or centered I/Q, magnitudes, or dBFS spectra, reusable by any radio technology.
 _Avoid_: GSM function, helper
 
-**Technology plugin**:
-A small, testable DSP module for one radio technology that supplies a channel map and a reference-tone detector and reuses the generic SDR primitives for everything else.
-_Avoid_: Driver, backend, codec
+**Technology DSP module**:
+A self-contained, independently testable unit that interprets one radio
+technology and reuses generic SDR primitives where they fit. Technology DSP
+modules share dependency boundaries, not a uniform function interface.
+_Avoid_: Runtime plugin, driver, backend, codec
 
 **Channel map**:
 A technology's rule for converting a channel number into its carrier frequency.
 _Avoid_: Frequency table, ARFCN formula
 
 **Reference tone**:
-A known, tone-like feature a technology transmits that a plugin detects to identify and measure its carrier, such as the GSM FCCH.
+A known, tone-like feature a technology transmits that a DSP module detects to
+identify and measure its carrier, such as the GSM FCCH.
 _Avoid_: Pilot, beacon, sync word
 
 **Calibration-grade detection**:
