@@ -420,6 +420,14 @@ receiver-like, because "there is nothing here" is what a reader acts on -- and
 the caption counts what it drew rather than what the sweep thought, because a
 caption that disagrees with the picture above it is worse than none.
 
+`docs/spur-detection.md` is the reference for those marks: every algorithm
+behind them, every formula, every adjustable parameter and what constrains it,
+with a worked example of each. Two of the parameters are not free -- Rayleigh's
+0.5227 is `sqrt(4/pi - 1)` and changing it means comparing against something
+that is not noise, and `RECEIVER_COMB_MAX_FRACTION` bounds every comb
+tolerance, where loosening it produces flags with no evidence rather than more
+flags.
+
 `docs/what-is-on-air.md` is the assessment over all of it: every allocation,
 what this program does about each, and where something was ruled out the
 measurement that ruled it out. `.scratch/calibrating-the-flags/` is the open
