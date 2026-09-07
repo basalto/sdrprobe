@@ -517,6 +517,42 @@ open.
 
 ## Agent skills
 
+### Keeping the skills worth having
+
+**When the context has grown long, stop and assess the skills before
+continuing.** A long session is the only time there is evidence to assess them
+with: by then it is on record which skill was reached for, which was ignored,
+and what had to be worked out from scratch anyway.
+
+Three questions, and the answer to each is a change to
+`.claude/skills/`, not a note:
+
+1. **Did a skill earn its place?** A skill that was loaded and then not
+   followed, or that gave advice the session had to work around, is worse than
+   no skill: it costs context on every invocation and it is trusted. Improve it
+   with what the session learned, or delete it. `dsp-validation` and
+   `does-it-help` exist because two specific classes of mistake kept recurring;
+   a skill with no such story behind it is decoration.
+
+2. **Was the same script written more than once?** Scratch harnesses are the
+   raw material for tools. If a session wrote three variants of "measure this
+   statistic across every capture and print a table", that table is the
+   deliverable and it belongs in `scripts/` behind a `make` target, where the
+   next session gets it for free and the numbers land in a ticket instead of a
+   transcript. The test is repetition, not usefulness -- a script written once
+   is a script.
+
+3. **Was something learned that no skill knows?** The failures worth writing
+   down are the ones where the arithmetic was right and the claim was false.
+   If a session found one, the skill that should have prevented it is the one
+   to amend.
+
+**Tell the operator what changed.** A skill is instructions that will be
+followed without being re-read, so a silent edit to one is a silent change to
+how this repository is worked on. Say which skill, what changed, and which
+part of the session was the evidence -- the same standard as any other claim
+here.
+
 ### Validating DSP work
 
 A round trip proves the code agrees with itself, not with the standard.
