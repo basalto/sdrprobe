@@ -1,10 +1,10 @@
 # 04 - Block arithmetic in samples, not bytes
 
-Status: resolved for the arithmetic, 2026-09-08 -- **and its "Not in scope"
-line is now contradicted by measurement.** See Finding 3 in ticket 01: keeping
-the block in bytes costs `gsm_arfcn_69` five of its seven broadcast messages,
-System Information 3 among them. That needs a decision and a new ticket; it was
-not taken here.
+Status: resolved, 2026-09-08. The arithmetic was done here; its **"Not in
+scope" line was then contradicted by measurement** -- keeping the block in
+bytes cost `gsm_arfcn_69` five of its seven broadcast messages -- and ticket 09
+settled it the other way. A block is `SAMPLE_BLOCK_PAIRS` now, so the failure
+this ticket describes cannot arise.
 
 `SAMPLE_BLOCK_PAIRS` is `SAMPLE_BLOCK_BYTES / 2`, and `sdr_dsp.c:78` does the
 same `/ 2` again. Both mean bytes-per-pair and neither says so.
@@ -72,5 +72,7 @@ same number for as long as there was one container. They are not any more, and
 the pair reading is the one that keeps a decode.
 
 Not taken here, because it is a spec decision and because it doubles three
-block buffers for a device nobody has plugged in. `check-pipelines` asserts
-the current cost so the choice stays visible.
+block buffers for a device nobody has plugged in.
+
+**Taken in ticket 09, 2026-09-08**, once the device was confirmed real: pairs.
+768 KB, and both corpora decode byte-identically.

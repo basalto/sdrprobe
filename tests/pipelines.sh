@@ -414,33 +414,25 @@ fi
 # --- The flags that reach those paths -------------------------------------
 #
 # check-options proves the parser; this proves the program acts on it.
-# --- A wider container: same answers, and one that is not -----------------
+# --- A wider container: the same answers, and the same cost ---------------
 #
 # `.scratch/device-model/issues/01-a-format-change-moves-no-answer.md` asked
-# for exactly this -- the built program over both corpora -- and the answer is
-# not the one it expected.
+# for the built program over both corpora. build/testfiles16/ is testfiles/
+# scaled into a 16-bit container by scripts/rescale_capture.c, exactly and
+# losslessly; check-sample-format proves the two arrive as bit-identical floats
+# once each is normalised by its own full scale.
 #
-# build/testfiles16/ is testfiles/ scaled into a 16-bit container by
-# scripts/rescale_capture.c, exactly and losslessly. check-sample-format proves
-# the two arrive as bit-identical floats once each is normalised by its own
-# full scale. So every **identity** below is unchanged, and that is the half
-# that matters: the decoders are scale-invariant.
+# The first run of this found the container *did* move an answer -- not by
+# amplitude, but because a block was SAMPLE_BLOCK_BYTES and therefore covered
+# 32.8 ms instead of 65.5. gsm_arfcn_69 read two broadcast messages where it
+# read seven, and LTE paid 55% more processing time for twice as many
+# half-length blocks. Ticket 09 made the block SAMPLE_BLOCK_PAIRS instead, so a
+# block is the same amount of signal on every container and the byte count
+# follows from the device.
 #
-# What does change is how much signal a block holds. A block is
-# SAMPLE_BLOCK_BYTES, so at four bytes a pair it covers 32.8 ms instead of
-# 65.5, and ticket 04 rules the block size out of scope -- "it stays
-# dump1090's". The visible cost is asserted here rather than papered over:
-# twice as many LTE blocks, and **GSM ARFCN 69 reads two broadcast messages
-# where it read seven**, System Information 3 among the five it loses.
-#
-# The mechanism is gsm_read_broadcast()'s own refusal -- "the block ran past
-# the end of this sample block". Four BCCH bursts must be found after the SCH
-# and inside the same block, spanning about 18.5 ms. Eligible SCH decodes go
-# up (9 against 7, since there are twice as many blocks); the conversion goes
-# from 7 of 7 to 2 of 9.
-#
-# These assertions exist so that stops being silent. If the block ever becomes
-# a fixed number of pairs, this section fails and says so.
+# What is asserted here is the result: the same decodes, not merely the same
+# identities. If the block ever goes back to being counted in bytes, the
+# broadcast check below is what fails.
 check_wide_container() {
     corpus=build/testfiles16
     if [ ! -f "$corpus/gsm_arfcn_69.bin" ]; then
@@ -448,7 +440,6 @@ check_wide_container() {
         return
     fi
 
-    # The identities, which must not move.
     checked
     output=$(run --file "$corpus/gsm_arfcn_69.bin" --headless --arfcn 69 \
                  --decode --once)
@@ -456,6 +447,19 @@ check_wide_container() {
         report "gsm_arfcn_69 16-bit" "BSIC 59, the same identity"
     else
         fail "gsm_arfcn_69 at four bytes a pair: BSIC 59 not read"
+    fi
+
+    # The one ticket 09 exists for. Four BCCH bursts have to be found after the
+    # SCH and inside one block, so this is the assertion that a block still
+    # covers 65.5 ms of signal whatever the container.
+    checked
+    messages=$(printf '%s\n' "$output" | grep -c "^BCCH ")
+    if printf '%s\n' "$output" | grep -q \
+           "System Information 3  MCC 268 MNC 03  LAC 4010  CI 5131"; then
+        report "gsm_arfcn_69 16-bit" "$messages broadcast messages, SI 3 among them"
+    else
+        fail "gsm_arfcn_69 at four bytes a pair: System Information 3 lost \
+($messages message(s)) -- a block is covering less signal than it should"
     fi
 
     checked
@@ -470,11 +474,21 @@ check_wide_container() {
     checked
     output=$(run --file "$corpus/lte_b20_pci28.bin" --headless --technology lte \
                  --sample-rate 1920000 --decode --once)
+    mibs=$(printf '%s\n' "$output" | grep -c "^MIB ")
     if printf '%s\n' "$output" | grep -q "cell 28 .*normal CP" &&
        printf '%s\n' "$output" | grep -q "2 antenna ports"; then
-        report "lte_b20_pci28 16-bit" "cell 28, 2 ports"
+        report "lte_b20_pci28 16-bit" "cell 28, 2 ports, $mibs messages"
     else
         fail "lte_b20_pci28 at four bytes a pair: cell 28 / 2 ports not read"
+    fi
+
+    # Twice this many meant the block had halved, and cost 55% more time.
+    checked
+    if [ "$mibs" -le 40 ]; then
+        report "lte_b20_pci28 16-bit" "$mibs blocks, not twice as many"
+    else
+        fail "lte_b20_pci28 at four bytes a pair: $mibs messages -- the block \
+has halved again"
     fi
 
     checked
@@ -495,18 +509,6 @@ check_wide_container() {
         report "fm_rds_tsf 16-bit" "station 0x8343, TSF"
     else
         fail "fm_rds_tsf at four bytes a pair: identification or name moved"
-    fi
-
-    # And the cost, asserted as the finding it is.
-    checked
-    output=$(run --file "$corpus/gsm_arfcn_69.bin" --headless --arfcn 69 \
-                 --decode --once)
-    if printf '%s\n' "$output" | grep -q "BCCH System Information 3"; then
-        fail "gsm_arfcn_69 16-bit now reads System Information 3 -- the block \
-is no longer halving, so this finding and ticket 04 need revisiting"
-    else
-        report "gsm_arfcn_69 16-bit" "no SI 3: no room after the SCH in a \
-32.8 ms block"
     fi
 }
 

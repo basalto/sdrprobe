@@ -193,12 +193,14 @@ static inline float device_magnitude_max(const struct device_profile *p) {
 /*
  * Pairs in a block of this many bytes.
  *
- * This is the arithmetic ticket 04 exists for. `SAMPLE_BLOCK_PAIRS` is
- * `SAMPLE_BLOCK_BYTES / 2`, where the 2 means bytes per pair and says nothing
- * about the block; on a four-byte format that formula returns twice the truth,
- * nothing errors, and every timing budget in CLAUDE.md is out by a factor of
- * two with nothing on screen to say so. ADR-0002 has a slow renderer *drop*
- * blocks, so the symptom is lost decodes on a faster device.
+ * This is the arithmetic ticket 04 exists for: `byte_count / 2` means bytes per
+ * pair and says nothing about the block, so on a four-byte format it returns
+ * twice the truth with nothing erroring.
+ *
+ * Ticket 09 then went further and made the **pair count** the invariant, so
+ * acquisition asks `device_block_bytes()` instead and every block is the same
+ * amount of signal on every device. This direction is still what a reader with
+ * a byte count in hand needs -- a file's length, a recording's size.
  */
 static inline size_t device_pairs_per_block(const struct device_profile *p,
                                             size_t block_bytes) {
@@ -214,6 +216,21 @@ static inline double device_block_seconds(const struct device_profile *p,
     if (!p || rate_hz <= 0.0)
         return 0.0;
     return (double)device_pairs_per_block(p, block_bytes) / rate_hz;
+}
+
+/*
+ * Bytes a block of `pairs` pairs occupies on this device.
+ *
+ * The inverse of `device_pairs_per_block`, and the one acquisition actually
+ * needs: `.scratch/device-model/issues/09-*` made the **pair count** the
+ * invariant, so a block is always the same amount of signal and the byte count
+ * is what varies with the container.
+ */
+static inline size_t device_block_bytes(const struct device_profile *p,
+                                        size_t pairs) {
+    if (!p)
+        return 0;
+    return pairs * p->bytes_per_pair;
 }
 
 /*

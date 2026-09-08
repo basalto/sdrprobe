@@ -8,18 +8,35 @@
 
 #include "device_profile.h"
 
-/* Deliberately dump1090's block size, so timing matches it. */
-#define SAMPLE_BLOCK_BYTES (16 * 16384)
 /*
- * Pairs in a block **at two bytes a pair**, which is what every buffer in this
- * program is still sized for. It is not a general answer and must not be used
- * as one: the 2 means bytes per pair, so on a four-byte container this returns
- * twice the truth with nothing erroring. Ask
- * `device_pairs_per_block(&profile, SAMPLE_BLOCK_BYTES)` for how many pairs a
- * block actually holds; this is the array bound, and being the largest of the
- * two is exactly what makes it safe as one.
+ * Deliberately dump1090's block, so timing matches it -- and it is **131072
+ * pairs**, not 262144 bytes.
+ *
+ * Those were the same number for as long as this program had one sample
+ * container, and `.scratch/device-model/issues/09-*` is where they stopped
+ * being. A block defined in bytes covers half as much signal on a four-byte
+ * format, and that is not free: measured over `build/testfiles16/`, LTE paid
+ * 55% more processing time for twice as many half-length blocks, and
+ * `gsm_arfcn_69` read two broadcast messages where it read seven, because
+ * `gsm_read_broadcast()` needs four bursts *after* the SCH and inside one
+ * block.
+ *
+ * So the pair count is the invariant and the byte count follows from the
+ * container. Every float array in `struct app` is sized by this, and every
+ * block delivers exactly this many pairs whatever the device.
  */
-#define SAMPLE_BLOCK_PAIRS (SAMPLE_BLOCK_BYTES / 2)
+#define SAMPLE_BLOCK_PAIRS 131072
+
+/* Widest container acquisition will carry: u8 is 2, s16 is 4. CF32 would need
+   8 and nothing produces one -- `sdr_dsp_convert_iq` refuses it -- so the
+   buffers do not pay for it and `acquisition_attach_source` refuses anything
+   wider rather than overrunning them. */
+#define SAMPLE_MAX_BYTES_PER_PAIR 4
+#define SAMPLE_BLOCK_BYTES_MAX (SAMPLE_BLOCK_PAIRS * SAMPLE_MAX_BYTES_PER_PAIR)
+
+/* The 8-bit block, which is what an RTL-SDR delivers and what the librtlsdr
+   async read is asked for. Not the size of a block in general. */
+#define SAMPLE_BLOCK_BYTES (SAMPLE_BLOCK_PAIRS * 2)
 
 /* Long enough for captures/<name>.bin plus a timestamp. */
 #define ACQUISITION_PATH_MAX 256
@@ -40,7 +57,7 @@
  */
 
 struct latest_block {
-    unsigned char data[SAMPLE_BLOCK_BYTES];
+    unsigned char data[SAMPLE_BLOCK_BYTES_MAX];
     uint32_t len;
     uint64_t generation;
     uint64_t published_blocks;
@@ -116,8 +133,8 @@ struct acquisition {
     pthread_t worker;
     int mutex_ready;
     int worker_started;
-    unsigned char raw[SAMPLE_BLOCK_BYTES];
-    unsigned char file_block[SAMPLE_BLOCK_BYTES];
+    unsigned char raw[SAMPLE_BLOCK_BYTES_MAX];
+    unsigned char file_block[SAMPLE_BLOCK_BYTES_MAX];
     uint32_t raw_len;
     uint64_t consumed_generation;
     pthread_mutex_t record_mutex;
@@ -191,10 +208,21 @@ struct acquisition_record_request {
    playback paces by: a block is a fixed number of *bytes*, so how much time it
    represents depends on the container, and pacing by a hardcoded two runs a
    four-byte capture at twice real time. */
-void acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
-                               FILE *capture, uint32_t sample_rate,
-                               unsigned bytes_per_pair,
-                               const char *capture_path, int capture_loop);
+/* `bytes_per_pair` is the source's, from its device profile, and it is how
+   many bytes a block is read as: a block is SAMPLE_BLOCK_PAIRS pairs, so it
+   is that many times this. Returns 0, or negative if the container is wider
+   than SAMPLE_MAX_BYTES_PER_PAIR, which the buffers cannot hold. */
+int acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
+                              FILE *capture, uint32_t sample_rate,
+                              unsigned bytes_per_pair,
+                              const char *capture_path, int capture_loop);
+
+/* Bytes one block occupies on this source: SAMPLE_BLOCK_PAIRS pairs at this
+   container's width. The pair count is the constant; the byte count is not. */
+static inline size_t acquisition_block_bytes(const struct acquisition *acq) {
+    unsigned width = (acq && acq->bytes_per_pair) ? acq->bytes_per_pair : 2;
+    return (size_t)SAMPLE_BLOCK_PAIRS * width;
+}
 
 /* Deliver every block instead of overwriting the slot: the worker waits for
    the consumer to take one before publishing the next. For *file playback

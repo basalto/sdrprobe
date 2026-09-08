@@ -306,20 +306,32 @@ capture was -- so `check-pipelines` runs all six captures twice, under
 ports, colour 17 and LA 4375, station 0x8343 `TSF`, the CPR positions. The
 decoders are scale-invariant, exactly as the relative-threshold argument said.
 
-**What moves is the block, not the format.** A block is `SAMPLE_BLOCK_BYTES`,
-so at four bytes a pair it covers 32.8 ms rather than 65.5. LTE reads 55
-Master Information Blocks where it read 28, and **`gsm_arfcn_69` drops from
-seven broadcast messages to two, losing System Information 3** -- the one
-carrying MCC, MNC, LAC and Cell Identity, which is the answer this file pins.
+**A block is `SAMPLE_BLOCK_PAIRS` -- 131072 pairs -- and not a byte count**,
+which is what makes that true. dump1090's block was 262144 bytes *and* 131072
+pairs for as long as this program had one sample container, and the day it had
+two those stopped being the same number. Defined in bytes, a four-byte
+container covers 32.8 ms instead of 65.5, and it cost two measured things:
+LTE read 55 Master Information Blocks instead of 28 and paid **55% more
+processing time** for twice as many half-length blocks, and `gsm_arfcn_69`
+dropped from seven broadcast messages to two, losing System Information 3 --
+the one carrying MCC, MNC, LAC and Cell Identity, which is the answer this file
+pins.
 
-The mechanism is `gsm_read_broadcast()`'s own refusal, "the block ran past the
-end of this sample block": four BCCH bursts must be found **after** the SCH
-and inside the same block, and they span about 18.5 ms. Opportunities do not
-get rarer -- there are *more* of them, 9 qualifying SCH decodes against 7,
-because there are twice as many blocks. What collapses is the conversion:
-**7 of 7 become messages at 65.5 ms, 2 of 9 at 32.8 ms**, because a half-length
-block usually has no room left after the SCH lands. `check-pipelines` asserts
-it rather than papering over it, so it cannot go quiet. `.scratch/device-model/issues/09-*` carries the
+The GSM mechanism is worth knowing because it is not the obvious one. Four BCCH
+bursts span about 18.5 ms and fit in 32.8 ms comfortably; what does not fit is
+four bursts **after the SCH**, which is `gsm_read_broadcast()`'s own refusal --
+"the block ran past the end of this sample block". Eligible SCH decodes went
+*up*, 9 against 7, because there were twice as many blocks; the conversion
+collapsed, 7 of 7 to 2 of 9.
+
+Both are gone. `acquisition_block_bytes()` is `SAMPLE_BLOCK_PAIRS` times the
+container's width, `SAMPLE_BLOCK_BYTES_MAX` sizes the three block buffers for
+the widest container this carries (`SAMPLE_MAX_BYTES_PER_PAIR`, 4 -- anything
+wider is refused rather than overrunning them), and both corpora now produce
+**byte-identical output**: 107 lines, every field, the only difference being
+the wall clock in the ADS-B timestamps. It costs 768 KB across three buffers.
+`check-pipelines` asserts the broadcast messages and the message count, so a
+return to counting blocks in bytes fails there and says why. `.scratch/device-model/issues/09-*` carries the
 decision it forces: "the block stays dump1090's" does not say *dump1090's
 what*, its 262144 bytes or its 131072 pairs, and those were the same number
 only while there was one container.
