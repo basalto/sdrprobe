@@ -68,12 +68,33 @@ report dBm, and it has been corrected: what is missing is not the antenna's
 gain but an **absolute power reference for the converter** -- how many dBm at
 the input a full-scale sample corresponds to, at a given frequency and gain.
 
-**Neither device has one.** An AD9361 reports its gain in dB, which is better
-than tenths of a dB from a tuner whose absolute gain is unspecified, but
-"gain in dB" is not "dBFS to dBm". Getting there is a one-time measurement
-against a known source, per device and per frequency -- **the same family of
-thing as the ppm calibration**, which this program already measures, stores
-per site, and gates on. That is ticket 08's subject, not this one's.
+**Neither device has one**, and a claim made here first time round was wrong:
+that "an AD9361 reports its gain in dB, which is better than tenths of a dB
+from a tuner whose absolute gain is unspecified". It does not.
+`docs/absolute-power-reference.md` established it from UHD's source and it was
+checked against `ad9361_device.cpp` directly: `set_gain()` casts the value to
+`int gain_index`, clips it to 0-76 and pokes it into register 0x109, and which
+of **three band-dependent tables** is loaded -- below 1300 MHz, 1300 to
+4000 MHz, 4000 to 6000 MHz -- decides what a step is worth. UHD advertises
+`meta_range_t(0.0, 76.0, 1.0)` over that index. It is a gain-table index
+presented as dB, which is the same kind of thing the RTL's tenths are, not a
+better kind.
+
+Two consequences, and the second is the one that matters:
+
+- **`GAIN_UNIT_DB` would be a lie for a B210's RX chain.** The profile's gain
+  unit needs a third value -- an index -- or the panel will label a number in
+  units it does not have. TX is the exception: that is a genuine 0.25 dB
+  attenuator.
+- **A calibration cannot be taken once and scaled by the gain setting.** It has
+  to be indexed by **gain and band together**, because the dB-per-index curve
+  changes at 1300 MHz and 4000 MHz. An earlier note here suggested a
+  calibrated gain would let one measurement hold across settings; it will not.
+
+Getting to dBm is therefore a one-time measurement against a known source, per
+device, per frequency and per gain -- **the same family of thing as the ppm
+calibration**, which this program already measures, stores per site, and gates
+on. That is ticket 08's subject, not this one's.
 
 So the answer is in three parts:
 
