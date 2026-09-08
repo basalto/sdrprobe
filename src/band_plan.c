@@ -3,9 +3,14 @@
 #include <stddef.h>
 
 /*
- * Ordered by frequency, non-overlapping. Coverage is what an RTL-SDR can hear
- * and someone might plausibly point this program at; a gap means the table has
- * nothing useful to say, not that the spectrum is empty there.
+ * Ordered by frequency, non-overlapping. A gap means the table has nothing
+ * useful to say, not that the spectrum is empty there.
+ *
+ * Coverage used to be "what an RTL-SDR can hear", and that was the wrong
+ * boundary for a reference table: which allocations a *receiver* can reach is
+ * `device_profile.tune_lower_hz` / `tune_upper_hz`, and `survey_bands.h`
+ * filters by it. So the table runs to 5875 MHz whatever is plugged in, and an
+ * R820T is simply offered the part of it below 1766.
  *
  * The allocations are Portugal's, which is to say ITU Region 1 as ANACOM
  * applies it. Where a European allocation differs from the wider Region 1 one
@@ -179,7 +184,45 @@ static const struct band_plan_entry entries[] = {
     { 1610000000.0, 1660500000.0, "Mobile-satellite uplink", "GMPCS, GMDSS",
       BAND_PLAN_NONE },
     { 1710000000.0, 1785000000.0, "GSM 1800 / LTE B3 uplink", "1800 MHz",
-      BAND_PLAN_NONE }
+      BAND_PLAN_NONE },
+    /*
+     * Above 1766 MHz: an R820T reaches none of this, so until a wideband
+     * device was on the way none of it could be swept and none of it was
+     * worth listing (ticket 05 in .scratch/device-model/). A B210-class part
+     * reaches all of it.
+     *
+     * The same rule as the rest of the table applies -- an allocation, never
+     * an identification, and a gap in preference to a guess -- which is why
+     * the 1785-1805 and 1980-2110 duplex gaps, the 1900-1920 unpaired block
+     * and 2483.5-2500 are absent rather than invented.
+     *
+     * The three downlinks that name a decoder are the three the E-UTRA table
+     * in lte_dsp.c already holds: bands 3, 1 and 7, at 1805, 2110 and
+     * 2620 MHz. Naming BAND_PLAN_LTE for a band the EARFCN map did not know
+     * would be the "decoder the program does not have" this file's header
+     * warns about.
+     */
+    { 1805000000.0, 1880000000.0, "GSM 1800 / LTE B3 downlink", "1800 MHz",
+      BAND_PLAN_LTE },
+    { 1880000000.0, 1900000000.0, "DECT", NULL, BAND_PLAN_NONE },
+    { 1920000000.0, 1980000000.0, "UMTS / LTE B1 uplink", "2100 MHz",
+      BAND_PLAN_NONE },
+    { 2110000000.0, 2170000000.0, "UMTS / LTE B1 downlink", "2100 MHz",
+      BAND_PLAN_LTE },
+    { 2400000000.0, 2483500000.0, "2.4 GHz ISM / RLAN",
+      "Wi-Fi, Bluetooth", BAND_PLAN_NONE },
+    { 2500000000.0, 2570000000.0, "LTE B7 uplink", "2600 MHz",
+      BAND_PLAN_NONE },
+    { 2570000000.0, 2620000000.0, "LTE B38 (TDD)", "2600 MHz unpaired",
+      BAND_PLAN_NONE },
+    { 2620000000.0, 2690000000.0, "LTE B7 downlink", "2600 MHz",
+      BAND_PLAN_LTE },
+    { 3400000000.0, 3800000000.0, "5G NR n78 (TDD)", NULL, BAND_PLAN_NONE },
+    { 5150000000.0, 5350000000.0, "5 GHz RLAN (indoor)", "Wi-Fi",
+      BAND_PLAN_NONE },
+    { 5470000000.0, 5725000000.0, "5 GHz RLAN (DFS)", "Wi-Fi",
+      BAND_PLAN_NONE },
+    { 5725000000.0, 5875000000.0, "5.8 GHz ISM", NULL, BAND_PLAN_NONE }
 };
 
 const struct band_plan_entry *band_plan_lookup(double hz) {

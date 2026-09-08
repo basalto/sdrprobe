@@ -559,12 +559,27 @@ one antenna named two ways is two of them and levels only compare within one of
 each. The antenna defaults to `telescopic`.
 
 **Band...** beside the range fields fills them in from the band plan rather
-than from memory: the 54 allocations this tuner can reach, with the ones that
-have a decoder behind them picked out, and a dwell chosen to suit the width —
-half a second for anything under about fifty megahertz, down to the default
-for the whole tuner. `src/survey_bands.h` is the arithmetic and
+than from memory: the allocations **this receiver** can reach, with the ones
+that have a decoder behind them picked out, and a dwell chosen to suit the
+width — half a second for anything under about fifty megahertz, down to the
+default for the whole tuner. `src/survey_bands.h` is the arithmetic and
 `check-survey-bands` asserts that nothing offered is out of the tuner's reach
 and nothing reachable is left off.
+
+**The reach is the profile's, and it is a filter rather than a fact about the
+program.** 54 allocations on an R820T, 60 on a 70 MHz – 6 GHz part, and
+**neither list contains the other**: a wideband device opens 2.4 GHz ISM, 5G
+n78 and the 5 GHz RLAN bands, and loses everything below about 70 MHz — short
+wave, CB, the 6 m and 10 m amateur bands, band I television. That asymmetry is
+why `check-survey-bands` runs its both-directions property against *two*
+profiles: a check against one device's numbers passes while the list offers
+half of one and misses half of the other. The band plan itself now runs to
+5875 MHz whatever is plugged in; it says what a band is *for*, and reachability
+is a separate question (ADR-0015).
+
+Under file playback the picker offers **one** allocation, the one the capture
+sits in, because a capture's tuning range is the single frequency it was taken
+at. That is deliberate — a sweep needs a live receiver and the view says so.
 
 A sweep's peaks are grouped into signals by `src/survey_carrier.h` before
 anything reads them: two maxima are one carrier when the power between them
