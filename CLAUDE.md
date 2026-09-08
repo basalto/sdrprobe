@@ -33,6 +33,7 @@ make check-tetra-sync # descramble, depuncture, Viterbi, and the parity
 make check-acquisition # the block slot, both its modes, and its shutdown
 make check-sample-format # the same signal in an 8- and a 16-bit container
 make check-device-profile # what a receiver is, in the terms the numbers need
+make check-capture-sidecar # what a capture says about its own bytes
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
 make check-input      # which control a key press reaches
@@ -296,6 +297,24 @@ pins both directions so nobody restores it.
 
 The corpus is generated and never committed: `build/testfiles16/` is a
 prerequisite of the check rule, and nothing in `testfiles/` is touched.
+
+**The built program reads both corpora now, and the answer is a finding.**
+`capture_sidecar.h` reads the container out of a capture's sidecar -- a
+missing or silent one is the house 8-bit convention, which is what every
+capture was -- so `check-pipelines` runs all six captures twice, under
+"A wider container". **Every identity is unchanged**: BSIC 59, cell 28 with 2
+ports, colour 17 and LA 4375, station 0x8343 `TSF`, the CPR positions. The
+decoders are scale-invariant, exactly as the relative-threshold argument said.
+
+**What moves is the block, not the format.** A block is `SAMPLE_BLOCK_BYTES`,
+so at four bytes a pair it covers 32.8 ms rather than 65.5: LTE reads 55
+Master Information Blocks where it read 28, and **`gsm_arfcn_69` loses its
+System Information entirely** -- four consecutive normal bursts do not fit in
+half a block. `check-pipelines` asserts that absence rather than papering over
+it, so it cannot go quiet. `.scratch/device-model/issues/09-*` carries the
+decision it forces: "the block stays dump1090's" does not say *dump1090's
+what*, its 262144 bytes or its 131072 pairs, and those were the same number
+only while there was one container.
 
 `src/device_profile.h` is the contract those tickets fill in: the facts that do
 **not** transfer between receivers -- format and full scale, bytes per pair,

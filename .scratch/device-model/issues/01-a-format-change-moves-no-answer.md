@@ -102,7 +102,65 @@ the correctly rounded result of the same exact rational -- so any tolerance at
 all would have been slack the arithmetic does not need.
 `test_the_full_scale_that_matters` pins both rows of that table.
 
-## Finding 2 -- the expensive half cannot run yet, and does not need to
+## Finding 3 -- the expensive half ran, and the hypothesis is FALSE
+
+**2026-09-08, after tickets 03 and 04.** The program can read a 16-bit capture
+now (`capture_sidecar.h` reads the container out of the sidecar), so the half
+deferred below actually ran: the built program over both corpora, six captures
+each.
+
+The local hypothesis was "widening the sample container changes no decoded
+answer". It is false, and **not for any reason this ticket anticipated**.
+There is no overflow, no threshold in raw counts, no `/ 2` that meant
+bytes-per-pair inside a decoder. Every identity is bit-for-bit the same:
+
+| capture | 8-bit | 16-bit |
+| --- | --- | --- |
+| `gsm_arfcn_69` | BSIC 59 (NCC 7, BCC 3) | **same** |
+| `tetra_cc17` | MCC 268, MNC 3, colour 17, LA 4375 | **same** |
+| `lte_b20_pci28` | cell 28, normal CP, 2 ports | **same** |
+| `adsb_cpr_pair` | 2 positions, CPR pairing intact | **same** |
+| `fm_rds_tsf` | station 0x8343, `TSF` | **same** |
+
+The decoders are scale-invariant, exactly as the relative-threshold argument
+predicted. What moved is the **count**, and one answer disappeared:
+
+| | 8-bit | 16-bit |
+| --- | --- | --- |
+| LTE Master Information Blocks | 28 | **55** |
+| `gsm_arfcn_69` System Information 3 | 1 | **0** |
+| `gsm_arfcn_113` System Information 3 | 2 | **1** |
+
+**The mechanism is the block, not the format.** A block is
+`SAMPLE_BLOCK_BYTES`, a fixed number of *bytes*, so at four bytes a pair it
+covers 32.8 ms instead of 65.5. Twice as many blocks, each holding half the
+signal. LTE reads a Master Information Block per block, so it doubles.
+GSM's System Information needs **four consecutive normal bursts**, and a
+32.8 ms block cannot hold them where a 65.5 ms one could -- so ARFCN 69 loses
+its broadcast entirely and ARFCN 113 loses half of them.
+
+Per this ticket's own rule -- "If a decode does move, that is the finding and
+the ticket stops there. Do not adjust a threshold to make it agree" -- nothing
+was adjusted. The measured behaviour is asserted in `check-pipelines` under
+"A wider container", including the absence, so it cannot go quiet.
+
+### What this means for ticket 04
+
+Ticket 04 says, under Not in scope: **"Making the block size itself
+configurable. It stays dump1090's."** That was written before anyone had run
+this, and it is the assumption the measurement contradicts. Keeping
+dump1090's block *in bytes* is not neutral once a second container exists; it
+costs a decode. Keeping dump1090's block in **pairs** would cost nothing and
+is what "the same block" ought to mean.
+
+That is a spec decision rather than an implementation detail, so it is left
+open here rather than taken. It needs a new ticket. The change is small --
+read `SAMPLE_BLOCK_PAIRS * bytes_per_pair` bytes per block and size the raw
+buffers for the widest container, about 260 KB more per buffer -- and the
+argument against is that it doubles three buffers for a device nobody has
+plugged in yet.
+
+## Finding 2 -- the expensive half could not run at the time
 
 This ticket asked for `check-pipelines` over both corpora, the built program
 asserting the same decoded answers. **The program cannot read a 16-bit file.**
@@ -112,8 +170,9 @@ acceptance criteria already anticipate the split -- they say
 `check-sample-format` should then pass "with the real format layer rather than
 a test harness", which is exactly the harness this check ships with.
 
-That half moves to ticket 03, where it is reachable. It is not a gap, because
-the cheap half proves more than it would have:
+That half moved to tickets 03 and 04, where it became reachable -- see Finding
+3 above, which is what it found. At the time this was written the cheap half
+looked like it proved more, and for identities it does:
 
 **The program has exactly one byte-to-float seam.** `sdr_dsp_convert_iq()` is
 called once, at `sdrprobe.c:311`. Everything downstream takes floats -- the
