@@ -35,6 +35,7 @@ make check-sample-format # the same signal in an 8- and a 16-bit container
 make check-device-profile # what a receiver is, in the terms the numbers need
 make check-capture-sidecar # what a capture says about its own bytes
 make check-device-backend # the contract a receiver has to satisfy
+make check-add-argument # the refactoring tool below, against its own traps
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
 make check-input      # which control a key press reaches
@@ -186,6 +187,24 @@ is what you want when a build fails rather than a check. `check-pipelines` is th
 `sh` script (`tests/pipelines.sh`) that runs the built binary over the captures
 in `testfiles/` and greps its stdout, which is what proves the units are wired
 together.
+
+**Threading a new parameter through a function with dozens of call sites** --
+which this repository keeps needing, and which was a scratch script three times
+before it became a tool:
+
+```sh
+make add-argument FILE=src/foo.c FUNC=bar INDEX=1 VALUE='&app->source'
+make add-argument FILE=--self-test
+```
+
+`scripts/add_argument.py` inserts an argument at a position in every call to a
+named function. **It is literal- and comment-aware, and the scratch version was
+not** -- asked to insert at index 2 in `f(a, "comma, inside", b)` it produced
+`f(a, "comma, NEW, inside", b)` silently, because a comma inside a string sits
+at brace depth 0. It survived three real refactors only because every insertion
+happened to be at index 0 or 1, ahead of any such string. `check-add-argument`
+pins that case and nine others. It is a text tool and rewrites a prototype the
+same way it rewrites a call, so read the diff.
 
 White-box diagnostics (not tests — they print a walk through a decode chain and
 compile the module's `.c` in to reach its statics):
