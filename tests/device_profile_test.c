@@ -125,6 +125,52 @@ static void test_block_arithmetic_follows_the_container(void) {
 }
 
 /*
+ * The other direction, and the one acquisition actually uses.
+ *
+ * Ticket 09 made the **pair count** the invariant: a block is always
+ * SAMPLE_BLOCK_PAIRS pairs, so it is always the same amount of signal, and
+ * the byte count is what varies with the container. Before that a block was a
+ * byte count, which meant a four-byte container covered half the time -- and
+ * that cost `gsm_arfcn_69` five of its seven broadcast messages and LTE 55%
+ * more processing for twice as many half-length blocks.
+ */
+static void test_a_block_is_the_same_signal_on_every_container(void) {
+    struct device_profile rtl = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile wide = device_profile_capture(
+        "12-in-16", SAMPLE_FORMAT_S16, 2047.5f, 800.0e6, 2000000);
+    const size_t pairs = 131072; /* SAMPLE_BLOCK_PAIRS */
+
+    check_size("8-bit: a block is 262144 bytes",
+               device_block_bytes(&rtl, pairs), 262144);
+    check_size("16-bit: the same block is 524288",
+               device_block_bytes(&wide, pairs), 524288);
+    check_true("so the byte count follows the container",
+               device_block_bytes(&rtl, pairs) !=
+                   device_block_bytes(&wide, pairs));
+
+    /* And the point of it: the same amount of signal either way. */
+    check_close("8-bit: 65.5 ms at 2 MS/s",
+                device_block_seconds(&rtl, device_block_bytes(&rtl, pairs),
+                                     2.0e6),
+                0.065536, 1e-6);
+    check_close("16-bit: 65.5 ms too, which is the whole point",
+                device_block_seconds(&wide, device_block_bytes(&wide, pairs),
+                                     2.0e6),
+                0.065536, 1e-6);
+
+    /* Round trips, both ways. */
+    check_size("bytes back to pairs, 8-bit",
+               device_pairs_per_block(&rtl, device_block_bytes(&rtl, pairs)),
+               pairs);
+    check_size("bytes back to pairs, 16-bit",
+               device_pairs_per_block(&wide, device_block_bytes(&wide, pairs)),
+               pairs);
+
+    check_size("a null profile has no block", device_block_bytes(NULL, pairs),
+               0);
+}
+
+/*
  * Full scale is carried, not derived, and this is the check that says why.
  *
  * Ticket 01 measured it: its rescaled corpus is 8-bit data shifted left by
@@ -328,6 +374,7 @@ static void test_a_long_name_is_bounded(void) {
 int main(void) {
     test_rtlsdr_reproduces_todays_constants();
     test_block_arithmetic_follows_the_container();
+    test_a_block_is_the_same_signal_on_every_container();
     test_two_s16_sources_disagree_about_full_scale();
     test_a_capture_refuses_to_retune();
     test_both_gain_models();

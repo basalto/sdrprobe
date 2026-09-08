@@ -161,7 +161,20 @@ the ticket stops there. Do not adjust a threshold to make it agree" -- nothing
 was adjusted. The measured behaviour is asserted in `check-pipelines` under
 "A wider container", including the absence, so it cannot go quiet.
 
-### What this means for ticket 04
+### Settled, 2026-09-08
+
+Ticket 09 made the block `SAMPLE_BLOCK_PAIRS` rather than a byte count, and
+with that the hypothesis this ticket set out to test **is true after all**:
+both corpora produce byte-identical decode output, 107 lines and every field,
+the only difference being the wall clock in the ADS-B timestamps. Widening the
+sample container changes no decoded answer.
+
+It was worth finding out the hard way. The thing that moved was never the
+format layer -- that was exact from the first commit -- it was a constant that
+had been correct for as long as there was only one container to be correct
+about.
+
+### What this meant for ticket 04
 
 Ticket 04 says, under Not in scope: **"Making the block size itself
 configurable. It stays dump1090's."** That was written before anyone had run
