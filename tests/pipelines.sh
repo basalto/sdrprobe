@@ -414,6 +414,100 @@ fi
 # --- The flags that reach those paths -------------------------------------
 #
 # check-options proves the parser; this proves the program acts on it.
+# --- A wider container: same answers, and one that is not -----------------
+#
+# `.scratch/device-model/issues/01-a-format-change-moves-no-answer.md` asked
+# for exactly this -- the built program over both corpora -- and the answer is
+# not the one it expected.
+#
+# build/testfiles16/ is testfiles/ scaled into a 16-bit container by
+# scripts/rescale_capture.c, exactly and losslessly. check-sample-format proves
+# the two arrive as bit-identical floats once each is normalised by its own
+# full scale. So every **identity** below is unchanged, and that is the half
+# that matters: the decoders are scale-invariant.
+#
+# What does change is how much signal a block holds. A block is
+# SAMPLE_BLOCK_BYTES, so at four bytes a pair it covers 32.8 ms instead of
+# 65.5, and ticket 04 rules the block size out of scope -- "it stays
+# dump1090's". The visible cost is asserted here rather than papered over:
+# twice as many LTE blocks, and **GSM ARFCN 69 loses its System Information
+# entirely**, because assembling one needs four consecutive normal bursts and
+# a half-length block cannot hold them.
+#
+# These assertions exist so that stops being silent. If the block ever becomes
+# a fixed number of pairs, this section fails and says so.
+check_wide_container() {
+    corpus=build/testfiles16
+    if [ ! -f "$corpus/gsm_arfcn_69.bin" ]; then
+        report "16-bit corpus" "absent; run make check-sample-format"
+        return
+    fi
+
+    # The identities, which must not move.
+    checked
+    output=$(run --file "$corpus/gsm_arfcn_69.bin" --headless --arfcn 69 \
+                 --decode --once)
+    if printf '%s\n' "$output" | grep -q "BSIC 59 (NCC 7, BCC 3)"; then
+        report "gsm_arfcn_69 16-bit" "BSIC 59, the same identity"
+    else
+        fail "gsm_arfcn_69 at four bytes a pair: BSIC 59 not read"
+    fi
+
+    checked
+    output=$(run --file "$corpus/tetra_cc17.bin" --headless --technology tetra \
+                 --sample-rate 2000000 --decode --once)
+    if printf '%s\n' "$output" | grep -q "MCC 268  MNC 3  colour 17  LA 4375"; then
+        report "tetra_cc17 16-bit" "MCC 268, colour 17, LA 4375"
+    else
+        fail "tetra_cc17 at four bytes a pair: the network identity moved"
+    fi
+
+    checked
+    output=$(run --file "$corpus/lte_b20_pci28.bin" --headless --technology lte \
+                 --sample-rate 1920000 --decode --once)
+    if printf '%s\n' "$output" | grep -q "cell 28 .*normal CP" &&
+       printf '%s\n' "$output" | grep -q "2 antenna ports"; then
+        report "lte_b20_pci28 16-bit" "cell 28, 2 ports"
+    else
+        fail "lte_b20_pci28 at four bytes a pair: cell 28 / 2 ports not read"
+    fi
+
+    checked
+    output=$(run --file "$corpus/adsb_cpr_pair.bin" --headless \
+                 --technology adsb --decode --once)
+    positions=$(printf '%s\n' "$output" | grep -c " POS ")
+    if [ "$positions" -ge 1 ]; then
+        report "adsb_cpr_pair 16-bit" "$positions position(s), CPR pairing intact"
+    else
+        fail "adsb_cpr_pair at four bytes a pair: no global position resolved"
+    fi
+
+    checked
+    output=$(run --file "$corpus/fm_rds_tsf.bin" --sample-rate 2048000 \
+                 --frequency 89.5M --headless --technology fm --decode --once)
+    if printf '%s\n' "$output" | grep -q "0x8343" &&
+       printf '%s\n' "$output" | grep -q "TSF"; then
+        report "fm_rds_tsf 16-bit" "station 0x8343, TSF"
+    else
+        fail "fm_rds_tsf at four bytes a pair: identification or name moved"
+    fi
+
+    # And the cost, asserted as the finding it is.
+    checked
+    output=$(run --file "$corpus/gsm_arfcn_69.bin" --headless --arfcn 69 \
+                 --decode --once)
+    if printf '%s\n' "$output" | grep -q "BCCH System Information 3"; then
+        fail "gsm_arfcn_69 16-bit now reads System Information 3 -- the block \
+is no longer halving, so this finding and ticket 04 need revisiting"
+    else
+        report "gsm_arfcn_69 16-bit" "no System Information: a 32.8 ms block \
+cannot hold four bursts"
+    fi
+}
+
+printf '  A wider container\n'
+check_wide_container
+
 printf '  Flags\n'
 checked
 if ! run --file testfiles/adsb_cpr_pair.bin --headless --technology adsb \

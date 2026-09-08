@@ -93,7 +93,8 @@ static void record_capture(struct acquisition *acq, const unsigned char *data,
         char path[sizeof(acq->record_path)];
         snprintf(path, sizeof(path), "%s", acq->record_path);
         record_write_sidecar(acq, (double)acq->record_bytes /
-                                  ((double)acq->record_sample_rate * 2.0));
+                                  ((double)acq->record_sample_rate *
+                                   (double)acq->record_bytes_per_pair));
         fclose(acq->record_file);
         acq->record_file = NULL;
         acq->recording = 0;
@@ -348,7 +349,12 @@ void *file_worker(void *arg) {
             break;
 
         publish_block(acq, block, SAMPLE_BLOCK_BYTES);
-        published_pairs += SAMPLE_BLOCK_PAIRS;
+        /* How much time a block represents depends on the container, not on
+           a constant: SAMPLE_BLOCK_BYTES is fixed and a four-byte pair fits
+           half as many of them in. Pacing by SAMPLE_BLOCK_PAIRS would run a
+           16-bit capture at twice real time. */
+        published_pairs += SAMPLE_BLOCK_BYTES /
+                           (acq->bytes_per_pair ? acq->bytes_per_pair : 2);
         /* Pacing exists so playback looks like a receiver. A lossless run has
            no display to feed and publish_block already waits for the consumer,
            so pacing would only make the check slower. */
@@ -423,6 +429,9 @@ int acquisition_start_recording(struct acquisition *acq, const char *path,
     acq->record_sample_rate = req->sample_rate;
     acq->record_format = req->format;
     acq->record_full_scale = req->full_scale;
+    acq->record_bytes_per_pair = device_format_bytes_per_pair(req->format);
+    if (acq->record_bytes_per_pair == 0)
+        acq->record_bytes_per_pair = 2;
     acq->record_gain_tenths = req->gain_tenths;
     acq->record_manual_gain = req->manual_gain;
     acq->record_ppm = req->ppm;
@@ -441,7 +450,8 @@ int acquisition_start_recording(struct acquisition *acq, const char *path,
     double seconds = req->seconds > 0.0 ? req->seconds
                                        : ACQUISITION_RECORD_BUTTON_SECONDS;
     acq->record_limit_bytes =
-        (uint64_t)(seconds * (double)req->sample_rate * 2.0);
+        (uint64_t)(seconds * (double)req->sample_rate *
+                   (double)acq->record_bytes_per_pair);
     acq->recording = 1; /* the acquisition thread writes from here on */
     pthread_mutex_unlock(&acq->record_mutex);
     return 0;
@@ -468,7 +478,8 @@ void acquisition_stop_recording(struct acquisition *acq) {
         fprintf(stderr, "Recording %s stopped early at %.1f MB\n",
                 acq->record_path, acq->record_bytes / 1e6);
         record_write_sidecar(acq, (double)acq->record_bytes /
-                                  ((double)acq->record_sample_rate * 2.0));
+                                  ((double)acq->record_sample_rate *
+                                   (double)acq->record_bytes_per_pair));
         fclose(acq->record_file);
         acq->record_file = NULL;
         acq->recording = 0;
@@ -532,10 +543,12 @@ void acquisition_set_lossless(struct acquisition *acq, int lossless) {
 
 void acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
                                FILE *capture, uint32_t sample_rate,
+                               unsigned bytes_per_pair,
                                const char *capture_path, int capture_loop) {
     acq->dev = dev;
     acq->capture = capture;
     acq->sample_rate = sample_rate;
+    acq->bytes_per_pair = bytes_per_pair ? bytes_per_pair : 2;
     acq->capture_path = capture_path;
     acq->capture_loop = capture_loop;
 }

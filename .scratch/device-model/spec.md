@@ -168,11 +168,24 @@ The profile holds, at minimum:
    its own full scale, so a relative threshold transfers and an absolute one in
    counts would not. Nobody has yet measured whether a decoder has one.
 4. **Block arithmetic in samples** (`04`) -- the silent one.
+   **Done for the arithmetic, 2026-09-08**, and it stopped being silent in the
+   worst possible way: with ticket 01's expensive half finally runnable, the
+   built program over both corpora shows **every identity unchanged and one
+   answer gone**. A block is `SAMPLE_BLOCK_BYTES`, so a four-byte container
+   halves its duration; LTE doubles its messages and `gsm_arfcn_69` loses its
+   System Information entirely, because four consecutive normal bursts do not
+   fit in 32.8 ms. Ticket 04's "the block size stays dump1090's" does not
+   settle *dump1090's what* -- its 262144 bytes or its 131072 pairs, which were
+   the same number until there were two containers. **Ticket 09** carries that
+   decision; `check-pipelines` asserts the current cost meanwhile.
 5. **Tuner reach from the profile** (`05`).
 6. **The gain model** (`06`).
 7. **A second backend** (`07`) -- blocked on the device choice.
 8. **Artifacts and calibration are per-device** (`08`) -- absorbs
    `.scratch/calibrating-the-flags/`.
+9. **A block in pairs or in bytes** (`09`) -- opened by measurement rather than
+   design, and blocking nothing: the program works today, it just loses a
+   decode on a wide container.
 
 ## What this is not
 
