@@ -6,7 +6,6 @@
 #include <pthread.h>
 #include <raylib.h>
 #include <rlgl.h>        /* rlDrawRenderBatchActive, for --screenshot */
-#include <rtl-sdr.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -65,10 +64,37 @@ static void on_signal(int signal_number) {
 
 
 
-int set_frequency_correction(rtlsdr_dev_t *dev, int ppm) {
-    if (rtlsdr_get_freq_correction(dev) == ppm)
+/*
+ * What the source currently reports, or 0 when it will not say. The `get_`
+ * half of the driver surface used to be called inline; a backend returns a
+ * status and writes through a pointer, so these keep the call sites reading
+ * the way they did.
+ */
+static uint32_t source_frequency(struct app *app) {
+    uint32_t hz = 0;
+    return device_frequency_hz(&app->source, &hz) == 0 ? hz : 0;
+}
+
+static uint32_t source_sample_rate(struct app *app) {
+    uint32_t hz = 0;
+    return device_sample_rate_hz(&app->source, &hz) == 0 ? hz : 0;
+}
+
+static int source_ppm(struct app *app) {
+    int ppm = 0;
+    return device_ppm(&app->source, &ppm) == 0 ? ppm : 0;
+}
+
+static int source_gain(struct app *app) {
+    int gain = 0;
+    return device_gain(&app->source, &gain) == 0 ? gain : 0;
+}
+
+int set_frequency_correction(struct device_session *source, int ppm) {
+    int current = 0;
+    if (device_ppm(source, &current) == 0 && current == ppm)
         return 0;
-    return rtlsdr_set_freq_correction(dev, ppm);
+    return device_set_ppm(source, ppm);
 }
 
 
@@ -82,56 +108,38 @@ static void print_supported_gains(const int *gains, int count) {
     fputc('\n', stderr);
 }
 
-/* The tuner chip, not the USB bridge: it sets the achievable gains and the
-   oscillator whose error the PPM correction compensates, so a capture is worth
-   labelling with it, and --list-devices is worth printing it. */
-static const char *tuner_name(rtlsdr_dev_t *dev) {
-    switch (rtlsdr_get_tuner_type(dev)) {
-    case RTLSDR_TUNER_E4000:  return "E4000";
-    case RTLSDR_TUNER_FC0012: return "FC0012";
-    case RTLSDR_TUNER_FC0013: return "FC0013";
-    case RTLSDR_TUNER_FC2580: return "FC2580";
-    case RTLSDR_TUNER_R820T:  return "R820T";
-    case RTLSDR_TUNER_R828D:  return "R828D";
-    default: return "unknown";
-    }
-}
-
 static int configure_receiver(struct app *app) {
-    int *gains = NULL;
-    int gain_count = 0;
+    const int *gains;
+    int gain_count;
     int selected_gain = 0;
     int result = -1;
     uint32_t reported_frequency;
     uint32_t reported_rate;
 
-    if (rtlsdr_get_device_count() == 0) {
+    if (device_backend_rtlsdr_count() == 0) {
         fprintf(stderr, "No supported RTLSDR devices found.\n");
         return -1;
     }
-    if (rtlsdr_open(&app->dev, (uint32_t)app->options.device_index) < 0) {
+    /*
+     * The backend opens the device and fills in the profile -- the container,
+     * the full scale, the tuner's reach, the gain list -- because it is the
+     * only thing that knows any of that. What used to be a malloc'd copy of
+     * the gain list is the profile's own array now, so there is one of it.
+     */
+    if (device_backend_rtlsdr()->open(&app->source, app->options.device_index,
+                                      &app->device) < 0) {
         fprintf(stderr, "Failed to open RTL-SDR receiver index %d. "
                         "Try --list-devices.\n",
                 app->options.device_index);
         return -1;
     }
 
-    gain_count = rtlsdr_get_tuner_gains(app->dev, NULL);
+    gains = app->device.gain_list;
+    gain_count = app->device.gain_count;
     if (gain_count <= 0) {
         fprintf(stderr, "Failed to enumerate supported tuner gains.\n");
         goto done;
     }
-    gains = malloc((size_t)gain_count * sizeof(*gains));
-    if (!gains) {
-        fprintf(stderr, "Cannot allocate tuner gain list.\n");
-        goto done;
-    }
-    int returned = rtlsdr_get_tuner_gains(app->dev, gains);
-    if (returned <= 0 || returned > gain_count) {
-        fprintf(stderr, "Failed to read supported tuner gains.\n");
-        goto done;
-    }
-    gain_count = returned;
 
     if (app->options.gain_kind != GAIN_REQUEST_AUTO) {
         if (app->options.gain_kind == GAIN_REQUEST_MAX) {
@@ -163,43 +171,38 @@ static int configure_receiver(struct app *app) {
     }
 
     app->applied_manual_gain = app->options.gain_kind != GAIN_REQUEST_AUTO;
-    if (rtlsdr_set_tuner_gain_mode(app->dev, app->applied_manual_gain) < 0) {
-        fprintf(stderr, "Failed to set RTL-SDR tuner gain mode.\n");
+    if (device_set_gain(&app->source, app->applied_manual_gain,
+                        selected_gain) < 0) {
+        fprintf(stderr, "Failed to set RTL-SDR tuner gain to %.1f dB.\n",
+                selected_gain / 10.0);
         goto done;
     }
-    if (app->applied_manual_gain) {
-        if (rtlsdr_set_tuner_gain(app->dev, selected_gain) < 0) {
-            fprintf(stderr, "Failed to set RTL-SDR tuner gain to %.1f dB.\n",
-                    selected_gain / 10.0);
-            goto done;
-        }
-    }
-    if (set_frequency_correction(app->dev, app->options.ppm) < 0) {
+    if (set_frequency_correction(&app->source, app->options.ppm) < 0) {
         fprintf(stderr, "Failed to set RTL-SDR frequency correction to %d PPM.\n",
                 app->options.ppm);
         goto done;
     }
-    if (rtlsdr_set_center_freq(app->dev, app->options.frequency) < 0) {
+    if (device_set_frequency_hz(&app->source, app->options.frequency) < 0) {
         fprintf(stderr, "Failed to set RTL-SDR center frequency to %u Hz.\n",
                 app->options.frequency);
         goto done;
     }
-    if (rtlsdr_set_sample_rate(app->dev, app->options.sample_rate) < 0) {
+    if (device_set_sample_rate_hz(&app->source, app->options.sample_rate) < 0) {
         fprintf(stderr, "Failed to set RTL-SDR sample rate to %u S/s.\n",
                 app->options.sample_rate);
         goto done;
     }
-    if (rtlsdr_reset_buffer(app->dev) < 0) {
+    if (device_flush(&app->source) < 0) {
         fprintf(stderr, "Failed to reset the RTL-SDR receiver buffer.\n");
         goto done;
     }
 
-    reported_frequency = rtlsdr_get_center_freq(app->dev);
+    reported_frequency = source_frequency(app);
     if (reported_frequency == 0) {
         fprintf(stderr, "Failed to read back the RTL-SDR center frequency.\n");
         goto done;
     }
-    reported_rate = rtlsdr_get_sample_rate(app->dev);
+    reported_rate = source_sample_rate(app);
     if (reported_rate == 0) {
         fprintf(stderr, "Failed to read back the RTL-SDR sample rate.\n");
         goto done;
@@ -219,7 +222,7 @@ static int configure_receiver(struct app *app) {
     }
 
     if (app->applied_manual_gain) {
-        int reported_gain = rtlsdr_get_tuner_gain(app->dev);
+        int reported_gain = source_gain(app);
         if (selected_gain != 0 && reported_gain != selected_gain) {
             fprintf(stderr,
                     "Gain mismatch: requested %.1f dB, reported %.1f dB.\n",
@@ -231,26 +234,30 @@ static int configure_receiver(struct app *app) {
 
     app->applied_frequency = reported_frequency;
     app->applied_sample_rate = reported_rate;
-    app->applied_ppm = rtlsdr_get_freq_correction(app->dev);
-    app->supported_gains = gains;
-    app->supported_gain_count = gain_count;
-    gains = NULL;
-    const char *device_name = rtlsdr_get_device_name(0);
+    app->applied_ppm = source_ppm(app);
+    /* Points into the profile's own array rather than owning a copy, so
+       there is nothing to free and nothing that can disagree with it. */
+    app->supported_gains = app->device.gain_list;
+    app->supported_gain_count = app->device.gain_count;
+    const char *device_name =
+        device_backend_rtlsdr_name(app->options.device_index);
     snprintf(app->source_label, sizeof(app->source_label), "RTL-SDR: %s",
              device_name ? device_name : "receiver 0");
     snprintf(app->tuner_label, sizeof(app->tuner_label), "%s",
-             tuner_name(app->dev));
+             device_backend_rtlsdr_tuner(&app->source));
     /* What this receiver is, in the terms the numbers need: an 8-bit
        container at 127.5 full scale, the tuner's reach, and the gain list it
        just reported (device_profile.h). Everything that would otherwise
        assume eight bits reads it from here. */
-    app->device = device_profile_rtlsdr(app->tuner_label,
-                                        app->supported_gains,
-                                        app->supported_gain_count);
+    /* The profile is already filled in -- the backend did it at open, which
+       is the only place that knows the container and the gain list. Rebuilding
+       it here would read `supported_gains`, which now points into the struct
+       being overwritten. */
     result = 0;
 
 done:
-    free(gains);
+    if (result != 0)
+        device_close(&app->source);
     return result;
 }
 
@@ -484,7 +491,7 @@ int stop_acquisition(struct app *app) {
         if (reading) {
             int cancel_result = -1;
             for (int attempt = 0; attempt < 100 && !done; attempt++) {
-                cancel_result = rtlsdr_cancel_async(app->dev);
+                cancel_result = device_stop(&app->source);
                 if (cancel_result == 0)
                     break;
                 struct timespec retry = { 0, 1000000L };
@@ -543,7 +550,7 @@ int start_acquisition(struct app *app) {
                  "Cannot block worker signals: %s", strerror(mask_result));
         return -1;
     }
-    if (acquisition_attach_source(&app->acq, app->dev, app->capture,
+    if (acquisition_attach_source(&app->acq, &app->source, app->capture,
                                   app->applied_sample_rate,
                                   app->device.bytes_per_pair,
                                   app->options.file_path,
@@ -597,16 +604,16 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
 
     if (stop_acquisition(app) < 0)
         return -1;
-    if (rtlsdr_set_sample_rate(app->dev, sample_rate) < 0 ||
-        rtlsdr_reset_buffer(app->dev) < 0) {
+    if (device_set_sample_rate_hz(&app->source, sample_rate) < 0 ||
+        device_flush(&app->source) < 0) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Receiver refused %.3f MS/s", sample_rate / 1e6);
-        rtlsdr_set_sample_rate(app->dev, old_rate);
-        rtlsdr_reset_buffer(app->dev);
+        device_set_sample_rate_hz(&app->source, old_rate);
+        device_flush(&app->source);
         start_acquisition(app);
         return -1;
     }
-    app->applied_sample_rate = rtlsdr_get_sample_rate(app->dev);
+    app->applied_sample_rate = source_sample_rate(app);
     if (app->applied_sample_rate == 0)
         app->applied_sample_rate = sample_rate;
     /* Every spectrum and waterfall row was measured across a different span
@@ -615,8 +622,8 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
     app->spectrum_peak_ready = 0;
 
     if (start_acquisition(app) < 0) {
-        rtlsdr_set_sample_rate(app->dev, old_rate);
-        rtlsdr_reset_buffer(app->dev);
+        device_set_sample_rate_hz(&app->source, old_rate);
+        device_flush(&app->source);
         app->applied_sample_rate = old_rate;
         start_acquisition(app);
         return -1;
@@ -626,8 +633,8 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
         /* The tuning failed but the rate took. Put the rate back too, so a
            refusal leaves the receiver where it was found. */
         if (stop_acquisition(app) == 0) {
-            rtlsdr_set_sample_rate(app->dev, old_rate);
-            rtlsdr_reset_buffer(app->dev);
+            device_set_sample_rate_hz(&app->source, old_rate);
+            device_flush(&app->source);
             app->applied_sample_rate = old_rate;
             start_acquisition(app);
         }
@@ -766,27 +773,27 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     int old_ppm = app->applied_ppm;
     if (stop_acquisition(app) < 0)
         return -1;
-    if (set_frequency_correction(app->dev, ppm) < 0 ||
-        rtlsdr_set_center_freq(app->dev, frequency) < 0 ||
-        rtlsdr_reset_buffer(app->dev) < 0) {
+    if (set_frequency_correction(&app->source, ppm) < 0 ||
+        device_set_frequency_hz(&app->source, frequency) < 0 ||
+        device_flush(&app->source) < 0) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Receiver rejected calibration tuning or PPM correction");
-        set_frequency_correction(app->dev, old_ppm);
-        rtlsdr_set_center_freq(app->dev, old_frequency);
-        rtlsdr_reset_buffer(app->dev);
+        set_frequency_correction(&app->source, old_ppm);
+        device_set_frequency_hz(&app->source, old_frequency);
+        device_flush(&app->source);
         app->applied_frequency = old_frequency;
         app->applied_ppm = old_ppm;
         if (start_acquisition(app) < 0)
             return -1;
         return -1;
     }
-    uint32_t reported = rtlsdr_get_center_freq(app->dev);
+    uint32_t reported = source_frequency(app);
     if (reported == 0) {
         snprintf(app->calibration_status, sizeof(app->calibration_status),
                  "Could not read back calibration tuning");
-        set_frequency_correction(app->dev, old_ppm);
-        rtlsdr_set_center_freq(app->dev, old_frequency);
-        rtlsdr_reset_buffer(app->dev);
+        set_frequency_correction(&app->source, old_ppm);
+        device_set_frequency_hz(&app->source, old_frequency);
+        device_flush(&app->source);
         app->applied_frequency = old_frequency;
         app->applied_ppm = old_ppm;
         if (start_acquisition(app) < 0)
@@ -794,16 +801,16 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
         return -1;
     }
     app->applied_frequency = reported;
-    app->applied_ppm = rtlsdr_get_freq_correction(app->dev);
+    app->applied_ppm = source_ppm(app);
     app->spectrum_ready = 0;
     app->spectrum_peak_ready = 0;
     /* The waterfall's history now belongs to a frequency the receiver has
        left, but rebuilding it is drawing, and this runs on paths with no
        window: view_scope_resize_if_needed() notices and clears it. */
     if (start_acquisition(app) < 0) {
-        set_frequency_correction(app->dev, old_ppm);
-        rtlsdr_set_center_freq(app->dev, old_frequency);
-        rtlsdr_reset_buffer(app->dev);
+        set_frequency_correction(&app->source, old_ppm);
+        device_set_frequency_hz(&app->source, old_frequency);
+        device_flush(&app->source);
         app->applied_frequency = old_frequency;
         app->applied_ppm = old_ppm;
         start_acquisition(app);
@@ -1301,7 +1308,7 @@ static int run_gui(struct app *app) {
                 strerror(mask_result));
         return -1;
     }
-    if (acquisition_attach_source(&app->acq, app->dev, app->capture,
+    if (acquisition_attach_source(&app->acq, &app->source, app->capture,
                                   app->applied_sample_rate,
                                   app->device.bytes_per_pair,
                                   app->options.file_path,
@@ -1845,36 +1852,10 @@ static int run_gui(struct app *app) {
     return result;
 }
 
-/* Print the receivers attached, and whether each can actually be opened. The
-   second half is the useful half: "found but busy" is the state that otherwise
-   shows up as a bare failure to start. */
+/* Enumeration is the backend's: UHD enumerates by device args, not by index
+   (device_backend.h). */
 static int list_devices(void) {
-    uint32_t count = rtlsdr_get_device_count();
-
-    if (count == 0) {
-        printf("No RTL-SDR devices found.\n");
-        return 0;
-    }
-    for (uint32_t i = 0; i < count; i++) {
-        const char *name = rtlsdr_get_device_name(i);
-        rtlsdr_dev_t *dev = NULL;
-        printf("%u: %s\n", i, name ? name : "unknown");
-        if (rtlsdr_open(&dev, i) < 0) {
-            printf("   in use by another process, or not accessible\n");
-            continue;
-        }
-        int gain_count = rtlsdr_get_tuner_gains(dev, NULL);
-        int gains[64];
-        if (gain_count > 0 && gain_count <= (int)(sizeof(gains) / sizeof(*gains)) &&
-            rtlsdr_get_tuner_gains(dev, gains) == gain_count)
-            printf("   tuner %s   gains %.1f..%.1f dB (%d steps)\n",
-                   tuner_name(dev), gains[0] / 10.0,
-                   gains[gain_count - 1] / 10.0, gain_count);
-        else
-            printf("   tuner %s\n", tuner_name(dev));
-        rtlsdr_close(dev);
-    }
-    return 0;
+    return device_backend_rtlsdr_list();
 }
 
 double monotonic_seconds(void) {
@@ -3089,7 +3070,7 @@ cleanup:
             if (reading) {
                 int cancel_result = -1;
                 for (int attempt = 0; attempt < 100 && !done; attempt++) {
-                    cancel_result = rtlsdr_cancel_async(app->dev);
+                    cancel_result = device_stop(&app->source);
                     if (cancel_result == 0)
                         break;
                     struct timespec retry = { 0, 1000000L };
@@ -3133,17 +3114,12 @@ cleanup:
                 strerror(destroy_result));
         result = 1;
     }
-    if (app->dev) {
-        int close_result = rtlsdr_close(app->dev);
-        if (close_result != 0) {
-            fprintf(stderr, "Failed to close RTL-SDR receiver (%d).\n",
-                    close_result);
-            result = 1;
-        }
-        app->dev = NULL;
+    if (device_session_open(&app->source)) {
+        device_close(&app->source);
     }
     view_scope_release(app);
-    free(app->supported_gains);
+    /* Not freed: it points into app->device's own array now, which the
+       profile owns and which is a value rather than an allocation. */
     app->supported_gains = NULL;
     if (app->window_ready) {
         CloseWindow();

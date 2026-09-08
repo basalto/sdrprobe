@@ -169,6 +169,13 @@ static inline int device_stop(struct device_session *s) {
  * entirely.
  */
 const struct device_backend *device_backend_rtlsdr(void);
+int device_backend_rtlsdr_count(void);
+const char *device_backend_rtlsdr_name(int index);
+/* Print what is attached, and whether each opens. Enumeration is as
+   device-specific as tuning: UHD enumerates by device args, not by index. */
+int device_backend_rtlsdr_list(void);
+/* The tuner chip behind an open RTL session, for a capture's sidecar. */
+const char *device_backend_rtlsdr_tuner(const struct device_session *s);
 const struct device_backend *device_backend_capture(void);
 
 /*
