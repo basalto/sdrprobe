@@ -270,25 +270,20 @@ static int open_capture(struct app *app) {
                 strerror(errno));
         return -1;
     }
-    if (size < 2) {
-        fprintf(stderr, "Capture %s has no complete I/Q pair.\n",
-                app->options.file_path);
-        return -1;
-    }
-    if ((size & 1) != 0)
-        fprintf(stderr, "Warning: ignoring unmatched trailing byte in %s.\n",
-                app->options.file_path);
-    app->acq.capture_bytes = (uint64_t)size & ~UINT64_C(1);
     app->applied_frequency = app->options.frequency;
     app->applied_sample_rate = app->options.sample_rate;
     app->applied_ppm = app->options.ppm;
     snprintf(app->source_label, sizeof(app->source_label), "capture: %s",
              app->options.file_path);
+
     /*
      * A capture is at one place on the band and cannot be moved, which is what
      * the retune paths already refuse. What its bytes *mean* comes from its
      * own sidecar: a capture that says nothing is the house 8-bit convention,
      * which is what every capture was until build/testfiles16/ existed.
+     *
+     * This has to happen before the length is rounded below, because how many
+     * bytes make a whole I/Q pair is exactly what the sidecar settles.
      */
     struct capture_sidecar sidecar;
     if (capture_sidecar_read(app->options.file_path, &sidecar) < 0) {
@@ -301,9 +296,28 @@ static int open_capture(struct app *app) {
     app->device = device_profile_capture(
         app->options.file_path, sidecar.format, sidecar.full_scale,
         (double)app->applied_frequency, app->applied_sample_rate);
+    unsigned width = app->device.bytes_per_pair;
+    if (width == 0) {
+        fprintf(stderr, "Capture %s: unsupported sample format.\n",
+                app->options.file_path);
+        return -1;
+    }
+
+    if ((uint64_t)size < width) {
+        fprintf(stderr, "Capture %s has no complete I/Q pair.\n",
+                app->options.file_path);
+        return -1;
+    }
+    if ((uint64_t)size % width != 0)
+        fprintf(stderr,
+                "Warning: ignoring %llu unmatched trailing byte(s) in %s.\n",
+                (unsigned long long)((uint64_t)size % width),
+                app->options.file_path);
+    app->acq.capture_bytes = (uint64_t)size - ((uint64_t)size % width);
+
     if (sidecar.format_stated && sidecar.format != SAMPLE_FORMAT_U8)
         fprintf(stderr, "Capture %s: %u bytes a pair, full scale %.1f\n",
-                app->options.file_path, app->device.bytes_per_pair,
+                app->options.file_path, width,
                 (double)app->device.full_scale);
     return 0;
 }
@@ -529,11 +543,12 @@ int start_acquisition(struct app *app) {
                  "Cannot block worker signals: %s", strerror(mask_result));
         return -1;
     }
-    acquisition_attach_source(&app->acq, app->dev, app->capture,
-                              app->applied_sample_rate,
-                              app->device.bytes_per_pair,
-                              app->options.file_path,
-                              !app->options.play_once);
+    if (acquisition_attach_source(&app->acq, app->dev, app->capture,
+                                  app->applied_sample_rate,
+                                  app->device.bytes_per_pair,
+                                  app->options.file_path,
+                                  !app->options.play_once) < 0)
+        return -1;
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
         app->receiver_mode ? receiver_worker : file_worker, &app->acq);
@@ -1286,11 +1301,12 @@ static int run_gui(struct app *app) {
                 strerror(mask_result));
         return -1;
     }
-    acquisition_attach_source(&app->acq, app->dev, app->capture,
-                              app->applied_sample_rate,
-                              app->device.bytes_per_pair,
-                              app->options.file_path,
-                              !app->options.play_once);
+    if (acquisition_attach_source(&app->acq, app->dev, app->capture,
+                                  app->applied_sample_rate,
+                                  app->device.bytes_per_pair,
+                                  app->options.file_path,
+                                  !app->options.play_once) < 0)
+        return -1;
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
         app->receiver_mode ? receiver_worker : file_worker, &app->acq);

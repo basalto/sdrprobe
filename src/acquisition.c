@@ -81,7 +81,7 @@ static void record_capture(struct acquisition *acq, const unsigned char *data,
     }
     /* A block that is not the full size is a real gap in the signal, not just
        a short write; the capture is no longer contiguous and must say so. */
-    if (len != SAMPLE_BLOCK_BYTES)
+    if (len != acquisition_block_bytes(acq))
         acq->record_short_blocks++;
     size_t written = fwrite(data, 1, len, acq->record_file);
     acq->record_bytes += written;
@@ -124,7 +124,7 @@ void publish_block(struct acquisition *acq, const unsigned char *data,
         pthread_mutex_unlock(&latest->mutex);
         return;
     }
-    if (len == 0 || len > SAMPLE_BLOCK_BYTES) {
+    if (len == 0 || len > SAMPLE_BLOCK_BYTES_MAX) {
         latest->malformed_blocks++;
         pthread_mutex_unlock(&latest->mutex);
         return;
@@ -196,7 +196,7 @@ void *receiver_worker(void *arg) {
     if (!begin_worker_read(acq))
         return NULL;
     result = rtlsdr_read_async(acq->dev, receiver_callback, acq, 0,
-                               SAMPLE_BLOCK_BYTES);
+                               (uint32_t)acquisition_block_bytes(acq));
     pthread_mutex_lock(&acq->latest.mutex);
     int stopped = acq->latest.stop;
     pthread_mutex_unlock(&acq->latest.mutex);
@@ -305,12 +305,14 @@ void *file_worker(void *arg) {
         return NULL;
     }
 
+    const size_t block_bytes = acquisition_block_bytes(acq);
+
     while (!worker_stop_requested(acq)) {
         size_t filled = 0;
 
-        while (filled < SAMPLE_BLOCK_BYTES && !worker_stop_requested(acq)) {
+        while (filled < block_bytes && !worker_stop_requested(acq)) {
             uint64_t available = acq->capture_bytes - position;
-            size_t wanted = SAMPLE_BLOCK_BYTES - filled;
+            size_t wanted = block_bytes - filled;
             if (available < wanted)
                 wanted = (size_t)available;
             size_t got = fread(block + filled, 1, wanted, acq->capture);
@@ -348,13 +350,11 @@ void *file_worker(void *arg) {
         if (worker_stop_requested(acq))
             break;
 
-        publish_block(acq, block, SAMPLE_BLOCK_BYTES);
-        /* How much time a block represents depends on the container, not on
-           a constant: SAMPLE_BLOCK_BYTES is fixed and a four-byte pair fits
-           half as many of them in. Pacing by SAMPLE_BLOCK_PAIRS would run a
-           16-bit capture at twice real time. */
-        published_pairs += SAMPLE_BLOCK_BYTES /
-                           (acq->bytes_per_pair ? acq->bytes_per_pair : 2);
+        publish_block(acq, block, (uint32_t)block_bytes);
+        /* A block is SAMPLE_BLOCK_PAIRS pairs on every container now, so this
+           is a constant again -- and it is the *pair* count, which is what
+           real time is measured in. */
+        published_pairs += SAMPLE_BLOCK_PAIRS;
         /* Pacing exists so playback looks like a receiver. A lossless run has
            no display to feed and publish_block already waits for the consumer,
            so pacing would only make the check slower. */
@@ -541,14 +541,28 @@ void acquisition_set_lossless(struct acquisition *acq, int lossless) {
     pthread_mutex_unlock(&acq->latest.mutex);
 }
 
-void acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
-                               FILE *capture, uint32_t sample_rate,
-                               unsigned bytes_per_pair,
-                               const char *capture_path, int capture_loop) {
+int acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
+                              FILE *capture, uint32_t sample_rate,
+                              unsigned bytes_per_pair,
+                              const char *capture_path, int capture_loop) {
+    if (!acq)
+        return -1;
+    if (bytes_per_pair == 0)
+        bytes_per_pair = 2;
+    /* Refuse rather than overrun. The block buffers are sized for
+       SAMPLE_MAX_BYTES_PER_PAIR and a wider container would walk off them
+       with nothing to say so. */
+    if (bytes_per_pair > SAMPLE_MAX_BYTES_PER_PAIR) {
+        fprintf(stderr,
+                "Acquisition: %u bytes a pair, but blocks are sized for %d.\n",
+                bytes_per_pair, SAMPLE_MAX_BYTES_PER_PAIR);
+        return -1;
+    }
     acq->dev = dev;
     acq->capture = capture;
     acq->sample_rate = sample_rate;
-    acq->bytes_per_pair = bytes_per_pair ? bytes_per_pair : 2;
+    acq->bytes_per_pair = bytes_per_pair;
     acq->capture_path = capture_path;
     acq->capture_loop = capture_loop;
+    return 0;
 }

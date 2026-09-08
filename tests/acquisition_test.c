@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 
 #include "acquisition.h"
+#include <fcntl.h>
+#include <unistd.h>
+
 #include "check.h"
 
 #include <pthread.h>
@@ -25,7 +28,9 @@
  */
 
 static struct acquisition acq;
-static unsigned char block[SAMPLE_BLOCK_BYTES];
+/* Sized for the widest container, so a test can hand publish_block a
+   full-width block without the length outrunning the buffer. */
+static unsigned char block[SAMPLE_BLOCK_BYTES_MAX];
 
 static void fill(unsigned char value) {
     memset(block, value, sizeof(block));
@@ -107,9 +112,16 @@ static void test_malformed_blocks(void) {
     check_int("an empty block publishes nothing", take(&snap), 0);
     check_int("and is counted malformed", (long)snap.malformed_blocks, 1);
 
-    publish_block(&acq, block, SAMPLE_BLOCK_BYTES + 2);
+    /* Oversized is measured against the *buffer*, which holds a block at the
+       widest container acquisition carries -- SAMPLE_BLOCK_PAIRS pairs at
+       SAMPLE_MAX_BYTES_PER_PAIR bytes each. It is not SAMPLE_BLOCK_BYTES,
+       which is only the 8-bit case (ticket 09). */
+    publish_block(&acq, block, SAMPLE_BLOCK_BYTES_MAX + 2);
     check_int("an oversized block publishes nothing", take(&snap), 0);
     check_int("and is counted too", (long)snap.malformed_blocks, 2);
+    check_int("a full-width block is not oversized",
+              (long)SAMPLE_BLOCK_BYTES_MAX,
+              (long)SAMPLE_BLOCK_PAIRS * SAMPLE_MAX_BYTES_PER_PAIR);
 
     /* An odd length is half an I/Q pair. The pair is dropped and the rest is
        kept: a truncated block is still signal, and refusing it entirely would
@@ -316,7 +328,63 @@ static void test_file_worker_reads_a_capture_whole(void) {
     teardown();
 }
 
+/*
+ * A block is SAMPLE_BLOCK_PAIRS pairs, so how many *bytes* that is depends on
+ * the source's container -- and a container wider than the buffers is refused
+ * rather than overrunning them (ticket 09).
+ */
+static void test_block_bytes_follow_the_container(void) {
+    setup();
+
+    check_int("8-bit attaches", acquisition_attach_source(&acq, NULL, NULL,
+                                                          2000000U, 2, NULL, 0),
+              0);
+    check_size("and a block is 262144 bytes", acquisition_block_bytes(&acq),
+               (size_t)SAMPLE_BLOCK_PAIRS * 2);
+
+    check_int("16-bit attaches", acquisition_attach_source(&acq, NULL, NULL,
+                                                           2000000U, 4, NULL, 0),
+              0);
+    check_size("and the same block is 524288", acquisition_block_bytes(&acq),
+               (size_t)SAMPLE_BLOCK_PAIRS * 4);
+    check_size("which is what the buffers hold",
+               (size_t)SAMPLE_BLOCK_BYTES_MAX,
+               (size_t)SAMPLE_BLOCK_PAIRS * SAMPLE_MAX_BYTES_PER_PAIR);
+
+    /* Wider than the buffers: refused, not truncated and not overrun. The
+       refusal explains itself on stderr, which is right for a user and noise
+       in a report, so it is muted for the one call that provokes it -- the
+       return value is what is under test, not the wording. */
+    {
+        int saved = dup(STDERR_FILENO);
+        int null_fd = open("/dev/null", O_WRONLY);
+        if (null_fd >= 0) {
+            dup2(null_fd, STDERR_FILENO);
+            close(null_fd);
+        }
+        int refused = acquisition_attach_source(&acq, NULL, NULL, 2000000U, 8,
+                                                NULL, 0);
+        fflush(stderr);
+        if (saved >= 0) {
+            dup2(saved, STDERR_FILENO);
+            close(saved);
+        }
+        check_int("a container too wide is refused", refused, -1);
+    }
+    check_int("a null acquisition too",
+              acquisition_attach_source(NULL, NULL, NULL, 2000000U, 2, NULL, 0),
+              -1);
+
+    /* Zero means "unstated", which is the house convention. */
+    check_int("zero attaches", acquisition_attach_source(&acq, NULL, NULL,
+                                                         2000000U, 0, NULL, 0),
+              0);
+    check_size("as two bytes a pair", acquisition_block_bytes(&acq),
+               (size_t)SAMPLE_BLOCK_PAIRS * 2);
+}
+
 int main(void) {
+    test_block_bytes_follow_the_container();
     test_the_slot_overwrites();
     test_a_block_is_taken_once();
     test_malformed_blocks();

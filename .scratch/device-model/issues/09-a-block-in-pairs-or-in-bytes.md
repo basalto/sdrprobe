@@ -1,6 +1,8 @@
 # 09 - A block is dump1090's 131072 pairs, or its 262144 bytes. Which?
 
-Status: needs-triage
+Status: resolved, 2026-09-08. **Pairs.** The device is real, so the memory is
+rounding error beside what the device implies anyway. Both corpora now produce
+byte-identical decode output.
 
 Opened 2026-09-08 by a measurement, not by a design idea. Ticket 01's
 expensive half finally ran -- the built program over an 8-bit corpus and a
@@ -100,3 +102,64 @@ Whether a wide-container device is actually coming (spec ticket 07 is
 rounding-error beside what a 61.44 MS/s device implies anyway. If a wide
 container will only ever be the regression corpus, bytes is survivable and
 this ticket becomes a `wontfix` with the measurement written down.
+
+
+## What was built
+
+`SAMPLE_BLOCK_PAIRS` is 131072 outright rather than `SAMPLE_BLOCK_BYTES / 2`,
+and it is the invariant. `acquisition_block_bytes()` is that times the source's
+`bytes_per_pair`; the file worker reads a block that many bytes at a time and
+`published_pairs += SAMPLE_BLOCK_PAIRS` is a constant again -- correct now
+rather than by luck, and in the unit real time is actually measured in.
+
+`SAMPLE_BLOCK_BYTES_MAX` sizes the three block buffers (`latest.data`, `raw`,
+`file_block`) for `SAMPLE_MAX_BYTES_PER_PAIR`, which is 4. CF32 would need 8,
+nothing produces one, and `sdr_dsp_convert_iq` already refuses it -- so the
+buffers do not pay for it and **`acquisition_attach_source()` refuses a wider
+container rather than overrunning them**, returning negative where it used to
+return void.
+
+`open_capture()` reads the sidecar *before* rounding the file's length, because
+how many bytes make a whole I/Q pair is exactly what the sidecar settles. It
+was rounding to an even byte count, which is a two-byte container's answer.
+
+`SAMPLE_BLOCK_BYTES` survives as the 8-bit block -- what an RTL-SDR delivers
+and what the librtlsdr async read asks for -- and says so.
+
+## The result
+
+Both corpora, all six captures, full stdout: **107 lines each and byte
+identical**, the only difference being the wall clock in the ADS-B timestamps,
+which is when the two runs happened.
+
+| | before 09 | after 09 |
+| --- | --- | --- |
+| `gsm_arfcn_69` broadcast messages | 7 -> 2 | **7 -> 7** |
+| `gsm_arfcn_69` System Information 3 | lost | **read** |
+| LTE Master Information Blocks | 28 -> 55 | **28 -> 28** |
+| LTE processing time | +55% | **no difference** |
+
+The LTE timing was re-measured within a single run, because
+`does-it-help` now records that this machine's `powersave` governor makes any
+cross-session timing comparison worthless below about 16%: 1131/1105 ms at
+8 bits against 1138/1105 at 16.
+
+## What it cost
+
+768 KB, three block buffers going from 262144 bytes to 524288. Against the
+~3 MB of float arrays `struct app` already holds, and against a device that
+will stream at up to 61.44 MS/s.
+
+## Checks
+
+- `check-device-profile` gains `device_block_bytes()` both directions and the
+  invariant that matters: the same block is 262144 bytes at 8 bits and 524288
+  at 16, and **65.5 ms of signal either way**.
+- `check-acquisition` covers `acquisition_block_bytes()` at both widths, the
+  refusal of a container wider than the buffers, and zero meaning the house
+  convention. Its "oversized block" bound moved to `SAMPLE_BLOCK_BYTES_MAX`,
+  since that is what the slot actually holds now.
+- `check-pipelines` flipped from asserting the cost to asserting its absence:
+  seven broadcast messages with System Information 3 among them, and no more
+  than 40 Master Information Blocks. Either one failing means a block has gone
+  back to being counted in bytes.

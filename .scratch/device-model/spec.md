@@ -186,8 +186,13 @@ The profile holds, at minimum:
 8. **Artifacts and calibration are per-device** (`08`) -- absorbs
    `.scratch/calibrating-the-flags/`.
 9. **A block in pairs or in bytes** (`09`) -- opened by measurement rather than
-   design, and blocking nothing: the program works today, it just loses a
-   decode on a wide container.
+   design. **Done, 2026-09-08: pairs.** `SAMPLE_BLOCK_PAIRS` is the invariant
+   and the byte count follows the container, so a block is the same amount of
+   signal on every device. Both corpora now decode byte-identically -- 107
+   lines, every field -- where before the wide one lost `gsm_arfcn_69`'s
+   System Information 3 and paid 55% more LTE processing. Cost: 768 KB across
+   three block buffers, and a refusal for any container wider than
+   `SAMPLE_MAX_BYTES_PER_PAIR`.
 
 ## What this is not
 
