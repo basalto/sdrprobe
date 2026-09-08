@@ -974,10 +974,10 @@ struct app {
     int applied_manual_gain;
     int applied_gain_tenths;
     int applied_ppm;
-    /* Points into `device.gain_list`, which the profile owns. Not an
-       allocation and not freed; ticket 06 folds it away entirely. */
-    const int *supported_gains;
-    int supported_gain_count;
+    /* The gain list was here, as a pointer and a count. It is
+       `device.gain_list` / `gain_count`, reached through
+       `device_gain_option_count()` and `device_gain_option_value()` so a
+       continuous range and a discrete list read the same (ticket 06). */
     uint32_t applied_frequency;
     uint32_t applied_sample_rate;
     /*

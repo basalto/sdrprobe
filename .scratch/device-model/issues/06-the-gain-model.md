@@ -1,7 +1,8 @@
 # 06 - A gain model that is not a list of tenths of a dB
 
-Status: triaged 2026-09-08, **ready-for-agent for the panel** and
-**ready-for-human for the dBm convention**. Both open questions are answered
+Status: **panel done 2026-09-08**; the dBm half moved to ticket 08 and is
+design-only until there is an instrument. Triaged first, and that mattered:
+the second question rested on a wrong premise. Both open questions are answered
 below; the second one turned out to rest on a wrong premise, and correcting it
 changes what the ticket should build.
 Blocked by: 02 for the panel; the dBm half is blocked by 08.
@@ -132,3 +133,54 @@ in part 2 above before anything draws it.
 
 - AGC. The program sets a fixed gain deliberately, because a level that moves
   under the measurement makes every survey incomparable.
+
+
+## Built
+
+The triage's answer was that a list and a range are both **steppers**, so the
+panel needs one shape rather than two. That turned out to be the whole design:
+what differs is only what the steps are.
+
+`device_profile.h` gains three:
+
+- `device_gain_option_count(p)` -- a tuner's 29 entries, or `(max - min) / step
+  + 1` for a range, or 0 for a source with no gain to set;
+- `device_gain_option_value(p, i)` -- the i'th setting in the profile's own
+  unit, with out-of-range reading the floor rather than past anything;
+- `device_gain_format(p, value, out, n)` -- **the unit is the profile's and
+  nothing converts**.
+
+`GAIN_UNIT_INDEX` is new and is the reason that last one exists. An AD9361's
+receive gain is a gain-table index that UHD advertises as
+`meta_range_t(0.0, 76.0, 1.0)`, and what a step is worth depends on which of
+three band tables is loaded. A panel writing "40 dB" there would be lying, so
+the unit says `index 40`.
+
+`struct app`'s `supported_gains` and `supported_gain_count` are **gone**. They
+were a pointer and a count beside the profile that already held both, which is
+two things that could disagree. `print_supported_gains()` takes the profile
+now and prints in its unit, so a rejected `--gain` on a range device will not
+list tenths of a dB that do not exist.
+
+## Checks
+
+`check-device-profile` is 107, up from 88: both models enumerate, a coarser
+step gives fewer options rather than a different shape, an index formats as an
+index and a real dB gain as dB, no model offers nothing rather than one option,
+and a range with no step refuses to be enumerated. Verified by mutation --
+letting an index format itself as dB fails by name, and an off-by-one in the
+range count fails three.
+
+## Looked at
+
+On the **live receiver**: the panel reads `29.7 dB` with its steppers, which is
+what it read before, now through the profile. Under **file playback** it still
+reads `capture (not adjustable)` -- the capture profile has `GAIN_MODEL_NONE`,
+so there are no options to step through and nothing to draw.
+
+## What is deliberately not here
+
+The dBm reading. It went to ticket 08 with the two constraints on how it may
+ever be reported, and `docs/absolute-power-reference.md` established that
+neither device ships with the data it would need. Nothing on screen mentions a
+calibration that does not exist.

@@ -50,8 +50,10 @@ void open_settings(struct app *app) {
     }
     app->set.gain_choice = 0;
     if (app->receiver_mode && app->applied_manual_gain) {
-        for (int i = 0; i < app->supported_gain_count; i++)
-            if (app->supported_gains[i] == app->applied_gain_tenths)
+        int count = device_gain_option_count(&app->device);
+        for (int i = 0; i < count; i++)
+            if (device_gain_option_value(&app->device, i) ==
+                app->applied_gain_tenths)
                 app->set.gain_choice = i + 1;
     }
     app->settings_error[0] = '\0';
@@ -127,7 +129,9 @@ int apply_settings(struct app *app) {
     }
 
     int manual = app->set.gain_choice > 0;
-    int gain = manual ? app->supported_gains[app->set.gain_choice - 1] : 0;
+    int gain = manual ? device_gain_option_value(&app->device,
+                                                 app->set.gain_choice - 1)
+                      : 0;
     int old_manual = app->applied_manual_gain;
     int old_gain = app->applied_gain_tenths;
     int old_ppm = app->applied_ppm;
@@ -217,11 +221,11 @@ void handle_settings_input(struct app *app) {
     if (app->receiver_mode && clicked(l.gain_previous)) {
         app->set.gain_choice--;
         if (app->set.gain_choice < 0)
-            app->set.gain_choice = app->supported_gain_count;
+            app->set.gain_choice = device_gain_option_count(&app->device);
     }
     if (app->receiver_mode && clicked(l.gain_next)) {
         app->set.gain_choice++;
-        if (app->set.gain_choice > app->supported_gain_count)
+        if (app->set.gain_choice > device_gain_option_count(&app->device))
             app->set.gain_choice = 0;
     }
     /* Wraps at both ends, the way the gain stepper does: seven choices and
@@ -277,8 +281,12 @@ void draw_settings(const struct app *app) {
     } else if (app->set.gain_choice == 0) {
         snprintf(gain, sizeof(gain), "automatic");
     } else {
-        snprintf(gain, sizeof(gain), "%.1f dB",
-                 app->supported_gains[app->set.gain_choice - 1] / 10.0);
+        /* In the profile's own unit, so a gain-table index says so rather
+           than pretending to be decibels (ticket 06). */
+        device_gain_format(&app->device,
+                           device_gain_option_value(&app->device,
+                                                    app->set.gain_choice - 1),
+                           gain, sizeof(gain));
     }
     if (app->receiver_mode) {
         draw_button(l.gain_previous, "<", 0);

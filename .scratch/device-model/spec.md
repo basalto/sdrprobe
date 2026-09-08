@@ -188,7 +188,12 @@ The profile holds, at minimum:
    view because bands 3, 1 and 7 are what the E-UTRA table already holds.
    54 allocations on an R820T, 60 on a 70 MHz - 6 GHz part, **neither a
    superset of the other**. Verified on the live receiver.
-6. **The gain model** (`06`).
+6. **The gain model** (`06`). **Done, 2026-09-08.** A list and a range are
+   both steppers, so one panel serves both -- `device_gain_option_count()`,
+   `_value()` and `_format()`, with `GAIN_UNIT_INDEX` because an AD9361's
+   receive gain is a gain-table index and calling it dB would be a lie.
+   `supported_gains` and `supported_gain_count` are gone from `struct app`.
+   The dBm half moved to 08.
 7. **A second backend** (`07`) -- blocked on the device choice.
 8. **Artifacts and calibration are per-device** (`08`) -- absorbs
    `.scratch/calibrating-the-flags/`.

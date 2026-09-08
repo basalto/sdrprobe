@@ -101,10 +101,19 @@ int set_frequency_correction(struct device_session *source, int ppm) {
 
 
 
-static void print_supported_gains(const int *gains, int count) {
-    fprintf(stderr, "Supported gains (dB):");
-    for (int i = 0; i < count; i++)
-        fprintf(stderr, "%s%.1f", i ? ", " : " ", gains[i] / 10.0);
+/* Every gain the source offers, in the unit the source uses -- tenths of a dB
+   from a tuner, dB or a gain-table index from a device with a range. The
+   profile decides; nothing here converts (ticket 06). */
+static void print_supported_gains(const struct device_profile *profile) {
+    int count = device_gain_option_count(profile);
+    char text[32];
+
+    fprintf(stderr, "Supported gains:");
+    for (int i = 0; i < count; i++) {
+        device_gain_format(profile, device_gain_option_value(profile, i), text,
+                           sizeof(text));
+        fprintf(stderr, "%s%s", i ? ", " : " ", text);
+    }
     fputc('\n', stderr);
 }
 
@@ -164,7 +173,7 @@ static int configure_receiver(struct app *app) {
             if (!supported) {
                 fprintf(stderr, "Requested gain %.1f dB is not supported.\n",
                         selected_gain / 10.0);
-                print_supported_gains(gains, gain_count);
+                print_supported_gains(&app->device);
                 goto done;
             }
         }
@@ -235,10 +244,6 @@ static int configure_receiver(struct app *app) {
     app->applied_frequency = reported_frequency;
     app->applied_sample_rate = reported_rate;
     app->applied_ppm = source_ppm(app);
-    /* Points into the profile's own array rather than owning a copy, so
-       there is nothing to free and nothing that can disagree with it. */
-    app->supported_gains = app->device.gain_list;
-    app->supported_gain_count = app->device.gain_count;
     const char *device_name =
         device_backend_rtlsdr_name(app->options.device_index);
     snprintf(app->source_label, sizeof(app->source_label), "RTL-SDR: %s",
@@ -250,9 +255,9 @@ static int configure_receiver(struct app *app) {
        just reported (device_profile.h). Everything that would otherwise
        assume eight bits reads it from here. */
     /* The profile is already filled in -- the backend did it at open, which
-       is the only place that knows the container and the gain list. Rebuilding
-       it here would read `supported_gains`, which now points into the struct
-       being overwritten. */
+       is the only place that knows the container and the gain list. It used to
+       be rebuilt here from a copy of that list, which after ticket 06 would
+       have meant reading the struct being overwritten. */
     result = 0;
 
 done:
@@ -3118,9 +3123,6 @@ cleanup:
         device_close(&app->source);
     }
     view_scope_release(app);
-    /* Not freed: it points into app->device's own array now, which the
-       profile owns and which is a value rather than an allocation. */
-    app->supported_gains = NULL;
     if (app->window_ready) {
         CloseWindow();
         app->window_ready = 0;

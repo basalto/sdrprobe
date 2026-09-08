@@ -960,6 +960,14 @@ would make them modules; `app.h`'s header comment says so.
 
 Its shape:
 
+- **Gain is the profile's, and a list and a range are the same widget.**
+  `device_gain_option_count()` / `_value()` / `_format()` turn a tuner's 29
+  discrete steps and an AD9361's continuous range into one stepper, because
+  that is what a panel shows either way. **`GAIN_UNIT_INDEX` exists because an
+  AD9361's receive gain is a gain-table index** that UHD advertises as
+  `0..76` and looks like dB -- what a step is worth depends on which of three
+  band tables is loaded, chosen at 1300 and 4000 MHz -- so the panel writes
+  `index 40` rather than a decibel it did not measure.
 - **The receiver is behind a seam.** `src/device_backend.h` is a vtable --
   open, close, tune, rate, ppm, gain, flush, stream, stop -- and
   `<rtl-sdr.h>` is included by **exactly one file**, `backend_rtlsdr.c`.
