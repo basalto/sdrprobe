@@ -1,6 +1,9 @@
 # 01 - Measure the comb on the receiving setup in front of you
 
-Status: needs-triage
+Status: absorbed 2026-09-08 into `.scratch/device-model/issues/08-*`. The
+comb's reference is `device_profile.reference_clock_hz` now and a source with
+no clock gets no comb tests; what is left of this ticket is measuring the
+divisors on the new hardware, which 08 carries.
 
 The comb spacing is derived from a crystal frequency compiled into
 `survey_suspect.h`. Measure it instead.

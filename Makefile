@@ -434,6 +434,22 @@ $(BUILD)/testfiles16/%.bin: testfiles/%.bin testfiles/%.json \
 rescale-capture: $(BUILD)/rescale_capture
 	$(Q)./$(BUILD)/rescale_capture $(FILE_RESCALE) $(OUT_RESCALE)
 
+# Threading a new parameter through a function with dozens of call sites, which
+# this repository keeps needing: a device profile through sdr_dsp's three
+# functions across six files, a full scale through LTE's three, a reference
+# clock through survey_suspect's five. It was a scratch script three times.
+#
+#     make add-argument FILE=src/foo.c FUNC=bar INDEX=1 VALUE='&app->source'
+#     make add-argument FILE=--self-test
+#
+# Read the diff afterwards: it is a text tool and rewrites a prototype the same
+# way it rewrites a call.
+add-argument:
+	$(Q)python3 scripts/add_argument.py $(FILE) $(FUNC) $(INDEX) $(VALUE)
+
+check-add-argument: scripts/add_argument.py
+	$(Q)CHECK_TALLY=$(CHECK_TALLY) python3 scripts/add_argument.py --self-test
+
 check-device-backend: $(TESTS)/device_backend_test.c $(TESTS)/check.h \
 		$(SRC)/device_backend.h $(SRC)/device_profile.h \
 		$(SRC)/capture_sidecar.h $(SRC)/backend_capture.c $(FORMAT16)
@@ -555,7 +571,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
 	check-signal-probe check-signal-findings check-receiver-lease \
 	check-sample-format check-device-profile check-capture-sidecar \
-	check-device-backend
+	check-device-backend check-add-argument
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -740,4 +756,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend clean
+.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument add-argument clean
