@@ -48,10 +48,65 @@ static void test_known_frequencies(void) {
 
 /* A frequency the table says nothing about must come back empty rather than
    attach itself to the nearest neighbour. */
+/*
+ * The allocations above 1766 MHz, which no RTL-SDR can reach and which
+ * therefore had no entries until a wideband device was on the way (ticket 05).
+ * Named here so the table cannot lose them quietly.
+ */
+static void test_above_the_rtl_reach(void) {
+    check_name("GSM 1800 downlink", 1842000000.0,
+               "GSM 1800 / LTE B3 downlink");
+    check_name("DECT", 1890000000.0, "DECT");
+    check_name("B1 uplink", 1950000000.0, "UMTS / LTE B1 uplink");
+    check_name("B1 downlink", 2140000000.0, "UMTS / LTE B1 downlink");
+    check_name("2.4 GHz ISM", 2437000000.0, "2.4 GHz ISM / RLAN");
+    check_name("B7 uplink", 2535000000.0, "LTE B7 uplink");
+    check_name("B38 unpaired", 2595000000.0, "LTE B38 (TDD)");
+    check_name("B7 downlink", 2655000000.0, "LTE B7 downlink");
+    check_name("n78", 3600000000.0, "5G NR n78 (TDD)");
+    check_name("5 GHz RLAN indoor", 5250000000.0, "5 GHz RLAN (indoor)");
+    check_name("5 GHz RLAN DFS", 5600000000.0, "5 GHz RLAN (DFS)");
+    check_name("5.8 GHz ISM", 5800000000.0, "5.8 GHz ISM");
+
+    /*
+     * The three downlinks that name a decoder are the three lte_dsp.c's
+     * E-UTRA table actually holds. A band the EARFCN map does not know must
+     * not name the LTE view, and an uplink must never name one at all --
+     * there is nothing to decode on an uplink from here.
+     */
+    const struct band_plan_entry *e;
+    e = band_plan_lookup(1842000000.0);
+    check_msg(e && e->decoder == BAND_PLAN_LTE, "B3 downlink names LTE\n");
+    e = band_plan_lookup(2140000000.0);
+    check_msg(e && e->decoder == BAND_PLAN_LTE, "B1 downlink names LTE\n");
+    e = band_plan_lookup(2655000000.0);
+    check_msg(e && e->decoder == BAND_PLAN_LTE, "B7 downlink names LTE\n");
+    e = band_plan_lookup(1950000000.0);
+    check_msg(e && e->decoder == BAND_PLAN_NONE,
+              "B1 uplink names no decoder\n");
+    e = band_plan_lookup(2535000000.0);
+    check_msg(e && e->decoder == BAND_PLAN_NONE,
+              "B7 uplink names no decoder\n");
+    e = band_plan_lookup(3600000000.0);
+    check_msg(e && e->decoder == BAND_PLAN_NONE,
+              "n78 names no decoder: there is no nr_dsp\n");
+    e = band_plan_lookup(2437000000.0);
+    check_msg(e && e->decoder == BAND_PLAN_NONE,
+              "2.4 GHz ISM names no decoder\n");
+}
+
 static void test_gaps(void) {
     check_none("between airband and 2 m", 140000000.0);
     check_none("between GSM up and down", 920000000.0);
-    check_none("above the tuner", 2000000000.0);
+    /* Was "above the tuner", which stopped being the reason: the table now
+       runs to 5875 MHz and reachability is the profile's business. 2000 MHz
+       is a genuine gap -- the 1980-2110 duplex split. */
+    check_none("the 2 GHz duplex gap", 2000000000.0);
+    check_none("the 1800 MHz duplex gap", 1795000000.0);
+    check_none("the 1900-1920 unpaired block", 1910000000.0);
+    check_none("between ISM and the 2.6 GHz bands", 2490000000.0);
+    check_none("between n78 and 5 GHz RLAN", 4500000000.0);
+    check_none("above everything the table knows", 6500000000.0);
     check_none("below everything", 50000.0);
 }
 
@@ -201,6 +256,7 @@ static void test_inspect_reaches_every_decoder(void) {
 }
 
 int main(void) {
+    test_above_the_rtl_reach();
     test_known_frequencies();
     test_gaps();
     test_decoders();
