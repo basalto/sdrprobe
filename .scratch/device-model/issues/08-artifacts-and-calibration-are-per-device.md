@@ -98,3 +98,46 @@ So this ticket's power-reference half is: **a user-run calibration against a
 known source, stored per device, per band and per gain**, with UHD's own table
 format and database as the machinery where the device supports it. The two
 reporting constraints above stand unchanged.
+
+
+## Done 2026-09-08: the comb is the device's
+
+`RECEIVER_REFERENCE_HZ 28800000.0` is gone from `survey_suspect.h`. The
+reference is `device_profile.reference_clock_hz`, and
+`survey_comb_spacing_hz()` / `survey_fine_comb_spacing_hz()` derive the two
+combs from whatever they are handed. `survey_suspect()`,
+`survey_suspect_confirmed()`, `survey_suspect_count()`,
+`survey_reference_harmonic()` and `survey_fine_harmonic()` all take it.
+
+**A reference of 0 means no comb tests at all**, and that is the case that
+made this worth doing rather than merely tidy: whichever receiver recorded a
+capture had a crystal, but the file does not, so nothing may attribute a comb
+to it. `device_profile_capture()` has set `reference_clock_hz` to 0 since
+ticket 02 for exactly this reason, and the check now names the consequence.
+
+Verified by mutation: making `survey_comb_spacing_hz()` fall back to 14.4 MHz
+when handed nothing fails four checks, including "so a capture flags no comb"
+and "with no clock, it is nothing". `check-suspect` is 161 checks, up from 145.
+
+**The two divisors stay, and stay labelled.** A tone every reference/2 and a
+finer one every reference/18 were measured on an RTL2832U -- the evidence is in
+`survey_suspect.h` and it is good evidence -- but they are facts about that
+chip's clock tree rather than about reference oscillators in general. On the
+B210 the ratio may differ, or there may be no comb here at all. The header says
+so where someone changing it will read it.
+
+### What `.scratch/calibrating-the-flags/` leaves behind
+
+That spec listed ten compiled-in constants. The comb's three are done. The
+rest split cleanly, and the device-model spec's own finding is why:
+
+| constant | on another device |
+| --- | --- |
+| `RECEIVER_COMB_TOLERANCE_HZ` (25 kHz) | how far a *reported* frequency sits from the truth -- a property of the sweep and the tuner. Re-measure. |
+| `RECEIVER_COMB_MAX_FRACTION` (1/40) | pure arithmetic about chance. Transfers, and is not free to loosen. |
+| `SIGNAL_CARRIER_PRESENT_DB`, `SIGNAL_BARE_FRACTION`, `SURVEY_NOISE_ENVELOPE_TOLERANCE`, `SURVEY_MIN_PROMINENCE_DB`, `SURVEY_CONFIRM_PROMINENCE_DB` | all relative -- a dB over a local floor, a percentile, a fraction. Transfer untouched. |
+
+So the re-measurement task on arrival is smaller than that spec feared: the
+comb itself, and the reported-frequency tolerance. Everything else was already
+device-independent and the earlier reading that "every threshold is calibrated
+against 8-bit full scale" was the false one.
