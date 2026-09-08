@@ -1,4 +1,14 @@
 #include "survey_suspect.h"
+#include "device_profile.h"
+
+/*
+ * The RTL2832U's crystal, which this header used to define as
+ * RECEIVER_REFERENCE_HZ. It is `device_profile.reference_clock_hz` now, so the
+ * suite states the value it is testing against -- and `device_profile_rtlsdr()`
+ * is asserted to agree with it below, which is what keeps the two from
+ * drifting apart.
+ */
+#define RTL_REFERENCE_HZ 28800000.0
 #include "check.h"
 
 #include <stdio.h>
@@ -51,7 +61,7 @@ static void test_the_comb_that_was_measured(void) {
     };
 
     for (size_t i = 0; i < sizeof(seen) / sizeof(*seen); i++) {
-        int harmonic = survey_reference_harmonic(seen[i].hz, tolerance);
+        int harmonic = survey_reference_harmonic(RTL_REFERENCE_HZ, seen[i].hz, tolerance);
 
         check_msg(harmonic == seen[i].harmonic,
                   "%.4f MHz: reported harmonic %d, expected %d\n",
@@ -66,18 +76,18 @@ static void test_the_comb_that_was_measured(void) {
      * 30 kHz apart: the reported frequency is the peak-held maximum bin, not
      * the centre, and noise moves it. Both readings are harmonic 45.
      */
-    check_int("647.9819 MHz, read low", survey_reference_harmonic(647.9819e6,
+    check_int("647.9819 MHz, read low", survey_reference_harmonic(RTL_REFERENCE_HZ, 647.9819e6,
                                                                   tolerance),
               45);
     check_int("648.0115 MHz, the same tone read high",
-              survey_reference_harmonic(648.0115e6, tolerance), 45);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 648.0115e6, tolerance), 45);
 
     /* And the measured refinements of two of them, which land within 400 Hz
        of the exact multiple. */
-    check_int("547.2004 MHz measured", survey_reference_harmonic(547.2004e6,
+    check_int("547.2004 MHz measured", survey_reference_harmonic(RTL_REFERENCE_HZ, 547.2004e6,
                                                                  tolerance),
               38);
-    check_int("576.0004 MHz measured", survey_reference_harmonic(576.0004e6,
+    check_int("576.0004 MHz measured", survey_reference_harmonic(RTL_REFERENCE_HZ, 576.0004e6,
                                                                  tolerance),
               40);
 }
@@ -97,7 +107,7 @@ static void test_real_signals_are_left_alone(void) {
     double worst = 0.0;
 
     for (size_t i = 0; i < sizeof(channels) / sizeof(*channels); i++) {
-        if (survey_reference_harmonic(channels[i], tolerance)) {
+        if (survey_reference_harmonic(RTL_REFERENCE_HZ, channels[i], tolerance)) {
             flagged++;
             worst = channels[i];
         }
@@ -109,13 +119,13 @@ static void test_real_signals_are_left_alone(void) {
 
     /* Nor the FM band's stations, nor the GSM downlink grid. */
     check_int("101.5 MHz is not on the comb",
-              survey_reference_harmonic(101.5e6, tolerance), 0);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 101.5e6, tolerance), 0);
     check_int("949.6 MHz is not on the comb",
-              survey_reference_harmonic(949.6e6, tolerance), 0);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 949.6e6, tolerance), 0);
     /* 1090 MHz is not either, which matters: Mode S sits there and a warning
        on it would be read as the receiver inventing aircraft. */
     check_int("1090 MHz is not on the comb",
-              survey_reference_harmonic(1090e6, tolerance), 0);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 1090e6, tolerance), 0);
 }
 
 /* The edges of the tolerance, where a comb test either over- or under-reaches
@@ -123,29 +133,29 @@ static void test_real_signals_are_left_alone(void) {
 static void test_the_tolerance(void) {
     struct survey_plan plan = uhf_plan();
     double tolerance = tolerance_of(&plan);
-    double exact = 40.0 * RECEIVER_COMB_SPACING_HZ;
+    double exact = 40.0 * survey_comb_spacing_hz(RTL_REFERENCE_HZ);
 
     check_close("the comb's tolerance is its floor on this sweep", tolerance,
                 RECEIVER_COMB_TOLERANCE_HZ, 1.0);
     check_int("exactly on the multiple",
-              survey_reference_harmonic(exact, tolerance), 40);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, exact, tolerance), 40);
     check_int("just inside the tolerance",
-              survey_reference_harmonic(exact + tolerance * 0.99, tolerance),
+              survey_reference_harmonic(RTL_REFERENCE_HZ, exact + tolerance * 0.99, tolerance),
               40);
     check_int("just outside it",
-              survey_reference_harmonic(exact + tolerance * 1.01, tolerance),
+              survey_reference_harmonic(RTL_REFERENCE_HZ, exact + tolerance * 1.01, tolerance),
               0);
-    check_int("and below", survey_reference_harmonic(exact - tolerance * 1.01,
+    check_int("and below", survey_reference_harmonic(RTL_REFERENCE_HZ, exact - tolerance * 1.01,
                                                      tolerance),
               0);
     /* Zero and negatives are not harmonics of anything. */
-    check_int("zero", survey_reference_harmonic(0.0, tolerance), 0);
-    check_int("negative", survey_reference_harmonic(-576e6, tolerance), 0);
+    check_int("zero", survey_reference_harmonic(RTL_REFERENCE_HZ, 0.0, tolerance), 0);
+    check_int("negative", survey_reference_harmonic(RTL_REFERENCE_HZ, -576e6, tolerance), 0);
     /* Below the first harmonic there is no comb to be on. */
     check_int("7 MHz, under the first multiple",
-              survey_reference_harmonic(7e6, tolerance), 0);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 7e6, tolerance), 0);
     check_int("14.4 MHz itself is the first",
-              survey_reference_harmonic(RECEIVER_COMB_SPACING_HZ, tolerance), 1);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, survey_comb_spacing_hz(RTL_REFERENCE_HZ), tolerance), 1);
 }
 
 /*
@@ -170,19 +180,19 @@ static void test_the_tolerance_has_a_floor(void) {
     check_close("the floor governs", tolerance, RECEIVER_COMB_TOLERANCE_HZ,
                 1.0);
     check_int("and 590.4053 MHz is recognised",
-              survey_reference_harmonic(590.4053e6, tolerance), 41);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 590.4053e6, tolerance), 41);
 
     /* The other three from the same sweep, which the bin-width tolerance did
        catch, must not stop being recognised. */
-    check_int("576.0010", survey_reference_harmonic(576.0010e6, tolerance), 40);
-    check_int("604.7998", survey_reference_harmonic(604.7998e6, tolerance), 42);
-    check_int("619.2041", survey_reference_harmonic(619.2041e6, tolerance), 43);
+    check_int("576.0010", survey_reference_harmonic(RTL_REFERENCE_HZ, 576.0010e6, tolerance), 40);
+    check_int("604.7998", survey_reference_harmonic(RTL_REFERENCE_HZ, 604.7998e6, tolerance), 42);
+    check_int("619.2041", survey_reference_harmonic(RTL_REFERENCE_HZ, 619.2041e6, tolerance), 43);
     /* 561.5771 is 22.9 kHz below harmonic 39, so the narrow sweep did not mark
        it -- but the wide sweep of 470-690 MHz reported the same tone at
        561.5906 and did. One tone the bin-width tolerance saw only when the
        bins happened to be coarse enough. */
     check_int("561.5771, missed by the bin-width tolerance",
-              survey_reference_harmonic(561.5771e6, tolerance), 39);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 561.5771e6, tolerance), 39);
 
     /* And the twelve from that sweep that are not on the comb must still not
        be. These are the real false-positive risk of a wider tolerance. */
@@ -194,7 +204,7 @@ static void test_the_tolerance_has_a_floor(void) {
         double worst = 0.0;
 
         for (size_t i = 0; i < sizeof(others) / sizeof(*others); i++)
-            if (survey_reference_harmonic(others[i], tolerance)) {
+            if (survey_reference_harmonic(RTL_REFERENCE_HZ, others[i], tolerance)) {
                 flagged++;
                 worst = others[i];
             }
@@ -226,7 +236,7 @@ static void test_a_coarse_sweep_stays_selective(void) {
     for (int i = 0; i < 1000; i++) {
         double hz = 24e6 + (1766e6 - 24e6) * (double)i / 1000.0;
 
-        if (survey_reference_harmonic(hz, tolerance))
+        if (survey_reference_harmonic(RTL_REFERENCE_HZ, hz, tolerance))
             flagged++;
     }
     check_msg(flagged <= 50, "%d of 1000 frequencies were flagged\n", flagged);
@@ -361,8 +371,8 @@ static void test_what_warns(void) {
 /* The whole judgement, on the two candidates from the disconnected sweep. */
 static void test_the_measured_candidates(void) {
     struct survey_plan plan = uhf_plan();
-    unsigned tone = survey_suspect(&plan, 547.2004e6, 3900.0, RATE, FFT, 1);
-    unsigned television = survey_suspect(&plan, 578.0e6, 7.6e6, RATE, FFT, 1);
+    unsigned tone = survey_suspect(&plan, RTL_REFERENCE_HZ, 547.2004e6, 3900.0, RATE, FFT, 1);
+    unsigned television = survey_suspect(&plan, RTL_REFERENCE_HZ, 578.0e6, 7.6e6, RATE, FFT, 1);
 
     check_int("the 547.2 MHz tone is on the comb",
               (tone & SURVEY_SUSPECT_REFERENCE) != 0, 1);
@@ -399,9 +409,9 @@ static void test_counting_a_sweep(void) {
                   frequencies[i] / 1e6);
     }
     check_int("four of the eight look like the receiver",
-              survey_suspect_count(&plan, peaks, 8, RATE, FFT, 1), 4);
+              survey_suspect_count(&plan, RTL_REFERENCE_HZ, peaks, 8, RATE, FFT, 1), 4);
     check_int("an empty sweep has none",
-              survey_suspect_count(&plan, peaks, 0, RATE, FFT, 1), 0);
+              survey_suspect_count(&plan, RTL_REFERENCE_HZ, peaks, 0, RATE, FFT, 1), 0);
 }
 
 /*
@@ -429,9 +439,9 @@ static void test_the_step_centre_test_is_gated(void) {
               collisions);
 
     for (int i = 0; i < 4; i++) {
-        unsigned filtered = survey_suspect(&plan, channels[i], 7.6e6, RATE,
+        unsigned filtered = survey_suspect(&plan, RTL_REFERENCE_HZ, channels[i], 7.6e6, RATE,
                                            FFT, 1);
-        unsigned unfiltered = survey_suspect(&plan, channels[i], 7.6e6, RATE,
+        unsigned unfiltered = survey_suspect(&plan, RTL_REFERENCE_HZ, channels[i], 7.6e6, RATE,
                                              FFT, 0);
 
         check_msg(!survey_suspect_warns(filtered),
@@ -446,11 +456,11 @@ static void test_the_step_centre_test_is_gated(void) {
     /* The comb test is not gated: a reference harmonic is there whatever the
        filter is doing. */
     check_int("the comb warns with the filter on",
-              survey_suspect_warns(survey_suspect(&plan, 547.2e6, 0.0, RATE,
+              survey_suspect_warns(survey_suspect(&plan, RTL_REFERENCE_HZ, 547.2e6, 0.0, RATE,
                                                   FFT, 1)),
               1);
     check_int("and with it off",
-              survey_suspect_warns(survey_suspect(&plan, 547.2e6, 0.0, RATE,
+              survey_suspect_warns(survey_suspect(&plan, RTL_REFERENCE_HZ, 547.2e6, 0.0, RATE,
                                                   FFT, 0)),
               1);
 }
@@ -500,17 +510,17 @@ static void test_the_fine_comb(void) {
     /* The spacing is a ninth of the coarse comb, and the coarse tones are on
        both -- 244.8 is 17 x 14.4 and 153 x 1.6. */
     check_close("nine fine tones to a coarse one",
-                RECEIVER_COMB_SPACING_HZ / RECEIVER_FINE_COMB_SPACING_HZ, 9.0, 1e-9);
+                survey_comb_spacing_hz(RTL_REFERENCE_HZ) / survey_fine_comb_spacing_hz(RTL_REFERENCE_HZ), 9.0, 1e-9);
     check_int("244.8 MHz is on the coarse comb",
-              survey_reference_harmonic(244.8e6, vhf_tol), 17);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 244.8e6, vhf_tol), 17);
     check_int("and on the fine one",
-              survey_fine_harmonic(244.8e6, vhf_tol), 153);
+              survey_fine_harmonic(RTL_REFERENCE_HZ, 244.8e6, vhf_tol), 153);
     /* And the eight between them are on the fine comb only, which is the
        whole point: the old test saw one tone in nine. */
     check_int("243.2 MHz is not on the coarse comb",
-              survey_reference_harmonic(243.2e6, vhf_tol), 0);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 243.2e6, vhf_tol), 0);
     check_int("but is on the fine one",
-              survey_fine_harmonic(243.2e6, vhf_tol), 152);
+              survey_fine_harmonic(RTL_REFERENCE_HZ, 243.2e6, vhf_tol), 152);
 
     /*
      * The confound, measured. 94.4 MHz is 59 x 1.6 and it is the loudest FM
@@ -518,20 +528,20 @@ static void test_the_fine_comb(void) {
      * floor. Its extent on an 88-108 MHz sweep was 27 survey bins, 66 kHz.
      */
     check_int("94.4 MHz is on the fine comb",
-              survey_fine_harmonic(94.4e6, fm_tol), 59);
+              survey_fine_harmonic(RTL_REFERENCE_HZ, 94.4e6, fm_tol), 59);
     check_int("but it is not narrow",
               survey_is_unresolved(66e3, fm.bin_hz, RATE, FFT), 0);
     check_int("so it is not flagged",
-              (survey_suspect(&fm, 94.4e6, 66e3, RATE, FFT, 1) &
+              (survey_suspect(&fm, RTL_REFERENCE_HZ, 94.4e6, 66e3, RATE, FFT, 1) &
                SURVEY_SUSPECT_REFERENCE) != 0,
               0);
     /* Nor 107.2 MHz (67 x 1.6), 72 bins wide, nor 92.8 (58 x 1.6), 45 bins. */
     check_int("nor 107.2 MHz",
-              (survey_suspect(&fm, 107.2e6, 176e3, RATE, FFT, 1) &
+              (survey_suspect(&fm, RTL_REFERENCE_HZ, 107.2e6, 176e3, RATE, FFT, 1) &
                SURVEY_SUSPECT_REFERENCE) != 0,
               0);
     check_int("nor 92.8 MHz",
-              (survey_suspect(&fm, 92.8e6, 110e3, RATE, FFT, 1) &
+              (survey_suspect(&fm, RTL_REFERENCE_HZ, 92.8e6, 110e3, RATE, FFT, 1) &
                SURVEY_SUSPECT_REFERENCE) != 0,
               0);
 
@@ -557,29 +567,29 @@ static void test_the_fine_comb(void) {
         check_close("a 1.6 MHz sweep bins at the transform's resolution",
                     narrow.bin_hz, RATE / (double)FFT, 1.0);
         check_int("102.4 MHz is on the fine comb",
-                  survey_fine_harmonic(102.4e6, fine), 64);
+                  survey_fine_harmonic(RTL_REFERENCE_HZ, 102.4e6, fine), 64);
         check_int("four bins there is a tone",
-                  (survey_suspect(&narrow, 102.4e6, 4.0 * narrow.bin_hz, RATE,
+                  (survey_suspect(&narrow, RTL_REFERENCE_HZ, 102.4e6, 4.0 * narrow.bin_hz, RATE,
                                   FFT, 1) & SURVEY_SUSPECT_REFERENCE) != 0,
                   1);
         check_int("the same tone at 88-108 MHz's bins is not claimed",
-                  (survey_suspect(&fm, 102.4e6, 14.6e3, RATE, FFT, 1) &
+                  (survey_suspect(&fm, RTL_REFERENCE_HZ, 102.4e6, 14.6e3, RATE, FFT, 1) &
                    SURVEY_SUSPECT_REFERENCE) != 0,
                   0);
     }
 
     /* The tones at 240-270, one and two survey bins wide. */
     check_int("a one-bin comb tone at 243.2 MHz",
-              (survey_suspect(&vhf, 243.2e6, vhf.bin_hz, RATE, FFT, 1) &
+              (survey_suspect(&vhf, RTL_REFERENCE_HZ, 243.2e6, vhf.bin_hz, RATE, FFT, 1) &
                SURVEY_SUSPECT_REFERENCE) != 0,
               1);
     check_int("a two-bin one at 259.2 MHz",
-              (survey_suspect(&vhf, 259.2e6, 2.0 * vhf.bin_hz, RATE, FFT, 1) &
+              (survey_suspect(&vhf, RTL_REFERENCE_HZ, 259.2e6, 2.0 * vhf.bin_hz, RATE, FFT, 1) &
                SURVEY_SUSPECT_REFERENCE) != 0,
               1);
     /* A carrier of real width on a fine-comb multiple is left alone. */
     check_int("but a 200 kHz carrier at 246.4 MHz is not",
-              (survey_suspect(&vhf, 246.4e6, 200e3, RATE, FFT, 1) &
+              (survey_suspect(&vhf, RTL_REFERENCE_HZ, 246.4e6, 200e3, RATE, FFT, 1) &
                SURVEY_SUSPECT_REFERENCE) != 0,
               0);
 }
@@ -601,20 +611,20 @@ static void test_the_fine_comb_refuses_a_coarse_sweep(void) {
 
     survey_plan_make(24e6, 1766e6, RATE, FFT, 0.10, &wide);
     tolerance = survey_comb_tolerance(&wide, RATE, FFT);
-    check_msg(tolerance > RECEIVER_FINE_COMB_SPACING_HZ * RECEIVER_COMB_MAX_FRACTION,
+    check_msg(tolerance > survey_fine_comb_spacing_hz(RTL_REFERENCE_HZ) * RECEIVER_COMB_MAX_FRACTION,
               "a full-tuner sweep's %.0f Hz tolerance should be too coarse "
               "for a 1.6 MHz comb\n", tolerance);
     check_int("so the fine comb declines to answer",
-              survey_fine_harmonic(259.2e6, tolerance), 0);
+              survey_fine_harmonic(RTL_REFERENCE_HZ, 259.2e6, tolerance), 0);
     /* The coarse comb still answers, because 106 kHz of 14.4 MHz is 1.5%. */
     check_int("while the coarse one still does",
-              survey_reference_harmonic(259.2e6, tolerance), 18);
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 259.2e6, tolerance), 18);
 
     /* And nothing narrow on a fine-comb multiple is flagged by it either. */
     for (i = 0; i < 1000; i++) {
         double hz = 24e6 + (1766e6 - 24e6) * (double)i / 1000.0;
 
-        if (survey_fine_harmonic(hz, tolerance))
+        if (survey_fine_harmonic(RTL_REFERENCE_HZ, hz, tolerance))
             flagged++;
     }
     check_int("not one frequency in a thousand", flagged, 0);
@@ -626,17 +636,17 @@ static void test_the_fine_comb_refuses_a_coarse_sweep(void) {
 
         survey_plan_make(240e6, 270e6, RATE, FFT, 0.20, &band);
         fine = survey_comb_tolerance(&band, RATE, FFT);
-        check_msg(fine <= RECEIVER_FINE_COMB_SPACING_HZ * RECEIVER_COMB_MAX_FRACTION,
+        check_msg(fine <= survey_fine_comb_spacing_hz(RTL_REFERENCE_HZ) * RECEIVER_COMB_MAX_FRACTION,
                   "a 30 MHz sweep's %.0f Hz tolerance should be fine enough\n",
                   fine);
-        check_int("259.2 MHz is tone 162", survey_fine_harmonic(259.2e6, fine),
+        check_int("259.2 MHz is tone 162", survey_fine_harmonic(RTL_REFERENCE_HZ, 259.2e6, fine),
                   162);
         /* The false-hit rate that tolerance buys: 2*25k/1.6M is about 3%. */
         flagged = 0;
         for (i = 0; i < 1000; i++) {
             double hz = 240e6 + 30e6 * (double)i / 1000.0;
 
-            if (survey_fine_harmonic(hz, fine))
+            if (survey_fine_harmonic(RTL_REFERENCE_HZ, hz, fine))
                 flagged++;
         }
         check_msg(flagged <= 50,
@@ -689,7 +699,101 @@ static void test_an_extent_needs_its_bin(void) {
                survey_extent_is_floor(25000.0, 0.0));
 }
 
+
+/*
+ * The reference comes from the device now, and a device that has not said
+ * gets no comb tests at all.
+ *
+ * This is the capture case and it is the point of the change: whichever
+ * receiver recorded a file had a clock, but the file does not, so nothing may
+ * attribute a comb to it. `device_profile_capture()` sets
+ * `reference_clock_hz` to 0 for exactly this reason.
+ */
+static void test_no_clock_means_no_comb(void) {
+    struct survey_plan plan = uhf_plan();
+    double tolerance = tolerance_of(&plan);
+    /* A frequency that IS on the RTL's comb: 34 x 14.4 MHz, one of the three
+       harmonics the unplug test showed staying put. */
+    double on_comb = 34.0 * survey_comb_spacing_hz(RTL_REFERENCE_HZ);
+
+    check_int("on an RTL it is the 34th harmonic",
+              survey_reference_harmonic(RTL_REFERENCE_HZ, on_comb, tolerance),
+              34);
+    check_int("with no clock, it is nothing",
+              survey_reference_harmonic(0.0, on_comb, tolerance), 0);
+    check_int("and the fine comb says nothing either",
+              survey_fine_harmonic(0.0, on_comb, tolerance), 0);
+    check_int("a negative reference too",
+              survey_reference_harmonic(-1.0, on_comb, tolerance), 0);
+
+    check_int("so the flags carry no receiver suspicion",
+              (int)(survey_suspect(&plan, 0.0, on_comb, 0.0, RATE, FFT, 1) &
+                    SURVEY_SUSPECT_REFERENCE),
+              0);
+    check_true("where an RTL's flags do",
+               (survey_suspect(&plan, RTL_REFERENCE_HZ, on_comb, 0.0, RATE,
+                               FFT, 1) &
+                SURVEY_SUSPECT_REFERENCE) != 0);
+
+    /* And the capture profile is the source that has no clock. */
+    struct device_profile capture = device_profile_capture(
+        "x", SAMPLE_FORMAT_U8, 127.5f, 948.4e6, 2000000);
+    check_close("a capture has no reference clock", capture.reference_clock_hz,
+                0.0, 1e-9);
+    check_int("so a capture flags no comb",
+              survey_reference_harmonic(capture.reference_clock_hz, on_comb,
+                                        tolerance),
+              0);
+}
+
+/*
+ * A different clock is a different comb, which is the other half of why this
+ * is the device's number. 26 MHz is a common SDR reference and shares no
+ * harmonic with 28.8 anywhere near these frequencies.
+ */
+static void test_a_different_clock_is_a_different_comb(void) {
+    struct survey_plan plan = uhf_plan();
+    double tolerance = tolerance_of(&plan);
+    double rtl_comb = 34.0 * survey_comb_spacing_hz(RTL_REFERENCE_HZ);
+    double other = 26000000.0;
+    double other_comb = 34.0 * survey_comb_spacing_hz(other);
+
+    check_close("14.4 MHz from 28.8", survey_comb_spacing_hz(RTL_REFERENCE_HZ),
+                14400000.0, 1.0);
+    check_close("13.0 MHz from 26.0", survey_comb_spacing_hz(other),
+                13000000.0, 1.0);
+    check_close("1.6 MHz fine, from 28.8",
+                survey_fine_comb_spacing_hz(RTL_REFERENCE_HZ), 1600000.0, 1.0);
+
+    check_int("the RTL's harmonic is not the other's",
+              survey_reference_harmonic(other, rtl_comb, tolerance), 0);
+    check_int("and the other's is not the RTL's",
+              survey_reference_harmonic(RTL_REFERENCE_HZ, other_comb,
+                                        tolerance),
+              0);
+    check_int("each finds its own", survey_reference_harmonic(other, other_comb,
+                                                              tolerance),
+              34);
+}
+
+/*
+ * The suite states 28.8 MHz and the profile supplies it. Pinning them together
+ * is what stops the two drifting apart now that the header no longer defines
+ * the constant.
+ */
+static void test_the_profile_supplies_the_reference(void) {
+    struct device_profile rtl = device_profile_rtlsdr(NULL, NULL, 0);
+    check_close("the RTL profile's reference is what this suite tests",
+                rtl.reference_clock_hz, RTL_REFERENCE_HZ, 0.5);
+    check_close("and the comb is it halved",
+                survey_comb_spacing_hz(rtl.reference_clock_hz), 14400000.0,
+                1.0);
+}
+
 int main(void) {
+    test_no_clock_means_no_comb();
+    test_a_different_clock_is_a_different_comb();
+    test_the_profile_supplies_the_reference();
     test_an_extent_needs_its_bin();
     test_the_comb_that_was_measured();
     test_real_signals_are_left_alone();

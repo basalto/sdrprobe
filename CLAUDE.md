@@ -549,10 +549,21 @@ flags.
 
 `docs/what-is-on-air.md` is the assessment over all of it: every allocation,
 what this program does about each, and where something was ruled out the
-measurement that ruled it out. `.scratch/calibrating-the-flags/` is the open
+measurement that ruled it out. `.scratch/calibrating-the-flags/` was the open
 question underneath it -- every threshold behind those marks was measured on
-one dongle at one site and compiled in, and the 14.4 MHz comb is derived from
-a 28.8 MHz crystal that another device may not have.
+one dongle at one site and compiled in -- and it is **absorbed into
+`.scratch/device-model/issues/08-*`**, where the comb half is now done: the
+reference is `device_profile.reference_clock_hz` rather than a constant, and
+`survey_comb_spacing_hz()` derives the comb from whatever it is handed.
+
+**A source with no clock gets no comb tests at all**, which is the case a
+capture is in: whichever receiver recorded a file had a crystal, but the file
+does not, so nothing may attribute a comb to it. The two divisors -- a tone
+every reference/2, a finer one every reference/18 -- were **measured on an
+RTL2832U and are unverified anywhere else**; they are facts about that chip's
+clock tree, not about reference oscillators, so measure before trusting them
+on another part. Everything else in that table is relative -- a dB over a
+local floor, a percentile, a fraction -- and transfers untouched.
 
 The site and the antenna are combos over lists the configuration keeps
 (`config_remember_site()`, `config_remember_antenna()`), because one place or

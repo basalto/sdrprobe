@@ -71,7 +71,7 @@ int survey_candidates_from(struct app *app, const struct survey_plan *plan,
          * tells a bare carrier from a service unavailable in exactly the case
          * that needs it.
          */
-        c->suspect = survey_suspect(plan,
+        c->suspect = survey_suspect(plan, app->device.reference_clock_hz,
                                     c->measured ? c->centre_hz : c->found_hz,
                                     c->measured ? c->width_hz : c->extent_hz,
                                     (double)app->applied_sample_rate,

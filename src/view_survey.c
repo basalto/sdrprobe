@@ -96,7 +96,8 @@ static void freq_window_put(struct survey_view *s,
  */
 static unsigned survey_suspect_at(const struct app *app, double hz,
                                   double bandwidth_hz) {
-    return survey_suspect(&app->survey.plan, hz, bandwidth_hz,
+    return survey_suspect(&app->survey.plan, app->device.reference_clock_hz,
+                          hz, bandwidth_hz,
                           (double)app->applied_sample_rate, SDR_DSP_FFT_SIZE,
                           app->remove_dc);
 }
@@ -105,7 +106,9 @@ static unsigned survey_suspect_at(const struct app *app, double hz,
    frame rather than stored: it is a few hundred multiplications, and a stored
    count is one more thing that can disagree with the list beside it. */
 static int survey_suspicious_now(const struct app *app) {
-    return survey_suspect_count(&app->survey.plan, app->survey.peaks,
+    return survey_suspect_count(&app->survey.plan,
+                                app->device.reference_clock_hz,
+                                app->survey.peaks,
                                 app->survey.peak_count,
                                 (double)app->applied_sample_rate,
                                 SDR_DSP_FFT_SIZE, app->remove_dc);
@@ -507,6 +510,7 @@ int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
         target->suspicion |= SURVEY_SUSPECT_NO_CARRIER;
     target->suspicion |= s->confirm.measured
                             ? survey_suspect_confirmed(
+                                  app->device.reference_clock_hz,
                                   s->confirm.best.centre_hz,
                                   s->confirm.best.bandwidth_hz,
                                   (double)app->applied_sample_rate,

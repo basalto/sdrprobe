@@ -63,10 +63,19 @@ static void test_rtlsdr_reproduces_todays_constants(void) {
 
     check_close("settle is SURVEY_SETTLE_SECONDS", p.settle_seconds,
                 SURVEY_SETTLE_SECONDS, 1e-9);
-    check_close("reference is RECEIVER_REFERENCE_HZ", p.reference_clock_hz,
-                RECEIVER_REFERENCE_HZ, 0.5);
-    check_close("and the comb is that halved", RECEIVER_COMB_SPACING_HZ,
-                p.reference_clock_hz / 2.0, 0.5);
+    /*
+     * This was pinned against `RECEIVER_REFERENCE_HZ` in survey_suspect.h.
+     * That constant is gone: the profile *is* the reference now, and
+     * `survey_comb_spacing_hz()` derives the comb from whatever it is handed
+     * (ticket 08). So the number is stated here, and the comb is checked as a
+     * function of it rather than against a second copy.
+     */
+    check_close("an RTL2832U's crystal is 28.8 MHz", p.reference_clock_hz,
+                28.8e6, 0.5);
+    check_close("and the comb it puts out is that halved",
+                survey_comb_spacing_hz(p.reference_clock_hz), 14.4e6, 0.5);
+    check_close("with a finer one at a eighteenth",
+                survey_fine_comb_spacing_hz(p.reference_clock_hz), 1.6e6, 0.5);
 
     check_true("it can retune", p.can_retune != 0);
     check_true("it has a ppm correction", p.has_ppm_correction != 0);

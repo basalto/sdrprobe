@@ -1,5 +1,12 @@
 # The flag thresholds are one receiver's numbers, compiled in
 
+**Absorbed 2026-09-08 into `.scratch/device-model/issues/08-*`**, which is
+where a second receiver made this urgent rather than theoretical. The comb half
+is done -- the reference is the device profile's and a source with no clock
+gets no comb tests -- and the rest is a re-measurement task for when the
+hardware arrives. Read 08 first; this stays for the measurements in it, which
+are the record of what measuring looked like.
+
 Every constant that decides whether a candidate is the instrument or the band
 was measured on **one** R820T behind **one** RTL2832U, at one site, and then
 written into a header. They are good numbers for this receiver and there is no
