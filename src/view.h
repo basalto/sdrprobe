@@ -66,8 +66,6 @@ int survey_report_run(struct app *app);
 /* Read the broadcast block that follows this SCH burst, if this is the SCH a
    block follows. Returns 1 when a System Information message came out of it.
    src/view_gsm.c. */
-int gsm_read_broadcast(struct app *app, const struct gsm_sch_result *sch,
-                       struct gsm_si *si);
 void set_tab(struct app *app, int new_tab);
 void set_decode(struct app *app, int kind);
 void adjust_waterfall_scale(struct app *app, int zoom_in);

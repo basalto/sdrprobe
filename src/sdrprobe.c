@@ -2110,17 +2110,17 @@ static void print_new_decodes(struct app *app, double now,
         return;
     }
     if (decoder == DECODE_GSM) {
-        int had = app->gsm.sch_valid;
-        double before = app->gsm.sch_time;
+        int had = app->gsm.session.sch_valid;
+        double before = app->gsm.session.sch_time;
         update_gsm_sch(app, now);
-        if (!app->gsm.sch_valid || (had && app->gsm.sch_time == before))
+        if (!app->gsm.session.sch_valid || (had && app->gsm.session.sch_time == before))
             return;
-        const struct gsm_sch_result *sch = &app->gsm.sch;
+        const struct gsm_sch_result *sch = &app->gsm.session.sch;
         printf("SCH  BSIC %d (NCC %d, BCC %d)  frame %d (T1/T2/T3 %d/%d/%d)"
                "  match %.2f%s\n",
                sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
                sch->t2, sch->t3, (double)sch->confidence,
-               app->gsm.continuity.implausible ? "  [T1 JUMPED]" : "");
+               app->gsm.session.continuity.implausible ? "  [T1 JUMPED]" : "");
         print_broadcast(app, sch);
     } else {
         int before = app->adsb.log_count;
@@ -3021,9 +3021,9 @@ int main(int argc, char **argv) {
     view_scope_defaults(app);
     view_survey_defaults(app);
     if (options.gsm_features_seen) {
-        app->gsm.opt_filter = (options.gsm_features & GSM_OPT_FILTER) != 0;
-        app->gsm.opt_finecfo = (options.gsm_features & GSM_OPT_FINECFO) != 0;
-        app->gsm.opt_trellis = (options.gsm_features & GSM_OPT_TRELLIS) != 0;
+        /* The mask straight through: --gsm-features already speaks in
+           GSM_OPT_* and the session does too, so nothing unpacks it. */
+        app->gsm.session.options = options.gsm_features;
     }
     if (options.arfcn) {
         /* Both the GSM view and a recording's sidecar read this. */
