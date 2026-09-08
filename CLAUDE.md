@@ -307,11 +307,19 @@ ports, colour 17 and LA 4375, station 0x8343 `TSF`, the CPR positions. The
 decoders are scale-invariant, exactly as the relative-threshold argument said.
 
 **What moves is the block, not the format.** A block is `SAMPLE_BLOCK_BYTES`,
-so at four bytes a pair it covers 32.8 ms rather than 65.5: LTE reads 55
-Master Information Blocks where it read 28, and **`gsm_arfcn_69` loses its
-System Information entirely** -- four consecutive normal bursts do not fit in
-half a block. `check-pipelines` asserts that absence rather than papering over
-it, so it cannot go quiet. `.scratch/device-model/issues/09-*` carries the
+so at four bytes a pair it covers 32.8 ms rather than 65.5. LTE reads 55
+Master Information Blocks where it read 28, and **`gsm_arfcn_69` drops from
+seven broadcast messages to two, losing System Information 3** -- the one
+carrying MCC, MNC, LAC and Cell Identity, which is the answer this file pins.
+
+The mechanism is `gsm_read_broadcast()`'s own refusal, "the block ran past the
+end of this sample block": four BCCH bursts must be found **after** the SCH
+and inside the same block, and they span about 18.5 ms. Opportunities do not
+get rarer -- there are *more* of them, 9 qualifying SCH decodes against 7,
+because there are twice as many blocks. What collapses is the conversion:
+**7 of 7 become messages at 65.5 ms, 2 of 9 at 32.8 ms**, because a half-length
+block usually has no room left after the SCH lands. `check-pipelines` asserts
+it rather than papering over it, so it cannot go quiet. `.scratch/device-model/issues/09-*` carries the
 decision it forces: "the block stays dump1090's" does not say *dump1090's
 what*, its 262144 bytes or its 131072 pairs, and those were the same number
 only while there was one container.

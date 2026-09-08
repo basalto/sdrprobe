@@ -2,8 +2,9 @@
 
 Status: resolved for the arithmetic, 2026-09-08 -- **and its "Not in scope"
 line is now contradicted by measurement.** See Finding 3 in ticket 01: keeping
-the block in bytes costs `gsm_arfcn_69` its System Information entirely. That
-needs a decision and a new ticket; it was not taken here.
+the block in bytes costs `gsm_arfcn_69` five of its seven broadcast messages,
+System Information 3 among them. That needs a decision and a new ticket; it was
+not taken here.
 
 `SAMPLE_BLOCK_PAIRS` is `SAMPLE_BLOCK_BYTES / 2`, and `sdr_dsp.c:78` does the
 same `/ 2` again. Both mean bytes-per-pair and neither says so.
@@ -58,10 +59,12 @@ number becomes the profile's, so the benchmark keeps meaning what it says.
 
 Written before the built program had ever read a 16-bit capture. It had.
 A block of `SAMPLE_BLOCK_BYTES` covers 32.8 ms at four bytes a pair instead of
-65.5, and GSM's System Information needs four consecutive normal bursts, so
-`gsm_arfcn_69` reads none where it read one and `gsm_arfcn_113` reads one where
-it read two. LTE doubles its Master Information Blocks for the same reason.
-Identities never move; counts do, and one answer vanishes.
+65.5. GSM's System Information needs four normal bursts found **after** the SCH
+and inside the same block -- `gsm_read_broadcast()` refuses with "the block ran
+past the end of this sample block" -- so `gsm_arfcn_69` reads two messages where
+it read seven, System Information 3 among the five it loses. LTE doubles its
+Master Information Blocks for the same reason. Identities never move; counts
+do, and one pinned answer vanishes.
 
 "It stays dump1090's" is right. The question the line does not settle is
 **dump1090's what** -- its 262144 bytes, or its 131072 pairs. Those were the

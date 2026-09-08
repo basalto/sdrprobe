@@ -172,9 +172,11 @@ The profile holds, at minimum:
    worst possible way: with ticket 01's expensive half finally runnable, the
    built program over both corpora shows **every identity unchanged and one
    answer gone**. A block is `SAMPLE_BLOCK_BYTES`, so a four-byte container
-   halves its duration; LTE doubles its messages and `gsm_arfcn_69` loses its
-   System Information entirely, because four consecutive normal bursts do not
-   fit in 32.8 ms. Ticket 04's "the block size stays dump1090's" does not
+   halves its duration; LTE doubles its messages and `gsm_arfcn_69` drops from
+   seven broadcast messages to two, losing System Information 3 -- the one with
+   MCC, MNC, LAC and Cell Identity. Four BCCH bursts have to be found after the
+   SCH and inside the same block, and 7 of 7 qualifying SCH decodes convert at
+   65.5 ms against 2 of 9 at 32.8. Ticket 04's "the block size stays dump1090's" does not
    settle *dump1090's what* -- its 262144 bytes or its 131072 pairs, which were
    the same number until there were two containers. **Ticket 09** carries that
    decision; `check-pipelines` asserts the current cost meanwhile.

@@ -430,9 +430,14 @@ fi
 # SAMPLE_BLOCK_BYTES, so at four bytes a pair it covers 32.8 ms instead of
 # 65.5, and ticket 04 rules the block size out of scope -- "it stays
 # dump1090's". The visible cost is asserted here rather than papered over:
-# twice as many LTE blocks, and **GSM ARFCN 69 loses its System Information
-# entirely**, because assembling one needs four consecutive normal bursts and
-# a half-length block cannot hold them.
+# twice as many LTE blocks, and **GSM ARFCN 69 reads two broadcast messages
+# where it read seven**, System Information 3 among the five it loses.
+#
+# The mechanism is gsm_read_broadcast()'s own refusal -- "the block ran past
+# the end of this sample block". Four BCCH bursts must be found after the SCH
+# and inside the same block, spanning about 18.5 ms. Eligible SCH decodes go
+# up (9 against 7, since there are twice as many blocks); the conversion goes
+# from 7 of 7 to 2 of 9.
 #
 # These assertions exist so that stops being silent. If the block ever becomes
 # a fixed number of pairs, this section fails and says so.
@@ -500,8 +505,8 @@ check_wide_container() {
         fail "gsm_arfcn_69 16-bit now reads System Information 3 -- the block \
 is no longer halving, so this finding and ticket 04 need revisiting"
     else
-        report "gsm_arfcn_69 16-bit" "no System Information: a 32.8 ms block \
-cannot hold four bursts"
+        report "gsm_arfcn_69 16-bit" "no SI 3: no room after the SCH in a \
+32.8 ms block"
     fi
 }
 

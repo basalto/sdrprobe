@@ -15,13 +15,29 @@ and every decoded **identity** is unchanged. The cost is a block's duration.
 | every identity: BSIC 59, cell 28 + 2 ports, colour 17 / LA 4375, 0x8343 `TSF`, CPR positions | | **unchanged** |
 | LTE Master Information Blocks | 28 | 55 |
 | `gsm_arfcn_113` System Information 3 | 2 | 1 |
+| `gsm_arfcn_69` broadcast messages | 7 | **2** |
 | `gsm_arfcn_69` System Information 3 | 1 | **0** |
 
 A block is `SAMPLE_BLOCK_BYTES` -- 262144 of them -- so at four bytes a pair
 it covers 32.8 ms rather than 65.5. Twice as many blocks, each holding half
-the signal. LTE reads one message per block and doubles. GSM's System
-Information needs **four consecutive normal bursts**, which a 32.8 ms block
-cannot hold, so ARFCN 69's broadcast disappears completely.
+the signal. LTE reads one message per block and doubles.
+
+GSM loses messages, and the mechanism is `gsm_read_broadcast()`'s own refusal:
+*"the block ran past the end of this sample block"*. Four BCCH bursts must be
+found **after** the SCH and inside the same block, spanning about 18.5 ms.
+
+| `gsm_arfcn_69` | 8-bit | 16-bit |
+| --- | --- | --- |
+| SCH decodes | 31 | 42 |
+| eligible (`frame % 51 == 1`) | 7 | **9** |
+| broadcast messages read | **7** | **2** |
+
+The chances go up and the conversion collapses -- 7 of 7 against 2 of 9 --
+because a half-length block usually has no room left after the SCH. This is
+worth stating carefully because the first write-up said ARFCN 69 lost its
+broadcast "entirely" and blamed four bursts not fitting in 32.8 ms. Neither is
+true: it reads two messages, and four bursts do fit. What does not fit is four
+bursts *after the SCH*.
 
 `check-pipelines`, section "A wider container", asserts all of the above
 including the absence, so this cannot go quiet while the question is open.
