@@ -381,7 +381,80 @@ static void test_a_long_name_is_bounded(void) {
     check_str("and a capture says so", c.name, "capture");
 }
 
+
+/*
+ * A list and a range are both steppers, which is what lets one panel serve
+ * both (ticket 06). What differs is only what the steps are.
+ */
+static void test_both_gain_models_step_the_same_way(void) {
+    struct device_profile listed =
+        device_profile_rtlsdr(NULL, R820T_GAINS, R820T_GAIN_COUNT);
+    char text[32];
+
+    check_int("a tuner's list has as many options as entries",
+              device_gain_option_count(&listed), R820T_GAIN_COUNT);
+    check_int("option 0 is the lowest", device_gain_option_value(&listed, 0),
+              0);
+    check_int("the last is the highest",
+              device_gain_option_value(&listed, R820T_GAIN_COUNT - 1), 496);
+    device_gain_format(&listed, 297, text, sizeof(text));
+    check_str("and tenths read as dB", text, "29.7 dB");
+
+    /* An AD9361-style continuous range: 0 to 76 in steps of 1. */
+    struct device_profile ranged = device_profile_rtlsdr(NULL, NULL, 0);
+    ranged.gain_model = GAIN_MODEL_RANGE;
+    ranged.gain_unit = GAIN_UNIT_INDEX;
+    ranged.gain_min = 0.0;
+    ranged.gain_max = 76.0;
+    ranged.gain_step = 1.0;
+
+    check_int("0..76 by 1 is 77 options",
+              device_gain_option_count(&ranged), 77);
+    check_int("the first is the minimum",
+              device_gain_option_value(&ranged, 0), 0);
+    check_int("the last is the maximum",
+              device_gain_option_value(&ranged, 76), 76);
+    check_int("and the middle is what the step says",
+              device_gain_option_value(&ranged, 40), 40);
+
+    /* A coarser step gives fewer options, not a different shape. */
+    ranged.gain_step = 2.0;
+    check_int("0..76 by 2 is 39 options", device_gain_option_count(&ranged),
+              39);
+    check_int("stepping by two", device_gain_option_value(&ranged, 10), 20);
+    ranged.gain_step = 1.0;
+
+    /*
+     * The unit is the point. An AD9361's receive gain is a **gain-table
+     * index**, and calling it dB on a panel would be a lie -- what a step is
+     * worth depends on which of three band tables is loaded.
+     */
+    device_gain_format(&ranged, 40, text, sizeof(text));
+    check_str("an index says it is an index", text, "index 40");
+    ranged.gain_unit = GAIN_UNIT_DB;
+    device_gain_format(&ranged, 40, text, sizeof(text));
+    check_str("where a real dB gain says dB", text, "40 dB");
+
+    /* Nothing to offer, offered as nothing rather than as one option. */
+    struct device_profile none = device_profile_rtlsdr(NULL, NULL, 0);
+    check_int("no gain model, no options", device_gain_option_count(&none), 0);
+    check_int("a null profile too", device_gain_option_count(NULL), 0);
+    check_int("and asking for a value gives the floor",
+              device_gain_option_value(&none, 3), 0);
+
+    /* Out of range reads the lowest rather than past the end. */
+    check_int("past the end", device_gain_option_value(&listed, 9999), 0);
+    check_int("before the start", device_gain_option_value(&listed, -1), 0);
+
+    /* A range with no step cannot be enumerated, and says so. */
+    struct device_profile stepless = ranged;
+    stepless.gain_step = 0.0;
+    check_int("a range with no step offers nothing",
+              device_gain_option_count(&stepless), 0);
+}
+
 int main(void) {
+    test_both_gain_models_step_the_same_way();
     test_rtlsdr_reproduces_todays_constants();
     test_block_arithmetic_follows_the_container();
     test_a_block_is_the_same_signal_on_every_container();

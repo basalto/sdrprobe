@@ -2,6 +2,7 @@
 #define DEVICE_PROFILE_H
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 
 /*
@@ -53,6 +54,16 @@ enum gain_model {
 enum gain_unit {
     GAIN_UNIT_TENTHS_DB = 0,
     GAIN_UNIT_DB,
+    /*
+     * A gain-table index, which is what an AD9361's receive chain actually
+     * takes. UHD advertises `meta_range_t(0.0, 76.0, 1.0)` and looks like dB,
+     * but `ad9361_device.cpp` casts the value to an int, clips it to 0..76 and
+     * pokes it into a gain-table register -- and which of three tables is
+     * loaded, chosen at 1300 MHz and 4000 MHz, decides what a step is worth.
+     * Calling that dB on a panel would be a lie, so it has its own unit.
+     * `docs/absolute-power-reference.md` has the source references.
+     */
+    GAIN_UNIT_INDEX,
 };
 
 #define DEVICE_NAME_MAX 48
@@ -117,6 +128,67 @@ struct device_profile {
        none there. */
     double reference_clock_hz;
 };
+
+/*
+ * The gain settings a device offers, as a flat list of options whichever model
+ * it has.
+ *
+ * A discrete list and a continuous range are both **steppers** from a panel's
+ * point of view -- the operator moves up or down one setting -- so the panel
+ * needs one shape, not two. What differs is only what the steps are: a tuner's
+ * own 29 values, or min..max by `gain_step`.
+ */
+static inline int device_gain_option_count(const struct device_profile *p) {
+    if (!p)
+        return 0;
+    if (p->gain_model == GAIN_MODEL_LIST)
+        return p->gain_count;
+    if (p->gain_model == GAIN_MODEL_RANGE && p->gain_step > 0.0)
+        return (int)((p->gain_max - p->gain_min) / p->gain_step) + 1;
+    return 0;
+}
+
+/* The value of option `index`, in the profile's own `gain_unit`. Out of range
+   gives the lowest setting rather than reading past anything. */
+static inline int device_gain_option_value(const struct device_profile *p,
+                                           int index) {
+    int count = device_gain_option_count(p);
+    if (!p || count <= 0)
+        return 0;
+    if (index < 0 || index >= count)
+        index = 0;
+    if (p->gain_model == GAIN_MODEL_LIST)
+        return p->gain_list[index];
+    return (int)(p->gain_min + (double)index * p->gain_step);
+}
+
+/*
+ * One gain setting, written the way its unit means it.
+ *
+ * The unit is the profile's, so nothing converts: tenths stay tenths, dB stay
+ * dB, and an index says it is an index rather than pretending to be decibels.
+ */
+static inline void device_gain_format(const struct device_profile *p, int value,
+                                      char *out, size_t out_size) {
+    if (!out || out_size == 0)
+        return;
+    if (!p) {
+        snprintf(out, out_size, "%d", value);
+        return;
+    }
+    switch (p->gain_unit) {
+    case GAIN_UNIT_TENTHS_DB:
+        snprintf(out, out_size, "%.1f dB", value / 10.0);
+        break;
+    case GAIN_UNIT_DB:
+        snprintf(out, out_size, "%d dB", value);
+        break;
+    case GAIN_UNIT_INDEX:
+    default:
+        snprintf(out, out_size, "index %d", value);
+        break;
+    }
+}
 
 /*
  * The full scale a format implies, where it implies one.
