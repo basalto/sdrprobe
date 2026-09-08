@@ -974,6 +974,14 @@ struct app {
     int supported_gain_count;
     uint32_t applied_frequency;
     uint32_t applied_sample_rate;
+    /*
+     * What this run's samples came out of: the container, its full scale, the
+     * tuner's reach, the gain model (device_profile.h). One profile per
+     * source -- a receiver run and a file run fill it in differently, and
+     * everything that needs to know what a count means asks it rather than
+     * assuming eight bits.
+     */
+    struct device_profile device;
     /* Who borrowed the tuning above, and what they put back when they give it
        up. The truth about where the receiver *is* stays in the two fields
        above; this is only the stack of where it was (receiver_lease.h). */

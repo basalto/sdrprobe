@@ -22,11 +22,17 @@
 
 /* Pull in the plugin's implementation (and its statics) directly. */
 #include "gsm_dsp.c"
+#include "device_profile.h"
 
 #define BLOCK_BYTES (16 * 16384)
 #define BLOCK_PAIRS (BLOCK_BYTES / 2)
 #define NOMINAL_OFFSET_HZ 400000.0
 #define SAMPLE_RATE_HZ 2000000.0
+
+/* The receiver these were written against: an 8-bit container at 127.5 full
+   scale. Set in main() rather than initialised here, because it comes from
+   device_profile_rtlsdr() and that is a function. */
+static struct device_profile g_probe_device;
 
 static const char *yesno(int v) { return v ? "yes" : "no"; }
 
@@ -55,7 +61,7 @@ static int frame_number(int t1, int t2, int t3) {
 /* Walk one block through every stage of the chain, printing as we go. */
 static int probe_block(const unsigned char *raw, size_t bytes) {
     static float I[BLOCK_PAIRS], Q[BLOCK_PAIRS], M[BLOCK_PAIRS];
-    size_t pairs = sdr_dsp_convert_iq(raw, bytes, I, Q, M, BLOCK_PAIRS);
+    size_t pairs = sdr_dsp_convert_iq(&g_probe_device, raw, bytes, I, Q, M, BLOCK_PAIRS);
     double fs = SAMPLE_RATE_HZ;
     double sps = fs / GSM_SYMBOL_RATE_HZ;
 
@@ -364,7 +370,7 @@ static void consistency_sweep(FILE *f) {
     int t1_min = 1 << 30, t1_max = -1, bsic_mode = -1;
     rewind(f);
     while (fread(raw, 1, BLOCK_BYTES, f) == BLOCK_BYTES) {
-        size_t pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, I, Q, M, BLOCK_PAIRS);
+        size_t pairs = sdr_dsp_convert_iq(&g_probe_device, raw, BLOCK_BYTES, I, Q, M, BLOCK_PAIRS);
         struct gsm_sch_result r;
         if (gsm_sch_decode(I, Q, pairs, SAMPLE_RATE_HZ, NOMINAL_OFFSET_HZ, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &r,
                            NULL)) {
@@ -409,6 +415,7 @@ static void consistency_sweep(FILE *f) {
 }
 
 int main(int argc, char **argv) {
+    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
     const char *path = argc > 1 ? argv[1] : "testfiles/gsm_arfcn_69.bin";
     FILE *f = fopen(path, "rb");
     if (!f) {

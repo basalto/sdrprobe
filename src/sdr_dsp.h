@@ -4,12 +4,20 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "device_profile.h"
+
 /*
  * Generic, technology-independent SDR DSP primitives.
  *
  * Nothing in this file knows about any particular radio technology: it works on
- * raw interleaved 8-bit I/Q, centred float I/Q, magnitudes, and dBFS spectra.
- * Per-technology DSP modules (see gsm_dsp.h) build on these primitives.
+ * raw interleaved I/Q in whatever container `struct device_profile` describes,
+ * centred float I/Q, magnitudes, and dBFS spectra. Per-technology DSP modules
+ * (see gsm_dsp.h) build on these primitives.
+ *
+ * Full scale is the profile's and appears nowhere here as a constant: it is
+ * what dBFS is relative to, what clipping is measured against, and what
+ * headroom counts down from, and those are three readings of one number that
+ * belongs to the device.
  */
 
 /*
@@ -93,7 +101,16 @@ struct sdr_channel_estimate {
 
 void sdr_dsp_init(struct sdr_dsp *dsp);
 
-size_t sdr_dsp_convert_iq(const uint8_t *bytes, size_t byte_count,
+/*
+ * The one byte-to-float seam. The profile supplies the container's layout and
+ * the ADC's full scale; the floats come out in the device's own counts,
+ * centred on zero and deliberately not normalised. Returns pairs written,
+ * which is `byte_count / profile->bytes_per_pair` capped by `pair_capacity`
+ * -- not `byte_count / 2`, which is a two-byte format's answer to a different
+ * question.
+ */
+size_t sdr_dsp_convert_iq(const struct device_profile *profile,
+                          const uint8_t *bytes, size_t byte_count,
                           float *i_out, float *q_out,
                           float *magnitude_out, size_t pair_capacity);
 
@@ -103,9 +120,11 @@ size_t sdr_dsp_peak_bins(const float *magnitudes, size_t pair_count,
 void sdr_dsp_remove_dc(float *i_samples, float *q_samples,
                        size_t pair_count);
 
+/* `full_scale` is the ADC's rail in the same counts the samples are in --
+   what clipping is measured against and what headroom counts down from. */
 int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
                          const float *magnitudes, size_t pair_count,
-                         float *sort_workspace,
+                         float *sort_workspace, float full_scale,
                          struct sdr_signal_stats *stats);
 
 /*
@@ -227,8 +246,8 @@ int sdr_dsp_corrected_ppm(int current_ppm, double measured_frequency_hz,
  */
 int sdr_dsp_spectrum(struct sdr_dsp *dsp,
                      const float *i_samples, const float *q_samples,
-                     size_t pair_count, int size, float *average_dbfs,
-                     float *maximum_dbfs);
+                     size_t pair_count, int size, float full_scale,
+                     float *average_dbfs, float *maximum_dbfs);
 
 /*
  * Average power (dBFS) of each channel on an evenly spaced channel grid.

@@ -239,6 +239,13 @@ static int configure_receiver(struct app *app) {
              device_name ? device_name : "receiver 0");
     snprintf(app->tuner_label, sizeof(app->tuner_label), "%s",
              tuner_name(app->dev));
+    /* What this receiver is, in the terms the numbers need: an 8-bit
+       container at 127.5 full scale, the tuner's reach, and the gain list it
+       just reported (device_profile.h). Everything that would otherwise
+       assume eight bits reads it from here. */
+    app->device = device_profile_rtlsdr(app->tuner_label,
+                                        app->supported_gains,
+                                        app->supported_gain_count);
     result = 0;
 
 done:
@@ -276,6 +283,13 @@ static int open_capture(struct app *app) {
     app->applied_ppm = app->options.ppm;
     snprintf(app->source_label, sizeof(app->source_label), "capture: %s",
              app->options.file_path);
+    /* A capture is at one place on the band and cannot be moved, which is
+       what the retune paths already refuse. The house convention until a
+       capture can say otherwise for itself. */
+    app->device = device_profile_capture(
+        app->options.file_path, SAMPLE_FORMAT_U8,
+        device_default_full_scale(SAMPLE_FORMAT_U8),
+        (double)app->applied_frequency, app->applied_sample_rate);
     return 0;
 }
 
@@ -309,8 +323,8 @@ int process_block(struct app *app, double now) {
     double sum = 0.0;
 
     app->pair_count = sdr_dsp_convert_iq(
-        app->acq.raw, app->acq.raw_len, app->i_samples, app->q_samples,
-        app->magnitudes, SAMPLE_BLOCK_PAIRS);
+        &app->device, app->acq.raw, app->acq.raw_len, app->i_samples,
+        app->q_samples, app->magnitudes, SAMPLE_BLOCK_PAIRS);
     if (app->pair_count == 0)
         return 0;
     app->have_samples = 1;
@@ -327,7 +341,7 @@ int process_block(struct app *app, double now) {
     app->magnitude_mean = (float)(sum / (double)app->pair_count);
     app->signal_stats_ready = sdr_dsp_signal_stats(
         app->i_samples, app->q_samples, app->magnitudes, app->pair_count,
-        app->magnitude_sorted, &app->signal_stats);
+        app->magnitude_sorted, app->device.full_scale, &app->signal_stats);
     recompute_magnitude_bins(app);
 
     const float *spectrum_i = app->i_samples;
@@ -363,7 +377,8 @@ int process_block(struct app *app, double now) {
     }
     int windows = sdr_dsp_spectrum(
         &app->dsp, spectrum_i, spectrum_q, app->pair_count,
-        app->spectrum_bins, app->spectrum_average, app->spectrum_candidate);
+        app->spectrum_bins, app->device.full_scale, app->spectrum_average,
+        app->spectrum_candidate);
     if (windows > 0) {
         /* The live bins, not the array's length: it is sized to the largest
            transform and mostly empty at every other size. */
@@ -1023,7 +1038,8 @@ int start_capture_record(struct app *app, const char *basename,
         app->applied_frequency, app->applied_sample_rate,
         app->applied_gain_tenths, app->applied_manual_gain, app->applied_ppm,
         arfcn, carrier_offset_hz, technology,
-        app->source_label, app->tuner_label, seconds
+        app->source_label, app->tuner_label, seconds,
+        app->device.format, app->device.full_scale
     };
     if (acquisition_start_recording(&app->acq, path, &req) < 0) {
         fprintf(stderr, "Cannot start recording to %s: %s\n", path,
@@ -2339,6 +2355,7 @@ static int run_headless(struct app *app) {
             found_cells = lte_cell_search_all(app->i_samples, app->q_samples,
                                               app->pair_count,
                                               (double)app->applied_sample_rate,
+                                              app->device.full_scale,
                                               on_carrier,
                                               LTE_MAX_CELLS_PER_CARRIER, NULL);
             if (found_cells > 0) {
@@ -2442,6 +2459,7 @@ static int run_headless(struct app *app) {
                            lte_reference_power(app->i_samples, app->q_samples,
                                                app->pair_count,
                                                (double)app->applied_sample_rate,
+                                               app->device.full_scale,
                                                &all[c], &np)
                                ? (double)np.rsrp_dbfs : 0.0,
                            mib_ok ? "yes" : "no");
@@ -2462,6 +2480,7 @@ static int run_headless(struct app *app) {
                 if (lte_channel_shape(app->i_samples, app->q_samples,
                                       app->pair_count,
                                       (double)app->applied_sample_rate,
+                                      app->device.full_scale,
                                       &cell, &shape)) {
                     printf("chain %lu channel delay_ns %.0f spread_ns %.0f "
                            "drift_hz %.0f\n", blocks, (double)shape.delay_ns,
@@ -2493,6 +2512,7 @@ static int run_headless(struct app *app) {
                 if (lte_reference_power(app->i_samples, app->q_samples,
                                         app->pair_count,
                                         (double)app->applied_sample_rate,
+                                        app->device.full_scale,
                                         &cell, &power)) {
                     printf("chain %lu power rsrp_dbfs %.1f rssi_dbfs %.1f "
                            "rsrq_db %.1f sinr_db %.1f blocks %d\n", blocks,

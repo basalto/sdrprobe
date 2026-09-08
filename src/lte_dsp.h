@@ -336,9 +336,15 @@ struct lte_reference_power {
  * Averaged over every frame the block holds, on the symbol carrying port 0's
  * references. Returns 1 when `out` is filled.
  */
+/*
+ * `sample_full_scale` is the ADC's rail in the same counts the samples are in
+ * -- `device_profile.full_scale`. It sets the reference for `rsrp_dbfs` and
+ * `rssi_dbfs` and nothing else: RSRQ and the RS-SINR are ratios through one
+ * chain, so any fixed scale cancels out of them.
+ */
 int lte_reference_power(const float *i_samples, const float *q_samples,
                         size_t pair_count, double sample_rate,
-                        const struct lte_cell *cell,
+                        float sample_full_scale, const struct lte_cell *cell,
                         struct lte_reference_power *out);
 
 /*
@@ -488,8 +494,8 @@ int lte_cell_search(const float *i_samples, const float *q_samples,
 
 int lte_cell_search_all(const float *i_samples, const float *q_samples,
                         size_t pair_count, double sample_rate,
-                        struct lte_cell *cells, int max,
-                        struct lte_trace *trace);
+                        float sample_full_scale, struct lte_cell *cells,
+                        int max, struct lte_trace *trace);
 
 /*
  * The shape of the channel, from references already read.
@@ -533,7 +539,7 @@ struct lte_channel_shape {
 
 int lte_channel_shape(const float *i_samples, const float *q_samples,
                       size_t pair_count, double sample_rate,
-                      const struct lte_cell *cell,
+                      float sample_full_scale, const struct lte_cell *cell,
                       struct lte_channel_shape *out);
 
 int lte_pbch_soft_bits(const float *i_samples, const float *q_samples,

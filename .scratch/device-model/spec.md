@@ -156,6 +156,17 @@ The profile holds, at minimum:
    range has a hole (225001-300000, 900001-3200000) that min/max cannot say,
    left documented rather than invented around.
 3. **Full scale out of the DSP** (`03`).
+   **Done, 2026-09-08**: full scale is the profile's everywhere, and the
+   acceptance grep found four sites the ticket's own table had missed --
+   including `PHYSICAL_MAGNITUDE_MAX`, 127.5 root two sitting between a block
+   size and a scatter history depth. `check-sample-format` runs the shipping
+   converter on both containers now rather than a harness. The floats stay in
+   the **device's own counts** and are not normalised, because clipping means
+   the ADC's rail: a 12-bit part clips at 2047.5, nowhere near its container's
+   32767.5. The consequence is worth carrying forward -- the two corpora are
+   sixteen times apart in counts and identical only after each is normalised by
+   its own full scale, so a relative threshold transfers and an absolute one in
+   counts would not. Nobody has yet measured whether a decoder has one.
 4. **Block arithmetic in samples** (`04`) -- the silent one.
 5. **Tuner reach from the profile** (`05`).
 6. **The gain model** (`06`).

@@ -482,13 +482,15 @@ void update_lte(struct app *app, double now) {
     /* Measured from the same block the cell was found in, so the level on
        screen always belongs to the identity beside it. */
     app->lte.power_valid = lte_reference_power(app->i_samples, app->q_samples,
-                                               app->pair_count, rate, &cell,
+                                               app->pair_count, rate,
+                                               app->device.full_scale, &cell,
                                                &app->lte.power);
     app->lte.port_coherence_valid =
         lte_port_coherence(app->i_samples, app->q_samples, app->pair_count,
                            rate, &cell, app->lte.port_coherence);
     app->lte.shape_valid = lte_channel_shape(app->i_samples, app->q_samples,
-                                             app->pair_count, rate, &cell,
+                                             app->pair_count, rate,
+                                             app->device.full_scale, &cell,
                                              &app->lte.shape);
     /*
      * And into the run's statistics. The reset inside lte_stats_for_cell is

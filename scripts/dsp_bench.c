@@ -26,12 +26,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "device_profile.h"
 
 #define BLOCK_BYTES (16 * 16384)
 #define BLOCK_PAIRS (BLOCK_BYTES / 2)
 #define SAMPLE_RATE 2000000.0
 #define BLOCK_MS (BLOCK_PAIRS / SAMPLE_RATE * 1000.0)
 #define SURVEY_BINS 8192
+
+/* The receiver these were written against: an 8-bit container at 127.5 full
+   scale. Set in main() rather than initialised here, because it comes from
+   device_profile_rtlsdr() and that is a function. */
+static struct device_profile g_probe_device;
 
 static double now_ms(void) {
     struct timespec t;
@@ -69,6 +75,7 @@ static void load_block(const char *path, unsigned char *raw) {
 }
 
 int main(int argc, char **argv) {
+    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
     static unsigned char raw[BLOCK_BYTES];
     static float i_samples[BLOCK_PAIRS];
     static float q_samples[BLOCK_PAIRS];
@@ -96,7 +103,7 @@ int main(int argc, char **argv) {
 
     start = now_ms();
     for (int r = 0; r < runs; r++)
-        pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, i_samples, q_samples,
+        pairs = sdr_dsp_convert_iq(&g_probe_device, raw, BLOCK_BYTES, i_samples, q_samples,
                                    magnitudes, BLOCK_PAIRS);
     report("byte -> I/Q + magnitude", now_ms() - start, runs);
 
@@ -104,7 +111,7 @@ int main(int argc, char **argv) {
     start = now_ms();
     for (int r = 0; r < runs; r++)
         sdr_dsp_signal_stats(i_samples, q_samples, magnitudes, pairs,
-                             workspace, &stats);
+                             workspace, g_probe_device.full_scale, &stats);
     report("signal statistics (two percentiles)", now_ms() - start, runs);
 
     start = now_ms();
@@ -120,6 +127,7 @@ int main(int argc, char **argv) {
     start = now_ms();
     for (int r = 0; r < runs; r++)
         sdr_dsp_spectrum(&dsp, i_samples, q_samples, pairs, SDR_DSP_FFT_SIZE,
+                         g_probe_device.full_scale,
                          average, maximum);
     report("spectrum: 64 x 2048-point FFT", now_ms() - start, runs);
 
@@ -147,7 +155,7 @@ int main(int argc, char **argv) {
 
     /* GSM is a different capture and only runs in its own view. */
     load_block(gsm_path, raw);
-    pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, i_samples, q_samples,
+    pairs = sdr_dsp_convert_iq(&g_probe_device, raw, BLOCK_BYTES, i_samples, q_samples,
                                magnitudes, BLOCK_PAIRS);
     struct gsm_sch_result sch;
     struct gsm_sch_symbols symbols;
@@ -178,7 +186,7 @@ int main(int argc, char **argv) {
      * at 1.92 MS/s rather than 65.5 at 2. It is reported against its own.
      */
     load_block("testfiles/lte_b20_pci28.bin", raw);
-    pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, i_samples, q_samples,
+    pairs = sdr_dsp_convert_iq(&g_probe_device, raw, BLOCK_BYTES, i_samples, q_samples,
                                magnitudes, BLOCK_PAIRS);
     {
         const double lte_budget_ms =
@@ -248,7 +256,7 @@ int main(int argc, char **argv) {
             start = now_ms();
             for (int r = 0; r < lte_runs; r++)
                 lte_cell_search_all(i_samples, q_samples, pairs,
-                                    LTE_SAMPLE_RATE_HZ, carrier,
+                                    LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, carrier,
                                     LTE_MAX_CELLS_PER_CARRIER, NULL);
             per = (now_ms() - start) / lte_runs;
             printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
@@ -258,7 +266,7 @@ int main(int argc, char **argv) {
             start = now_ms();
             for (int r = 0; r < runs; r++)
                 lte_reference_power(i_samples, q_samples, pairs,
-                                    LTE_SAMPLE_RATE_HZ, &cell, &power);
+                                    LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &cell, &power);
             per = (now_ms() - start) / runs;
             printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
                    "  reference power, x3 a block", per,
@@ -276,7 +284,7 @@ int main(int argc, char **argv) {
             start = now_ms();
             for (int r = 0; r < runs; r++)
                 lte_channel_shape(i_samples, q_samples, pairs,
-                                  LTE_SAMPLE_RATE_HZ, &cell, &shape);
+                                  LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &cell, &shape);
             per = (now_ms() - start) / runs;
             printf("  %-34s %8.3f ms/block   %6.2f%% of the budget\n",
                    "  channel shape", per, 100.0 * per / lte_budget_ms);

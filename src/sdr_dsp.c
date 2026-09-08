@@ -69,23 +69,73 @@ void sdr_dsp_init(struct sdr_dsp *dsp) {
     sdr_dsp_build_hann(dsp, SDR_DSP_FFT_SIZE);
 }
 
-size_t sdr_dsp_convert_iq(const uint8_t *bytes, size_t byte_count,
+/*
+ * The program's one byte-to-float seam, and the only place that knows what a
+ * sample container looks like.
+ *
+ * The floats it produces are in the **device's own counts**, centred on zero:
+ * an RTL-SDR sample lands in -127.5..+127.5, a 12-bit part's in -2047.5..
+ * +2047.5. They are deliberately not normalised, because clipping and headroom
+ * mean "at the ADC's rail" and a rail is a count -- see `sdr_dsp_signal_stats`,
+ * which takes the same full scale to say so.
+ *
+ * Pairs come from `bytes_per_pair`, not from a hardcoded 2. That divisor is
+ * the silent one: on a four-byte format `byte_count / 2` returns twice the
+ * truth, nothing errors, and every timing budget in CLAUDE.md is out by a
+ * factor of two.
+ */
+size_t sdr_dsp_convert_iq(const struct device_profile *profile,
+                          const uint8_t *bytes, size_t byte_count,
                           float *i_out, float *q_out,
                           float *magnitude_out, size_t pair_capacity) {
-    if (!bytes || !i_out || !q_out || !magnitude_out)
+    if (!profile || !bytes || !i_out || !q_out || !magnitude_out)
         return 0;
 
-    size_t pairs = byte_count / 2;
+    unsigned stride = profile->bytes_per_pair;
+    if (stride == 0)
+        return 0;
+
+    size_t pairs = byte_count / stride;
     if (pairs > pair_capacity)
         pairs = pair_capacity;
-    for (size_t n = 0; n < pairs; n++) {
-        float i = (float)bytes[2 * n] - 127.5f;
-        float q = (float)bytes[2 * n + 1] - 127.5f;
-        i_out[n] = i;
-        q_out[n] = q;
-        magnitude_out[n] = sqrtf(i * i + q * q);
+
+    switch (profile->format) {
+    case SAMPLE_FORMAT_U8: {
+        /* Mid-scale is zero. For a centred unsigned format that offset is
+           also its full scale, which is why 127.5 appears twice in the RTL
+           profile and means two different things. */
+        const float zero = device_format_zero_offset(SAMPLE_FORMAT_U8);
+        for (size_t n = 0; n < pairs; n++) {
+            float i = (float)bytes[2 * n] - zero;
+            float q = (float)bytes[2 * n + 1] - zero;
+            i_out[n] = i;
+            q_out[n] = q;
+            magnitude_out[n] = sqrtf(i * i + q * q);
+        }
+        return pairs;
     }
-    return pairs;
+    case SAMPLE_FORMAT_S16: {
+        /* Little-endian, decoded byte by byte so the answer does not depend
+           on this machine -- the same reason scripts/rescale_capture.c writes
+           it that way. Already centred, so no offset. */
+        for (size_t n = 0; n < pairs; n++) {
+            const uint8_t *p = bytes + 4 * n;
+            int16_t raw_i = (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+            int16_t raw_q = (int16_t)((uint16_t)p[2] | ((uint16_t)p[3] << 8));
+            float i = (float)raw_i;
+            float q = (float)raw_q;
+            i_out[n] = i;
+            q_out[n] = q;
+            magnitude_out[n] = sqrtf(i * i + q * q);
+        }
+        return pairs;
+    }
+    case SAMPLE_FORMAT_CF32:
+    default:
+        /* Nothing produces one. Refusing is better than a plausible guess at
+           a layout nobody has seen. */
+        return 0;
+    }
 }
 
 size_t sdr_dsp_peak_bins(const float *magnitudes, size_t pair_count,
@@ -214,10 +264,10 @@ static float nearest_rank(const float *sorted, size_t count,
 
 int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
                          const float *magnitudes, size_t pair_count,
-                         float *sort_workspace,
+                         float *sort_workspace, float full_scale,
                          struct sdr_signal_stats *stats) {
-    if (!i_samples || !q_samples || !magnitudes || !sort_workspace ||
-        !stats || pair_count == 0)
+    if (!i_samples || !q_samples || !sort_workspace || !magnitudes ||
+        !stats || pair_count == 0 || !(full_scale > 0.0f))
         return 0;
 
     size_t clipped = 0;
@@ -226,7 +276,9 @@ int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
         sort_workspace[n] = magnitudes[n];
         float absolute_i = fabsf(i_samples[n]);
         float absolute_q = fabsf(q_samples[n]);
-        if (absolute_i >= 127.5f || absolute_q >= 127.5f)
+        /* At the ADC's rail, which is a count and not a container: a 12-bit
+           part in a 16-bit word clips at 2047.5, nowhere near 32767.5. */
+        if (absolute_i >= full_scale || absolute_q >= full_scale)
             clipped++;
         if (absolute_i > strongest_component)
             strongest_component = absolute_i;
@@ -259,7 +311,7 @@ int sdr_dsp_signal_stats(const float *i_samples, const float *q_samples,
         stats->headroom_db = 120.0f;
     else
         stats->headroom_db = fmaxf(0.0f,
-                                   20.0f * log10f(127.5f /
+                                   20.0f * log10f(full_scale /
                                                   strongest_component));
     return 1;
 }
@@ -683,8 +735,8 @@ int sdr_dsp_corrected_ppm(int current_ppm, double measured_frequency_hz,
 
 int sdr_dsp_spectrum(struct sdr_dsp *dsp,
                      const float *i_samples, const float *q_samples,
-                     size_t pair_count, int size, float *average_dbfs,
-                     float *maximum_dbfs) {
+                     size_t pair_count, int size, float full_scale,
+                     float *average_dbfs, float *maximum_dbfs) {
     if (!dsp || !i_samples || !q_samples || !average_dbfs || !maximum_dbfs)
         return 0;
     if (!sdr_dsp_fft_size_valid(size))
@@ -704,7 +756,7 @@ int sdr_dsp_spectrum(struct sdr_dsp *dsp,
     for (size_t window = 0; window < windows; window++) {
         size_t offset = window * (size_t)size;
         for (int n = 0; n < size; n++) {
-            float scale = dsp->hann[n] / 127.5f;
+            float scale = dsp->hann[n] / full_scale;
             dsp->fft_re[n] = i_samples[offset + (size_t)n] * scale;
             dsp->fft_im[n] = q_samples[offset + (size_t)n] * scale;
         }

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "device_profile.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -41,6 +42,11 @@ static uint8_t pbch_bits[LTE_PBCH_SOFT_BITS];
 
 /* Deterministic noise, so a failure is the same failure next time. */
 static uint32_t rng_state;
+
+/* The receiver these were written against: an 8-bit container at 127.5 full
+   scale. Set in main() rather than initialised here, because it comes from
+   device_profile_rtlsdr() and that is a function. */
+static struct device_profile g_probe_device;
 
 static void rng_seed(uint32_t seed) { rng_state = seed ? seed : 1u; }
 
@@ -1014,7 +1020,7 @@ static void test_reference_power(void) {
         return;
     }
     if (lte_reference_power(buffer_i, buffer_q, BUFFER_SAMPLES,
-                            LTE_SAMPLE_RATE_HZ, &cell, &quiet) != 1) {
+                            LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &cell, &quiet) != 1) {
         check_true("reference power: measured", 0);
         return;
     }
@@ -1039,7 +1045,7 @@ static void test_reference_power(void) {
         buffer_q[n] *= 2.0f;
     }
     if (lte_reference_power(buffer_i, buffer_q, BUFFER_SAMPLES,
-                            LTE_SAMPLE_RATE_HZ, &cell, &loud) != 1) {
+                            LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &cell, &loud) != 1) {
         check_true("reference power: measured at twice the amplitude", 0);
         return;
     }
@@ -1155,7 +1161,7 @@ static void test_two_cells_on_one_carrier(void) {
 
     build_two_cell_carrier(0.85f);
     found = lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
-                                LTE_SAMPLE_RATE_HZ, cells,
+                                LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, cells,
                                 LTE_MAX_CELLS_PER_CARRIER, NULL);
     check_int("two cells on one carrier: how many are found", found, 2);
     if (found != 2)
@@ -1203,7 +1209,7 @@ static void test_two_cells_needs_similar_levels(void) {
     build_two_cell_carrier(0.45f);
     check_int("a cell 6.9 dB down is not separated",
               lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
-                                  LTE_SAMPLE_RATE_HZ, cells,
+                                  LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, cells,
                                   LTE_MAX_CELLS_PER_CARRIER, NULL), 1);
     check_int("and the one reported is the stronger", cells[0].pci, 190);
 }
@@ -1217,7 +1223,7 @@ static void test_one_cell_stays_one(void) {
     build_buffer(227, 2, 900.0, 0.004, 63u);
     check_int("one cell on the carrier",
               lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
-                                  LTE_SAMPLE_RATE_HZ, cells,
+                                  LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, cells,
                                   LTE_MAX_CELLS_PER_CARRIER, NULL), 1);
     check_int("and it is the one that was built", cells[0].pci, 227);
 }
@@ -1242,7 +1248,7 @@ static void test_reference_sinr(void) {
     if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
                         LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1 ||
         !lte_reference_power(buffer_i, buffer_q, BUFFER_SAMPLES,
-                             LTE_SAMPLE_RATE_HZ, &cell, &quiet)) {
+                             LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &cell, &quiet)) {
         check_true("RS-SINR: the quiet cell is measured", 0);
         return;
     }
@@ -1254,7 +1260,7 @@ static void test_reference_sinr(void) {
     if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
                         LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1 ||
         !lte_reference_power(buffer_i, buffer_q, BUFFER_SAMPLES,
-                             LTE_SAMPLE_RATE_HZ, &cell, &noisy)) {
+                             LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &cell, &noisy)) {
         check_true("RS-SINR: the noisy cell is measured", 0);
         return;
     }
@@ -1294,7 +1300,7 @@ static void test_channel_shape(void) {
     if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
                         LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1 ||
         !lte_channel_shape(buffer_i, buffer_q, BUFFER_SAMPLES,
-                           LTE_SAMPLE_RATE_HZ, &cell, &flat)) {
+                           LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &cell, &flat)) {
         check_true("channel shape: measured on the flat buffer", 0);
         return;
     }
@@ -1323,7 +1329,7 @@ static void test_channel_shape(void) {
     moved = cell;
     moved.subframe0_start = cell.subframe0_start + 2;
     if (!lte_channel_shape(buffer_i, buffer_q, BUFFER_SAMPLES,
-                           LTE_SAMPLE_RATE_HZ, &moved, &delayed)) {
+                           LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &moved, &delayed)) {
         check_true("channel shape: measured with the window moved", 0);
         return;
     }
@@ -1340,7 +1346,7 @@ static void test_channel_shape(void) {
     moved = cell;
     moved.frequency_offset_hz = cell.frequency_offset_hz + 300.0;
     if (!lte_channel_shape(buffer_i, buffer_q, BUFFER_SAMPLES,
-                           LTE_SAMPLE_RATE_HZ, &moved, &drifting)) {
+                           LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, &moved, &drifting)) {
         check_true("channel shape: measured with the offset moved", 0);
         return;
     }
@@ -1356,6 +1362,7 @@ static void test_channel_shape(void) {
 }
 
 int main(void) {
+    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
     twiddles_init();
 
     test_bands();

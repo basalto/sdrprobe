@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "device_profile.h"
+
 /*
  * FM broadcast: the multiplex, and the front end of the RDS subcarrier.
  *
@@ -60,7 +62,10 @@
  * is radians per sample, one value per input pair after the first: `pairs`
  * pairs in, `pairs - 1` samples out.
  *
- * Interleaved unsigned 8-bit I/Q with 127.5 as zero, the house convention.
+ * Interleaved unsigned 8-bit I/Q, centred on device_format_zero_offset().
+ * The only raw-byte entry point left and it has no caller outside tests;
+ * everything in the program goes through fm_discriminate_f() below, fed by
+ * sdr_dsp_convert_iq() and whatever container the device profile names.
  */
 size_t fm_discriminate(const uint8_t *iq, size_t pairs, float *out,
                        size_t capacity);

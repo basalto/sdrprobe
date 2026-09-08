@@ -5,11 +5,17 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "device_profile.h"
 
 #define PI_F 3.14159265358979323846f
 
 /* GSM calibration exercises the plugin's channel map plus the generic centroid
    estimate and PPM correction it reuses from sdr_dsp. */
+/* The receiver these were written against: an 8-bit container at 127.5 full
+   scale. Set in main() rather than initialised here, because it comes from
+   device_profile_rtlsdr() and that is a function. */
+static struct device_profile g_probe_device;
+
 static void test_cellular_calibration(void) {
     uint32_t frequency = 0;
     check_size("GSM 900 ARFCN 113",
@@ -323,7 +329,7 @@ static void check_real_capture(const char *path, int bsic, int ncc, int bcc,
     int first_fn = 0, last_fn = 0, min_t1 = 0, max_t1 = 0;
     size_t got;
     while ((got = fread(raw, 1, GSM_REAL_BLOCK, file)) == GSM_REAL_BLOCK) {
-        size_t pairs = sdr_dsp_convert_iq(raw, GSM_REAL_BLOCK, i, q, mag,
+        size_t pairs = sdr_dsp_convert_iq(&g_probe_device, raw, GSM_REAL_BLOCK, i, q, mag,
                                           GSM_REAL_BLOCK / 2);
         struct gsm_sch_result result;
         if (gsm_sch_decode(i, q, pairs, 2000000.0, 400000.0, GSM_OPT_FILTER|GSM_OPT_FINECFO|GSM_OPT_TRELLIS, &result, NULL)) {
@@ -395,6 +401,7 @@ static void test_arfcn_for_hz(void) {
 }
 
 int main(void) {
+    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
     test_cellular_calibration();
     test_fcch_detection();
     test_sch_decode();

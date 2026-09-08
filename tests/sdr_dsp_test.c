@@ -5,15 +5,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "device_profile.h"
 
 #define PI_F 3.14159265358979323846f
+
+/* The receiver these were written against: an 8-bit container at 127.5 full
+   scale. Set in main() rather than initialised here, because it comes from
+   device_profile_rtlsdr() and that is a function. */
+static struct device_profile g_probe_device;
 
 static void test_conversion(void) {
     const uint8_t bytes[] = {127, 128, 255};
     float i[2] = {99.0f, 99.0f};
     float q[2] = {99.0f, 99.0f};
     float magnitude[2] = {99.0f, 99.0f};
-    size_t pairs = sdr_dsp_convert_iq(bytes, sizeof(bytes), i, q,
+    size_t pairs = sdr_dsp_convert_iq(&g_probe_device, bytes, sizeof(bytes), i, q,
                                       magnitude, 2);
 
     check_size("odd byte count", pairs, 1);
@@ -22,9 +28,9 @@ static void test_conversion(void) {
     check_close("I/Q magnitude", magnitude[0], sqrtf(0.5f), 0.0001f);
     check_close("unmatched byte untouched", i[1], 99.0f, 0.0001f);
     check_size("empty conversion",
-               sdr_dsp_convert_iq(bytes, 0, i, q, magnitude, 2), 0);
+               sdr_dsp_convert_iq(&g_probe_device, bytes, 0, i, q, magnitude, 2), 0);
     check_size("capacity bound",
-               sdr_dsp_convert_iq(bytes, sizeof(bytes), i, q,
+               sdr_dsp_convert_iq(&g_probe_device, bytes, sizeof(bytes), i, q,
                                   magnitude, 0), 0);
 }
 
@@ -45,7 +51,7 @@ static void test_standard_block(void) {
         bytes[n + 1] = 128;
     }
     check_size("standard-block conversion",
-               sdr_dsp_convert_iq(bytes, byte_count, i, q, magnitude,
+               sdr_dsp_convert_iq(&g_probe_device, bytes, byte_count, i, q, magnitude,
                                   pair_count),
                pair_count);
     check_close("standard-block final I", i[pair_count - 1], -0.5f,
@@ -93,7 +99,7 @@ static void test_signal_stats(void) {
 
     check_size("signal stats available",
                (size_t)sdr_dsp_signal_stats(i, q, magnitude, 5,
-                                            workspace, &stats), 1);
+                                            workspace, g_probe_device.full_scale, &stats), 1);
     check_close("noise p10", stats.noise_magnitude, 1.0f, 0.0001f);
     check_close("signal p99.5", stats.signal_magnitude, 127.5f, 0.0001f);
     check_close("estimated SNR", stats.snr_db,
@@ -102,7 +108,7 @@ static void test_signal_stats(void) {
     check_close("full-scale headroom", stats.headroom_db, 0.0f, 0.0001f);
     check_size("empty signal stats",
                (size_t)sdr_dsp_signal_stats(i, q, magnitude, 0,
-                                            workspace, &stats), 0);
+                                            workspace, g_probe_device.full_scale, &stats), 0);
 }
 
 static void fill_tone(float *i, float *q, size_t offset, float amplitude,
@@ -135,6 +141,7 @@ static void test_spectrum(void) {
 
     check_size("spectrum window count",
                (size_t)sdr_dsp_spectrum(&dsp, i, q, count, SDR_DSP_FFT_SIZE,
+                                        g_probe_device.full_scale,
                                         average, maximum), WINDOWS);
 
     int shifted_bin = SDR_DSP_FFT_SIZE / 2 + TONE_BIN;
@@ -147,6 +154,7 @@ static void test_spectrum(void) {
                (size_t)sdr_dsp_spectrum(&dsp, i, q,
                                         SDR_DSP_FFT_SIZE - 1,
                                         SDR_DSP_FFT_SIZE,
+                                        g_probe_device.full_scale,
                                         average, maximum), 0);
 
     free(i);
@@ -238,6 +246,7 @@ static void check_percentiles_match_sorting(const char *shape,
         signal_rank = count;
 
     if (!sdr_dsp_signal_stats(magnitude, zeros, magnitude, count, work,
+                              g_probe_device.full_scale,
                               &stats)) {
         check_msg(0, "%s: signal stats refused %zu samples\n", shape, count);
     } else {
@@ -696,7 +705,7 @@ static void test_the_transform_at_every_size(void) {
             q[k] = (float)(127.5 * sin(angle));
         }
         sdr_dsp_init(&dsp);
-        windows = sdr_dsp_spectrum(&dsp, i, q, count, size, average, maximum);
+        windows = sdr_dsp_spectrum(&dsp, i, q, count, size, g_probe_device.full_scale, average, maximum);
 
         check_msg(windows == 4, "size %d averaged %d windows, not 4\n", size,
                   windows);
@@ -747,7 +756,7 @@ static void test_the_awkward_bins(void) {
             q[k] = 0.0f;
         }
         sdr_dsp_init(&dsp);
-        sdr_dsp_spectrum(&dsp, i, q, count, size, average, maximum);
+        sdr_dsp_spectrum(&dsp, i, q, count, size, g_probe_device.full_scale, average, maximum);
         check_msg(fabsf(maximum[size / 2]) < 0.05f,
                   "size %d: a constant reads %.3f dBFS at the middle bin\n",
                   size, maximum[size / 2]);
@@ -761,7 +770,7 @@ static void test_the_awkward_bins(void) {
             q[k] = (float)(127.5 * sin(angle));
         }
         sdr_dsp_init(&dsp);
-        sdr_dsp_spectrum(&dsp, i, q, count, size, average, maximum);
+        sdr_dsp_spectrum(&dsp, i, q, count, size, g_probe_device.full_scale, average, maximum);
         {
             int lower = size / 2 + size / 8;
             check_msg(maximum[lower] > -6.0f && maximum[lower + 1] > -6.0f,
@@ -792,7 +801,7 @@ static void test_sizes_it_will_not_do(void) {
         static float i[4096], q[4096], average[4096], maximum[4096];
         sdr_dsp_init(&dsp);
         check_int("and a bad size returns nothing rather than nonsense",
-                  sdr_dsp_spectrum(&dsp, i, q, 4096, 3000, average, maximum),
+                  sdr_dsp_spectrum(&dsp, i, q, 4096, 3000, g_probe_device.full_scale, average, maximum),
                   0);
     }
 }
@@ -831,6 +840,7 @@ static void test_the_sizes_offered(void) {
 }
 
 int main(void) {
+    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
     test_conversion();
     test_standard_block();
     test_peak_bins();

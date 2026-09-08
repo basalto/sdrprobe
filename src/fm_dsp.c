@@ -44,11 +44,17 @@ size_t fm_discriminate(const uint8_t *iq, size_t pairs, float *out,
 
     if (!iq || !out || pairs < 2)
         return 0;
-    pi_ = (double)iq[0] - 127.5;
-    pq = (double)iq[1] - 127.5;
+    /* The last raw-byte entry point in the program, and it has no caller
+       outside tests -- view_fm.c takes fm_discriminate_f(). It is 8-bit by
+       construction rather than by profile, so it names the offset it uses
+       instead of spelling the number. */
+    const double zero = (double)device_format_zero_offset(SAMPLE_FORMAT_U8);
+
+    pi_ = (double)iq[0] - zero;
+    pq = (double)iq[1] - zero;
     for (size_t s = 1; s < pairs && n < capacity; s++) {
-        double ci = (double)iq[2 * s] - 127.5;
-        double cq = (double)iq[2 * s + 1] - 127.5;
+        double ci = (double)iq[2 * s] - zero;
+        double cq = (double)iq[2 * s + 1] - zero;
         double real = ci * pi_ + cq * pq;
         double imag = cq * pi_ - ci * pq;
         out[n++] = (float)atan2(imag, real);
