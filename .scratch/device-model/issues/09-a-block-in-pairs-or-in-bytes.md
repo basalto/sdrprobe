@@ -26,6 +26,30 @@ cannot hold, so ARFCN 69's broadcast disappears completely.
 `check-pipelines`, section "A wider container", asserts all of the above
 including the absence, so this cannot go quiet while the question is open.
 
+## And it costs processing time, not only a decode
+
+Measured 2026-09-08, headless and therefore unpaced, so wall time is
+processing time. Twice a run each:
+
+| capture | 8-bit | 16-bit |
+| --- | --- | --- |
+| `gsm_arfcn_69` | 812 / 868 ms | 793 / 806 ms |
+| `tetra_cc17` | 1552 / 1575 ms | 1496 / 1565 ms |
+| `lte_b20_pci28` | 746 / 768 ms | **1146 / 1183 ms** |
+
+GSM and TETRA are unchanged, as they should be: the same samples get the same
+per-sample work, just in twice as many half-sized helpings.
+
+**LTE is about 55% slower**, and that is the block count rather than the
+format. A cell search costs a fixed amount per block -- the PSS correlation and
+the integer frequency sweep do not shrink much when the block does -- so
+halving the block and doubling the count nearly doubles that fixed cost. It
+reads 55 Master Information Blocks where it read 28 and pays for every one.
+
+This strengthens the "pairs" answer rather than merely adding to it: a block
+that always holds 131072 pairs keeps the block count constant, so this cost
+does not arise at all.
+
 ## The question
 
 Ticket 04 says the block size "stays dump1090's", and that is right. It does

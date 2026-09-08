@@ -31,6 +31,35 @@ quieter and the comparison measures the scaling rather than the shape.
 further than the effect being looked for. Six draws per point, same draw to
 both sides, or the comparison measures the noise.
 
+**Timing two binaries on a machine that is not holding still.** This is the
+one that wastes an afternoon, because every number looks plausible. The CPU
+governor here is `powersave`, so the clock ramps with load and thermal state,
+and `make bench-dsp` alternated three times each read a stage +13.7% that was
+really -2.3%.
+
+Before believing any before/after timing, **run the null experiment: the same
+binary against itself**, split the runs the same way you split the comparison.
+Measured on this machine, one binary against itself drifted a **median 16.1%
+and up to 26.8%** between its early and late runs. Any difference smaller than
+that is not a difference. Counterbalancing the order does not rescue it, and
+neither does pinning with `taskset` -- both were tried, and the residual "5.9%
+regression" they left was uniform across stages the change had not touched,
+which is the tell.
+
+**The fix is to put both versions in one process and alternate them**, so the
+two timings share a thermal state, a frequency, and a cache. Old and new
+`convert_iq`, sixty rounds, minimum of each: +0.6%, then -1.5%, -2.0%, -1.5%
+across repeats -- a clean null, from the same code the cross-binary method had
+called a 14% regression. `perf stat` on instructions retired would be better
+still and is not installed here.
+
+Related trap: **a divide by a variable is not slower than a divide by a
+constant** in a loop where the divisor is invariant. Replacing `/ 127.5f` with
+`/ full_scale` in the FFT window scale measured +0.3%, because the compiler
+hoists either one into a register and cannot turn the constant into a
+reciprocal multiply anyway -- 1/127.5 is not exact in binary and there is no
+`-ffast-math`. Do not pay for a "fix" to this without measuring it first.
+
 ## When no weak signal exists, make one
 
 Every RDS carrier reachable from this site either decodes well or carries
