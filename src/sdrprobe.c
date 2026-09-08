@@ -22,6 +22,7 @@
 #include "options.h"
 #include "gsm_layout.h"
 #include "app.h"
+#include "capture_sidecar.h"
 #include "version.h"
 #include "chrome_layout.h"
 #include "sdrgui.h"
@@ -283,13 +284,27 @@ static int open_capture(struct app *app) {
     app->applied_ppm = app->options.ppm;
     snprintf(app->source_label, sizeof(app->source_label), "capture: %s",
              app->options.file_path);
-    /* A capture is at one place on the band and cannot be moved, which is
-       what the retune paths already refuse. The house convention until a
-       capture can say otherwise for itself. */
+    /*
+     * A capture is at one place on the band and cannot be moved, which is what
+     * the retune paths already refuse. What its bytes *mean* comes from its
+     * own sidecar: a capture that says nothing is the house 8-bit convention,
+     * which is what every capture was until build/testfiles16/ existed.
+     */
+    struct capture_sidecar sidecar;
+    if (capture_sidecar_read(app->options.file_path, &sidecar) < 0) {
+        fprintf(stderr,
+                "Capture %s names a sample format but no full scale; it "
+                "cannot be read in dBFS.\n",
+                app->options.file_path);
+        return -1;
+    }
     app->device = device_profile_capture(
-        app->options.file_path, SAMPLE_FORMAT_U8,
-        device_default_full_scale(SAMPLE_FORMAT_U8),
+        app->options.file_path, sidecar.format, sidecar.full_scale,
         (double)app->applied_frequency, app->applied_sample_rate);
+    if (sidecar.format_stated && sidecar.format != SAMPLE_FORMAT_U8)
+        fprintf(stderr, "Capture %s: %u bytes a pair, full scale %.1f\n",
+                app->options.file_path, app->device.bytes_per_pair,
+                (double)app->device.full_scale);
     return 0;
 }
 
@@ -515,7 +530,9 @@ int start_acquisition(struct app *app) {
         return -1;
     }
     acquisition_attach_source(&app->acq, app->dev, app->capture,
-                              app->applied_sample_rate, app->options.file_path,
+                              app->applied_sample_rate,
+                              app->device.bytes_per_pair,
+                              app->options.file_path,
                               !app->options.play_once);
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
@@ -1270,7 +1287,9 @@ static int run_gui(struct app *app) {
         return -1;
     }
     acquisition_attach_source(&app->acq, app->dev, app->capture,
-                              app->applied_sample_rate, app->options.file_path,
+                              app->applied_sample_rate,
+                              app->device.bytes_per_pair,
+                              app->options.file_path,
                               !app->options.play_once);
     int thread_result = pthread_create(
         &app->acq.worker, NULL,

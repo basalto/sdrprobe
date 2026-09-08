@@ -10,6 +10,15 @@
 
 /* Deliberately dump1090's block size, so timing matches it. */
 #define SAMPLE_BLOCK_BYTES (16 * 16384)
+/*
+ * Pairs in a block **at two bytes a pair**, which is what every buffer in this
+ * program is still sized for. It is not a general answer and must not be used
+ * as one: the 2 means bytes per pair, so on a four-byte container this returns
+ * twice the truth with nothing erroring. Ask
+ * `device_pairs_per_block(&profile, SAMPLE_BLOCK_BYTES)` for how many pairs a
+ * block actually holds; this is the array bound, and being the largest of the
+ * two is exactly what makes it safe as one.
+ */
 #define SAMPLE_BLOCK_PAIRS (SAMPLE_BLOCK_BYTES / 2)
 
 /* Long enough for captures/<name>.bin plus a timestamp. */
@@ -128,6 +137,7 @@ struct acquisition {
     char record_technology[16];
     enum sample_format record_format;
     float record_full_scale;
+    unsigned record_bytes_per_pair;
     char record_source[320];
     char record_tuner[32];
     char record_started_at[32];
@@ -137,6 +147,7 @@ struct acquisition {
     rtlsdr_dev_t *dev;
     FILE *capture;
     uint32_t sample_rate;
+    unsigned bytes_per_pair;
     const char *capture_path;
     int capture_loop;       /* 0 = stop at the end instead of wrapping */
 };
@@ -176,8 +187,13 @@ struct acquisition_record_request {
 
 /* Hand acquisition the source to read from. Must be called before starting a
    worker: these handles are borrowed, and nothing else sets them. */
+/* `bytes_per_pair` is the source's, from its device profile. It is what
+   playback paces by: a block is a fixed number of *bytes*, so how much time it
+   represents depends on the container, and pacing by a hardcoded two runs a
+   four-byte capture at twice real time. */
 void acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
                                FILE *capture, uint32_t sample_rate,
+                               unsigned bytes_per_pair,
                                const char *capture_path, int capture_loop);
 
 /* Deliver every block instead of overwriting the slot: the worker waits for

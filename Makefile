@@ -52,6 +52,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
 	$(SRC)/receiver_lease.h $(SRC)/device_profile.h \
+	$(SRC)/capture_sidecar.h \
 	$(SRC)/app.h $(SRC)/view.h \
 	$(SRC)/version.h \
 	$(SRC)/panel_rows.h $(SRC)/lte_stats.h $(SRC)/lte_confirm.h \
@@ -255,7 +256,7 @@ check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/options.c $(SRC)/
 # Whole paths through the built program, over the captures in testfiles/:
 # decode, record, and the flags that reach them. Needs the binary and about ten
 # seconds; needs no receiver and nobody watching.
-check-pipelines: sdrprobe $(TESTS)/pipelines.sh
+check-pipelines: sdrprobe $(TESTS)/pipelines.sh $(FORMAT16)
 	@$(TESTS)/pipelines.sh
 
 # When a frequency correction may be trusted (ADR-0004). Pure arithmetic, so
@@ -398,6 +399,13 @@ $(BUILD)/testfiles16/%.bin: testfiles/%.bin testfiles/%.json \
 rescale-capture: $(BUILD)/rescale_capture
 	$(Q)./$(BUILD)/rescale_capture $(FILE_RESCALE) $(OUT_RESCALE)
 
+check-capture-sidecar: $(TESTS)/capture_sidecar_test.c $(TESTS)/check.h \
+		$(SRC)/capture_sidecar.h $(SRC)/device_profile.h $(FORMAT16)
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/capture_sidecar_test \
+		$(TESTS)/capture_sidecar_test.c -lm
+	$(Q)./$(BUILD)/capture_sidecar_test
+
 check-device-profile: $(TESTS)/device_profile_test.c $(TESTS)/check.h \
 		$(SRC)/device_profile.h $(SRC)/survey_bands.h \
 		$(SRC)/survey_sweep.h $(SRC)/survey_suspect.h $(SRC)/band_plan.h \
@@ -503,7 +511,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
 	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
 	check-signal-probe check-signal-findings check-receiver-lease \
-	check-sample-format check-device-profile
+	check-sample-format check-device-profile check-capture-sidecar
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -688,4 +696,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile clean
+.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar clean

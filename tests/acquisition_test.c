@@ -287,7 +287,7 @@ static void test_file_worker_reads_a_capture_whole(void) {
     setup();
     acq.capture_bytes = (uint64_t)size;
     acquisition_set_lossless(&acq, 1);
-    acquisition_attach_source(&acq, NULL, capture, 2000000U, path, 0);
+    acquisition_attach_source(&acq, NULL, capture, 2000000U, 2, path, 0);
     check_int("the file worker starts",
               pthread_create(&thread, NULL, file_worker, &acq), 0);
 
