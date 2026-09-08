@@ -1,7 +1,10 @@
 # 02 - A decode session per technology, shared by window and headless
 
-Status: ready-for-agent
-Blocked by: 01
+Status: in progress. **GSM done 2026-09-08**, as the ticket's own order asks
+-- it was already shared, so if extracting it had changed an answer the design
+would have been wrong rather than the code. It changed none. TETRA next, then
+LTE.
+Blocked by: 01 (done)
 
 Per-block decode orchestration -- feed the block, latch the trace, count the
 funnel, decide whether two readings agree -- is written once for the window
@@ -70,3 +73,52 @@ TETRA (smallest duplication, clearest pair), then LTE (largest).
 The Scope tab and the survey (ticket 04). Calibration is a session already in
 all but name (`overlay_calibration.c` and `--calibrate` share the gate) and can
 follow later.
+
+
+## GSM, the proof it changes nothing
+
+`src/gsm_session.{c,h}`. `update_gsm_sch()` was already called from both the
+window and `run_headless`, which made GSM the shape to copy -- but it was not a
+session: it took `struct app` and read `i_samples`, `pair_count`,
+`applied_sample_rate` and six fields of `gsm_view` out of it, so nothing but
+the program could drive it.
+
+Now it takes samples and gives back events. `gsm_session_feed(session, i, q,
+pairs, rate, offset_hz, now, &event)` returns whether anything was read and
+fills a `gsm_session_event` -- `sch_decoded`, `broadcast_read`, and the
+`gsm_si` behind the second. `struct gsm_cell` moved out of `app.h` with it,
+along with `gsm_read_broadcast()`, which is now a static inside the session
+because nothing else ever called it.
+
+`struct gsm_view` keeps what a view actually needs: the chart window, the
+selected channel, the lease token, and the two constellation toggles. The
+decode is `gsm.session`.
+
+### One representation for the front-end options
+
+`opt_filter`, `opt_finecfo` and `opt_trellis` were three ints in the view. The
+decoder has always taken a `GSM_OPT_*` **mask**, so the view rebuilt one every
+block and `--gsm-features` unpacked a mask into the three ints to feed it. Now
+there is one mask, `gsm_session_option()` / `_set_option()` / `_toggle_option()`
+read and write it, and the command line's mask goes straight through.
+
+### Checked
+
+`check-gsm-session`, 49 checks, replaying all three captures block by block --
+no window, no receiver, no process launch. BSIC 59, 38 and 56, the three BCCs
+that are the point of having three captures; MCC 268 MNC 03 LAC 4010 Cell
+Identity 5131; frame numbers that never go backwards. It also does what
+`check-pipelines` needs two process launches for: the same capture through two
+sessions differing only in their option mask, asserting the refinements decode
+more.
+
+`make check` is 17381 in 49 suites, and `check-pipelines` is **unchanged** --
+which is the result this step was for.
+
+### One claim of mine was wrong first
+
+The check asserted all 31 blocks decode an SCH. Twenty-eight do, with the
+options at zero, which is what `memset` leaves. The refinements are what makes
+it 31, and the check states which mask it is replaying under rather than
+leaving it to a default -- and asserts both, since the comparison is more
+informative than either number alone.
