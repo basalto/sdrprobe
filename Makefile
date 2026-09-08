@@ -18,8 +18,41 @@
 # and 32, RDS 0x8343, six ADS-B frames with a position. `make bench-dsp` is
 # how to re-measure, and CFLAGS is overridable for anyone who would rather not.
 CFLAGS?=-O3 -g -Wall -W $(shell pkg-config --cflags librtlsdr)
-LDLIBS+=$(shell pkg-config --libs librtlsdr) -lm
+CFLAGS+=$(UHD_CFLAGS)
+LDLIBS+=$(shell pkg-config --libs librtlsdr) $(UHD_LIBS) -lm
 CC?=gcc
+
+# UHD is optional, and the build works either way.
+#
+# A B210-class device is on order and its driver is a large C++ library. The
+# repository has no CI, so `make check` on a machine that has never installed
+# UHD is the gate for everyone; requiring it would make the gate unrunnable
+# there. So: detect it, and compile the backend in only when it is found.
+# `device_backend_uhd()` returns NULL in a build without it, which is why
+# callers ask rather than testing a macro -- a binary built without UHD
+# refuses a UHD device with a sentence instead of failing to link.
+#
+# **It defaults to 0 today, deliberately.** The adapter itself is not written
+# -- the board has not arrived and C++ against an API nobody here can compile
+# is exactly the plausible-and-wrong artifact this spec keeps producing -- so
+# auto-detecting would break the build for anyone who happens to have UHD
+# installed. Flip the default to the pkg-config probe on the line below when
+# `backend_uhd.c` exists and compiles:
+#
+#     HAVE_UHD?=$(shell pkg-config --exists uhd && echo 1 || echo 0)
+#
+# `make HAVE_UHD=1` opts in meanwhile, which is how the adapter will be
+# developed once there is something to develop against.
+HAVE_UHD?=0
+ifeq ($(HAVE_UHD),1)
+UHD_CFLAGS=$(shell pkg-config --cflags uhd) -DHAVE_UHD=1
+UHD_LIBS=$(shell pkg-config --libs uhd)
+UHD_SRC=
+else
+UHD_CFLAGS=
+UHD_LIBS=
+UHD_SRC=
+endif
 
 # Commands are hidden so `make check` reads as a report rather than a wall of
 # compiler lines. V=1 shows them again, which is what you want when a build
@@ -38,7 +71,9 @@ all: sdrprobe
 DSP_SRC=$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c
-APP_SRC=$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
+APP_SRC=$(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
+	$(SRC)/backend_uhd.c \
+	$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
 	$(SRC)/view_survey.c \
 	$(SRC)/band_plan.c \
@@ -52,7 +87,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
 	$(SRC)/receiver_lease.h $(SRC)/device_profile.h \
-	$(SRC)/capture_sidecar.h \
+	$(SRC)/capture_sidecar.h $(SRC)/device_backend.h \
 	$(SRC)/app.h $(SRC)/view.h \
 	$(SRC)/version.h \
 	$(SRC)/panel_rows.h $(SRC)/lte_stats.h $(SRC)/lte_confirm.h \
@@ -399,6 +434,14 @@ $(BUILD)/testfiles16/%.bin: testfiles/%.bin testfiles/%.json \
 rescale-capture: $(BUILD)/rescale_capture
 	$(Q)./$(BUILD)/rescale_capture $(FILE_RESCALE) $(OUT_RESCALE)
 
+check-device-backend: $(TESTS)/device_backend_test.c $(TESTS)/check.h \
+		$(SRC)/device_backend.h $(SRC)/device_profile.h \
+		$(SRC)/capture_sidecar.h $(SRC)/backend_capture.c $(FORMAT16)
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/device_backend_test \
+		$(TESTS)/device_backend_test.c $(SRC)/backend_capture.c -lm
+	$(Q)./$(BUILD)/device_backend_test
+
 check-capture-sidecar: $(TESTS)/capture_sidecar_test.c $(TESTS)/check.h \
 		$(SRC)/capture_sidecar.h $(SRC)/device_profile.h $(FORMAT16)
 	@mkdir -p $(BUILD)
@@ -511,7 +554,8 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-gsm-continuity check-gsm-bcch check-geometry check-input \
 	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
 	check-signal-probe check-signal-findings check-receiver-lease \
-	check-sample-format check-device-profile check-capture-sidecar
+	check-sample-format check-device-profile check-capture-sidecar \
+	check-device-backend
 TALLY=$(BUILD)/check-tally
 
 check: sdrprobe
@@ -696,4 +740,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar clean
+.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend clean
