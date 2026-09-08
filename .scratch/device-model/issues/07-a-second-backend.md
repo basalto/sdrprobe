@@ -188,3 +188,76 @@ A UHD release that bumps `B200_FPGA_COMPAT_NUM` strands the board until the
 vendor rebuilds. So: which UHD version is `sdrprobe` developed against, and
 what happens when the distribution moves past it? Unanswered, and it is the
 part of this ticket that is genuinely a decision rather than a fact.
+
+
+## Built 2026-09-08: the seam, both existing backends, and the build path
+
+`src/device_backend.h` is the vtable the spec deferred until there was a
+second backend to satisfy it. Fourteen entries -- open, close, frequency and
+rate both ways, ppm, gain, flush, stream, stop -- with wrappers so a caller
+writes `device_set_frequency_hz(&s, hz)` and a **NULL entry is a refusal in
+one place instead of a crash in ninety**.
+
+`flush` earns its place as an entry rather than an implementation detail:
+`rtlsdr_reset_buffer()` appears thirteen times in this program and is the most
+driver-specific thing in it. A backend with no pipeline returns 0, which is
+truthful rather than a stub -- it lets every caller keep one
+retune-then-flush path.
+
+Two implementations exist now, which is what stops this being a pass-through
+before the hardware lands:
+
+- `src/backend_rtlsdr.c`, the nineteen distinct `rtlsdr_` calls. **Intended to
+  become the only file that includes `<rtl-sdr.h>`** -- see What is left.
+- `src/backend_capture.c`, which is mostly refusals, and the refusals are the
+  content: a recording holds one tuning at one rate with one gain baked into
+  its samples. It reads the sidecar for the container and rounds the file's
+  length to whole pairs *of that container*. It deliberately does **not** pace
+  -- pacing is the acquisition layer's, because that is what
+  `acquisition_set_lossless()` turns off to get the same answer twice.
+
+`check-device-backend`, 66 checks, adds a third and a fourth: a **fake** that
+records what it was asked and can be made to fail on demand, and a **sparse**
+backend that implements nothing, so the NULL-entry paths are reachable. It
+asserts the property the receiver lease depends on -- **a refused retune moves
+nothing** -- and that a closed session refuses rather than crashes. Verified by
+mutation: making the capture backend accept a retune fails it twice by name.
+
+### The build path, proven both ways
+
+`HAVE_UHD` is a Makefile switch. `make` builds without UHD, which is the state
+on this machine and the state of anyone this repository is handed to -- there
+is no CI here, so `make check` has to run on a machine that never installed a
+C++ SDR framework.
+
+**It defaults to 0 rather than auto-detecting, and that is deliberate.** The
+adapter is not written; auto-detecting would break the build for anyone who
+happens to have UHD installed. `make HAVE_UHD=1` opts in and currently fails
+with an `#error` naming this ticket, which is a better answer than a link
+error. The pkg-config probe to switch to is written out in the Makefile
+comment.
+
+### Why `backend_uhd.c` contains no UHD
+
+Because none of it could be compiled here, and this spec has spent its time
+correcting exactly that kind of artifact -- an antenna-gain explanation that
+was wrong, a full scale that agreed with nothing, a block size right only by
+luck. What the file carries instead is the obligation list, beside the code
+that will have to satisfy it: the `fpga=` argument a clone may need to
+enumerate at all, `SAMPLE_FORMAT_S16` with a full scale that has to come from
+somewhere real, `GAIN_MODEL_RANGE` whose unit is an **index** and not dB, a
+`flush` that is a truthful no-op, and `ppm_drifts` that must be measured.
+
+## What is left
+
+**The app is not ported onto the seam yet.** `<rtl-sdr.h>` still reaches
+`acquisition.h`, `app.h` and `sdrprobe.c`, and `app->dev` is still an
+`rtlsdr_dev_t *`. That is 72 call sites and it is the next commit, not a
+smaller job than the seam itself. Until it lands, the two backends are
+compiled and unused, which is the one thing about this commit that is not
+finished.
+
+The order that keeps it reviewable: `app->dev` becomes a `struct
+device_session`, then `open_receiver` and `open_capture`, then
+`retune_receiver*` and the acquisition worker, then `overlay_settings.c`'s
+eighteen gain calls last, because those are the ones ticket 06 rewrites anyway.

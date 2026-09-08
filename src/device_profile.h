@@ -266,11 +266,20 @@ static inline void device_profile_set_name(struct device_profile *p,
                                            const char *name) {
     if (!p)
         return;
-    p->name[0] = '\0';
-    if (!name)
-        return;
-    strncpy(p->name, name, DEVICE_NAME_MAX - 1);
-    p->name[DEVICE_NAME_MAX - 1] = '\0';
+    /*
+     * An explicit bounded copy rather than strncpy or snprintf. Truncation is
+     * the intended behaviour here, and both of those make the compiler say so
+     * -- strncpy under -Wstringop-truncation when the source is exactly the
+     * field's length, snprintf under -Wformat-truncation when it can see the
+     * length statically, which the check does. This says the same thing with
+     * nothing to warn about.
+     */
+    size_t n = name ? strlen(name) : 0;
+    if (n > DEVICE_NAME_MAX - 1)
+        n = DEVICE_NAME_MAX - 1;
+    if (n)
+        memcpy(p->name, name, n);
+    p->name[n] = '\0';
 }
 
 /*
