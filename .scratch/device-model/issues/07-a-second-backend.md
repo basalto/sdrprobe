@@ -126,3 +126,65 @@ because a crystal drifts. For this board it is unverified -- no TCXO figure is
 published and the GPSDO slot is removed -- so measure it with the calibration
 path this program already has, against ARFCN 113 or an LTE cell, on two
 sessions far enough apart to see drift if there is any.
+
+
+## The FPGA image: back it up before running the downloader once
+
+The board ships a vendor `usrp_b210_fpga.bin` because the silicon is a
+Kintex-7 where a genuine B210 is a Spartan-6. UHD does not care --
+`check_fpga_compat()` (`b200_impl.cpp:1212`) checks a `0xACE0BA5E` signature
+and a major compat number and never inspects the part -- but `uhd_images_downloader`
+does not know the vendor image exists.
+
+**It does not merely overwrite it.** `update_target()` calls
+`delete_from_inv()`, which `os.remove()`s every file recorded in
+`inventory.json` for that target, then unpacks the Ettus archive over the
+directory. No prompt. `-n` shows what it would touch.
+
+```sh
+IMG=$(uhd_config_info --images-dir | sed 's/.*: //')   # typically /usr/share/uhd/images
+sudo cp -a "$IMG/usrp_b210_fpga.bin" ~/hw/b210-vendor-fpga.bin
+```
+
+**Better: keep the image out of that directory entirely.** The B200 driver
+takes an `fpga` device argument, verified at `b200_impl.cpp:464`:
+
+```c
+std::string b200_fpga_image = find_image_path(
+    device_addr.has_key("fpga") ? device_addr["fpga"] : default_file_name);
+```
+
+```sh
+uhd_usrp_probe --args "type=b200,fpga=/home/rjdinis/hw/b210-vendor-fpga.bin"
+```
+
+That makes the downloader harmless, and it is what `sdrprobe` should pass when
+it opens the device rather than relying on whatever is in the shared directory.
+
+**One more reason to expect needing it.** At `b200_impl.cpp:423`, if the
+EEPROM's product ID is not one UHD recognises, the constructor rethrows --
+*unless* `fpga` was given, in which case it carries on with the product named
+`"B200?"`. A clone with an unrecognised product ID would therefore **only work
+at all with `fpga=` specified**. Whether this one is recognised is unverified;
+if `uhd_find_devices` fails on arrival, this is the first thing to try rather
+than a sign the board is dead.
+
+**Identifying which image is loaded** is weaker than it looks:
+
+```sh
+uhd_usrp_probe --string /mboards/0/fpga_version     # expect "16.<minor>"
+```
+
+The major number is 16 whoever built it -- a vendor image reports 16
+deliberately, or it would not load. Only the minor could differ and whether it
+does is unverified. **`sha256sum` against the backup is the reliable
+discriminator.** The consolation is that getting it wrong is loud: an Ettus
+Spartan-6 bitstream loaded into a Kintex-7 fails at open rather than running
+subtly wrong.
+
+## Pinning, which this ticket still has to decide
+
+A UHD release that bumps `B200_FPGA_COMPAT_NUM` strands the board until the
+vendor rebuilds. So: which UHD version is `sdrprobe` developed against, and
+what happens when the distribution moves past it? Unanswered, and it is the
+part of this ticket that is genuinely a decision rather than a fact.
