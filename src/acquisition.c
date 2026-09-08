@@ -32,7 +32,15 @@ static void record_write_sidecar(struct acquisition *acq, double seconds) {
     /* Distinguishes a sidecar written at record time from one reconstructed
        for an older capture, where some fields may be unknown. */
     fprintf(f, "  \"provenance\": \"recorded by sdrprobe\",\n");
-    fprintf(f, "  \"format\": \"unsigned 8-bit interleaved I/Q, 127.5 = zero\",\n");
+    fprintf(f, "  \"format\": \"%s\",\n",
+            acq->record_format == SAMPLE_FORMAT_S16
+                ? "signed 16-bit little-endian interleaved I/Q, 0 = zero"
+                : "unsigned 8-bit interleaved I/Q, mid-scale = zero");
+    /* The number dBFS is relative to. Prose could not say which of two 16-bit
+       full scales a file used; this can. */
+    fprintf(f, "  \"full_scale\": %.1f,\n", (double)acq->record_full_scale);
+    fprintf(f, "  \"bytes_per_pair\": %u,\n",
+            device_format_bytes_per_pair(acq->record_format));
     if (acq->record_technology[0])
         fprintf(f, "  \"technology\": \"%s\",\n", acq->record_technology);
     fprintf(f, "  \"center_frequency_hz\": %u,\n", acq->record_frequency_hz);
@@ -413,6 +421,8 @@ int acquisition_start_recording(struct acquisition *acq, const char *path,
     snprintf(acq->record_path, sizeof(acq->record_path), "%s", path);
     acq->record_frequency_hz = req->frequency_hz;
     acq->record_sample_rate = req->sample_rate;
+    acq->record_format = req->format;
+    acq->record_full_scale = req->full_scale;
     acq->record_gain_tenths = req->gain_tenths;
     acq->record_manual_gain = req->manual_gain;
     acq->record_ppm = req->ppm;

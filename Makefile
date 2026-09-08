@@ -58,7 +58,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/lte_findings.h \
 	$(SRC)/chart_window.h $(SRC)/help_layout.h $(SRC)/scan_layout.h \
 	$(SRC)/scope_layout.h $(SRC)/settings_layout.h
-DSP_HDR=$(SRC)/signal_probe.h $(SRC)/signal_findings.h $(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
+DSP_HDR=$(SRC)/device_profile.h $(SRC)/signal_probe.h $(SRC)/signal_findings.h $(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
 	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h $(SRC)/lte_scan.h \
 	$(SRC)/fm_dsp.h $(SRC)/rds.h $(SRC)/tetra_dsp.h $(SRC)/tetra_sync.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
@@ -84,14 +84,16 @@ sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 # Per-technology hardware-free DSP checks. Each technology's checks build and
 # run in isolation so they are easy to inspect and extend; check-dsp runs all.
 # Test sources live in $(TESTS)/ and include the DSP headers from $(SRC)/.
-check-sdr-dsp: $(TESTS)/sdr_dsp_test.c $(TESTS)/check.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+check-sdr-dsp: $(TESTS)/sdr_dsp_test.c $(TESTS)/check.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/sdr_dsp_test \
 		$(TESTS)/sdr_dsp_test.c $(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/sdr_dsp_test
 
 check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_dsp_test \
 		$(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/sdr_dsp.c -lm
@@ -105,7 +107,8 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/
 # preamble, and what a station says about itself. Decoder side; links fm_dsp
 # only to reach the real capture.
 check-rds: $(TESTS)/rds_test.c $(TESTS)/check.h $(SRC)/rds.c $(SRC)/rds.h \
-		$(SRC)/fm_dsp.c $(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin
+		$(SRC)/fm_dsp.c $(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/rds_test \
 		$(TESTS)/rds_test.c $(SRC)/rds.c $(SRC)/fm_dsp.c -lm
@@ -120,7 +123,8 @@ check-fm-scan: $(TESTS)/fm_scan_test.c $(TESTS)/check.h $(SRC)/fm_scan.h
 	$(Q)./$(BUILD)/fm_scan_test
 
 check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
-		$(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin
+		$(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_dsp_test \
 		$(TESTS)/fm_dsp_test.c $(SRC)/fm_dsp.c -lm
@@ -154,7 +158,8 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(TESTS)/check.h $(SRC)/adsb_dsp.c $(SR
 # second time and independently, so agreement means something.
 check-lte-dsp: $(TESTS)/lte_dsp_test.c $(TESTS)/check.h $(SRC)/lte_dsp.c \
 		$(SRC)/lte_dsp.h $(SRC)/lte_gold.h $(SRC)/lte_mib.c $(SRC)/lte_mib.h \
-		testfiles/lte_b20_pci28.bin
+		testfiles/lte_b20_pci28.bin \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_dsp_test \
 		$(TESTS)/lte_dsp_test.c $(SRC)/lte_dsp.c $(SRC)/lte_mib.c -lm
@@ -173,7 +178,8 @@ check-lte-mib: $(TESTS)/lte_mib_test.c $(TESTS)/check.h $(SRC)/lte_mib.c \
 # The LTE band scan's order: every channel of a band named exactly once, and
 # the likely carrier centres named first. Links lte_dsp.c for the band table.
 check-lte-scan: $(TESTS)/lte_scan_test.c $(TESTS)/check.h $(SRC)/lte_scan.h \
-		$(SRC)/lte_dsp.c $(SRC)/lte_dsp.h
+		$(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_scan_test \
 		$(TESTS)/lte_scan_test.c $(SRC)/lte_dsp.c -lm
@@ -196,7 +202,8 @@ check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 # out, so it links nothing at all.
 # The antenna and site that persist between runs. Text in, text out.
 check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
-		$(SRC)/config.h $(SRC)/sdr_dsp.h
+		$(SRC)/config.h $(SRC)/sdr_dsp.h \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/config_test \
 		$(TESTS)/config_test.c $(SRC)/config.c -lm
@@ -232,7 +239,8 @@ check-survey-confirm: $(TESTS)/survey_confirm_test.c $(TESTS)/check.h \
 # Local maxima to signals: one carrier has several, and reporting each is how
 # one station becomes five things to remember.
 check-survey-carrier: $(TESTS)/survey_carrier_test.c $(TESTS)/check.h \
-		$(SRC)/survey_carrier.h $(SRC)/sdr_dsp.h
+		$(SRC)/survey_carrier.h $(SRC)/sdr_dsp.h \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_carrier_test \
 		$(TESTS)/survey_carrier_test.c -lm
@@ -346,7 +354,8 @@ check-scan: $(TESTS)/scan_plan_test.c $(TESTS)/check.h $(SRC)/scan_plan.h
 # the file worker driven against a real capture. Links librtlsdr for the device
 # type only -- it never opens one.
 check-acquisition: $(TESTS)/acquisition_test.c $(TESTS)/check.h \
-		$(SRC)/acquisition.c $(SRC)/acquisition.h
+		$(SRC)/acquisition.c $(SRC)/acquisition.h \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -pthread -o $(BUILD)/acquisition_test \
 		$(TESTS)/acquisition_test.c $(SRC)/acquisition.c \
@@ -399,7 +408,8 @@ check-device-profile: $(TESTS)/device_profile_test.c $(TESTS)/check.h \
 	$(Q)./$(BUILD)/device_profile_test
 
 check-sample-format: $(TESTS)/sample_format_test.c $(TESTS)/check.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(FORMAT16)
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(FORMAT16) \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/sample_format_test \
 		$(TESTS)/sample_format_test.c $(SRC)/sdr_dsp.c -lm
@@ -435,7 +445,8 @@ check-lte-confirm: $(TESTS)/lte_confirm_test.c $(TESTS)/check.h \
 	$(Q)./$(BUILD)/lte_confirm_test
 
 check-suspect: $(TESTS)/survey_suspect_test.c $(TESTS)/check.h \
-		$(SRC)/survey_suspect.h $(SRC)/survey_sweep.h $(SRC)/sdr_dsp.h
+		$(SRC)/survey_suspect.h $(SRC)/survey_sweep.h $(SRC)/sdr_dsp.h \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_suspect_test \
 		$(TESTS)/survey_suspect_test.c -lm

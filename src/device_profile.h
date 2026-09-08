@@ -138,6 +138,28 @@ static inline float device_default_full_scale(enum sample_format format) {
     }
 }
 
+/*
+ * The count that means zero signal in a given container.
+ *
+ * An unsigned format is offset so that mid-scale is zero, and for 8-bit that
+ * offset is 127.5 -- which is also its full scale, and not by coincidence: a
+ * centred unsigned format's largest deviation from mid-scale is mid-scale. A
+ * signed format is already centred and its offset is 0.
+ *
+ * This lives beside the format rather than in the converter so that the one
+ * place that knows what a container *is* also knows where its zero sits.
+ */
+static inline float device_format_zero_offset(enum sample_format format) {
+    switch (format) {
+    case SAMPLE_FORMAT_U8:
+        return 127.5f;
+    case SAMPLE_FORMAT_S16:
+    case SAMPLE_FORMAT_CF32:
+    default:
+        return 0.0f;
+    }
+}
+
 /* Bytes one I/Q pair occupies in a given container. */
 static inline unsigned device_format_bytes_per_pair(enum sample_format format) {
     switch (format) {
@@ -150,6 +172,22 @@ static inline unsigned device_format_bytes_per_pair(enum sample_format format) {
     default:
         return 0;
     }
+}
+
+/*
+ * The largest magnitude a pair can have: both components at the rail, so
+ * `full_scale * sqrt(2)`.
+ *
+ * This was `PHYSICAL_MAGNITUDE_MAX 180.31223f` in acquisition.h -- 127.5 root
+ * two, written out, next to a block size and a scatter history depth. It is a
+ * fact about the container rather than about the display, and on a 12-bit part
+ * it is 2896.3.
+ */
+static inline float device_magnitude_max(const struct device_profile *p) {
+    if (!p)
+        return 0.0f;
+    /* sqrtf would want math.h in a header that otherwise needs nothing. */
+    return p->full_scale * 1.41421356237f;
 }
 
 /*

@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "device_profile.h"
+
 /* Deliberately dump1090's block size, so timing matches it. */
 #define SAMPLE_BLOCK_BYTES (16 * 16384)
 #define SAMPLE_BLOCK_PAIRS (SAMPLE_BLOCK_BYTES / 2)
@@ -65,7 +67,15 @@ struct slot_snapshot {
 #define SCATTER_HISTORY_BLOCKS 64
 #define SCATTER_HISTORY_SECONDS 1.0
 #define PEAK_DECAY_DB_PER_SECOND 20.0f
-#define PHYSICAL_MAGNITUDE_MAX 180.31223f
+/* PHYSICAL_MAGNITUDE_MAX was here: 127.5 root two, an 8-bit number beside a
+   block size. It is a fact about the sample container, so it moved to
+   device_magnitude_max() in device_profile.h. */
+/* The spectrum chart's ceiling, in dB relative to **whatever the device
+   profile says full scale is** -- which is what it has always meant, since
+   sdr_dsp_spectrum() divides by that number before taking the transform. It
+   stays a display constant here because it is a choice about the chart, not a
+   fact about the receiver: six dB of headroom above the rail looks right at
+   any full scale. */
 #define SPECTRUM_TOP_DBFS 6.0f
 #define SCALE_FACTOR 0.8f
 #define DB_SCALE_STEP 10.0f
@@ -116,6 +126,8 @@ struct acquisition {
     int record_arfcn;
     double record_carrier_offset_hz;
     char record_technology[16];
+    enum sample_format record_format;
+    float record_full_scale;
     char record_source[320];
     char record_tuner[32];
     char record_started_at[32];
@@ -149,6 +161,12 @@ struct acquisition_record_request {
     /* How long to record for. The buttons pass
        ACQUISITION_RECORD_BUTTON_SECONDS; --record-seconds passes its own. */
     double seconds;
+    /* What a byte in the .bin means. The sidecar used to say this in prose
+       and it was true of every capture that existed; a second receiver makes
+       it a fact about the run, so it comes from the device's profile and the
+       sidecar carries the number rather than the sentence. */
+    enum sample_format format;
+    float full_scale;
 };
 
 /* What the Record buttons capture. Long enough for a GSM multiframe and for

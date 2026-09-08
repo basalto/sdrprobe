@@ -265,10 +265,25 @@ make rescale-capture FILE_RESCALE=captures/x.bin OUT_RESCALE=/tmp/x16.bin
 
 That float comparison settles the whole program, which is why no capture is
 decoded twice to establish it: **there is exactly one byte-to-float seam**,
-`sdr_dsp_convert_iq()` at `sdrprobe.c:311`, and everything downstream takes
-floats -- the byte-taking `fm_discriminate()` survives with no caller outside
-tests, `view_fm.c` having moved to `fm_discriminate_f()`. Identical floats
-means identical answers by construction rather than by measurement.
+`sdr_dsp_convert_iq()`, and everything downstream takes floats -- the
+byte-taking `fm_discriminate()` survives with no caller outside tests,
+`view_fm.c` having moved to `fm_discriminate_f()`. Identical floats means
+identical answers by construction rather than by measurement. Both halves of
+that comparison now go through the shipping converter rather than a harness.
+
+**Full scale is the profile's, and it is nowhere else.** `grep -n '127\.5'
+src/` returns comments and `device_profile.h`'s own two format functions.
+`sdr_dsp_convert_iq()` takes a profile and reads the container, the full scale
+and the bytes per pair from it; clipping, headroom and the transform's scale
+read the same number, `lte_reference_power()` takes it for the two dBFS
+readings that need it, and the scatter view normalises by it.
+`PHYSICAL_MAGNITUDE_MAX` -- 127.5 root two, an 8-bit number that lived beside
+a block size in `acquisition.h` -- is now `device_magnitude_max()`, a fact
+about the container. **The floats stay in the device's own counts** and are
+deliberately not normalised, because clipping means "at the ADC's rail" and a
+rail is a count: a 12-bit part clips at 2047.5, nowhere near its container's
+32767.5. `SPECTRUM_TOP_DBFS` stays a display constant, and is dB relative to
+whatever the profile says full scale is -- which is what it always meant.
 
 **Full scale of that corpus is 2040.0 and not a 12-bit part's 2047.5**, and
 the ticket asked for 2047.5. It is the ordinary shape of a wrong claim beside

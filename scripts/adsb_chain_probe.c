@@ -18,10 +18,16 @@
 
 /* Pull in the plugin's implementation directly to access statics. */
 #include "adsb_dsp.c"
+#include "device_profile.h"
 
 #define BLOCK_BYTES (16 * 16384)
 #define BLOCK_PAIRS (BLOCK_BYTES / 2)
 #define SAMPLE_RATE_HZ 2000000.0
+
+/* The receiver these were written against: an 8-bit container at 127.5 full
+   scale. Set in main() rather than initialised here, because it comes from
+   device_profile_rtlsdr() and that is a function. */
+static struct device_profile g_probe_device;
 
 static void print_hex(const uint8_t *bytes, int len) {
     for (int i = 0; i < len; i++)
@@ -31,7 +37,7 @@ static void print_hex(const uint8_t *bytes, int len) {
 /* Find and walk through the first valid preamble in the block. */
 static int probe_block(const unsigned char *raw, size_t bytes) {
     static float I[BLOCK_PAIRS], Q[BLOCK_PAIRS], M[BLOCK_PAIRS];
-    size_t pairs = sdr_dsp_convert_iq(raw, bytes, I, Q, M, BLOCK_PAIRS);
+    size_t pairs = sdr_dsp_convert_iq(&g_probe_device, raw, bytes, I, Q, M, BLOCK_PAIRS);
 
     puts("========================================================================");
     puts("STAGE 1  byte->float I/Q conversion & magnitude (generic core)");
@@ -155,7 +161,7 @@ static void consistency_sweep(FILE *f) {
 
     rewind(f);
     while (fread(raw, 1, BLOCK_BYTES, f) == BLOCK_BYTES) {
-        size_t pairs = sdr_dsp_convert_iq(raw, BLOCK_BYTES, I, Q, M, BLOCK_PAIRS);
+        size_t pairs = sdr_dsp_convert_iq(&g_probe_device, raw, BLOCK_BYTES, I, Q, M, BLOCK_PAIRS);
         memset(&trace, 0, sizeof(trace));
         size_t count = adsb_demod(&dec, M, pairs, t, out, 128, &trace, &stats);
         totals.preambles += stats.preambles;
@@ -259,6 +265,7 @@ static void consistency_sweep(FILE *f) {
 }
 
 int main(int argc, char **argv) {
+    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
     const char *path = argc > 1 ? argv[1] : "testfiles/adsb_modes1.bin";
     FILE *f = fopen(path, "rb");
     if (!f) {
