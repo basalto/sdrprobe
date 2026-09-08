@@ -45,8 +45,21 @@
  * which reads like the frequency of one. CONTEXT.md carries both terms:
  * "reference comb" for the set of tones, "comb spacing" for the interval.
  */
-#define RECEIVER_REFERENCE_HZ 28800000.0
-#define RECEIVER_COMB_SPACING_HZ (RECEIVER_REFERENCE_HZ / 2.0)
+/*
+ * **The reference is the device's, not a constant here.** It was
+ * `RECEIVER_REFERENCE_HZ 28800000.0` -- an RTL2832U's crystal, compiled into a
+ * header that knows nothing about which receiver is attached. It comes from
+ * `device_profile.reference_clock_hz` now, because a B210-class part has a
+ * different clock and therefore different spurs, or none here at all
+ * (`.scratch/device-model/issues/08-*`).
+ *
+ * A reference of **0 means no comb tests at all**, and that is the case a
+ * capture is in: whichever device recorded a file had a clock, but the file
+ * does not, so nothing may attribute a comb to it.
+ */
+static inline double survey_comb_spacing_hz(double reference_hz) {
+    return reference_hz > 0.0 ? reference_hz / 2.0 : 0.0;
+}
 
 /*
  * And the comb underneath that one, which is nine times finer.
@@ -69,7 +82,17 @@
  * 11 of 14, of which the old test flagged the two that are also multiples of
  * 14.4.
  */
-#define RECEIVER_FINE_COMB_SPACING_HZ (RECEIVER_REFERENCE_HZ / 18.0)
+/*
+ * **Both divisors were measured on an RTL2832U and are unverified anywhere
+ * else.** That a divider puts a tone every reference/2, and a finer one every
+ * reference/18, is a fact about this chip's clock tree rather than about
+ * reference oscillators in general. On another device the comb may have a
+ * different ratio, or be absent. Measure before trusting either -- the
+ * evidence above is what measuring looked like.
+ */
+static inline double survey_fine_comb_spacing_hz(double reference_hz) {
+    return reference_hz > 0.0 ? reference_hz / 18.0 : 0.0;
+}
 
 /*
  * The widest a comb test may reach before the flag is guessing.
@@ -182,15 +205,24 @@ static inline int survey_comb_harmonic(double hz, double spacing_hz,
  * bin's centre, so that is how far from the truth it can be before it has been
  * measured.
  */
-static inline int survey_reference_harmonic(double hz, double tolerance_hz) {
-    return survey_comb_harmonic(hz, RECEIVER_COMB_SPACING_HZ, tolerance_hz);
+static inline int survey_reference_harmonic(double reference_hz, double hz,
+                                            double tolerance_hz) {
+    double spacing = survey_comb_spacing_hz(reference_hz);
+    if (spacing <= 0.0)
+        return 0; /* no clock, no comb -- a capture, or a device that has not
+                     said. Saying nothing beats attributing a comb to a file. */
+    return survey_comb_harmonic(hz, spacing, tolerance_hz);
 }
 
 /* And of the fine one, which needs a tighter tolerance to mean anything --
    survey_comb_harmonic() refuses rather than guessing when it does not have
    one. */
-static inline int survey_fine_harmonic(double hz, double tolerance_hz) {
-    return survey_comb_harmonic(hz, RECEIVER_FINE_COMB_SPACING_HZ, tolerance_hz);
+static inline int survey_fine_harmonic(double reference_hz, double hz,
+                                       double tolerance_hz) {
+    double spacing = survey_fine_comb_spacing_hz(reference_hz);
+    if (spacing <= 0.0)
+        return 0;
+    return survey_comb_harmonic(hz, spacing, tolerance_hz);
 }
 
 /* Whether `hz` sits where a survey step was tuned, within `tolerance_hz`. */
@@ -281,7 +313,8 @@ static inline double survey_comb_tolerance(const struct survey_plan *plan,
  * filter is removing the receiver's centre-frequency offset, which decides
  * whether a step centre means anything.
  */
-static inline unsigned survey_suspect(const struct survey_plan *plan, double hz,
+static inline unsigned survey_suspect(const struct survey_plan *plan,
+                                      double reference_hz, double hz,
                                       double bandwidth_hz, double sample_rate,
                                       int fft_size, int dc_filtered) {
     double tolerance = survey_suspect_tolerance(plan, sample_rate, fft_size);
@@ -290,7 +323,7 @@ static inline unsigned survey_suspect(const struct survey_plan *plan, double hz,
                                     fft_size);
     unsigned flags = SURVEY_SUSPECT_NONE;
 
-    if (survey_reference_harmonic(hz, comb))
+    if (survey_reference_harmonic(reference_hz, hz, comb))
         flags |= SURVEY_SUSPECT_REFERENCE;
     /*
      * The fine comb needs the narrowness as well, and this is the one place
@@ -308,7 +341,7 @@ static inline unsigned survey_suspect(const struct survey_plan *plan, double hz,
      * The one narrow candidate in band II is 102.4 MHz, which is 64 x 1.6 and
      * six bins wide, and is a comb tone sitting in the broadcast band.
      */
-    if (bare && survey_fine_harmonic(hz, comb))
+    if (bare && survey_fine_harmonic(reference_hz, hz, comb))
         flags |= SURVEY_SUSPECT_REFERENCE;
     if (!dc_filtered && survey_at_step_centre(plan, hz, tolerance))
         flags |= SURVEY_SUSPECT_STEP_CENTRE;
@@ -361,7 +394,8 @@ static inline int survey_extent_is_floor(double extent_hz, double bin_hz) {
  *
  * Pass the frequency and width the *pass* measured, not the sweep's.
  */
-static inline unsigned survey_suspect_confirmed(double hz,
+static inline unsigned survey_suspect_confirmed(double reference_hz,
+                                                double hz,
                                                 double bandwidth_hz,
                                                 double sample_rate,
                                                 int fft_size) {
@@ -379,7 +413,8 @@ static inline unsigned survey_suspect_confirmed(double hz,
      * is tuned to the candidate, so every candidate is at its centre and the
      * test would flag all of them.
      */
-    return survey_suspect(&plan, hz, bandwidth_hz, sample_rate, fft_size, 1);
+    return survey_suspect(&plan, reference_hz, hz, bandwidth_hz, sample_rate,
+                          fft_size, 1);
 }
 
 
@@ -412,6 +447,7 @@ static inline int survey_suspect_empty(unsigned flags) {
  * clicks into it.
  */
 static inline int survey_suspect_count(const struct survey_plan *plan,
+                                      double reference_hz,
                                        const struct sdr_peak *peaks, int count,
                                        double sample_rate, int fft_size,
                                        int dc_filtered) {
@@ -420,7 +456,8 @@ static inline int survey_suspect_count(const struct survey_plan *plan,
     for (int i = 0; i < count; i++) {
         double hz = survey_plan_bin_centre(plan, peaks[i].index);
 
-        if (survey_suspect_warns(survey_suspect(plan, hz, 0.0, sample_rate,
+        if (survey_suspect_warns(survey_suspect(plan, reference_hz, hz, 0.0,
+                                                sample_rate,
                                                 fft_size, dc_filtered)))
             suspicious++;
     }
