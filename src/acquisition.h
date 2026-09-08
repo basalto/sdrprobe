@@ -2,10 +2,10 @@
 #define ACQUISITION_H
 
 #include <pthread.h>
-#include <rtl-sdr.h>
 #include <stdint.h>
 #include <stdio.h>
 
+#include "device_backend.h"
 #include "device_profile.h"
 
 /*
@@ -161,7 +161,7 @@ struct acquisition {
 
     /* Borrowed for the worker's lifetime; struct app owns these. Acquisition
        reads from them, settings and calibration retune them. */
-    rtlsdr_dev_t *dev;
+    struct device_session *source;
     FILE *capture;
     uint32_t sample_rate;
     unsigned bytes_per_pair;
@@ -212,7 +212,8 @@ struct acquisition_record_request {
    many bytes a block is read as: a block is SAMPLE_BLOCK_PAIRS pairs, so it
    is that many times this. Returns 0, or negative if the container is wider
    than SAMPLE_MAX_BYTES_PER_PAIR, which the buffers cannot hold. */
-int acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
+int acquisition_attach_source(struct acquisition *acq,
+                              struct device_session *source,
                               FILE *capture, uint32_t sample_rate,
                               unsigned bytes_per_pair,
                               const char *capture_path, int capture_loop);
@@ -242,7 +243,7 @@ void publish_block(struct acquisition *acq, const unsigned char *data,
 int consume_latest(struct acquisition *acq, struct slot_snapshot *snapshot);
 void *receiver_worker(void *arg);
 void *file_worker(void *arg);
-void receiver_callback(unsigned char *buffer, uint32_t len, void *ctx);
+void receiver_callback(void *ctx, const uint8_t *buffer, uint32_t len);
 int worker_stop_requested(struct acquisition *acq);
 void request_worker_stop(struct acquisition *acq);
 

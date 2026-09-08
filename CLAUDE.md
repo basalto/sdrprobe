@@ -34,6 +34,7 @@ make check-acquisition # the block slot, both its modes, and its shutdown
 make check-sample-format # the same signal in an 8- and a 16-bit container
 make check-device-profile # what a receiver is, in the terms the numbers need
 make check-capture-sidecar # what a capture says about its own bytes
+make check-device-backend # the contract a receiver has to satisfy
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
 make check-input      # which control a key press reaches
@@ -948,6 +949,20 @@ would make them modules; `app.h`'s header comment says so.
 
 Its shape:
 
+- **The receiver is behind a seam.** `src/device_backend.h` is a vtable --
+  open, close, tune, rate, ppm, gain, flush, stream, stop -- and
+  `<rtl-sdr.h>` is included by **exactly one file**, `backend_rtlsdr.c`.
+  `struct app` carries a `struct device_session`, not an `rtlsdr_dev_t *`.
+  There are two implementations plus a capture (`backend_capture.c`, which is
+  mostly refusals because a recording holds one tuning at one rate with one
+  gain baked in), and `check-device-backend` adds a fake and a
+  nothing-implemented backend so the failure and NULL paths are reachable
+  without hardware. `flush` is an entry rather than a detail:
+  `rtlsdr_reset_buffer()` had thirteen call sites and a backend with no
+  pipeline returns 0, which is truthful and lets every caller keep one
+  retune-then-flush path. **UHD is optional** -- `HAVE_UHD` defaults to 0
+  because the adapter is unwritten, and `device_backend_uhd()` returns NULL in
+  a build without it, so callers ask rather than testing a macro.
 - **Threading** lives in `src/acquisition.c`, which owns `struct acquisition`
   and does not include `app.h`. A worker (`receiver_worker` for the librtlsdr
   async callback, `file_worker` for the paced file pacer) hands 256 KB blocks

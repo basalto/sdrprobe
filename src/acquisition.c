@@ -182,7 +182,8 @@ static int begin_worker_read(struct acquisition *acq) {
     return begin;
 }
 
-void receiver_callback(unsigned char *buffer, uint32_t len, void *ctx) {
+/* device_block_fn: the backend hands blocks here, whichever backend it is. */
+void receiver_callback(void *ctx, const uint8_t *buffer, uint32_t len) {
     struct acquisition *acq = ctx;
 
     publish_block(acq, buffer, len);
@@ -195,8 +196,8 @@ void *receiver_worker(void *arg) {
 
     if (!begin_worker_read(acq))
         return NULL;
-    result = rtlsdr_read_async(acq->dev, receiver_callback, acq, 0,
-                               (uint32_t)acquisition_block_bytes(acq));
+    result = device_stream(acq->source, receiver_callback, acq,
+                           (uint32_t)acquisition_block_bytes(acq));
     pthread_mutex_lock(&acq->latest.mutex);
     int stopped = acq->latest.stop;
     pthread_mutex_unlock(&acq->latest.mutex);
@@ -541,7 +542,8 @@ void acquisition_set_lossless(struct acquisition *acq, int lossless) {
     pthread_mutex_unlock(&acq->latest.mutex);
 }
 
-int acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
+int acquisition_attach_source(struct acquisition *acq,
+                              struct device_session *source,
                               FILE *capture, uint32_t sample_rate,
                               unsigned bytes_per_pair,
                               const char *capture_path, int capture_loop) {
@@ -558,7 +560,7 @@ int acquisition_attach_source(struct acquisition *acq, rtlsdr_dev_t *dev,
                 bytes_per_pair, SAMPLE_MAX_BYTES_PER_PAIR);
         return -1;
     }
-    acq->dev = dev;
+    acq->source = source;
     acq->capture = capture;
     acq->sample_rate = sample_rate;
     acq->bytes_per_pair = bytes_per_pair;

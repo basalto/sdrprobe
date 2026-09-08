@@ -248,16 +248,56 @@ enumerate at all, `SAMPLE_FORMAT_S16` with a full scale that has to come from
 somewhere real, `GAIN_MODEL_RANGE` whose unit is an **index** and not dB, a
 `flush` that is a truthful no-op, and `ppm_drifts` that must be measured.
 
+## Ported 2026-09-08
+
+**`<rtl-sdr.h>` is included by exactly one file in the program**, which is what
+this ticket was for. `app->dev` is gone; `struct app` carries a
+`struct device_session` and no header a view reads pulls in a driver.
+
+What moved:
+
+| was | is |
+| --- | --- |
+| `rtlsdr_dev_t *app->dev` | `struct device_session app->source` |
+| `rtlsdr_set_center_freq` / `_sample_rate` / `_freq_correction` | `device_set_frequency_hz` / `_sample_rate_hz` / `_ppm` |
+| `rtlsdr_reset_buffer`, thirteen sites | `device_flush` |
+| `rtlsdr_set_tuner_gain_mode` + `_set_tuner_gain`, always paired | `device_set_gain(s, manual, value)`, one call |
+| `rtlsdr_read_async` + its callback | `device_stream` + `device_block_fn` |
+| `rtlsdr_cancel_async`, `rtlsdr_close` | `device_stop`, `device_close` |
+| `list_devices()` in sdrprobe.c | `device_backend_rtlsdr_list()` |
+| `tuner_name()` in sdrprobe.c | `device_backend_rtlsdr_tuner()` |
+
+The `get_` half became four small accessors -- `source_frequency`,
+`source_sample_rate`, `source_ppm`, `source_gain` -- because a backend returns
+a status and writes through a pointer, and the call sites read the way they
+did. `overlay_settings.c` grew two of its own for the same reason.
+
+Two faults the port surfaced, both of which the old shape hid:
+
+- `configure_receiver` rebuilt the profile at the end from
+  `app->supported_gains`. That list now points **into** `app->device`'s own
+  array, so the rebuild would have read the struct it was overwriting. The
+  backend fills the profile at open and the rebuild is gone.
+- The gain list was a `malloc` freed at shutdown. It is the profile's embedded
+  array now, so `app->supported_gains` is a `const int *` into it, there is
+  nothing to free, and the two cannot disagree about how many entries there
+  are.
+
+### Checked
+
+`make check` is 17286 in 47 suites. But the receiver path is the half no check
+can reach (ADR-0012), so it was run: the live R820T enumerates, tunes, streams
+and screenshots through the backend. The settings panel was looked at and
+still reads "capture (not adjustable)" under file playback, which is the
+capture backend's refusal surfacing where it always did.
+
 ## What is left
 
-**The app is not ported onto the seam yet.** `<rtl-sdr.h>` still reaches
-`acquisition.h`, `app.h` and `sdrprobe.c`, and `app->dev` is still an
-`rtlsdr_dev_t *`. That is 72 call sites and it is the next commit, not a
-smaller job than the seam itself. Until it lands, the two backends are
-compiled and unused, which is the one thing about this commit that is not
-finished.
+**Ticket 06's panel.** `app->supported_gains` and `supported_gain_count` still
+exist, as a pointer into the profile rather than as an allocation. Folding them
+away entirely belongs with the gain-model work, which has to change that panel
+anyway.
 
-The order that keeps it reviewable: `app->dev` becomes a `struct
-device_session`, then `open_receiver` and `open_capture`, then
-`retune_receiver*` and the acquisition worker, then `overlay_settings.c`'s
-eighteen gain calls last, because those are the ones ticket 06 rewrites anyway.
+**The UHD adapter**, which stays unwritten until there is hardware to compile
+it against -- see above for why, and `backend_uhd.c` for the obligation list.
+

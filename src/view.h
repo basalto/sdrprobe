@@ -335,6 +335,6 @@ Rectangle calibration_button(void);
    restart the receiver. */
 int stop_acquisition(struct app *app);
 int start_acquisition(struct app *app);
-int set_frequency_correction(rtlsdr_dev_t *dev, int ppm);
+int set_frequency_correction(struct device_session *source, int ppm);
 
 #endif
