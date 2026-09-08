@@ -76,9 +76,9 @@ void gsm_tune_selected(struct app *app, int arfcn) {
     chart_window_centre_on(&app->gsm.window, (double)expected,
                            CALIBRATION_VIEW_HALF_WIDTH_HZ,
                            chart_min_span(GSM900_ARFCN_SPACING_HZ));
-    app->gsm.sch_valid = 0;
-    gsm_continuity_reset(&app->gsm.continuity);
-    memset(&app->gsm.cell, 0, sizeof(app->gsm.cell)); /* a different cell */
+    app->gsm.session.sch_valid = 0;
+    gsm_continuity_reset(&app->gsm.session.continuity);
+    memset(&app->gsm.session.cell, 0, sizeof(app->gsm.session.cell)); /* a different cell */
     /* Moves the receiver; does not borrow it. Every caller reaches here with
        the GSM view already entered, and a tune that quietly took ownership
        was how one screen could end up owning the receiver twice. */
@@ -89,87 +89,22 @@ void gsm_tune_selected(struct app *app, int arfcn) {
 /* Note an SCH decode that cannot be right: T1 advances once per 1326 frames,
    so consecutive decodes seconds apart must agree to within 1. Flags only. */
 /*
- * What the cell is saying, when this SCH is the one a broadcast block follows.
+ * Feed the inspected channel's latest block to the decode.
  *
- * The BCCH occupies frames 2 to 5 of the 51-multiframe, so only the SCH at
- * frame 1 has one behind it -- one in five. The other four are followed by
- * paging and access grants, which this does not read.
+ * The channel carrier sits at +400 kHz, because gsm_tune_selected() tunes that
+ * far below it. Everything past this line is `gsm_session.h`'s -- this is the
+ * adapter, and the headless report has its own.
  */
-int gsm_read_broadcast(struct app *app, const struct gsm_sch_result *sch,
-                       struct gsm_si *si) {
-    float soft[GSM_BCCH_BURSTS * GSM_BURST_DATA_BITS];
-    float bursts[GSM_BCCH_BURSTS][GSM_BURST_DATA_BITS];
-    float coded[GSM_BCCH_CODED_BITS];
-    struct gsm_bcch_block block;
-
-    if (sch->frame_number % 51 != 1)
-        return 0;
-    memset(soft, 0, sizeof(soft));
-    if (gsm_normal_bursts(app->i_samples, app->q_samples, app->pair_count,
-                          (double)app->applied_sample_rate, sch,
-                          GSM_BCCH_BURSTS, soft) < GSM_BCCH_BURSTS)
-        return 0; /* the block ran past the end of this sample block */
-    for (int b = 0; b < GSM_BCCH_BURSTS; b++)
-        memcpy(bursts[b], &soft[b * GSM_BURST_DATA_BITS], sizeof(bursts[b]));
-    gsm_bcch_deinterleave((const float (*)[GSM_BURST_DATA_BITS])bursts, coded);
-    if (!gsm_bcch_decode_block(coded, &block))
-        return 0; /* the Fire code refused it, so it is not a message */
-    return gsm_si_parse(block.octets, si);
-}
-
-/* Fold one message into what the cell has said so far. */
-static void gsm_cell_remember(struct gsm_cell *cell, const struct gsm_si *si) {
-    cell->blocks++;
-    cell->last_type = si->type;
-    if (si->have_lai) {
-        cell->have_lai = 1;
-        cell->mcc = si->mcc;
-        cell->mnc = si->mnc;
-        cell->mnc_digits = si->mnc_digits;
-        cell->lac = si->lac;
-    }
-    if (si->have_cell_id) {
-        cell->have_cell_id = 1;
-        cell->cell_id = si->cell_id;
-    }
-    if (si->neighbour_count > 0) {
-        cell->neighbour_count = si->neighbour_count;
-        memcpy(cell->neighbours, si->neighbours,
-               (size_t)si->neighbour_count * sizeof(*si->neighbours));
-    }
-}
-
-/* Attempt an SCH decode on the inspected channel's latest block. The channel
-   carrier sits at +400 kHz (we tuned to expected - 400 kHz). */
 void update_gsm_sch(struct app *app, double now) {
+    struct gsm_session_event event;
+
     if (app->gsm.selected_hz <= 0.0 || app->scan_running ||
         app->pair_count == 0)
         return;
-    double offset = app->gsm.selected_hz - (double)app->applied_frequency;
-    struct gsm_sch_result result;
-    struct gsm_sch_symbols symbols;
-    uint32_t options = 0;
-    if (app->gsm.opt_filter) options |= GSM_OPT_FILTER;
-    if (app->gsm.opt_finecfo) options |= GSM_OPT_FINECFO;
-    if (app->gsm.opt_trellis) options |= GSM_OPT_TRELLIS;
-    
-    if (gsm_sch_decode(app->i_samples, app->q_samples, app->pair_count,
-                       (double)app->applied_sample_rate, offset, options, &result,
-                       &symbols)) {
-        app->gsm.sch = result;
-        app->gsm.sch_symbols = symbols;
-        app->gsm.sch_valid = 1;
-        app->gsm.sch_time = now;
-        gsm_continuity_observe(&app->gsm.continuity, result.t1, result.bsic,
-                               now);
-
-        {
-            struct gsm_si si;
-
-            if (gsm_read_broadcast(app, &result, &si))
-                gsm_cell_remember(&app->gsm.cell, &si);
-        }
-    }
+    gsm_session_feed(&app->gsm.session, app->i_samples, app->q_samples,
+                     app->pair_count, (double)app->applied_sample_rate,
+                     app->gsm.selected_hz - (double)app->applied_frequency,
+                     now, &event);
 }
 
 static Rectangle gsm_record_button(void) {
@@ -223,9 +158,12 @@ void draw_gsm(struct app *app) {
                 rec_active ? "Recording..." : "Record 2s", rec_active);
                 
     DrawText("Features:", 322, 136, 15, (Color){ 151, 174, 188, 255 });
-    draw_button(gsm_opt_button(0), "Filter", app->gsm.opt_filter);
-    draw_button(gsm_opt_button(1), "FnCFO", app->gsm.opt_finecfo);
-    draw_button(gsm_opt_button(2), "Trellis", app->gsm.opt_trellis);
+    draw_button(gsm_opt_button(0), "Filter",
+                gsm_session_option(&app->gsm.session, GSM_OPT_FILTER));
+    draw_button(gsm_opt_button(1), "FnCFO",
+                gsm_session_option(&app->gsm.session, GSM_OPT_FINECFO));
+    draw_button(gsm_opt_button(2), "Trellis",
+                gsm_session_option(&app->gsm.session, GSM_OPT_TRELLIS));
 
     if (!app->receiver_mode)
         snprintf(text, sizeof(text),
@@ -273,13 +211,13 @@ void draw_gsm(struct app *app) {
         Rectangle wf = gsm_burst_rect();
 
         /* SCH decode readout, printed above the bottom chart area. */
-        if (app->gsm.sch_valid) {
-            const struct gsm_sch_result *sch = &app->gsm.sch;
+        if (app->gsm.session.sch_valid) {
+            const struct gsm_sch_result *sch = &app->gsm.session.sch;
             snprintf(text, sizeof(text),
                      "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
                      sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
                      sch->t2, sch->t3, (double)sch->confidence,
-                     app->gsm.continuity.implausible ? "  [T1 JUMPED]" : "");
+                     app->gsm.session.continuity.implausible ? "  [T1 JUMPED]" : "");
             DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64,
                      18, (Color){ 120, 230, 255, 255 });
 
@@ -289,7 +227,7 @@ void draw_gsm(struct app *app) {
              * one is the cell talking, so it is worded as such and coloured
              * apart.
              */
-            const struct gsm_cell *cell = &app->gsm.cell;
+            const struct gsm_cell *cell = &app->gsm.session.cell;
 
             if (cell->blocks > 0) {
                 int used = snprintf(text, sizeof(text), "BCCH  ");
@@ -316,7 +254,7 @@ void draw_gsm(struct app *app) {
                                     gsm_constellation_rect().width -
                                     gsm_scan_rect().x,
                                 (Color){ 153, 235, 178, 255 });
-            } else if (app->gsm.sch.frame_number % 51 == 1) {
+            } else if (app->gsm.session.sch.frame_number % 51 == 1) {
                 DrawText("BCCH  a broadcast block is due here, and did not "
                          "survive",
                          (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42,
@@ -351,9 +289,9 @@ void draw_gsm(struct app *app) {
                 r_corr, NULL, 0, SDRGUI_BURST_LINE, -1.0f, 1.0f, "Timing Correlation Landscape",
                 "waiting for a synchronisation burst..."
             };
-            const struct gsm_sch_symbols *sym = &app->gsm.sch_symbols;
+            const struct gsm_sch_symbols *sym = &app->gsm.session.sch_symbols;
 
-            if (app->gsm.sch_valid && sym->count > 0) {
+            if (app->gsm.session.sch_valid && sym->count > 0) {
                 bparams.data = sym->corr;
                 bparams.count = sym->count;
                 sdrgui_burst_chart(&bparams);
@@ -465,8 +403,8 @@ void draw_gsm(struct app *app) {
 
     /* Decode constellation on bottom right */
     Rectangle cst = gsm_constellation_rect();
-    const struct gsm_sch_symbols *sym_c = &app->gsm.sch_symbols;
-    int n = app->gsm.sch_valid ? sym_c->count : 0;
+    const struct gsm_sch_symbols *sym_c = &app->gsm.session.sch_symbols;
+    int n = app->gsm.session.sch_valid ? sym_c->count : 0;
     float cx[GSM_SCH_BURST_BITS];
     float cy[GSM_SCH_BURST_BITS];
     if (n > GSM_SCH_BURST_BITS)
@@ -552,9 +490,10 @@ void handle_gsm_input(struct app *app) {
     }
     for (int i = 0; i < 3; i++) {
         if (clicked(gsm_opt_button(i))) {
-            if (i == 0) app->gsm.opt_filter = !app->gsm.opt_filter;
-            if (i == 1) app->gsm.opt_finecfo = !app->gsm.opt_finecfo;
-            if (i == 2) app->gsm.opt_trellis = !app->gsm.opt_trellis;
+            static const uint32_t bits[3] = { GSM_OPT_FILTER,
+                                              GSM_OPT_FINECFO,
+                                              GSM_OPT_TRELLIS };
+            gsm_session_toggle_option(&app->gsm.session, bits[i]);
             return;
         }
     }
@@ -593,9 +532,8 @@ void handle_gsm_input(struct app *app) {
    constellation showing amplitude rather than a unit circle. */
 void view_gsm_defaults(struct app *app) {
     app->gsm.const_amplitude = 1;
-    app->gsm.opt_filter = 1;
-    app->gsm.opt_finecfo = 1;
-    app->gsm.opt_trellis = 1;
+    app->gsm.session.options = GSM_OPT_FILTER | GSM_OPT_FINECFO |
+                               GSM_OPT_TRELLIS;
     /*
      * No channel has been measured yet, and the sentinel is how the chart is
      * told so. Zero is not the sentinel: left at it, the scan chart drew all
@@ -642,5 +580,5 @@ void leave_gsm(struct app *app) {
     scan_release_receiver(app);
     receiver_return(app, &app->gsm.lease_token);
     app->gsm.selected_hz = 0.0;
-    app->gsm.sch_valid = 0;
+    app->gsm.session.sch_valid = 0;
 }

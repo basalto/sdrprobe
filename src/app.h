@@ -23,6 +23,7 @@
 #include "lte_scan.h"
 #include "receiver_lease.h"
 #include "options.h"
+#include "gsm_session.h"
 #include "device_backend.h"
 #include "sdr_dsp.h"
 #include "signal_findings.h"
@@ -612,20 +613,6 @@ struct lte_view {
  * accumulate across blocks rather than being replaced by each. Cleared when
  * the view tunes elsewhere, because then it is a different cell.
  */
-struct gsm_cell {
-    int blocks;                 /* System Information messages read */
-    enum gsm_si_type last_type;
-    int have_lai;
-    int mcc;
-    int mnc;
-    int mnc_digits;
-    int lac;
-    int have_cell_id;
-    int cell_id;
-    int neighbour_count;
-    int neighbours[GSM_SI_MAX_NEIGHBOURS];
-};
-
 struct gsm_view {
     /* What the waterfall draws: the reader's zoom and pan over the received
        span, shared with every other frequency chart (chart_window.h). */
@@ -635,17 +622,12 @@ struct gsm_view {
     /* The tuning this view borrowed on the way in (receiver_lease.h). The
        band scan nests inside it, so the two unwind in order. */
     struct receiver_lease_token lease_token;
-    struct gsm_sch_continuity continuity;
-    struct gsm_sch_result sch;
-    struct gsm_sch_symbols sch_symbols;
-    int sch_valid;
-    double sch_time;
-    struct gsm_cell cell;
+    /* The decode itself: what was read, the continuity, the cell, and the
+       front-end options. It takes samples and gives back events, and knows
+       nothing about a window (gsm_session.h). */
+    struct gsm_session session;
     int const_amplitude; /* constellation: show amplitude vs unit circle */
     int const_derotated; /* constellation: derotated sample vs differential */
-    int opt_filter;
-    int opt_finecfo;
-    int opt_trellis;
 };
 
 /*
