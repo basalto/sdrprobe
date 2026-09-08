@@ -17,10 +17,13 @@
  * available without the program being able to read a 16-bit file at all --
  * which it cannot, until tickets 02 and 03.
  *
- * The 16-bit half of the format layer therefore does not exist yet, and the
- * converter below is a harness standing in for it. Ticket 03 gives
- * `sdr_dsp_convert_iq()` a device profile and this goes away; its acceptance
- * criteria name that swap.
+ * **Both halves now go through the real format layer.** They did not at first:
+ * the program could not read a 16-bit file, so this suite carried its own
+ * converter and ticket 03 named replacing it as an acceptance criterion. That
+ * has happened -- `sdr_dsp_convert_iq()` takes a `struct device_profile` and
+ * reads the container, the full scale and the bytes per pair from it, so what
+ * is compared below is the shipping code twice rather than the shipping code
+ * against a copy of itself.
  *
  * The corpus is generated, never committed: `build/testfiles16/` is rebuilt
  * from `testfiles/` by `scripts/rescale_capture.c` as a prerequisite of this
@@ -39,46 +42,26 @@
 /* Full scale of each container. 127.5 is the 8-bit convention this program has
    always used. 2040.0 is 127.5 * 16 -- what the rescaling actually produces,
    and NOT a 12-bit part's 2047.5. See `test_the_full_scale_that_matters`. */
-#define FULL_SCALE_U8 127.5f
+#define FULL_SCALE_U8 127.5f /* device_default_full_scale(SAMPLE_FORMAT_U8) */
 #define FULL_SCALE_S16 2040.0f
 
 /* Block size, from the house convention in CLAUDE.md. Used only to show what
    ticket 04 is about; nothing here changes it. */
 #define BLOCK_BYTES (16 * 16384)
 
+/*
+ * One profile per source, which is the whole point of there being a profile:
+ * the same bytes mean different things and only the source knows which. The
+ * 16-bit corpus rails at 2040.0 -- 127.5 * 16 -- and not at a real 12-bit
+ * part's 2047.5; see `test_the_full_scale_that_matters`.
+ */
+static struct device_profile g_u8, g_s16;
+
 static const char *const CAPTURES[] = {
     "gsm_arfcn_69", "gsm_arfcn_113", "adsb_cpr_pair",
     "lte_b20_pci28", "tetra_cc17",   "fm_rds_tsf",
 };
 #define CAPTURE_COUNT ((int)(sizeof(CAPTURES) / sizeof(CAPTURES[0])))
-
-/*
- * The 16-bit half of the format layer, standing in for what ticket 03 will
- * build. Signed 16-bit little-endian interleaved, decoded byte by byte so the
- * result does not depend on this machine's endianness -- the same reason
- * rescale_capture writes it that way.
- */
-static size_t convert_s16(const uint8_t *bytes, size_t byte_count,
-                          float *i_out, float *q_out, float *magnitude_out,
-                          size_t pair_capacity) {
-    if (!bytes || !i_out || !q_out || !magnitude_out)
-        return 0;
-
-    size_t pairs = byte_count / 4;
-    if (pairs > pair_capacity)
-        pairs = pair_capacity;
-    for (size_t n = 0; n < pairs; n++) {
-        const uint8_t *p = bytes + 4 * n;
-        int16_t raw_i = (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
-        int16_t raw_q = (int16_t)((uint16_t)p[2] | ((uint16_t)p[3] << 8));
-        float i = (float)raw_i;
-        float q = (float)raw_q;
-        i_out[n] = i;
-        q_out[n] = q;
-        magnitude_out[n] = sqrtf(i * i + q * q);
-    }
-    return pairs;
-}
 
 /* Scratch, static because these are megabytes and a check has no reason to
    put them on the stack. */
@@ -214,8 +197,10 @@ static void test_captures_agree(void) {
             bytes8 += got8;
             bytes16 += got16;
 
-            size_t p8 = sdr_dsp_convert_iq(raw8, got8, i8, q8, m8, CHUNK_PAIRS);
-            size_t p16 = convert_s16(raw16, got16, i16, q16, m16, CHUNK_PAIRS);
+            size_t p8 = sdr_dsp_convert_iq(&g_u8, raw8, got8, i8, q8, m8,
+                                           CHUNK_PAIRS);
+            size_t p16 = sdr_dsp_convert_iq(&g_s16, raw16, got16, i16, q16,
+                                            m16, CHUNK_PAIRS);
             /* A length disagreement is its own fault and not a value one --
                reporting it as a pair that differs sends a reader looking at
                the arithmetic when the file is simply the wrong size. */
@@ -314,11 +299,53 @@ static void test_pair_count_is_not_half_the_bytes(void) {
                 0.0327, 0.0005);
 }
 
+/*
+ * The profile is what makes a pair count a pair count. Today's formula --
+ * `SAMPLE_BLOCK_BYTES / 2` -- is a two-byte format's answer, and the converter
+ * no longer uses it: it divides by `bytes_per_pair`, so the same block of
+ * bytes yields half as many pairs on a four-byte container.
+ */
+static void test_the_converter_counts_pairs_by_the_container(void) {
+    static uint8_t block[BLOCK_BYTES];
+    static float bi[BLOCK_BYTES / 2], bq[BLOCK_BYTES / 2],
+        bm[BLOCK_BYTES / 2];
+    memset(block, 0x80, sizeof(block));
+
+    check_size("two bytes a pair fills the block",
+               sdr_dsp_convert_iq(&g_u8, block, sizeof(block), bi, bq, bm,
+                                  BLOCK_BYTES / 2),
+               131072);
+    check_size("four bytes a pair fills half of it",
+               sdr_dsp_convert_iq(&g_s16, block, sizeof(block), bi, bq, bm,
+                                  BLOCK_BYTES / 2),
+               65536);
+
+    /* And it refuses what it cannot lay out, rather than guessing. */
+    struct device_profile unknown = g_u8;
+    unknown.format = SAMPLE_FORMAT_CF32;
+    unknown.bytes_per_pair = 8;
+    check_size("a container nothing produces is refused",
+               sdr_dsp_convert_iq(&unknown, block, sizeof(block), bi, bq, bm,
+                                  BLOCK_BYTES / 2),
+               0);
+    check_size("and a null profile is too",
+               sdr_dsp_convert_iq(NULL, block, sizeof(block), bi, bq, bm,
+                                  BLOCK_BYTES / 2),
+               0);
+}
+
 int main(void) {
+    g_u8 = device_profile_capture("testfiles", SAMPLE_FORMAT_U8,
+                                  device_default_full_scale(SAMPLE_FORMAT_U8),
+                                  0.0, 2000000);
+    g_s16 = device_profile_capture("build/testfiles16", SAMPLE_FORMAT_S16,
+                                   FULL_SCALE_S16, 0.0, 2000000);
+
     test_scaling_is_exact_and_reversible();
     test_the_full_scale_that_matters();
     test_captures_agree();
     test_byte_coverage();
     test_pair_count_is_not_half_the_bytes();
+    test_the_converter_counts_pairs_by_the_container();
     return check_report("a format change moves no answer");
 }

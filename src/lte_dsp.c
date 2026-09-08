@@ -1354,7 +1354,7 @@ static void alamouti(float r0re, float r0im, float r1re, float r1im,
 
 int lte_reference_power(const float *i_samples, const float *q_samples,
                         size_t pair_count, double sample_rate,
-                        const struct lte_cell *cell,
+                        float sample_full_scale, const struct lte_cell *cell,
                         struct lte_reference_power *out) {
     float row_re[LTE_PBCH_SUBCARRIERS], row_im[LTE_PBCH_SUBCARRIERS];
     int positions[LTE_PBCH_SUBCARRIERS / 6];
@@ -1449,16 +1449,20 @@ int lte_reference_power(const float *i_samples, const float *q_samples,
     total /= (double)frames;
     /*
      * And into decibels *of full scale*, which takes an explicit reference
-     * because neither end of this chain is normalised: a sample is
-     * `byte - 127.5` so its full-scale amplitude is 127.5, and the transform
-     * has no 1/N in it, so a full-scale complex sinusoid sitting in one
-     * subcarrier arrives with magnitude 127.5 * LTE_FFT_SIZE.
+     * because neither end of this chain is normalised: a sample arrives in the
+     * device's own counts, so its full-scale amplitude is whatever the profile
+     * says the ADC rails at, and the transform has no 1/N in it, so a
+     * full-scale complex sinusoid sitting in one subcarrier arrives with
+     * magnitude `sample_full_scale * LTE_FFT_SIZE`.
      *
      * Without this the numbers come out around +48 for a strong cell, and a
      * positive dBFS is not a strong signal, it is a wrong unit. The same
-     * divisor is applied to both, so RSRQ is unaffected either way.
+     * divisor is applied to both, so **RSRQ is unaffected either way** -- and
+     * so are the RS-SINR, the cell ranking in `lte_cell_search_all` and the
+     * noise removal in `lte_channel_shape`, all of which are ratios through
+     * one chain. Only these two dBFS readings depend on the number at all.
      */
-    full_scale = 127.5 * (double)LTE_FFT_SIZE;
+    full_scale = (double)sample_full_scale * (double)LTE_FFT_SIZE;
     full_scale *= full_scale;
     out->rsrp_dbfs = (float)(10.0 * log10(reference / full_scale));
     out->rssi_dbfs = (float)(10.0 * log10(total / full_scale));
@@ -1547,8 +1551,8 @@ int lte_port_coherence(const float *i_samples, const float *q_samples,
 
 int lte_cell_search_all(const float *i_samples, const float *q_samples,
                         size_t pair_count, double sample_rate,
-                        struct lte_cell *cells, int max,
-                        struct lte_trace *trace) {
+                        float sample_full_scale, struct lte_cell *cells,
+                        int max, struct lte_trace *trace) {
     struct lte_pss_result per_root[LTE_N_ID_2_COUNT];
     struct lte_pss_result best;
     float power[LTE_MAX_CELLS_PER_CARRIER];
@@ -1593,7 +1597,8 @@ int lte_cell_search_all(const float *i_samples, const float *q_samples,
             continue;
         cells[found] = cell;
         measured[found] = lte_reference_power(i_samples, q_samples, pair_count,
-                                              sample_rate, &cell, &p);
+                                              sample_rate, sample_full_scale,
+                                              &cell, &p);
         power[found] = measured[found] ? p.rsrp_dbfs : 0.0f;
         found++;
     }
@@ -1648,7 +1653,7 @@ static int reference_channel(const float *i_samples, const float *q_samples,
 
 int lte_channel_shape(const float *i_samples, const float *q_samples,
                       size_t pair_count, double sample_rate,
-                      const struct lte_cell *cell,
+                      float sample_full_scale, const struct lte_cell *cell,
                       struct lte_channel_shape *out) {
     double a_re[LTE_PBCH_SUBCARRIERS / 6], a_im[LTE_PBCH_SUBCARRIERS / 6];
     double b_re[LTE_PBCH_SUBCARRIERS / 6], b_im[LTE_PBCH_SUBCARRIERS / 6];
@@ -1705,6 +1710,7 @@ int lte_channel_shape(const float *i_samples, const float *q_samples,
      * report and the answer is zero, not a small positive number.
      */
     if (lte_reference_power(i_samples, q_samples, pair_count, sample_rate,
+                            sample_full_scale,
                             cell, &power) && power.sinr_db > -90.0f) {
         double rho = pow(10.0, (double)power.sinr_db / 10.0);
         if (rho > 0.0)

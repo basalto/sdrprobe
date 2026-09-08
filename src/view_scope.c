@@ -318,8 +318,10 @@ void update_scatter(struct app *app, double now, int insert) {
                                ? 0
                                : n * (app->pair_count - 1) /
                                      (block->count - 1);
-            block->i[n] = app->i_samples[index] / 127.5f;
-            block->q[n] = app->q_samples[index] / 127.5f;
+            /* The scatter axes are in units of full scale, so a
+               constellation looks the same whatever the container. */
+            block->i[n] = app->i_samples[index] / app->device.full_scale;
+            block->q[n] = app->q_samples[index] / app->device.full_scale;
         }
         app->sv.scatter_inserted = block->count;
         app->sv.scatter_history_head =
@@ -462,7 +464,7 @@ void draw_magnitude(const struct app *app) {
         app->plot, app->have_samples, app->sv.magnitude_peaks,
         app->sv.magnitude_bin_count, app->sv.magnitude_lower, app->sv.magnitude_upper,
         app->magnitude_min, app->magnitude_mean, app->magnitude_max,
-        duration_ms, PHYSICAL_MAGNITUDE_MAX
+        duration_ms, device_magnitude_max(&app->device)
     };
     sdrgui_magnitude(&params);
 }
@@ -544,7 +546,7 @@ void adjust_active_scale(struct app *app, int zoom_in) {
         app->sv.magnitude_upper *= zoom_in ? SCALE_FACTOR : 1.0f / SCALE_FACTOR;
         app->sv.magnitude_upper = fmaxf(1.0f,
                                      fminf(app->sv.magnitude_upper,
-                                           PHYSICAL_MAGNITUDE_MAX));
+                                           device_magnitude_max(&app->device)));
     } else if (app->view == VIEW_SPECTRUM) {
         app->sv.spectrum_lower_dbfs += zoom_in ? DB_SCALE_STEP : -DB_SCALE_STEP;
         app->sv.spectrum_lower_dbfs = fmaxf(

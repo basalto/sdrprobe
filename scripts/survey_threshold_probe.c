@@ -38,6 +38,7 @@
 
 #include "sdr_dsp.h"
 #include "survey_sweep.h"
+#include "device_profile.h"
 
 #define PAIRS 131072
 #define DRAWS_DEFAULT 6
@@ -53,6 +54,11 @@ static struct sdr_dsp dsp;
 /* A plain 64-bit generator, so the tables do not depend on the platform's
    rand(). Box-Muller for the pair, which is what a receiver's noise is. */
 static uint64_t rng_state;
+
+/* The receiver these were written against: an 8-bit container at 127.5 full
+   scale. Set in main() rather than initialised here, because it comes from
+   device_profile_rtlsdr() and that is a function. */
+static struct device_profile g_probe_device;
 
 static double uniform(void) {
     rng_state = rng_state * 6364136223846793005ULL + 1442695040888963407ULL;
@@ -102,7 +108,7 @@ static void fold_a_sweep(const struct survey_plan *plan, int blocks) {
         for (int block = 0; block < blocks; block++) {
             fill_noise();
             if (sdr_dsp_spectrum(&dsp, noise_i, noise_q, PAIRS,
-                                 SDR_DSP_FFT_SIZE, spectrum, maximum) <= 0)
+                                 SDR_DSP_FFT_SIZE, g_probe_device.full_scale, spectrum, maximum) <= 0)
                 continue;
             for (int k = 0; k < SDR_DSP_FFT_SIZE; k++) {
                 double hz = lower + ((double)k + 0.5) * fft_bin_hz;
@@ -226,6 +232,7 @@ static void measure(const char *label, double from_hz, double to_hz,
 }
 
 int main(int argc, char **argv) {
+    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
     int draws = argc > 1 ? atoi(argv[1]) : DRAWS_DEFAULT;
 
     if (draws < 1)
