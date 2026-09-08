@@ -272,13 +272,23 @@ struct lte_cell {
  * to 5.1.3).
  *
  * **RSRP here is dBFS and not dBm, and the difference is not pedantry.** The
- * standard's quantity is an absolute power at the antenna connector, and
- * reaching it needs the antenna's gain, the cable's loss and the receiver's
- * gain in known units -- none of which this program has. What is measured is
- * the power in the converter's full-scale units, which compares one cell with
- * another *on this receiver at this gain* and means nothing across
- * installations. The Probe context may not claim a decibel-milliwatt it did
- * not measure.
+ * standard's quantity is an absolute power, and 36.214 puts its reference
+ * point at the **UE's antenna connector** -- so what stands between this
+ * program and a decibel-milliwatt is not the antenna's gain, which does not
+ * enter into it, but an absolute power reference for the converter: how many
+ * dBm at the input a full-scale sample corresponds to, at this frequency and
+ * this gain setting. Neither an RTL-SDR nor a B210 comes with one; it is a
+ * one-time measurement against a known source, per device, in the same family
+ * as the ppm calibration. Until it exists, what is measured is power in the
+ * converter's full-scale units, which compares one cell with another *on this
+ * receiver at this gain* and means nothing across installations. The Probe
+ * context may not claim a decibel-milliwatt it did not measure.
+ *
+ * The antenna is a separate objection and it does not go away with such a
+ * calibration: a telescopic whip and a handset's internal antenna intercept
+ * different fractions of the same field, so even a correct dBm at *this*
+ * connector is not comparable with a handset's RSRP.
+ * `.scratch/device-model/issues/06-*` is where that is worked through.
  *
  * The scale is decibels below a full-scale subcarrier, so every reading is
  * negative and 0 would be a signal filling the converter on its own.

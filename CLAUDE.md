@@ -756,9 +756,18 @@ Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
   as weakening it.
   Two measurements sit beside the identity rather than after it.
   `lte_reference_power()` is 36.214's RSRP, carrier RSSI and RSRQ over the six
-  central resource blocks -- **RSRP in dBFS and not dBm**, since nothing here
-  knows the antenna's gain, so it compares cells on this receiver and nowhere
-  else, while RSRQ is a ratio through the same chain and transfers anywhere.
+  central resource blocks -- **RSRP in dBFS and not dBm**, so it compares cells
+  on this receiver and nowhere else, while RSRQ is a ratio through the same
+  chain and transfers anywhere. The reason is **not** the antenna's gain, which
+  it was long described as: 36.214 puts RSRP's reference point at the UE's
+  antenna connector, so what is missing is an absolute power reference for the
+  converter -- dBm at the input per full-scale sample, at a given frequency and
+  gain -- which no device here ships with and which is a one-time measurement
+  in the same family as the ppm calibration
+  (`.scratch/device-model/issues/06-*` and `08-*`). The antenna is a separate
+  objection that survives such a calibration: a whip and a handset's internal
+  antenna intercept different fractions of one field, so even a correct dBm at
+  this connector is not a handset's RSRP.
   `lte_channel_shape()` reports the channel's delay, its spread and the
   frequency drift left after the search's own correction. The delay is the
   phase slope across references scaled by `LTE_FFT_SIZE/6`, which is srsRAN's
