@@ -185,10 +185,58 @@ const struct device_backend *device_backend_rtlsdr(void) {
     return &rtlsdr_backend;
 }
 
+/* The tuner chip, not the USB bridge: it sets the achievable gains and the
+   oscillator whose error the PPM correction compensates, so a capture is worth
+   labelling with it. */
+const char *device_backend_rtlsdr_tuner(const struct device_session *s) {
+    if (!s || !s->handle || s->backend != &rtlsdr_backend)
+        return "unknown";
+    return tuner_name(s->handle);
+}
+
 int device_backend_rtlsdr_count(void) {
     return (int)rtlsdr_get_device_count();
 }
 
 const char *device_backend_rtlsdr_name(int index) {
     return rtlsdr_get_device_name((uint32_t)index);
+}
+
+/*
+ * Print the receivers attached, and whether each can actually be opened.
+ *
+ * The second half is the useful half: "found but busy" is the state that
+ * otherwise shows up as a bare failure to start. This lived in sdrprobe.c and
+ * moved here with the rest of the driver, because enumerating is as
+ * device-specific as tuning is -- UHD enumerates by device args, not by index.
+ */
+int device_backend_rtlsdr_list(void) {
+    uint32_t count = rtlsdr_get_device_count();
+
+    if (count == 0) {
+        printf("No RTL-SDR devices found.\n");
+        return 0;
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        const char *name = rtlsdr_get_device_name(i);
+        rtlsdr_dev_t *dev = NULL;
+        int gains[RTLSDR_GAIN_QUERY_MAX];
+        int gain_count;
+
+        printf("%u: %s\n", i, name ? name : "unknown");
+        if (rtlsdr_open(&dev, i) < 0) {
+            printf("   in use by another process, or not accessible\n");
+            continue;
+        }
+        gain_count = rtlsdr_get_tuner_gains(dev, NULL);
+        if (gain_count > 0 && gain_count <= RTLSDR_GAIN_QUERY_MAX &&
+            rtlsdr_get_tuner_gains(dev, gains) == gain_count)
+            printf("   tuner %s   gains %.1f..%.1f dB (%d steps)\n",
+                   tuner_name(dev), gains[0] / 10.0,
+                   gains[gain_count - 1] / 10.0, gain_count);
+        else
+            printf("   tuner %s\n", tuner_name(dev));
+        rtlsdr_close(dev);
+    }
+    return 0;
 }

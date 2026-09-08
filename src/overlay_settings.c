@@ -25,6 +25,19 @@
  * fields.
  */
 
+/* What the source reports, or 0 when it will not say -- the same shape
+   sdrprobe.c uses, kept local because the settings panel is the only other
+   place that reads the device back. */
+static uint32_t settings_frequency(struct app *app) {
+    uint32_t hz = 0;
+    return device_frequency_hz(&app->source, &hz) == 0 ? hz : 0;
+}
+
+static int settings_ppm(struct app *app) {
+    int ppm = 0;
+    return device_ppm(&app->source, &ppm) == 0 ? ppm : 0;
+}
+
 void open_settings(struct app *app) {
     snprintf(app->set.ppm, sizeof(app->set.ppm), "%d",
              app->applied_ppm);
@@ -121,25 +134,22 @@ int apply_settings(struct app *app) {
     uint32_t old_frequency = app->applied_frequency;
     if (stop_acquisition(app) < 0)
         return -1;
-    if (rtlsdr_set_tuner_gain_mode(app->dev, manual) < 0 ||
-        (manual && rtlsdr_set_tuner_gain(app->dev, gain) < 0) ||
-        set_frequency_correction(app->dev, ppm) < 0 ||
-        rtlsdr_set_center_freq(app->dev, frequency) < 0 ||
-        rtlsdr_reset_buffer(app->dev) < 0) {
+    if (device_set_gain(&app->source, manual, gain) < 0 ||
+        set_frequency_correction(&app->source, ppm) < 0 ||
+        device_set_frequency_hz(&app->source, frequency) < 0 ||
+        device_flush(&app->source) < 0) {
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "Receiver rejected the requested settings");
-        rtlsdr_set_tuner_gain_mode(app->dev, old_manual);
-        if (old_manual)
-            rtlsdr_set_tuner_gain(app->dev, old_gain);
-        set_frequency_correction(app->dev, old_ppm);
-        rtlsdr_set_center_freq(app->dev, old_frequency);
-        rtlsdr_reset_buffer(app->dev);
+        device_set_gain(&app->source, old_manual, old_gain);
+        set_frequency_correction(&app->source, old_ppm);
+        device_set_frequency_hz(&app->source, old_frequency);
+        device_flush(&app->source);
         if (start_acquisition(app) < 0)
             snprintf(app->settings_error, sizeof(app->settings_error),
                      "Settings failed and acquisition could not restart");
         return -1;
     }
-    uint32_t reported_frequency = rtlsdr_get_center_freq(app->dev);
+    uint32_t reported_frequency = settings_frequency(app);
     uint32_t difference = reported_frequency > frequency
                               ? reported_frequency - frequency
                               : frequency - reported_frequency;
@@ -147,12 +157,10 @@ int apply_settings(struct app *app) {
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "Frequency readback mismatch: requested %u, got %u",
                  frequency, reported_frequency);
-        rtlsdr_set_tuner_gain_mode(app->dev, old_manual);
-        if (old_manual)
-            rtlsdr_set_tuner_gain(app->dev, old_gain);
-        set_frequency_correction(app->dev, old_ppm);
-        rtlsdr_set_center_freq(app->dev, old_frequency);
-        rtlsdr_reset_buffer(app->dev);
+        device_set_gain(&app->source, old_manual, old_gain);
+        set_frequency_correction(&app->source, old_ppm);
+        device_set_frequency_hz(&app->source, old_frequency);
+        device_flush(&app->source);
         if (start_acquisition(app) < 0)
             snprintf(app->settings_error, sizeof(app->settings_error),
                      "Readback failed and acquisition could not restart");
@@ -164,19 +172,17 @@ int apply_settings(struct app *app) {
     app->applied_gain_tenths = gain;
     app->options.frequency = frequency;
     app->options.ppm = ppm;
-    app->applied_ppm = rtlsdr_get_freq_correction(app->dev);
+    app->applied_ppm = settings_ppm(app);
     app->remove_dc = app->set.remove_dc;
     app->spectrum_ready = 0;
     app->spectrum_peak_ready = 0;
     if (recreate_waterfall(app, app->plot, 1) < 0) {
         snprintf(app->settings_error, sizeof(app->settings_error),
                  "Could not reset waterfall for the new frequency");
-        rtlsdr_set_tuner_gain_mode(app->dev, old_manual);
-        if (old_manual)
-            rtlsdr_set_tuner_gain(app->dev, old_gain);
-        set_frequency_correction(app->dev, old_ppm);
-        rtlsdr_set_center_freq(app->dev, old_frequency);
-        rtlsdr_reset_buffer(app->dev);
+        device_set_gain(&app->source, old_manual, old_gain);
+        set_frequency_correction(&app->source, old_ppm);
+        device_set_frequency_hz(&app->source, old_frequency);
+        device_flush(&app->source);
         app->applied_manual_gain = old_manual;
         app->applied_gain_tenths = old_gain;
         app->applied_ppm = old_ppm;

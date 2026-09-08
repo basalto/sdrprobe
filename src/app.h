@@ -4,7 +4,6 @@
 #include <pthread.h>
 #include <raylib.h>
 #include <signal.h>
-#include <rtl-sdr.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
@@ -24,6 +23,7 @@
 #include "lte_scan.h"
 #include "receiver_lease.h"
 #include "options.h"
+#include "device_backend.h"
 #include "sdr_dsp.h"
 #include "signal_findings.h"
 #include "survey_sweep.h"
@@ -962,7 +962,11 @@ struct app {
        once at startup and reported by anything that measures. */
     struct config config;
     struct sdr_dsp dsp;
-    rtlsdr_dev_t *dev;
+    /* The open source, whatever kind it is: a receiver, a capture, later a
+       UHD device. `device_backend.h` owns the handle; nothing here looks at
+       it. This was an `rtlsdr_dev_t *`, which is why `<rtl-sdr.h>` used to be
+       included by a header every view reads. */
+    struct device_session source;
     FILE *capture;
     int window_ready;
     int signals_ready;
@@ -970,7 +974,9 @@ struct app {
     int applied_manual_gain;
     int applied_gain_tenths;
     int applied_ppm;
-    int *supported_gains;
+    /* Points into `device.gain_list`, which the profile owns. Not an
+       allocation and not freed; ticket 06 folds it away entirely. */
+    const int *supported_gains;
     int supported_gain_count;
     uint32_t applied_frequency;
     uint32_t applied_sample_rate;
