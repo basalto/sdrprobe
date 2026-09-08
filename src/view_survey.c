@@ -1176,11 +1176,11 @@ static void survey_confirm_if_asked(struct app *app) {
 int survey_choose_band(struct app *app, int nth) {
     struct survey_view *s = &app->survey;
     const struct band_plan_entry *entry =
-        survey_band_at(nth - 1, SURVEY_TUNER_LOWER_HZ, SURVEY_TUNER_UPPER_HZ);
+        survey_band_at(nth - 1, app->device.tune_lower_hz, app->device.tune_upper_hz);
     double from = 0.0, to = 0.0;
 
-    if (!entry || survey_band_range(entry, SURVEY_TUNER_LOWER_HZ,
-                                    SURVEY_TUNER_UPPER_HZ, &from, &to) != 0)
+    if (!entry || survey_band_range(entry, app->device.tune_lower_hz,
+                                    app->device.tune_upper_hz, &from, &to) != 0)
         return -1;
     survey_format_hz(s->from, sizeof(s->from), (uint32_t)llround(from));
     s->from_length = (int)strlen(s->from);
@@ -1690,8 +1690,8 @@ void handle_survey_input(struct app *app) {
     if (s->band_menu_open) {
         Rectangle menu = survey_band_menu(l.band_button);
         struct row_list_metrics m = SURVEY_BAND_METRICS;
-        int count = survey_band_count(SURVEY_TUNER_LOWER_HZ,
-                                      SURVEY_TUNER_UPPER_HZ);
+        int count = survey_band_count(app->device.tune_lower_hz,
+                                      app->device.tune_upper_hz);
         float wheel = GetMouseWheelMove();
 
         s->band_scroll = row_list_clamp_scroll(s->band_scroll, count,
@@ -1707,8 +1707,8 @@ void handle_survey_input(struct app *app) {
             int rank = row_list_rank_at(menu, m, s->band_scroll, count,
                                         SURVEY_BAND_ROWS, GetMousePosition());
             const struct band_plan_entry *entry =
-                rank >= 0 ? survey_band_at(rank, SURVEY_TUNER_LOWER_HZ,
-                                           SURVEY_TUNER_UPPER_HZ) : NULL;
+                rank >= 0 ? survey_band_at(rank, app->device.tune_lower_hz,
+                                           app->device.tune_upper_hz) : NULL;
             double from = 0.0, to = 0.0;
 
             (void)entry; (void)from; (void)to;
@@ -2671,8 +2671,8 @@ static void survey_draw_pickers(const struct app *app,
     if (s->band_menu_open) {
         Rectangle menu = survey_band_menu(l->band_button);
         struct row_list_metrics m = SURVEY_BAND_METRICS;
-        int count = survey_band_count(SURVEY_TUNER_LOWER_HZ,
-                                      SURVEY_TUNER_UPPER_HZ);
+        int count = survey_band_count(app->device.tune_lower_hz,
+                                      app->device.tune_upper_hz);
         int scroll = row_list_clamp_scroll(s->band_scroll, count,
                                            SURVEY_BAND_ROWS);
         int hovered = row_list_rank_at(menu, m, scroll, count,
@@ -2686,8 +2686,8 @@ static void survey_draw_pickers(const struct app *app,
         DrawRectangleLinesEx(menu, 1.0f, (Color){ 108, 138, 158, 255 });
         for (row = 0; row < rows; row++) {
             const struct band_plan_entry *entry =
-                survey_band_at(scroll + row, SURVEY_TUNER_LOWER_HZ,
-                               SURVEY_TUNER_UPPER_HZ);
+                survey_band_at(scroll + row, app->device.tune_lower_hz,
+                               app->device.tune_upper_hz);
             float y = row_list_row_y(menu, m, row);
             char text[128];
 

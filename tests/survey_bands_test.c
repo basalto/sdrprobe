@@ -15,60 +15,127 @@
  * the Inspect button's table answers.
  */
 
+#include "device_profile.h"
+
+/*
+ * Two receivers, and the reason this is a property rather than a fact about
+ * one device (ticket 05 in .scratch/device-model/).
+ *
+ * An RTL-SDR reaches 24 MHz to 1766. A B210-class part reaches 70 MHz to
+ * 6 GHz, and **it is not a superset**: it opens 2.4 GHz ISM, n78 and the
+ * 5 GHz RLAN bands, and it loses everything below about 70 MHz -- short wave,
+ * CB, the 6 m and 10 m amateur bands, band I television. A check written
+ * against one device's numbers would pass while the list offered half of one
+ * and missed half of the other.
+ */
 #define TUNER_LOW 24000000.0
 #define TUNER_HIGH 1766000000.0
+#define WIDE_LOW 70000000.0
+#define WIDE_HIGH 6000000000.0
 
-static void test_only_what_the_tuner_reaches(void) {
-    int count = survey_band_count(TUNER_LOW, TUNER_HIGH);
-    int i, outside = 0;
+/*
+ * Both directions, for whatever reach it is handed: nothing offered is out of
+ * range, and nothing in range is left off. The second half is the one that
+ * matters -- a list that quietly dropped band II would read as the receiver
+ * not covering FM.
+ */
+static void check_both_directions(const char *who, double low, double high,
+                                  int least) {
+    int count = survey_band_count(low, high);
+    int i, j, outside = 0, missing = 0;
+    char name[96];
 
-    check_true("the list is not empty", count > 10);
-    check_true("and is shorter than the whole table",
-               count < band_plan_entry_count());
+    /* `least` is per-reach and not a constant: a receiver that sees only
+       80-120 MHz has four allocations in front of it, and asserting ten of
+       everything would be a claim about the table rather than the filter. */
+    snprintf(name, sizeof(name), "%s: the list is not empty", who);
+    check_true(name, count >= least);
+    snprintf(name, sizeof(name), "%s: and shorter than the whole table", who);
+    check_true(name, count < band_plan_entry_count());
 
     for (i = 0; i < count; i++) {
-        const struct band_plan_entry *entry =
-            survey_band_at(i, TUNER_LOW, TUNER_HIGH);
-        check_msg(entry != NULL, "entry %d of %d is missing\n", i, count);
+        const struct band_plan_entry *entry = survey_band_at(i, low, high);
+        check_msg(entry != NULL, "%s: entry %d of %d is missing\n", who, i,
+                  count);
         if (!entry)
             continue;
-        if (entry->upper_hz <= TUNER_LOW || entry->lower_hz >= TUNER_HIGH)
+        if (entry->upper_hz <= low || entry->lower_hz >= high)
             outside++;
     }
-    check_int("nothing on it is out of the tuner's reach", outside, 0);
+    snprintf(name, sizeof(name), "%s: nothing offered is out of reach", who);
+    check_int(name, outside, 0);
+
+    for (j = 0; j < band_plan_entry_count(); j++) {
+        const struct band_plan_entry *entry = band_plan_entry_at(j);
+        int found = 0;
+
+        if (!survey_band_reachable(entry, low, high))
+            continue;
+        for (i = 0; i < count; i++)
+            if (survey_band_at(i, low, high) == entry)
+                found = 1;
+        if (!found)
+            missing++;
+    }
+    snprintf(name, sizeof(name), "%s: every reachable allocation is offered",
+             who);
+    check_int(name, missing, 0);
 
     /* Past the end names nothing rather than the first one again. */
-    check_true("an index past the end is empty",
-               survey_band_at(count, TUNER_LOW, TUNER_HIGH) == NULL);
-    check_true("and a negative one",
-               survey_band_at(-1, TUNER_LOW, TUNER_HIGH) == NULL);
+    snprintf(name, sizeof(name), "%s: an index past the end is empty", who);
+    check_true(name, survey_band_at(count, low, high) == NULL);
+    snprintf(name, sizeof(name), "%s: and a negative one", who);
+    check_true(name, survey_band_at(-1, low, high) == NULL);
+}
+
+static void test_only_what_the_tuner_reaches(void) {
+    check_both_directions("RTL-SDR", TUNER_LOW, TUNER_HIGH, 10);
+    check_both_directions("wideband", WIDE_LOW, WIDE_HIGH, 10);
+    check_both_directions("FM only", 80000000.0, 120000000.0, 2);
+
+    /* And the reach comes from a profile, not from constants here. */
+    struct device_profile rtl = device_profile_rtlsdr(NULL, NULL, 0);
+    check_close("the RTL profile's lower reach", rtl.tune_lower_hz, TUNER_LOW,
+                0.5);
+    check_close("and its upper", rtl.tune_upper_hz, TUNER_HIGH, 0.5);
+    check_int("which is the list the profile gives",
+              survey_band_count(rtl.tune_lower_hz, rtl.tune_upper_hz),
+              survey_band_count(TUNER_LOW, TUNER_HIGH));
 
     /*
-     * The one that matters: nothing the receiver *can* reach is left off. A
-     * list that quietly dropped band II would read as this receiver not
-     * covering FM.
+     * The asymmetry, asserted rather than assumed. This is the whole reason
+     * ticket 05 exists: a wider device is not a bigger version of this one.
      */
-    {
-        int j, missing = 0;
-        for (j = 0; j < band_plan_entry_count(); j++) {
-            const struct band_plan_entry *entry = band_plan_entry_at(j);
-            int found = 0;
-
-            if (!survey_band_reachable(entry, TUNER_LOW, TUNER_HIGH))
-                continue;
-            for (i = 0; i < count; i++)
-                if (survey_band_at(i, TUNER_LOW, TUNER_HIGH) == entry)
-                    found = 1;
-            if (!found)
-                missing++;
-        }
-        check_int("every reachable allocation is offered", missing, 0);
-    }
-
-    /* A narrower receiver offers fewer, which is the only reason the tuner's
-       limits are arguments rather than constants. */
+    int narrow = survey_band_count(TUNER_LOW, TUNER_HIGH);
+    int wide = survey_band_count(WIDE_LOW, WIDE_HIGH);
     check_true("a narrower tuner offers fewer bands",
-               survey_band_count(80000000.0, 120000000.0) < count);
+               survey_band_count(80000000.0, 120000000.0) < narrow);
+
+    check_true("the wideband part reaches 2.4 GHz ISM, which the RTL cannot",
+               survey_band_reachable(band_plan_lookup(2437000000.0),
+                                     WIDE_LOW, WIDE_HIGH) &&
+               !survey_band_reachable(band_plan_lookup(2437000000.0),
+                                      TUNER_LOW, TUNER_HIGH));
+    check_true("and n78",
+               survey_band_reachable(band_plan_lookup(3600000000.0),
+                                     WIDE_LOW, WIDE_HIGH) &&
+               !survey_band_reachable(band_plan_lookup(3600000000.0),
+                                      TUNER_LOW, TUNER_HIGH));
+    check_true("and it loses CB at 27 MHz, which the RTL reaches",
+               !survey_band_reachable(band_plan_lookup(27185000.0),
+                                      WIDE_LOW, WIDE_HIGH) &&
+               survey_band_reachable(band_plan_lookup(27185000.0),
+                                     TUNER_LOW, TUNER_HIGH));
+    check_true("so neither list contains the other",
+               wide != narrow);
+
+    /* Both reach the 75 MHz clock harmonic carrier_75000_bare.bin holds --
+       the fundamental at 25 MHz is RTL-only, its third harmonic is not. */
+    check_true("both reach the ILS marker band at 75 MHz",
+               survey_band_reachable(band_plan_lookup(75000500.0),
+                                     WIDE_LOW, WIDE_HIGH) &&
+               survey_band_reachable(band_plan_lookup(75000500.0),
+                                     TUNER_LOW, TUNER_HIGH));
 }
 
 /* The bands this program spends its time on are all on the list. */

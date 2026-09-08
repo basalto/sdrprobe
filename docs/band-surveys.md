@@ -301,6 +301,22 @@ number nobody can use as a baseline.
 24-1766 MHz is what an R820T reaches, and at 0.12 s a step it takes about four
 minutes.
 
+**24-1766 MHz is one receiver's reach, not the program's.** It comes from
+`device_profile.tune_lower_hz` / `tune_upper_hz` (`src/device_profile.h`), and
+`survey_bands.h` filters the band plan by it -- so the **Band...** picker
+offers 54 allocations on an R820T and 60 on a 70 MHz - 6 GHz part, and neither
+list contains the other. A wideband device opens 2.4 GHz ISM, 5G n78 and the
+5 GHz RLAN bands, and **loses** everything below about 70 MHz: short wave, CB,
+the 6 m and 10 m amateur bands, band I television. The 25 MHz clock
+fundamental goes with them; its third harmonic at 75.0005 MHz, which
+`testfiles/carrier_75000_bare.bin` holds, stays reachable.
+
+Under file playback the picker offers **one** allocation -- the one the capture
+sits in -- and that is deliberate rather than broken. A capture is at one place
+on the band and cannot be moved, so its profile's tuning range is that single
+frequency (`.scratch/device-model/issues/02-*`). A sweep needs a live receiver
+and the view says so.
+
 Files are named for the second they were taken, `2026-09-03-051319-24M-1766M
 .json`, and neither writer will ever put one over another: if the name is
 taken it picks the next free one. Sweeps are minutes of somebody's time and

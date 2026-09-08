@@ -21,7 +21,6 @@
 #include "check.h"
 
 #include "device_profile.h"
-#include "survey_bands.h"
 #include "survey_sweep.h"
 #include "survey_suspect.h"
 
@@ -51,14 +50,16 @@ static void test_rtlsdr_reproduces_todays_constants(void) {
     check_close("full scale is 127.5", p.full_scale, 127.5, 1e-9);
     check_size("two bytes a pair", p.bytes_per_pair, 2);
 
-    /* Against survey_bands.h, not against 24000000 written twice. */
-    check_close("lower reach is SURVEY_TUNER_LOWER_HZ", p.tune_lower_hz,
-                SURVEY_TUNER_LOWER_HZ, 0.5);
-    check_close("upper reach is SURVEY_TUNER_UPPER_HZ", p.tune_upper_hz,
-                SURVEY_TUNER_UPPER_HZ, 0.5);
-    /* And that those are the numbers anyone would recognise. */
-    check_close("which is 24 MHz", p.tune_lower_hz, 24.0e6, 0.5);
-    check_close("to 1766 MHz", p.tune_upper_hz, 1766.0e6, 0.5);
+    /*
+     * These were pinned against SURVEY_TUNER_LOWER_HZ / _UPPER_HZ in
+     * survey_bands.h. Ticket 05 deleted those: the profile *is* the
+     * definition now, so there is nothing left to cross-check against and the
+     * numbers are stated here instead. What keeps them honest is
+     * check-survey-bands, which runs its both-directions property against this
+     * profile and against a wideband one.
+     */
+    check_close("an R820T reaches 24 MHz", p.tune_lower_hz, 24.0e6, 0.5);
+    check_close("up to 1766 MHz", p.tune_upper_hz, 1766.0e6, 0.5);
 
     check_close("settle is SURVEY_SETTLE_SECONDS", p.settle_seconds,
                 SURVEY_SETTLE_SECONDS, 1e-9);

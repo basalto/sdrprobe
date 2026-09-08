@@ -181,6 +181,13 @@ The profile holds, at minimum:
    the same number until there were two containers. **Ticket 09** carries that
    decision; `check-pipelines` asserts the current cost meanwhile.
 5. **Tuner reach from the profile** (`05`).
+   **Done, 2026-09-08**: `SURVEY_TUNER_*` deleted, the reach is
+   `device_profile`'s, and `check-survey-bands` is a property over three
+   reaches rather than a fact about one. The band plan gained twelve
+   allocations above 1766 MHz (68 entries to 80), three of which name the LTE
+   view because bands 3, 1 and 7 are what the E-UTRA table already holds.
+   54 allocations on an R820T, 60 on a 70 MHz - 6 GHz part, **neither a
+   superset of the other**. Verified on the live receiver.
 6. **The gain model** (`06`).
 7. **A second backend** (`07`) -- blocked on the device choice.
 8. **Artifacts and calibration are per-device** (`08`) -- absorbs

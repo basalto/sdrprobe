@@ -29,12 +29,17 @@
 #define SURVEY_BAND_MARGIN_HZ 200000.0
 
 /*
- * What this receiver reaches. An R820T covers 24 MHz to about 1766, which is
- * where the survey's own default range comes from -- named here so the band
- * list and that default cannot disagree about which is which.
+ * What this receiver reaches is **not defined here any more**. It was an
+ * R820T's 24 MHz to 1766, compiled in as a pair of constants, and it is now
+ * `device_profile.tune_lower_hz` / `tune_upper_hz` -- because a B210-class
+ * device is not a superset of that. It reaches 6 GHz and opens 2.4 GHz ISM,
+ * n78 and the 5 GHz RLAN bands, and it *loses* everything below about 70 MHz.
+ * A band list built from a constant would offer half of one device and miss
+ * half of the other.
+ *
+ * Every function below takes the reach as arguments for that reason, and did
+ * from the start; only the callers changed (ticket 05).
  */
-#define SURVEY_TUNER_LOWER_HZ 24000000.0
-#define SURVEY_TUNER_UPPER_HZ 1766000000.0
 
 /*
  * How long a chosen band should take. Not a limit -- the operator can still
@@ -88,7 +93,8 @@ static inline const struct band_plan_entry *survey_band_at(
  *
  * Clipped rather than refused, because plenty of allocations run off the end
  * of the tuner -- band 20's uplink starts below 24 MHz on some plans, and the
- * top of the table runs past 1766 -- and sweeping the reachable part of one
+ * top of the table runs past a given tuner's reach -- and sweeping the
+ * reachable part of one
  * is the right answer, not an error.
  */
 static inline int survey_band_range(const struct band_plan_entry *entry,
