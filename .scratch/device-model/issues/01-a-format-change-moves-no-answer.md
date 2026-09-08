@@ -128,6 +128,7 @@ predicted. What moved is the **count**, and one answer disappeared:
 | | 8-bit | 16-bit |
 | --- | --- | --- |
 | LTE Master Information Blocks | 28 | **55** |
+| `gsm_arfcn_69` broadcast messages, all types | 7 | **2** |
 | `gsm_arfcn_69` System Information 3 | 1 | **0** |
 | `gsm_arfcn_113` System Information 3 | 2 | **1** |
 
@@ -135,9 +136,25 @@ predicted. What moved is the **count**, and one answer disappeared:
 `SAMPLE_BLOCK_BYTES`, a fixed number of *bytes*, so at four bytes a pair it
 covers 32.8 ms instead of 65.5. Twice as many blocks, each holding half the
 signal. LTE reads a Master Information Block per block, so it doubles.
-GSM's System Information needs **four consecutive normal bursts**, and a
-32.8 ms block cannot hold them where a 65.5 ms one could -- so ARFCN 69 loses
-its broadcast entirely and ARFCN 113 loses half of them.
+
+GSM is the interesting one, and the first write-up of this got it wrong twice
+-- it said ARFCN 69 lost its broadcast "entirely", which it does not, and
+blamed four bursts not fitting in 32.8 ms, which they do (they span about
+18.5 ms). The real refusal is `gsm_read_broadcast()`'s own, and its comment
+says it: *"the block ran past the end of this sample block"*. The four BCCH
+bursts must be found **after** the SCH and inside the same block.
+
+Counted rather than argued:
+
+| | 8-bit | 16-bit |
+| --- | --- | --- |
+| SCH decodes | 31 | 42 |
+| of which `frame % 51 == 1`, the ones eligible | 7 | **9** |
+| broadcast messages read | **7** | **2** |
+
+The opportunities go **up**, because there are twice as many blocks. What
+collapses is the conversion: **7 of 7 at 65.5 ms, 2 of 9 at 32.8 ms**, because
+a half-length block usually has no 18.5 ms left after the SCH lands in it.
 
 Per this ticket's own rule -- "If a decode does move, that is the finding and
 the ticket stops there. Do not adjust a threshold to make it agree" -- nothing
