@@ -32,3 +32,28 @@ With a second device that stops being a caveat and becomes a measurement.
 Every item above needs the device in hand and a sweep taken with it. Writing
 constants for an AD9361 from a datasheet is exactly the mistake
 `.scratch/calibrating-the-flags/` was opened to record.
+
+
+## Added 2026-09-08, from ticket 06's triage
+
+**An absolute power reference belongs here.** Ticket 06 set out to answer
+whether a "half-known dBm" was worth reporting and found the premise wrong:
+36.214 puts RSRP's reference point at the UE's antenna connector, so the
+antenna's gain does not enter into it. What is actually missing between this
+program and a decibel-milliwatt is a **dBFS-to-dBm offset for the converter**,
+at a given frequency and gain -- and neither an RTL-SDR nor a B210 ships with
+one.
+
+Getting it is a one-time measurement against a known source, per device and
+per frequency. That is the same shape as the ppm calibration this program
+already measures, stores per site (`config_site_ppm()`), and gates on -- which
+is why it belongs in this ticket rather than in 06.
+
+Two constraints on it, from that triage:
+
+- The reading must **name its reference point** ("at this receiver's antenna
+  connector") and sit alongside dBFS, not replace it. dBFS is what compares
+  two cells on one receiver and that is used constantly.
+- It must **never be presented as comparable with a handset's RSRP**. A
+  telescopic whip and a handset's internal antenna intercept different
+  fractions of the same field. RSRQ stays the transferable number.
