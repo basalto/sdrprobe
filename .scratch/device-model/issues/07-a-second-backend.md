@@ -68,8 +68,61 @@ GSM ARFCN 113 or an LTE cell as it already does.
 
 ## To settle on arrival
 
-One `uhd_find_devices` and one `uhd_usrp_probe` answer most of what is still
-open: whether the EEPROM carries a unique serial (it matters --
-`pwr_cal_mgr`'s key is the serial, so colliding serials would make two boards
-read each other's calibration), what FPGA compatibility number the image
-reports, and whether `has_rx_power_reference()` is false as predicted.
+The research predicts several things. This is how to make the board answer
+rather than trusting the prediction.
+
+**Do not guess the calibration directory -- ask UHD for it.** The research said
+`$XDG_DATA_HOME/uhd/cal`; UHD's own comment in `cal/database.cpp` says
+`$XDG_DATA_HOME/uhd/cal_data`; a question to the research agent had assumed
+`~/.uhd/cal`. Three answers, and `get_cal_data_path()` is a public function
+that settles it, so **nothing should ever hardcode this path** -- not this
+ticket, not `sdrprobe`. It reads `$UHD_CAL_DATA_PATH` when set, which is a
+fourth possibility. Print it:
+
+```sh
+uhd_find_devices                       # does it enumerate, and with what serial
+uhd_config_info --images-dir --print-all
+python3 -c 'import uhd; print(uhd.get_cal_data_path())'
+ls -la "$(python3 -c 'import uhd; print(uhd.get_cal_data_path())')"
+```
+
+**Whether power calibration data exists**, which is the prediction ticket 08
+rests on:
+
+```sh
+python3 -c '
+import uhd
+u = uhd.usrp.MultiUSRP("type=b200")
+for ch in (0, 1):
+    print(ch, "rx:", u.has_rx_power_reference(ch),
+             "tx:", u.has_tx_power_reference(ch))
+'
+```
+
+`False` everywhere is the prediction. `has_*_power_reference()` is the right
+probe rather than looking for the file, because it tests the whole load path.
+
+The property tree gives the same answer without Python, and gives it as a
+**positive** confirmation rather than an absence. Verified in
+`cal/pwr_cal_mgr.cpp`: `ref_power/key` and `ref_power/serial` are created
+unconditionally, then `if (!has_power_data()) return;` guards `ref_power/value`
+and `ref_power/range`. So key-and-serial-but-no-value means the manager was
+built and found nothing, which is exactly the state predicted:
+
+```sh
+uhd_usrp_probe --tree | grep -i ref_power
+```
+
+**Whether the EEPROM serial is unique per unit.** It matters more than it
+looks: the calibration key is `mb_eeprom["serial"] + "#A"` and the filename is
+`key + "_" + serial + ".cal"`, so a batch shipped with one serial would have
+two boards silently loading each other's calibration table -- and `sdrprobe`
+storing its own correction under the same key would inherit that. One board
+cannot prove uniqueness; `uhd_find_devices` records what this one says, and a
+second unit would settle it.
+
+**Whether the clock drifts.** `device_profile.ppm_drifts` is `1` for the RTL
+because a crystal drifts. For this board it is unverified -- no TCXO figure is
+published and the GPSDO slot is removed -- so measure it with the calibration
+path this program already has, against ARFCN 113 or an LTE cell, on two
+sessions far enough apart to see drift if there is any.
