@@ -1,6 +1,10 @@
 # 02 - The flag thresholds in Settings, with their arithmetic
 
-Status: needs-triage
+Status: absorbed 2026-09-08 into `.scratch/device-model/issues/08-*`, and
+mostly answered there: of the ten constants this spec listed, the comb's three
+are done, the reported-frequency tolerance needs re-measuring, and the other
+six are relative -- a dB over a local floor, a percentile, a fraction -- and
+transfer untouched.
 
 Depends on 01, and on `.scratch/deepening/03` for anywhere to keep the
 answers. Deliberately last: the comb is the constant whose value is

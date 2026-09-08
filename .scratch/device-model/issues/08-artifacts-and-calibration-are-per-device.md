@@ -1,6 +1,9 @@
 # 08 - The comb, the crystal, and what calibration is for
 
-Status: needs-triage
+Status: **comb done 2026-09-08**; the power reference is specified and
+deliberately unbuilt -- `docs/absolute-power-reference.md` establishes that
+neither device ships with the data, and there is no calibrated source here to
+measure it against. Absorbs `.scratch/calibrating-the-flags/`.
 Blocked by: 07
 
 This absorbs `.scratch/calibrating-the-flags/`, whose ticket 01 already says
