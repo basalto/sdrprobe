@@ -66,7 +66,7 @@ void gsm_tune_selected(struct app *app, int arfcn) {
     if (arfcn < 1 || arfcn > 124 ||
         !gsm_downlink_hz((unsigned int)arfcn, &expected))
         return;
-    app->scan_selected_arfcn = arfcn;
+    app->gsm.selected_arfcn = arfcn;
     app->gsm.selected_hz = (double)expected;
     /* Open on the channel that was chosen. A default, not a lock: 0 puts the
        whole span back and a drag goes anywhere. */
@@ -98,7 +98,7 @@ void gsm_tune_selected(struct app *app, int arfcn) {
 void update_gsm_sch(struct app *app, double now) {
     struct gsm_session_event event;
 
-    if (app->gsm.selected_hz <= 0.0 || app->scan_running ||
+    if (app->gsm.selected_hz <= 0.0 || app->bandscan.running ||
         app->pair_count == 0)
         return;
     gsm_session_feed(&app->gsm.session, app->i_samples, app->q_samples,
@@ -118,7 +118,7 @@ static Rectangle gsm_record_button(void) {
    centre -- a decoder needs that and cannot recover it from the samples. */
 void start_record(struct app *app) {
     char basename[64];
-    int arfcn = app->scan_selected_arfcn > 0 ? app->scan_selected_arfcn : 0;
+    int arfcn = app->gsm.selected_arfcn > 0 ? app->gsm.selected_arfcn : 0;
 
     snprintf(basename, sizeof(basename), "gsm_arfcn%d", arfcn);
     start_capture_record(app, basename, "gsm", arfcn,
@@ -142,13 +142,13 @@ static float gsm_header_width(int x) {
 
 void draw_gsm(struct app *app) {
     char text[320];
-    if (app->scan_selected_arfcn > 0 && !app->scan_running) {
+    if (app->gsm.selected_arfcn > 0 && !app->bandscan.running) {
         draw_button(gsm_view_toggle_button(), app->gsm.analysis_mode ? "View: Waterfall" : "View: Burst", 0);
         draw_button(gsm_back_to_scan_button(), "Back to Scan", 1);
     } else {
         draw_button(gsm_scan_button(),
-                    app->scan_running ? "Scanning" : "Scan / Rescan",
-                    !app->scan_running);
+                    app->bandscan.running ? "Scanning" : "Scan / Rescan",
+                    !app->bandscan.running);
     }
     uint64_t rec_bytes = 0;
     char rec_path[ACQUISITION_PATH_MAX];
@@ -168,24 +168,24 @@ void draw_gsm(struct app *app) {
     if (!app->receiver_mode)
         snprintf(text, sizeof(text),
                  "Band scan needs a live RTL-SDR receiver; waterfall shows the current tuning");
-    else if (app->scan_running)
+    else if (app->bandscan.running)
         snprintf(text, sizeof(text), "Scanning ARFCN band... step %d / %d",
-                 app->scan_step + 1, app->scan_step_count);
+                 app->bandscan.step + 1, app->bandscan.plan.step_count);
     else {
         int bcch = scan_strongest_bcch(app);
         int strongest = scan_strongest_arfcn(app);
-        if (app->scan_selected_arfcn > 0)
+        if (app->gsm.selected_arfcn > 0)
             snprintf(text, sizeof(text),
                      "Selected ARFCN %d (%.3f MHz)   click another channel to inspect it",
-                     app->scan_selected_arfcn, app->gsm.selected_hz / 1000000.0);
+                     app->gsm.selected_arfcn, app->gsm.selected_hz / 1000000.0);
         else if (bcch > 0)
             snprintf(text, sizeof(text),
                      "Strongest BCCH ARFCN %d at %.1f dBFS (conf %.2f)   click a channel to inspect it",
-                     bcch, app->scan_power[bcch], app->scan_bcch_conf[bcch]);
+                     bcch, app->bandscan.power[bcch], app->bandscan.bcch_conf[bcch]);
         else if (strongest > 0)
             snprintf(text, sizeof(text),
                      "No BCCH detected; strongest ARFCN %d at %.1f dBFS   click a channel to inspect it",
-                     strongest, app->scan_power[strongest]);
+                     strongest, app->bandscan.power[strongest]);
         else
             snprintf(text, sizeof(text),
                      "Press Scan to survey GSM 900 downlink channel power and locate BCCH carriers");
@@ -207,7 +207,7 @@ void draw_gsm(struct app *app) {
         sdrgui_text_fit(text, 322, 112, 16, gsm_header_width(322), quality_color);
     }
 
-    if (app->scan_selected_arfcn > 0 && !app->scan_running) {
+    if (app->gsm.selected_arfcn > 0 && !app->bandscan.running) {
         Rectangle wf = gsm_burst_rect();
 
         /* SCH decode readout, printed above the bottom chart area. */
@@ -269,7 +269,7 @@ void draw_gsm(struct app *app) {
                      rec_path, rec_bytes / 1e6);
             DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64,
                      18, (Color){ 255, 202, 105, 255 });
-        } else if (app->scan_selected_arfcn > 0 && app->receiver_mode) {
+        } else if (app->gsm.selected_arfcn > 0 && app->receiver_mode) {
             DrawText("SCH   searching for a synchronisation burst...",
                      (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64, 18,
                      (Color){ 151, 174, 188, 255 });
@@ -355,7 +355,7 @@ void draw_gsm(struct app *app) {
             }
         } else {
             DrawText(TextFormat("ARFCN waterfall - inspecting ARFCN %d",
-                                app->scan_selected_arfcn),
+                                app->gsm.selected_arfcn),
                      (int)wf.x, (int)wf.y - 18, 16, (Color){ 151, 174, 188, 255 });
             draw_waterfall_rect(app, 1, wf, &app->gsm.window);
         }
@@ -365,13 +365,13 @@ void draw_gsm(struct app *app) {
         /* Channel Power Scan Chart on bottom left */
         Rectangle sc = gsm_scan_rect();
         DrawText("Channel Power Scan", (int)sc.x, (int)sc.y - 18, 16, (Color){ 151, 174, 188, 255 });
-        int hover = (!app->scan_running)
+        int hover = (!app->bandscan.running)
                         ? gsm_scan_arfcn_at(GetMousePosition(), sc)
                         : 0;
         struct sdrgui_scan_chart_params params = {
-            sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
+            sc, app->bandscan.power, app->bandscan.bcch_conf, 124, SCAN_SENTINEL_DBFS,
             SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
-            app->scan_selected_arfcn,
+            app->gsm.selected_arfcn,
             app->receiver_mode ? "no channel measured yet -- press Scan"
                                : "a band scan needs a live receiver"
         };
@@ -388,13 +388,13 @@ void draw_gsm(struct app *app) {
         /* Default Channel Power Scan Chart on Bottom */
         Rectangle sc = gsm_scan_rect();
         DrawText("Channel Power Scan", (int)sc.x, (int)sc.y - 18, 16, (Color){ 151, 174, 188, 255 });
-        int hover = (!app->scan_running)
+        int hover = (!app->bandscan.running)
                         ? gsm_scan_arfcn_at(GetMousePosition(), sc)
                         : 0;
         struct sdrgui_scan_chart_params params = {
-            sc, app->scan_power, app->scan_bcch_conf, 124, SCAN_SENTINEL_DBFS,
+            sc, app->bandscan.power, app->bandscan.bcch_conf, 124, SCAN_SENTINEL_DBFS,
             SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
-            app->scan_selected_arfcn,
+            app->gsm.selected_arfcn,
             app->receiver_mode ? "no channel measured yet -- press Scan"
                                : "a band scan needs a live receiver"
         };
@@ -462,7 +462,7 @@ void draw_gsm(struct app *app) {
     }
     struct sdrgui_constellation_params cparams = {
         cst, cx, cy, color_bits, n, "SCH decoded symbols",
-        app->scan_selected_arfcn > 0 ? "waiting for a synchronisation burst..."
+        app->gsm.selected_arfcn > 0 ? "waiting for a synchronisation burst..."
                                      : "select a channel to inspect"
     };
     sdrgui_constellation(&cparams);
@@ -475,12 +475,12 @@ void handle_gsm_input(struct app *app) {
         set_tab(app, TAB_SCOPE);
         return;
     }
-    if (app->scan_running)
+    if (app->bandscan.running)
         return;
     if (clicked(gsm_scan_button())) {
         if (start_scan(app) == 0) {
-            app->scan_open = 0; /* the GSM view shows the scan inline */
-            app->gsm_autoselect_pending = 1;
+            app->bandscan.open = 0; /* the GSM view shows the scan inline */
+            app->bandscan.autoselect = 1;
         }
         return;
     }
@@ -497,13 +497,13 @@ void handle_gsm_input(struct app *app) {
             return;
         }
     }
-    if (app->scan_selected_arfcn > 0 && !app->scan_running) {
+    if (app->gsm.selected_arfcn > 0 && !app->bandscan.running) {
         if (clicked(gsm_view_toggle_button())) {
             app->gsm.analysis_mode = !app->gsm.analysis_mode;
             return;
         }
         if (clicked(gsm_back_to_scan_button())) {
-            app->scan_selected_arfcn = 0;
+            app->gsm.selected_arfcn = 0;
             app->gsm.selected_hz = 0.0;
             return;
         }
@@ -519,7 +519,7 @@ void handle_gsm_input(struct app *app) {
     }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         int arfcn = gsm_scan_arfcn_at(GetMousePosition(), gsm_scan_rect());
-        if (arfcn > 0 && app->scan_power[arfcn] > SCAN_SENTINEL_DBFS) {
+        if (arfcn > 0 && app->bandscan.power[arfcn] > SCAN_SENTINEL_DBFS) {
             gsm_tune_selected(app, arfcn);
             app->gsm.analysis_mode = 1;
         }
@@ -541,9 +541,9 @@ void view_gsm_defaults(struct app *app) {
      * nothing had written to. Tuning straight to a channel with --arfcn skips
      * the scan, so this is the state the view opens in.
      */
-    for (int arfcn = 0; arfcn < 125; arfcn++) {
-        app->scan_power[arfcn] = SCAN_SENTINEL_DBFS;
-        app->scan_bcch_conf[arfcn] = 0.0f;
+    for (int arfcn = 0; arfcn <= SCAN_ARFCN_LAST; arfcn++) {
+        app->bandscan.power[arfcn] = SCAN_SENTINEL_DBFS;
+        app->bandscan.bcch_conf[arfcn] = 0.0f;
     }
 }
 
@@ -557,24 +557,24 @@ void enter_gsm(struct app *app) {
     int arfcn = 0;
     if (app->cal.gsm_arfcn > 0)
         arfcn = app->cal.gsm_arfcn;
-    else if (app->scan_selected_arfcn > 0)
-        arfcn = app->scan_selected_arfcn;
+    else if (app->gsm.selected_arfcn > 0)
+        arfcn = app->gsm.selected_arfcn;
     if (arfcn > 0) {
         gsm_tune_selected(app, arfcn);
         app->gsm.analysis_mode = 1; /* Default to Burst mode when inspecting */
     } else if (app->receiver_mode) {
         if (start_scan(app) == 0) {
-            app->scan_open = 0;
-            app->gsm_autoselect_pending = 1;
+            app->bandscan.open = 0;
+            app->bandscan.autoselect = 1;
         }
     }
 }
 
 /* Leave the GSM decode view: stop any scan and restore the entry tuning. */
 void leave_gsm(struct app *app) {
-    app->scan_running = 0;
-    app->scan_open = 0;
-    app->gsm_autoselect_pending = 0;
+    app->bandscan.running = 0;
+    app->bandscan.open = 0;
+    app->bandscan.autoselect = 0;
     /* Inside out: a scan borrowed the receiver from this view, and the lease
        refuses to let this view return while somebody else still holds it. */
     scan_release_receiver(app);
