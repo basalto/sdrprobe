@@ -25,6 +25,7 @@
 #include "options.h"
 #include "gsm_session.h"
 #include "tetra_session.h"
+#include "lte_session.h"
 #include "device_backend.h"
 #include "sdr_dsp.h"
 #include "signal_findings.h"
@@ -516,62 +517,14 @@ struct lte_view {
     struct chart_window window;
 
     int earfcn;                 /* 0 when the tuning is not on the raster */
-    struct lte_cell cell;
-    int cell_valid;
-    double cell_time;
-    /* 36.214's reference-signal measurements for the cell above, filled in
-       the same block it was found. dBFS rather than dBm -- see
-       struct lte_reference_power. */
-    struct lte_reference_power power;
-    int power_valid;
-    /* How coherently each antenna port's references read: how many antennas
-       the cell transmits on, before any message decodes. */
-    float port_coherence[LTE_PORT_COUNT];
-    int port_coherence_valid;
-    /* The channel's delay, its spread, and the drift left after the search's
-       own frequency correction. */
-    struct lte_channel_shape shape;
-    int shape_valid;
-    /* What each of the measurements above has done since this cell was
-       found. Cleared when the identity changes -- see lte_stats.h. */
-    struct lte_cell_stats stats;
-    struct lte_mib mib;
-    int mib_valid;
-    double mib_time;
-    int mib_ports_used;         /* the combining the message decoded under */
-
-    /*
-     * A message is believed only once it repeats, and this is the one waiting
-     * to be believed.
-     *
-     * Sixteen bits of parity sound decisive until you count the attempts:
-     * four scrambling offsets against three masks, for each of three
-     * antenna-port hypotheses, is thirty-six chances per block, and a session
-     * that finds a cell nine thousand times over half an hour will see one
-     * pass by chance. That is not a rare accident to be tolerated -- it is
-     * the *expected* number, so a counter that believes the first pass is
-     * reporting noise as a message.
-     *
-     * What a real cell has and chance does not is consistency: a cell's
-     * bandwidth, acknowledgement channel and antenna count do not change
-     * between one frame and the next, and two random parity passes agree on
-     * all three about once in a hundred and forty-four times.
-     */
-    struct lte_mib pending_mib;
-    int pending_mib_hits;
-
-    uint64_t blocks_seen;
-    uint64_t cells_found;
-    uint64_t mib_parity_passes;  /* before the repeat is required */
-    uint64_t mibs_decoded;
+    /* The decode itself: the cell, its measurements, the run's statistics and
+       the rule that decides when a broadcast is believed. It takes samples and
+       gives back events (lte_session.h). */
+    struct lte_session session;
     /* The identity a scripted run has already printed. The search finds the
-       same cell in every block, and a line each would bury the message. */
+       same cell in every block, and a line each would bury the message. This
+       is the printer's business, not the decode's, so it stays here. */
     int announced_pci;
-
-    /* Why the last block produced nothing, when it produced nothing. The
-       common answer is that the receiver is not on LTE's sample grid, and
-       saying so beats an empty screen. */
-    char status[160];
 
     /*
      * The receiver's tuning and rate before this view took them.

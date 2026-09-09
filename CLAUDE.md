@@ -36,6 +36,9 @@ make check-device-profile # what a receiver is, in the terms the numbers need
 make check-capture-sidecar # what a capture says about its own bytes
 make check-device-backend # the contract a receiver has to satisfy
 make check-add-argument # the refactoring tool below, against its own traps
+make check-gsm-session  # a GSM decode, block by block, no window
+make check-tetra-session # a TETRA decode, block by block
+make check-lte-session  # an LTE decode, and the repeat a message needs
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
 make check-input      # which control a key press reaches
@@ -1153,8 +1156,15 @@ share the header -- which is exactly what makes it hard to notice.
   `16*16384`.
 - Test captures are `testfiles/<tech>_<detail>.bin`, each with a `.json`
   sidecar. `lte_b20_pci28.bin` is at **1.92 MS/s**, not the house rate, and
-  must keep reading cell 32 under the normal cyclic prefix in every block —
-  that identity is the check a conjugated PSS cannot pass. `adsb_cpr_pair.bin` is the only one recorded by the app itself
+  must keep reading **cell 28** under the normal cyclic prefix in **29 of its
+  30 blocks** — that identity is the check a conjugated PSS cannot pass. Both
+  those numbers were wrong here until `check-lte-session` measured them: this
+  said "cell 32", which is not what the capture reads and not what its own
+  filename says, and "in every block", which overstates it. **Block 25 reads a
+  primary sequence at 0.80 and no secondary one at all** — the "PSS without
+  SSS" case named further up as its own diagnosis. It is pre-existing and
+  `check-lte-session` pins it exactly, because 30 would mean something improved
+  and 28 that something regressed. `adsb_cpr_pair.bin` is the only one recorded by the app itself
   (`"provenance": "recorded by sdrprobe"`, 29.7 dB, R820T); it must keep
   decoding 6 frames with 1 global CPR position resolved, which is what makes it
   worth keeping — it is the only capture that exercises the even/odd pairing

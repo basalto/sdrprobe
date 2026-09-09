@@ -2,7 +2,7 @@
 
 Status: in progress. **GSM done 2026-09-08**, as the ticket's own order asks
 -- it was already shared, so if extracting it had changed an answer the design
-would have been wrong rather than the code. It changed none. **TETRA done 2026-09-09.** LTE next, and largest.
+would have been wrong rather than the code. It changed none. **TETRA and LTE done 2026-09-09.** ADS-B and FM/RDS remain.
 Blocked by: 01 (done)
 
 Per-block decode orchestration -- feed the block, latch the trace, count the
@@ -166,3 +166,58 @@ The rate-refusal check used 1999999 S/s, expecting it to be refused. It is
 exactly one hertz out. 2.048 MS/s is the rate the check uses now, and it is a
 better one for a second reason -- it is what `fm_rds_tsf.bin` is recorded at,
 so it is a wrong answer a person could actually give.
+
+
+## LTE, the largest, and the rule that is the point of it
+
+`src/lte_session.{c,h}`. One block's whole answer: the cell search, the
+reference power, the port coherence, the channel shape, the run's statistics,
+and the rule that decides when a broadcast message is believed.
+
+**That last one is why LTE is worth a module even though `print_lte()` already
+called `update_lte()`.** Thirty-six parity attempts a block -- four scrambling
+offsets against three masks, for each of three port hypotheses -- makes a lucky
+pass *expected* rather than rare. A message counts only when a second agrees
+about what a cell does not change between frames. `check-lte-session` pins that
+by mutation: believing the first pass turns 28 messages into 29.
+
+`struct lte_view` keeps the chart window, the EARFCN, the lease token, the band
+scan, the analysis mode and its trace, plus `announced_pci` -- which is the
+*printer's* business, not the decode's. Everything else is `lte.session`.
+
+`port_hypotheses` existed twice, once in `view_lte.c` and once inside
+`run_headless`. It is `lte_session_port_hypotheses` once.
+
+### What is deliberately still duplicated
+
+**`--lte-chain` keeps its own message counting, and it is a different rule
+rather than a second spelling.** The session latches at two agreements; the
+chain counts *every* agreeing repeat, and prints every attempt. That is a
+diagnostic reporting what it saw, not a decode latching what it believes, so
+unifying them would change what `--lte-chain` reports. Worth deciding
+deliberately rather than as a side effect of this ticket -- and worth asking
+whether the chain's count means what a reader thinks it means.
+
+### And two wrong claims in CLAUDE.md, found by measuring
+
+`lte_b20_pci28.bin` "must keep reading cell 32 ... in every block". Both halves
+were wrong:
+
+- it reads **cell 28**, which is what its own filename says and what
+  `check-pipelines` has always asserted. "32" appeared twice and was never
+  true;
+- it finds a cell in **29 of 30** blocks. **Block 25 reads a primary sequence
+  at 0.80 and no secondary one at all** -- SSS 0.000, the "PSS without SSS"
+  case the LTE notes name as their own diagnosis. Pre-existing: calling
+  `lte_cell_search()` directly on that block does the same with no session
+  involved.
+
+`check-lte-session` pins 29 exactly rather than loosening to "most", because 30
+would mean something improved and 28 that something regressed. Whether block 25
+*should* decode is a decode question and not a refactoring one; it is now
+visible, which it was not.
+
+A diagnostic of mine was wrong on the way to that, and nearly became the
+finding: the first version printed the *session's latched* cell rather than the
+failing block's attempt, so it reported a strong SSS where there was none.
+Asking `lte_cell_search()` directly is what settled it.

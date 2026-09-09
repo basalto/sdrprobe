@@ -29,7 +29,6 @@
 
 /* The three antenna-port arrangements a cell can use. Nothing before the
    message's own parity says which, so all three are tried. */
-static const int port_hypotheses[3] = { 1, 2, 4 };
 
 /* The bands a dongle can actually reach, in the order they are offered. The
    table in lte_dsp.c also holds 1, 3 and 7, which sit above an R820T's
@@ -115,7 +114,7 @@ void enter_lte(struct app *app) {
         retune_receiver_at_rate(app, app->applied_frequency,
                                 (uint32_t)LTE_SAMPLE_RATE_HZ,
                                 app->applied_ppm) < 0) {
-        snprintf(app->lte.status, sizeof(app->lte.status),
+        snprintf(app->lte.session.status, sizeof(app->lte.session.status),
                  "The receiver would not move to 1.92 MS/s: %.100s",
                  app->calibration_status);
         receiver_lease_cancel(&app->lease, &app->lte.lease_token);
@@ -170,8 +169,8 @@ static int scan_start(struct app *app, double now) {
     scan->confirm_index = 0;
     scan->confirm_total = 0;
     scan->confirm_dropped = 0;
-    app->lte.cell_valid = 0;
-    app->lte.mib_valid = 0;
+    app->lte.session.cell_valid = 0;
+    app->lte.session.mib_valid = 0;
     if (scan_tune(app, lte_scan_candidate(band, 0), now) < 0) {
         scan->running = 0;
         return -1;
@@ -266,8 +265,8 @@ static void scan_select(struct app *app, int row) {
     if (row < 0 || row >= scan->found_count || !app->receiver_mode)
         return;
     scan->selected = row;
-    app->lte.cell_valid = 0;
-    app->lte.mib_valid = 0;
+    app->lte.session.cell_valid = 0;
+    app->lte.session.mib_valid = 0;
     app->lte.announced_pci = -1;
     retune_receiver(app, scan->found[row].frequency_hz, app->applied_ppm);
 }
@@ -426,161 +425,26 @@ void update_lte_scan(struct app *app, double now, int have_block) {
 /* What one sample block yields.                                       */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Feed the latest block to the decode.
+ *
+ * Everything the decode does is `lte_session.h`'s -- the cell search, the
+ * reference power, the port coherence, the channel shape, the statistics and
+ * the rule that a broadcast counts only when a second one agrees. This is the
+ * adapter, and `print_lte()` in sdrprobe.c is the other.
+ */
 void update_lte(struct app *app, double now) {
-    struct lte_cell cell;
-    double rate = (double)app->applied_sample_rate;
+    struct lte_session_event event;
     /* Collecting the trace costs a second pass over the correlation and a
        copy of the candidate scores, so it is only done when something is
        drawing them. */
     struct lte_trace *trace = app->lte.analysis_mode ? &app->lte.trace : NULL;
-    int h;
 
-    app->lte.blocks_seen++;
     app->lte.earfcn = lte_earfcn_for_hz((double)app->applied_frequency);
-
-    if (!lte_on_grid(app)) {
-        snprintf(app->lte.status, sizeof(app->lte.status),
-                 "Receiver is at %.3f MS/s; LTE's grid is 1.920.",
-                 app->applied_sample_rate / 1e6);
-        return;
-    }
-    /* The search needs a whole half-frame plus a symbol to be sure of holding
-       one synchronisation signal, and a whole subframe after it. */
-    if (app->pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE) {
-        snprintf(app->lte.status, sizeof(app->lte.status),
-                 "Block holds %zu samples; a cell search needs %d.",
-                 app->pair_count, LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE);
-        return;
-    }
-
-    if (lte_cell_search(app->i_samples, app->q_samples, app->pair_count, rate,
-                        &cell, trace) != 1) {
-        /* The search fills in what it measured even when it refuses, and the
-           two cases are worth telling apart: an empty channel, or a carrier
-           whose primary sequence locked and whose secondary one did not. The
-           second is where this decoder currently stands on live air. */
-        if (cell.pss_correlation > 0.5f)
-            snprintf(app->lte.status, sizeof(app->lte.status),
-                     "A primary sequence at %.2f, but the secondary one only "
-                     "reached %.2f against %.2f -- no identity.",
-                     (double)cell.pss_correlation,
-                     (double)cell.sss_correlation,
-                     (double)cell.sss_runner_up);
-        else
-            snprintf(app->lte.status, sizeof(app->lte.status),
-                     "No synchronisation signal here. Scan the band to find "
-                     "one.");
-        return;
-    }
-
-    if (app->lte.cell_valid && cell.pci != app->lte.cell.pci)
-        app->lte.pending_mib_hits = 0;
-    app->lte.cell = cell;
-    app->lte.cell_valid = 1;
-    app->lte.cell_time = now;
-    app->lte.cells_found++;
-    /* Measured from the same block the cell was found in, so the level on
-       screen always belongs to the identity beside it. */
-    app->lte.power_valid = lte_reference_power(app->i_samples, app->q_samples,
-                                               app->pair_count, rate,
-                                               app->device.full_scale, &cell,
-                                               &app->lte.power);
-    app->lte.port_coherence_valid =
-        lte_port_coherence(app->i_samples, app->q_samples, app->pair_count,
-                           rate, &cell, app->lte.port_coherence);
-    app->lte.shape_valid = lte_channel_shape(app->i_samples, app->q_samples,
-                                             app->pair_count, rate,
-                                             app->device.full_scale, &cell,
-                                             &app->lte.shape);
-    /*
-     * And into the run's statistics. The reset inside lte_stats_for_cell is
-     * the load-bearing part: this carrier can alternate between two cells
-     * block to block, and an average across both would sit under a heading
-     * naming one of them.
-     */
-    lte_stats_for_cell(&app->lte.stats, cell.pci);
-    lte_stat_add(&app->lte.stats.frequency_khz,
-                 (float)(cell.frequency_offset_hz / 1e3));
-    lte_stat_add(&app->lte.stats.pss, cell.pss_correlation);
-    lte_stat_add(&app->lte.stats.sss, cell.sss_correlation);
-    if (app->lte.power_valid) {
-        lte_stat_add(&app->lte.stats.rsrp_dbfs, app->lte.power.rsrp_dbfs);
-        lte_stat_add(&app->lte.stats.rsrq_db, app->lte.power.rsrq_db);
-        lte_stat_add(&app->lte.stats.sinr_db, app->lte.power.sinr_db);
-    }
-    if (app->lte.shape_valid) {
-        lte_stat_add(&app->lte.stats.delay_ns, app->lte.shape.delay_ns);
-        lte_stat_add(&app->lte.stats.spread_ns, app->lte.shape.delay_spread_ns);
-        lte_stat_add(&app->lte.stats.drift_hz, app->lte.shape.drift_hz);
-    }
-    if (app->lte.port_coherence_valid) {
-        int ports = 0, p;
-        for (p = 0; p < LTE_PORT_COUNT; p++)
-            if (app->lte.port_coherence[p] >= LTE_PORT_COHERENCE_PRESENT)
-                ports++;
-        lte_stat_add(&app->lte.stats.ports, (float)ports);
-    }
-    snprintf(app->lte.status, sizeof(app->lte.status),
-             "Cell %d found; its broadcast has not decoded yet.", cell.pci);
-
-    for (h = 0; h < 3; h++) {
-        float soft[LTE_PBCH_SOFT_BITS];
-        struct lte_mib mib;
-
-        if (lte_pbch_soft_bits(app->i_samples, app->q_samples, app->pair_count,
-                               rate, &cell, cell.subframe0_start,
-                               port_hypotheses[h], soft,
-                               trace) != LTE_PBCH_SOFT_BITS)
-            continue;
-        if (!lte_mib_decode(soft, cell.pci, &mib))
-            continue;
-
-        /*
-         * The mask is not required to agree with the combining, and requiring
-         * it was a mistake that threw away every real message this decoder
-         * produced. The combining is only a way of getting soft bits good
-         * enough to decode; which one manages that is a property of the
-         * signal, not of the cell. On the band 20 captures the message comes
-         * out under the single-port combining and its mask says two ports --
-         * consistently, in every block, with a frame number advancing at
-         * exactly the right rate. What guards against a lucky parity is the
-         * repeat below, which is a far better test than agreement with a
-         * hypothesis the receiver chose itself.
-         */
-        app->lte.mib_parity_passes++;
-
-        /*
-         * And now the part the parity cannot do on its own. Thirty-six
-         * attempts a block means a pass by chance is not rare but expected,
-         * so a message counts only when a second one agrees about the things
-         * a cell does not change: its bandwidth, its acknowledgement channel
-         * and its antenna count. The frame number is left out of that
-         * comparison because it advances, which is what it is for.
-         */
-        if (lte_mib_same_cell(&app->lte.pending_mib, &mib) &&
-            app->lte.pending_mib_hits > 0) {
-            app->lte.pending_mib_hits++;
-        } else {
-            app->lte.pending_mib = mib;
-            app->lte.pending_mib_hits = 1;
-        }
-        if (app->lte.pending_mib_hits < 2) {
-            snprintf(app->lte.status, sizeof(app->lte.status),
-                     "A broadcast passed its parity; waiting for a second "
-                     "that agrees with it.");
-            return;
-        }
-
-        app->lte.mib = mib;
-        app->lte.mib_valid = 1;
-        app->lte.mib_time = now;
-        app->lte.mib_ports_used = port_hypotheses[h];
-        app->lte.mibs_decoded++;
-        app->lte.status[0] = '\0';
-        return;
-    }
+    lte_session_feed(&app->lte.session, app->i_samples, app->q_samples,
+                     app->pair_count, (double)app->applied_sample_rate,
+                     app->device.full_scale, now, trace, &event);
 }
-
 
 /* ------------------------------------------------------------------ */
 /* Drawing.                                                            */
@@ -777,16 +641,16 @@ static void draw_found_panel(const struct app *app, Rectangle rect) {
 
 static void draw_cell_panel(const struct app *app, Rectangle rect,
                             double now) {
-    const struct lte_cell *cell = &app->lte.cell;
-    const struct lte_cell_stats *st = &app->lte.stats;
+    const struct lte_cell *cell = &app->lte.session.cell;
+    const struct lte_cell_stats *st = &app->lte.session.stats;
     struct lte_panel_rows rows = lte_panel_rows_for(rect);
     char text[160];
     int r = 0;
 
     draw_panel(rect, "Cell search -- what PSS and SSS found");
 
-    if (!app->lte.cell_valid) {
-        sdrgui_text_fit(app->lte.status[0] ? app->lte.status
+    if (!app->lte.session.cell_valid) {
+        sdrgui_text_fit(app->lte.session.status[0] ? app->lte.session.status
                                            : "Waiting for samples...",
                         (int)rows.row.label_x, (int)rows.row.first_y,
                         LTE_PANEL_ROW_FONT, rect.width - 24.0f,
@@ -859,7 +723,7 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
     draw_stat_row(&rows, r++, "Antenna ports", &st->ports, "%.0f");
 
     snprintf(text, sizeof(text), "%lu blocks, last seen %.1f s ago",
-             st->rsrp_dbfs.count, now - app->lte.cell_time);
+             st->rsrp_dbfs.count, now - app->lte.session.cell_time);
     sdrgui_text_fit(text, (int)rows.row.label_x,
                     (int)panel_footer_after(&rows.row, r), 14,
                     rect.width - 24.0f, row_muted);
@@ -867,14 +731,14 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
 }
 
 static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
-    const struct lte_mib *mib = &app->lte.mib;
+    const struct lte_mib *mib = &app->lte.session.mib;
     struct lte_panel_rows rows = lte_panel_rows_for(rect);
     char text[200];
     int y = draw_panel(rect, "Broadcast -- what the cell says about itself");
 
-    if (!app->lte.mib_valid) {
+    if (!app->lte.session.mib_valid) {
         const char *note =
-            app->lte.cell_valid
+            app->lte.session.cell_valid
                 ? "A cell is there; its broadcast has not survived its "
                   "parity yet."
                 : "Nothing to read until a cell is found.";
@@ -897,7 +761,7 @@ static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
         snprintf(text, sizeof(text), "%d", mib->antenna_ports);
         draw_row_at(&rows, r++, "Antenna ports", text, row_value);
         snprintf(text, sizeof(text), "last read %.1f s ago",
-                 now - app->lte.mib_time);
+                 now - app->lte.session.mib_time);
         sdrgui_text_fit(text, (int)rows.row.label_x,
                         (int)panel_footer_after(&rows.row, r), 14,
                         rect.width - 24.0f, row_muted);
@@ -937,7 +801,7 @@ static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
         float bottom = rect.y + rect.height - 8.0f;
         int i;
 
-        if (!lte_findings_from(&app->lte.stats,
+        if (!lte_findings_from(&app->lte.session.stats,
                                (double)app->applied_frequency, &findings))
             return;
         sdrgui_text_fit("What that adds up to", (int)rect.x + 12, (int)top, 15,
@@ -1021,8 +885,8 @@ static void draw_charts(const struct app *app, const struct lte_layout *l) {
          */
         struct sdrgui_burst_chart_params params = {
             l->chart[3],
-            app->lte.port_coherence_valid ? app->lte.port_coherence : NULL,
-            app->lte.port_coherence_valid ? LTE_PORT_COUNT : 0,
+            app->lte.session.port_coherence_valid ? app->lte.session.port_coherence : NULL,
+            app->lte.session.port_coherence_valid ? LTE_PORT_COUNT : 0,
             /*
              * The axis floor is the chance level rather than zero, so the
              * scale itself is the reference: eleven phase differences per
@@ -1106,13 +970,13 @@ void draw_lte(struct app *app) {
     snprintf(text, sizeof(text),
              "funnel   blocks %llu -> cells %llu -> parity %llu -> "
              "messages %llu%s",
-             (unsigned long long)app->lte.blocks_seen,
-             (unsigned long long)app->lte.cells_found,
-             (unsigned long long)app->lte.mib_parity_passes,
-             (unsigned long long)app->lte.mibs_decoded,
+             (unsigned long long)app->lte.session.blocks_seen,
+             (unsigned long long)app->lte.session.cells_found,
+             (unsigned long long)app->lte.session.mib_parity_passes,
+             (unsigned long long)app->lte.session.mibs_decoded,
              lte_on_grid(app) ? "" : "   [wrong sample rate]");
     sdrgui_text_fit(text, header_x, 110, 16, l.header_right - l.header_left,
-                    (app->lte.cells_found > 0 && app->lte.mibs_decoded == 0)
+                    (app->lte.session.cells_found > 0 && app->lte.session.mibs_decoded == 0)
                         ? warning
                         : (Color){ 151, 174, 188, 255 });
 
@@ -1179,8 +1043,8 @@ void handle_lte_input(struct app *app) {
         app->lte.scan.band = i;
         app->lte.scan.found_count = 0;
         app->lte.scan.selected = -1;
-        app->lte.cell_valid = 0;
-        app->lte.mib_valid = 0;
+        app->lte.session.cell_valid = 0;
+        app->lte.session.mib_valid = 0;
         park_in_band(app);
         return;
     }

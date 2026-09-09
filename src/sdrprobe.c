@@ -1927,14 +1927,14 @@ static void print_broadcast(struct app *app, const struct gsm_sch_result *sch)
  */
 static void print_lte(struct app *app, double now)
 {
-    uint64_t cells_before = app->lte.cells_found;
-    uint64_t messages_before = app->lte.mibs_decoded;
-    const struct lte_cell *cell = &app->lte.cell;
-    const struct lte_mib *mib = &app->lte.mib;
+    uint64_t cells_before = app->lte.session.cells_found;
+    uint64_t messages_before = app->lte.session.mibs_decoded;
+    const struct lte_cell *cell = &app->lte.session.cell;
+    const struct lte_mib *mib = &app->lte.session.mib;
 
     update_lte(app, now);
 
-    if (app->lte.cells_found > cells_before &&
+    if (app->lte.session.cells_found > cells_before &&
         cell->pci != app->lte.announced_pci) {
         printf("LTE  cell %d (N_ID_1 %d, N_ID_2 %d)  %s CP"
                "  offset %+.1f kHz (%+d subcarriers)  PSS %.2f  SSS %.2f\n",
@@ -1946,7 +1946,7 @@ static void print_lte(struct app *app, double now)
     }
     /* Only a message that repeated counts, so this prints at most once per
        cell rather than once per lucky parity. */
-    if (app->lte.mibs_decoded > messages_before)
+    if (app->lte.session.mibs_decoded > messages_before)
         printf("MIB  %d blocks (%.2f MHz)  PHICH %s %s  SFN %d"
                "  %d antenna port%s\n",
                mib->bandwidth_prb,
@@ -2223,7 +2223,6 @@ static int run_headless(struct app *app) {
      * channel, and parity without a repeat is chance.
      */
     if (app->options.lte_chain) {
-        static const int port_hypotheses[3] = { 1, 2, 4 };
         double began, limit = app->options.lte_chain_seconds > 0.0
                                   ? app->options.lte_chain_seconds : 30.0;
         unsigned long blocks = 0, cells = 0, parity = 0, messages = 0;
@@ -2512,7 +2511,7 @@ static int run_headless(struct app *app) {
                                        app->pair_count,
                                        (double)app->applied_sample_rate, &cell,
                                        cell.subframe0_start,
-                                       port_hypotheses[h], soft,
+                                       lte_session_port_hypotheses[h], soft,
                                        NULL) != LTE_PBCH_SOFT_BITS)
                     continue;
                 if (!lte_mib_decode(soft, cell.pci, &mib))
@@ -2537,7 +2536,7 @@ static int run_headless(struct app *app) {
                            mib.antenna_ports, mib.bandwidth_prb,
                            mib.phich_extended ? "extended" : "normal",
                            res ? res : "?", mib.system_frame_number,
-                           mib.quarter, port_hypotheses[h]);
+                           mib.quarter, lte_session_port_hypotheses[h]);
                 }
                 break;
             }

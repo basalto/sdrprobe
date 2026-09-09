@@ -68,7 +68,7 @@ BUILD=build
 
 all: sdrprobe
 
-DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
+DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c
 APP_SRC=$(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
@@ -94,7 +94,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/lte_findings.h \
 	$(SRC)/chart_window.h $(SRC)/help_layout.h $(SRC)/scan_layout.h \
 	$(SRC)/scope_layout.h $(SRC)/settings_layout.h
-DSP_HDR=$(SRC)/gsm_session.h $(SRC)/tetra_session.h $(SRC)/device_profile.h $(SRC)/signal_probe.h $(SRC)/signal_findings.h $(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
+DSP_HDR=$(SRC)/gsm_session.h $(SRC)/tetra_session.h $(SRC)/lte_session.h $(SRC)/device_profile.h $(SRC)/signal_probe.h $(SRC)/signal_findings.h $(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
 	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h $(SRC)/lte_scan.h \
 	$(SRC)/fm_dsp.h $(SRC)/rds.h $(SRC)/tetra_dsp.h $(SRC)/tetra_sync.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
@@ -361,6 +361,16 @@ check-gsm-bcch: $(TESTS)/gsm_bcch_test.c $(TESTS)/check.h $(SRC)/gsm_bcch.c \
 
 # Whether consecutive SCH decodes hang together: the hyperframe wrap, the
 # elapsed time a frame number is judged against, and a BSIC that changes.
+check-lte-session: $(TESTS)/lte_session_test.c $(TESTS)/check.h \
+		$(SRC)/lte_session.c $(SRC)/lte_session.h $(SRC)/lte_dsp.c \
+		$(SRC)/lte_mib.c $(SRC)/lte_stats.h $(SRC)/sdr_dsp.c \
+		$(SRC)/device_profile.h testfiles/lte_b20_pci28.bin
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_session_test \
+		$(TESTS)/lte_session_test.c $(SRC)/lte_session.c $(SRC)/lte_dsp.c \
+		$(SRC)/lte_mib.c $(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/lte_session_test
+
 check-tetra-session: $(TESTS)/tetra_session_test.c $(TESTS)/check.h \
 		$(SRC)/tetra_session.c $(SRC)/tetra_session.h $(SRC)/tetra_dsp.c \
 		$(SRC)/tetra_sync.c $(SRC)/sdr_dsp.c $(SRC)/signal_probe.c \
@@ -589,7 +599,7 @@ CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-hi
 	check-layout check-acquisition check-scan check-adsb-analysis \
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
 	check-row-list check-survey-bands check-text-wrap \
-	check-gsm-continuity check-gsm-session check-tetra-session check-gsm-bcch check-geometry check-input \
+	check-gsm-continuity check-gsm-session check-tetra-session check-lte-session check-gsm-bcch check-geometry check-input \
 	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
 	check-signal-probe check-signal-findings check-receiver-lease \
 	check-sample-format check-device-profile check-capture-sidecar \
@@ -778,4 +788,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session add-argument clean
+.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session add-argument clean
