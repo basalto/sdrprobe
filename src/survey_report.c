@@ -428,7 +428,7 @@ static void survey_save_run(struct app *app, const struct survey_plan *plan,
         int i, added;
 
         localtime_r(&now, &local);
-        site_history_load(app->config.site, &history);
+        installation_history_load(&app->installation, &history);
         for (i = 0; i < carrier_count; i++) {
             hz[i] = carriers[i].centre_hz;
             level[i] = carriers[i].peak_dbfs;
@@ -436,7 +436,7 @@ static void survey_save_run(struct app *app, const struct survey_plan *plan,
         }
         added = site_history_merge(&history, hz, level, prom, carrier_count,
                                    plan->bin_hz, local.tm_hour);
-        site_history_save(&history);
+        installation_history_save(&app->installation, &history);
         printf("survey-history site %s sweeps %d signals %d new %d quiet %d\n",
                app->config.site, history.sweeps, history.count, added,
                site_history_lost_now(&history));

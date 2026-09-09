@@ -3023,6 +3023,56 @@ int main(int argc, char **argv) {
             goto cleanup;
     }
 
+    /*
+     * The receiving setup, now that the source has said what it is.
+     *
+     * It has to be here and not earlier: ADR-0018 keys a correction by the
+     * receiver, and the receiver's serial is not known until it is open. A
+     * capture reports none, which is right -- a recording's correction is
+     * already in its samples.
+     */
+    installation_load(&app->installation, &app->config, app->device.serial,
+                      app->options.receiver_label);
+    {
+        int legacy = 0;
+
+        if (app->installation.site[0] &&
+            !installation_ppm(&app->installation, NULL) &&
+            installation_legacy_ppm(&app->installation, &legacy)) {
+            /*
+             * ADR-0018 will not apply it: it cannot say whose crystal it
+             * compensates. Saying so beats both applying it silently and
+             * saying nothing, which would look like the correction had been
+             * lost.
+             */
+            if (installation_identified(&app->installation))
+                fprintf(stderr,
+                        "Site \"%s\" has a %+d ppm correction from before "
+                        "calibrations named a receiver.\n"
+                        "It is not applied. --claim-calibration assigns it "
+                        "to this one (%s).\n",
+                        app->installation.site, legacy,
+                        app->installation.receiver);
+            else
+                fprintf(stderr,
+                        "Site \"%s\" has a %+d ppm correction from before "
+                        "calibrations named a receiver.\n"
+                        "It is not applied, and this receiver has no "
+                        "identity to claim it for -- see "
+                        "--receiver-label.\n",
+                        app->installation.site, legacy);
+        }
+        if (app->options.claim_calibration) {
+            if (installation_claim_legacy(&app->installation) == 0 &&
+                installation_commit(&app->installation, &app->config) == 0)
+                fprintf(stderr, "Claimed %+d ppm for %s at \"%s\".\n",
+                        legacy, app->installation.receiver,
+                        app->installation.site);
+            else
+                fprintf(stderr, "Nothing to claim.\n");
+        }
+    }
+
     if (install_signal_handlers(app) < 0)
         goto cleanup;
 

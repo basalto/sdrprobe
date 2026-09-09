@@ -22,6 +22,7 @@
 #include "check.h"
 
 #include "installation.h"
+#include "site_history.h"
 
 /* ADR-0018: the serial when there is one, a label when the operator sets one,
    and the device index never. */
@@ -251,7 +252,61 @@ static void test_identifiers_are_bounded(void) {
     check_str("a null empties it", inst.site, "");
 }
 
+
+/*
+ * The two paths coexist, and that is ADR-0022's migration rather than a
+ * transitional mess: a file written before the ADR cannot say which receiver
+ * and antenna produced it, so it keeps its own name and is offered rather than
+ * renamed.
+ */
+static void test_the_history_path(void) {
+    struct installation inst;
+    char setup[256], legacy[256], other[256];
+
+    installation_reset(&inst);
+    installation_identify(&inst, "77771111153705700", NULL);
+    installation_set_id(inst.site, "home-sala-estar");
+    installation_set_id(inst.antenna, "telescopic");
+
+    check_int("a complete setup has a path",
+              installation_history_path(&inst, setup, sizeof(setup)), 0);
+    check_true("under surveys/",
+               strncmp(setup, "surveys/history-", 16) == 0);
+    check_true("and it names all three",
+               strstr(setup, "77771111153705700") != NULL &&
+               strstr(setup, "home-sala-estar") != NULL &&
+               strstr(setup, "telescopic") != NULL);
+
+    /* The legacy file this repository actually has keeps its own name. */
+    check_int("the legacy path is the old shape",
+              site_history_path("home-sala-estar", legacy, sizeof(legacy)), 0);
+    check_str("which is history-<site>.txt", legacy,
+              "surveys/history-home-sala-estar.txt");
+    check_true("and the setup's is not that file", strcmp(setup, legacy) != 0);
+
+    /* A different antenna is a different file, which is the whole point. */
+    installation_set_id(inst.antenna, "rooftop");
+    installation_history_path(&inst, other, sizeof(other));
+    check_true("a different antenna, a different file",
+               strcmp(setup, other) != 0);
+
+    /* A site typed with spaces still names one file. */
+    installation_set_id(inst.site, "Rua da Prata 2");
+    installation_set_id(inst.antenna, "telescopic");
+    check_int("an awkward name still resolves",
+              installation_history_path(&inst, other, sizeof(other)), 0);
+    check_true("with nothing outside the safe set",
+               strchr(other + 8, ' ') == NULL);
+
+    /* An incomplete setup has no path, for the same reason it has no key. */
+    installation_reset(&inst);
+    installation_set_id(inst.site, "home-sala-estar");
+    check_int("a site alone has no history file",
+              installation_history_path(&inst, other, sizeof(other)), -1);
+}
+
 int main(void) {
+    test_the_history_path();
     test_who_the_receiver_is();
     test_a_legacy_correction_is_not_applied_until_claimed();
     test_an_unidentified_receiver_cannot_claim();

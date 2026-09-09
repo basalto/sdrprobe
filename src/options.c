@@ -537,6 +537,19 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->site || i + 1 >= argc || !*argv[i + 1])
                 return -1;
             options->site = argv[++i];
+        } else if (strcmp(option, "--receiver-label") == 0) {
+            /* ADR-0018: a stable name for a receiver whose USB serial is
+               missing or shared, which many of these dongles are. */
+            if (options->receiver_label || i + 1 >= argc || !*argv[i + 1])
+                return -1;
+            options->receiver_label = argv[++i];
+        } else if (strcmp(option, "--claim-calibration") == 0) {
+            /* ADR-0018: claim a site-only correction for this receiver. The
+               operator's explicit act, which is what the ADR requires instead
+               of the program guessing. */
+            if (options->claim_calibration)
+                return -1;
+            options->claim_calibration = 1;
         } else if (strcmp(option, "--record-seconds") == 0) {
             if (record_seen || i + 1 >= argc ||
                 parse_seconds(argv[++i], &options->record_seconds) < 0)

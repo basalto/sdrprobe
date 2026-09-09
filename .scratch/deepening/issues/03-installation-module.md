@@ -1,8 +1,8 @@
 # 03 - One installation module behind config, history and sidecar
 
-Status: in progress. **The model and both ADRs' refusals are in**
-(`src/installation.h`, `check-installation`, 47 checks). The four writer sites
-and the history's on-disk key are next.
+Status: resolved, 2026-09-09. The model, both ADRs' refusals, the file format,
+the history key and the claim path. **MINOR bump to 0.45.0** under ADR-0016:
+the config gains a line and the history gains a filename shape.
 
 Site, antenna and the tuning correction are remembered and saved from four
 places, each repeating the same three calls:
@@ -132,10 +132,54 @@ Both refusals were reverted and both fail by name:
 - keying the history by site alone -- "and it is a different one" and "and a
   different receiver too" fail.
 
+## The file formats, and what a legacy file does
+
+**A new line rather than a wider one.** `calibration <receiver> <ppm> <site>`
+carries ADR-0018's profiles; `known_site <ppm> <label>` is untouched and is now
+read as the **legacy** value it always was. A file written by this build still
+reads correctly in an older one -- it keeps the site list and ignores what it
+does not know -- and, more importantly, a legacy value stays visibly legacy
+instead of being silently given an owner. The receiver comes first on the line
+because it is the field with no spaces in it: a site can be "Rua da Prata 2"
+and has to be the tail.
+
+**The history keeps its old filename.** `surveys/history-<site>.txt` is
+untouched and `surveys/history-<receiver>-<site>-<antenna>.txt` is the new
+shape. The two coexist, which is ADR-0022's migration rather than a
+transitional mess: a file written before the ADR cannot say which receiver and
+antenna produced it, and inventing that is the one thing it refuses.
+`site_history_legacy_entries()` says how much one holds so it can be offered.
+
+`site_history_load/save` split into a by-path pair, so the format layer stays
+the format layer -- it reads and writes a file and has no opinion about what
+identifies one.
+
+## The claim path, because a refusal needs a remedy
+
+Holding a correction unassigned is only honest if there is a way to assign it.
+`--claim-calibration` is the operator's explicit act, and
+`--receiver-label` names a receiver whose USB serial is missing or shared.
+Exercised end to end on a scratch config:
+
+```
+Site "home-sala-estar" has a -31 ppm correction from before calibrations
+named a receiver.
+It is not applied. --claim-calibration assigns it to this one
+(77771111153705700).
+```
+
+and after claiming, `known_site 0 home-sala-estar` plus
+`calibration 77771111153705700 -31 home-sala-estar`, with the next run silent
+because the profile answers. A receiver with no identity says so and points at
+`--receiver-label` rather than offering a claim it cannot make.
+
+**Nothing in this repository's own `surveys/` or config was touched**, and the
+real config turns out to have `known_site 0` for every site -- no legacy
+correction to migrate here at all.
+
 ## Still to do
 
-- The four writer sites collapse to `installation_commit()`.
-- `site_history`'s on-disk key becomes the setup's, with legacy site-only
-  files held unassigned -- the same shape as the correction's legacy path.
 - `survey_store_write` takes the installation rather than reading
-  `app->config.*`.
+  `app->config.*`, so a sweep's JSON names the setup the same way.
+- The calibration overlay should offer the claim rather than only the command
+  line.

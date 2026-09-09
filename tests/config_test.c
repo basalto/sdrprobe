@@ -331,7 +331,120 @@ static void test_the_transform_size(void) {
     }
 }
 
+
+/*
+ * ADR-0018's line, and the round trip that keeps a legacy value legacy.
+ *
+ * `calibration <receiver> <ppm> <site>`. The receiver comes first because it
+ * is the field with no spaces in it -- a site can be "Rua da Prata 2" and has
+ * to be the tail.
+ */
+static void test_calibration_lines(void) {
+    struct config config;
+    char text[4096];
+    int ppm = 0;
+
+    config_defaults(&config);
+    check_int("nothing yet",
+              config_calibration_ppm(&config, "77771111153705700",
+                                     "home-sala-estar", &ppm),
+              0);
+    check_int("recording one changes something",
+              config_set_calibration(&config, "77771111153705700",
+                                     "home-sala-estar", -31),
+              1);
+    check_int("recording the same value again does not",
+              config_set_calibration(&config, "77771111153705700",
+                                     "home-sala-estar", -31),
+              0);
+    check_int("it reads back",
+              config_calibration_ppm(&config, "77771111153705700",
+                                     "home-sala-estar", &ppm),
+              1);
+    check_int("as -31", ppm, -31);
+
+    /* A second receiver at the same site is a second profile, not an
+       overwrite. That is the whole of ADR-0018. */
+    check_int("a second receiver records its own",
+              config_set_calibration(&config, "b210-0001",
+                                     "home-sala-estar", 2),
+              1);
+    check_int("and the first is untouched",
+              config_calibration_ppm(&config, "77771111153705700",
+                                     "home-sala-estar", &ppm),
+              1);
+    check_int("still -31", ppm, -31);
+    check_int("two profiles", config.calibration_count, 2);
+
+    /* Through the file and back, with a site that has a space in it. */
+    check_int("a site with spaces records",
+              config_set_calibration(&config, "77771111153705700",
+                                     "Rua da Prata 2", 7),
+              1);
+    check_true("it formats", config_format(&config, text, sizeof(text)) > 0);
+    check_true("with a calibration line",
+               strstr(text, "calibration 77771111153705700 -31 "
+                            "home-sala-estar\n") != NULL);
+    {
+        struct config back;
+        config_defaults(&back);
+        check_true("and parses", config_parse(text, &back) >= 0);
+        check_int("three profiles survive", back.calibration_count, 3);
+        check_int("the first reads back",
+                  config_calibration_ppm(&back, "77771111153705700",
+                                         "home-sala-estar", &ppm),
+                  1);
+        check_int("as -31", ppm, -31);
+        check_int("and the spaced site too",
+                  config_calibration_ppm(&back, "77771111153705700",
+                                         "Rua da Prata 2", &ppm),
+                  1);
+        check_int("as 7", ppm, 7);
+    }
+}
+
+/*
+ * A `known_site` correction from a file written before ADR-0018 stays legacy.
+ * It is not a calibration profile and must not answer as one.
+ */
+static void test_a_legacy_known_site_is_not_a_profile(void) {
+    struct config config;
+    int ppm = 0;
+
+    config_defaults(&config);
+    check_true("an old file parses",
+               config_parse("known_site -31 home-sala-estar\n", &config) >= 0);
+    check_int("the site is remembered", config.site_count, 1);
+    check_int("with its legacy correction", config.sites[0].ppm, -31);
+    check_int("which config_site_ppm still returns",
+              config_site_ppm(&config, "home-sala-estar"), -31);
+
+    /* But it is nobody's profile. */
+    check_int("and no receiver owns it",
+              config_calibration_ppm(&config, "77771111153705700",
+                                     "home-sala-estar", &ppm),
+              0);
+    check_int("no profiles at all", config.calibration_count, 0);
+
+    /* Claiming it: the value moves to a profile and stops being unassigned. */
+    config_set_calibration(&config, "77771111153705700", "home-sala-estar",
+                           -31);
+    check_int("clearing the legacy value reports it did",
+              config_clear_legacy_ppm(&config, "home-sala-estar"), 1);
+    check_int("and it is gone", config.sites[0].ppm, 0);
+    check_int("clearing twice reports nothing",
+              config_clear_legacy_ppm(&config, "home-sala-estar"), 0);
+    check_int("while the profile stands",
+              config_calibration_ppm(&config, "77771111153705700",
+                                     "home-sala-estar", &ppm),
+              1);
+    check_int("at -31", ppm, -31);
+    check_true("and the site is still in the list", config.site_count == 1);
+}
+
 int main(void) {
+    test_calibration_lines();
+    test_a_legacy_known_site_is_not_a_profile();
     test_defaults();
     test_reads_a_file();
     test_absent_keys_keep_their_defaults();

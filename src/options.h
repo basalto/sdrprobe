@@ -164,6 +164,12 @@ struct options {
        without a window. */
     const char *screenshot_path;
     int play_once;            /* stop at the end of a capture, do not loop */
+    /* ADR-0018: a correction from before calibrations named a receiver is
+       held unassigned. This is the operator's explicit claim of one. */
+    int claim_calibration;
+    /* A stable name for a receiver whose USB serial is missing or shared,
+       which many of these dongles are. Beats the serial when set. */
+    const char *receiver_label;
     int gsm_features;         /* GSM_OPT_* bitmask for the SCH decoder */
     int gsm_features_seen;
     int remove_dc;            /* the DC-spike filter, on unless told otherwise */

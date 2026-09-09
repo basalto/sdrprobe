@@ -168,6 +168,40 @@ int config_parse(const char *text, struct config *config) {
                 config_remember_antenna(config, value);
             }
             recognised++;
+        } else if (!strcmp(key, "calibration")) {
+            /*
+             * `calibration <receiver> <ppm> <site>` (ADR-0018). The receiver
+             * comes first because it is the field with no spaces in it -- a
+             * site can be "Rua da Prata 2" and must be the tail.
+             */
+            char *receiver = value;
+            char *after = receiver;
+            while (*after && *after != ' ' && *after != '\t')
+                after++;
+            if (*after) {
+                char *number;
+                long ppm;
+
+                *after++ = '\0';
+                while (*after == ' ' || *after == '\t')
+                    after++;
+                number = after;
+                ppm = strtol(number, &after, 10);
+                if (after != number && (*after == ' ' || *after == '\t')) {
+                    while (*after == ' ' || *after == '\t')
+                        after++;
+                    if (*after && *receiver &&
+                        config->calibration_count < CONFIG_CALIBRATIONS_MAX) {
+                        struct config_calibration *c =
+                            &config->calibrations[config->calibration_count++];
+                        memset(c, 0, sizeof(*c));
+                        copy_value(c->receiver, sizeof(c->receiver), receiver);
+                        copy_value(c->site, sizeof(c->site), after);
+                        c->ppm = (int)ppm;
+                    }
+                }
+            }
+            recognised++;
         } else if (!strcmp(key, "known_site")) {
             /* `known_site <ppm> <label>`, appended in file order, which is
                most recent first. A file written before corrections were kept
@@ -243,6 +277,16 @@ int config_format(const struct config *config, char *out, size_t size) {
         int more = snprintf(out + written, size - (size_t)written,
                             "known_site %d %s\n", config->sites[i].ppm,
                             config->sites[i].label);
+        if (more < 0 || (size_t)(written + more) >= size)
+            return -1;
+        written += more;
+    }
+    for (i = 0; i < config->calibration_count; i++) {
+        int more = snprintf(out + written, size - (size_t)written,
+                            "calibration %s %d %s\n",
+                            config->calibrations[i].receiver,
+                            config->calibrations[i].ppm,
+                            config->calibrations[i].site);
         if (more < 0 || (size_t)(written + more) >= size)
             return -1;
         written += more;
@@ -344,4 +388,63 @@ int config_set_fft_size(struct config *config, int size) {
         return 0;
     config->fft_size = size;
     return 1;
+}
+
+int config_calibration_ppm(const struct config *config, const char *receiver,
+                           const char *site, int *ppm) {
+    int i;
+
+    if (!config || !receiver || !*receiver || !site || !*site)
+        return 0;
+    for (i = 0; i < config->calibration_count; i++) {
+        if (strcmp(config->calibrations[i].receiver, receiver) != 0 ||
+            strcmp(config->calibrations[i].site, site) != 0)
+            continue;
+        if (ppm)
+            *ppm = config->calibrations[i].ppm;
+        return 1;
+    }
+    return 0;
+}
+
+int config_set_calibration(struct config *config, const char *receiver,
+                           const char *site, int ppm) {
+    struct config_calibration *c;
+    int i;
+
+    if (!config || !receiver || !*receiver || !site || !*site)
+        return -1;
+    for (i = 0; i < config->calibration_count; i++) {
+        if (strcmp(config->calibrations[i].receiver, receiver) != 0 ||
+            strcmp(config->calibrations[i].site, site) != 0)
+            continue;
+        if (config->calibrations[i].ppm == ppm)
+            return 0;
+        config->calibrations[i].ppm = ppm;
+        return 1;
+    }
+    if (config->calibration_count >= CONFIG_CALIBRATIONS_MAX)
+        return -1;
+    c = &config->calibrations[config->calibration_count++];
+    memset(c, 0, sizeof(*c));
+    copy_value(c->receiver, sizeof(c->receiver), receiver);
+    copy_value(c->site, sizeof(c->site), site);
+    c->ppm = ppm;
+    return 1;
+}
+
+int config_clear_legacy_ppm(struct config *config, const char *site) {
+    int i;
+
+    if (!config || !site || !*site)
+        return 0;
+    for (i = 0; i < config->site_count; i++) {
+        if (strcmp(config->sites[i].label, site) != 0)
+            continue;
+        if (config->sites[i].ppm == 0)
+            return 0;
+        config->sites[i].ppm = 0;
+        return 1;
+    }
+    return 0;
 }
