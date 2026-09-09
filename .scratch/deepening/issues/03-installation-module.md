@@ -177,9 +177,39 @@ because the profile answers. A receiver with no identity says so and points at
 real config turns out to have `known_site 0` for every site -- no legacy
 correction to migrate here at all.
 
-## Still to do
+## The last two, 2026-09-09
 
-- `survey_store_write` takes the installation rather than reading
-  `app->config.*`, so a sweep's JSON names the setup the same way.
-- The calibration overlay should offer the claim rather than only the command
-  line.
+**A sweep names the setup that took it.** `survey_store_write` reads the
+installation, and the JSON's `receiver` block gained an `id` -- written as
+`null` rather than omitted when there is none, so a reader can tell "nobody
+said" from "not recorded". A sweep that cannot say which receiver took it
+cannot be matched to a calibration or to a baseline, which is the argument of
+both ADRs.
+
+That surfaced a line that was quietly lying. A headless survey of a *capture*
+printed `survey-history site ... sweeps 1 signals 2 new 2 quiet 0` while
+writing nothing at all: a capture reports no receiver, so the setup has no key
+and ADR-0022 declines the file. It says so now -- *"survey-history not kept: a
+baseline needs a receiver, a site and an antenna"* -- which is the ordinary
+answer for a replayed file rather than a fault.
+
+**The overlay offers the claim.** A `Claim -31 PPM` button, in the gap between
+Scan and the channel field, drawn only when there is one to claim and
+**zero-width when the window is too narrow to hold it** -- the same rule the 4G
+controls use, so `check-layout` skips it rather than reporting a collision.
+`Apply PPM` records against receiver *and* site through the installation
+instead of writing a site-only value.
+
+### And the message that was a lie
+
+With the claim in place the overlay read `current correction: -31 PPM` under a
+startup line saying *"It is not applied"*. Both were true of different code:
+the warning was new and `options.ppm = config_site_ppm(...)` at startup was
+not, so the program announced a refusal and then applied the value anyway.
+
+It could not have been right there: that block runs **before the device is
+open**, so it cannot know which receiver it is deciding for. The correction is
+chosen after `installation_load()` now, where the serial is in hand -- an
+explicit `--ppm` recorded against receiver and site, otherwise a claimed
+profile restored and said so, otherwise nothing. The overlay reads `+0 PPM`
+with the claim offered beside it, and the two agree.

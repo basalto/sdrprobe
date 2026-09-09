@@ -436,10 +436,22 @@ static void survey_save_run(struct app *app, const struct survey_plan *plan,
         }
         added = site_history_merge(&history, hz, level, prom, carrier_count,
                                    plan->bin_hz, local.tm_hour);
-        installation_history_save(&app->installation, &history);
-        printf("survey-history site %s sweeps %d signals %d new %d quiet %d\n",
-               app->config.site, history.sweeps, history.count, added,
-               site_history_lost_now(&history));
+        if (installation_history_save(&app->installation, &history) == 0) {
+            printf("survey-history site %s sweeps %d signals %d new %d "
+                   "quiet %d\n", app->installation.site, history.sweeps,
+                   history.count, added,
+                   site_history_lost_now(&history));
+        } else {
+            /*
+             * ADR-0022 keys a baseline by receiver, site and antenna, and
+             * refuses to write one that cannot say what produced it -- a
+             * capture reports no receiver, so this is the ordinary answer for
+             * a replayed file rather than a fault. Saying so beats a line
+             * that reads as though something was recorded.
+             */
+            printf("survey-history not kept: a baseline needs a receiver, a "
+                   "site and an antenna\n");
+        }
     }
     fflush(stdout);
 }
