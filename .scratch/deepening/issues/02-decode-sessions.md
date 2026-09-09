@@ -188,15 +188,46 @@ scan, the analysis mode and its trace, plus `announced_pci` -- which is the
 `port_hypotheses` existed twice, once in `view_lte.c` and once inside
 `run_headless`. It is `lte_session_port_hypotheses` once.
 
-### What is deliberately still duplicated
+### What is still duplicated, and it is not what this ticket first said
 
-**`--lte-chain` keeps its own message counting, and it is a different rule
-rather than a second spelling.** The session latches at two agreements; the
-chain counts *every* agreeing repeat, and prints every attempt. That is a
-diagnostic reporting what it saw, not a decode latching what it believes, so
-unifying them would change what `--lte-chain` reports. Worth deciding
-deliberately rather than as a side effect of this ticket -- and worth asking
-whether the chain's count means what a reader thinks it means.
+This section claimed `--lte-chain` "keeps its own message counting, and it is a
+different rule rather than a second spelling". **That was wrong.** The two are
+the same rule, and the duplication is real.
+
+Proven three ways:
+
+- **Exhaustively.** Both rules driven by every sequence of up to eight parity
+  passes over three distinct messages -- 9840 sequences -- differ on **none**.
+- **By construction.** The session's `pending` always holds the previous pass's
+  message (a disagreement replaces it, an agreement leaves it equal), and
+  `hits > 0` always holds after the first pass. So `hits >= 2` reduces exactly
+  to *"this pass agrees with the previous one"*, which is literally the chain's
+  `have_last && lte_mib_same_cell(&last, &mib)`.
+- **On air.** A twelve-second run of `--lte-chain` on EARFCN 6200: 162 blocks,
+  152 cells, **140 parity, 139 messages**. `messages == parity - 1`, the same
+  relation the session gives on `lte_b20_pci28.bin` (28 from 29).
+
+**So `pending_mib_hits` is a boolean wearing a counter's clothes.** It reads
+like state accumulating toward a threshold, and it cannot be: because a message
+is emitted on *every* pass once it reaches two, it can never mean more than
+"did the previous pass agree".
+
+The chain should use the session, and doing so is now provably behaviour-
+preserving rather than a hoped-for equivalence.
+
+### A separate finding: "message" means two things in one function
+
+`--lte-chain` prints `lte-chain-summary ... parity N messages N`, where
+`messages` is the agreement count above. But the **verdict** it feeds is
+`lte_confirm_saw(&tally, cell.pci, primary_read)` -- and `primary_read` is set
+on *any* successful decode, a bare parity pass.
+
+Both are internally correct: `lte_confirm.h` documents its own `messages` field
+as "blocks in which its broadcast channel decoded", which is exactly
+`primary_read`, and `LTE_CONFIRM_MIN_MESSAGES 2` is two such blocks naming the
+same identity. The collision is in the **word**, in one function's output: a
+reader comparing the summary's `messages` against a `confirmed` verdict is
+comparing two different quantities that share a name.
 
 ### And two wrong claims in CLAUDE.md, found by measuring
 
