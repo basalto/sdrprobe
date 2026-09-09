@@ -87,6 +87,7 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/surv
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
 	$(SRC)/receiver_lease.h $(SRC)/device_profile.h \
+	$(SRC)/installation.h \
 	$(SRC)/capture_sidecar.h $(SRC)/device_backend.h \
 	$(SRC)/app.h $(SRC)/view.h \
 	$(SRC)/version.h \
@@ -237,6 +238,13 @@ check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 # Command-line parsing: every flag, every rejection. Pure text in, options
 # out, so it links nothing at all.
 # The antenna and site that persist between runs. Text in, text out.
+check-installation: $(TESTS)/installation_test.c $(TESTS)/check.h \
+		$(SRC)/installation.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/installation_test \
+		$(TESTS)/installation_test.c -lm
+	$(Q)./$(BUILD)/installation_test
+
 check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
 		$(SRC)/config.h $(SRC)/sdr_dsp.h \
 		$(SRC)/device_profile.h
@@ -612,7 +620,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 		$(TESTS)/receiver_lease_test.c -lm
 	$(Q)./$(BUILD)/receiver_lease_test
 
-CHECK_UNITS=check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
+CHECK_UNITS=check-installation check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-lte-scan check-band-plan \
 	check-options check-freq-window check-survey-sweep check-suspect \
 	check-calibration \
