@@ -98,10 +98,10 @@ int lte_session_feed(struct lte_session *s, const float *i_samples,
         return 0;
     }
 
-    /* A different identity is a different cell: what was waiting to be
-       believed belonged to the old one. */
+    /* A different identity is a different cell: the pass being remembered
+       belonged to the old one. */
     if (s->cell_valid && cell.pci != s->cell.pci)
-        s->pending_mib_hits = 0;
+        lte_mib_repeat_reset(&s->repeat);
     s->cell = cell;
     s->cell_valid = 1;
     s->cell_time = now;
@@ -142,17 +142,10 @@ int lte_session_feed(struct lte_session *s, const float *i_samples,
          * in every block, with a frame number advancing at exactly the right
          * rate. What guards against a lucky parity is the repeat below.
          */
-        s->mib_parity_passes++;
+        s->mibs_decoded++;
         event.parity_passed = 1;
 
-        if (lte_mib_same_cell(&s->pending_mib, &mib) &&
-            s->pending_mib_hits > 0) {
-            s->pending_mib_hits++;
-        } else {
-            s->pending_mib = mib;
-            s->pending_mib_hits = 1;
-        }
-        if (s->pending_mib_hits < LTE_SESSION_MIB_AGREEMENTS) {
+        if (!lte_mib_repeat_observe(&s->repeat, &mib)) {
             snprintf(s->status, sizeof(s->status),
                      "A broadcast passed its parity; waiting for a second "
                      "that agrees with it.");
@@ -165,7 +158,7 @@ int lte_session_feed(struct lte_session *s, const float *i_samples,
         s->mib_valid = 1;
         s->mib_time = now;
         s->mib_ports_used = lte_session_port_hypotheses[h];
-        s->mibs_decoded++;
+        s->mibs_confirmed++;
         s->status[0] = '\0';
         event.message_confirmed = 1;
         if (out)

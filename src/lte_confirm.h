@@ -18,7 +18,7 @@
  * cell identity and checked by a sixteen-bit CRC: it cannot fit unless the
  * identity is right, which no amount of repetition can establish.
  *
- * Two messages rather than one, and the arithmetic is in `view_lte.c`'s
+ * Two decodes rather than one, and the arithmetic is in `view_lte.c`'s
  * `pending_mib` comment: four scrambling offsets against three masks for each
  * of three antenna-port hypotheses is thirty-six chances a block, so a long
  * run sees one pass by luck. Two passes agreeing on an identity is not luck.
@@ -54,7 +54,10 @@ enum lte_cell_verdict {
 struct lte_cell_sighting {
     int pci;
     int looks;      /* blocks whose search reported this identity */
-    int messages;   /* blocks in which its broadcast channel decoded */
+    /* Blocks in which its broadcast channel decoded -- a parity pass, not an
+       agreeing repeat. It was called `messages`, which collided with the
+       chain's summary line meaning the other thing. */
+    int decodes;
 };
 
 struct lte_cell_tally {
@@ -77,7 +80,7 @@ static inline void lte_confirm_saw(struct lte_cell_tally *tally, int pci,
         if (tally->cell[i].pci != pci)
             continue;
         tally->cell[i].looks++;
-        tally->cell[i].messages += message ? 1 : 0;
+        tally->cell[i].decodes += message ? 1 : 0;
         return;
     }
     if (tally->count >= LTE_CONFIRM_MAX_CELLS) {
@@ -94,9 +97,9 @@ static inline void lte_confirm_saw(struct lte_cell_tally *tally, int pci,
          * cell that appears late.
          */
         for (i = 0; i < tally->count; i++) {
-            if (tally->cell[i].looks == 1 && tally->cell[i].messages == 0) {
+            if (tally->cell[i].looks == 1 && tally->cell[i].decodes == 0) {
                 tally->cell[i].pci = pci;
-                tally->cell[i].messages = message ? 1 : 0;
+                tally->cell[i].decodes = message ? 1 : 0;
                 return;
             }
         }
@@ -104,7 +107,7 @@ static inline void lte_confirm_saw(struct lte_cell_tally *tally, int pci,
     }
     tally->cell[tally->count].pci = pci;
     tally->cell[tally->count].looks = 1;
-    tally->cell[tally->count].messages = message ? 1 : 0;
+    tally->cell[tally->count].decodes = message ? 1 : 0;
     tally->count++;
 }
 
@@ -120,7 +123,7 @@ lte_cell_verdict_for(const struct lte_cell_sighting *seen) {
         return LTE_CELL_PENDING;
     /* The message decides, and it decides on its own: an identity read twice
        is real whether it was seen twice or a thousand times. */
-    if (seen->messages >= LTE_CONFIRM_MIN_MESSAGES)
+    if (seen->decodes >= LTE_CONFIRM_MIN_MESSAGES)
         return LTE_CELL_CONFIRMED;
     if (seen->looks < LTE_CONFIRM_MIN_LOOKS)
         return LTE_CELL_SPURIOUS;

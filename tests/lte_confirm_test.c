@@ -15,8 +15,8 @@ static void test_a_message_confirms(void) {
     lte_confirm_saw(&t, 190, 1);
     check_int("one identity is tallied", t.count, 1);
     check_int("both looks are counted", t.cell[0].looks, 2);
-    check_int("both messages are counted", t.cell[0].messages, 2);
-    check_str("two messages confirm it",
+    check_int("both decodes are counted", t.cell[0].decodes, 2);
+    check_str("two decodes confirm it",
               lte_cell_verdict_name(lte_cell_verdict_for(&t.cell[0])),
               "confirmed");
 }
@@ -48,7 +48,7 @@ static void test_repetition_does_not_confirm(void) {
     check_str("twenty-nine sightings and no message is not a cell",
               lte_cell_verdict_name(lte_cell_verdict_for(&repeated)),
               "unread");
-    check_str("three sightings and two messages is",
+    check_str("three sightings and two decodes is",
               lte_cell_verdict_name(lte_cell_verdict_for(&read_twice)),
               "confirmed");
     check_true("the identity seen ten times as often is the unconfirmed one",

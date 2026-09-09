@@ -212,8 +212,20 @@ like state accumulating toward a threshold, and it cannot be: because a message
 is emitted on *every* pass once it reaches two, it can never mean more than
 "did the previous pass agree".
 
-The chain should use the session, and doing so is now provably behaviour-
-preserving rather than a hoped-for equivalence.
+**Unified 2026-09-09.** The rule is `lte_mib_repeat_observe()` in
+`lte_session.h`, with two users: the session and `--lte-chain`. The unification
+was provably behaviour-preserving rather than a hoped-for equivalence, which is
+the evidence that was missing when this was first left alone.
+
+`pending_mib` and `pending_mib_hits` are gone. `struct lte_mib_repeat` is a
+memory of the previous pass and says so -- the threshold it used to be compared
+against was decoration.
+
+`check-lte-session` pins the **rule** rather than either spelling: over every
+sequence of eight passes drawn from three distinct messages, the number of
+agreements equals the number of adjacent equal pairs. It also covers the frame
+number advancing without breaking agreement, which is exactly what
+`lte_mib_same_cell` leaves out and what it is for.
 
 ### A separate finding: "message" means two things in one function
 
@@ -222,12 +234,27 @@ preserving rather than a hoped-for equivalence.
 `lte_confirm_saw(&tally, cell.pci, primary_read)` -- and `primary_read` is set
 on *any* successful decode, a bare parity pass.
 
-Both are internally correct: `lte_confirm.h` documents its own `messages` field
-as "blocks in which its broadcast channel decoded", which is exactly
-`primary_read`, and `LTE_CONFIRM_MIN_MESSAGES 2` is two such blocks naming the
-same identity. The collision is in the **word**, in one function's output: a
-reader comparing the summary's `messages` against a `confirmed` verdict is
-comparing two different quantities that share a name.
+Both were internally correct -- `lte_confirm.h` documents its field as "blocks
+in which its broadcast channel decoded", which is exactly `primary_read` -- but
+a reader comparing the summary's `messages` against a per-identity `messages`
+was comparing two quantities that shared a name.
+
+**Fixed by naming the two things.** `decoded` is a broadcast whose parity
+passed; `agreed` is one that also matched the pass before it. So:
+
+```
+lte-chain-summary blocks 159 cells 9 decoded 7 agreed 6
+lte-chain-cell pci 28 looks 8 decoded 7 confirmed
+lte-chain-cell pci 32 looks 1 decoded 0 spurious
+```
+
+`decoded` now means the same thing on both lines and a reader can connect them.
+`lte_confirm`'s field is `decodes` to match, and its threshold is
+`LTE_CONFIRM_MIN_DECODES` -- documented as **two decodes, not two agreeing
+repeats**, a deliberately weaker bar than the session's and enough because a
+chance pass must also fit a CRC scrambled with that identity. The LTE view's
+funnel reads `blocks -> cells -> decoded -> confirmed` for the same reason, and
+`mibs_decoded` / `mibs_confirmed` are the two counters behind it.
 
 ### And two wrong claims in CLAUDE.md, found by measuring
 

@@ -1928,7 +1928,7 @@ static void print_broadcast(struct app *app, const struct gsm_sch_result *sch)
 static void print_lte(struct app *app, double now)
 {
     uint64_t cells_before = app->lte.session.cells_found;
-    uint64_t messages_before = app->lte.session.mibs_decoded;
+    uint64_t confirmed_before = app->lte.session.mibs_confirmed;
     const struct lte_cell *cell = &app->lte.session.cell;
     const struct lte_mib *mib = &app->lte.session.mib;
 
@@ -1946,7 +1946,7 @@ static void print_lte(struct app *app, double now)
     }
     /* Only a message that repeated counts, so this prints at most once per
        cell rather than once per lucky parity. */
-    if (app->lte.session.mibs_decoded > messages_before)
+    if (app->lte.session.mibs_confirmed > confirmed_before)
         printf("MIB  %d blocks (%.2f MHz)  PHICH %s %s  SFN %d"
                "  %d antenna port%s\n",
                mib->bandwidth_prb,
@@ -2225,17 +2225,20 @@ static int run_headless(struct app *app) {
     if (app->options.lte_chain) {
         double began, limit = app->options.lte_chain_seconds > 0.0
                                   ? app->options.lte_chain_seconds : 30.0;
-        unsigned long blocks = 0, cells = 0, parity = 0, messages = 0;
+        unsigned long blocks = 0, cells = 0, decoded = 0, agreed = 0;
         struct lte_cell_tally tally;
         struct lte_cell_stats stats;
         int primary_read = 0;
         struct lte_cell on_carrier[LTE_MAX_CELLS_PER_CARRIER];
         int found_cells = 0;
 
+        /* The same rule the session uses, from the same function -- these
+           were two spellings of one thing and 9840 sequences agreed on it. */
+        struct lte_mib_repeat repeat;
+
         memset(&tally, 0, sizeof(tally));
         memset(&stats, 0, sizeof(stats));
-        struct lte_mib last;
-        int have_last = 0;
+        lte_mib_repeat_reset(&repeat);
         uint32_t carrier = 0;
         int earfcn = app->options.earfcn;
 
@@ -2267,8 +2270,8 @@ static int run_headless(struct app *app) {
                     nanosleep(&tick, NULL);
             }
             if (app->lte.scan.found_count < 1) {
-                printf("lte-chain-summary blocks 0 cells 0 parity 0 "
-                       "messages 0 reason no-cell\n");
+                printf("lte-chain-summary blocks 0 cells 0 decoded 0 "
+                       "agreed 0 reason no-cell\n");
                 fflush(stdout);
                 return stop_acquisition(app) < 0 ? -1 : 0;
             }
@@ -2516,15 +2519,14 @@ static int run_headless(struct app *app) {
                     continue;
                 if (!lte_mib_decode(soft, cell.pci, &mib))
                     continue;
-                parity++;
+                decoded++;
                 primary_read = 1;
                 /* A parity that passes is not yet a message: sixteen bits
                    accept one block in 65536 and this tries thirty-six a
-                   block. What separates them is a repeat that agrees. */
-                if (have_last && lte_mib_same_cell(&last, &mib))
-                    messages++;
-                last = mib;
-                have_last = 1;
+                   block. What separates them is a repeat that agrees, and
+                   lte_mib_repeat_observe is the one implementation of that. */
+                if (lte_mib_repeat_observe(&repeat, &mib))
+                    agreed++;
                 {
                     /* The resource as the standard names it -- 1/6, 1/2, 1,
                        2 -- not the raw count of sixths, which reads as a
@@ -2545,8 +2547,16 @@ static int run_headless(struct app *app) {
             lte_confirm_saw(&tally, cell.pci, primary_read);
             fflush(stdout);
         }
-        printf("lte-chain-summary blocks %lu cells %lu parity %lu messages "
-               "%lu\n", blocks, cells, parity, messages);
+        /*
+         * `decoded` and `agreed`, not `parity` and `messages`.
+         *
+         * This line said "messages" for the agreement count while the
+         * per-identity line below said "messages" for the number of blocks
+         * whose broadcast decoded -- two different quantities sharing a word
+         * in one report. `decoded` now means the same thing in both.
+         */
+        printf("lte-chain-summary blocks %lu cells %lu decoded %lu agreed "
+               "%lu\n", blocks, cells, decoded, agreed);
         /*
          * And a verdict per identity, which the per-block lines cannot give.
          * Seeing an identity often is not evidence that it is a cell: the
@@ -2626,8 +2636,8 @@ static int run_headless(struct app *app) {
             int t;
             for (t = 0; t < tally.count; t++) {
                 const struct lte_cell_sighting *seen = &tally.cell[t];
-                printf("lte-chain-cell pci %d looks %d messages %d %s\n",
-                       seen->pci, seen->looks, seen->messages,
+                printf("lte-chain-cell pci %d looks %d decoded %d %s\n",
+                       seen->pci, seen->looks, seen->decodes,
                        lte_cell_verdict_name(lte_cell_verdict_for(seen)));
             }
         }
