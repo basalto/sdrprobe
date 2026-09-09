@@ -392,7 +392,7 @@ struct calibration {
      *
      * Nested like `help.open`, which set the precedent: the precedence chain
      * reads it through `input_state_now()` and does not care where it lives.
-     * `settings_open` is the last one that still does not.
+     * All four overlay flags are nested now.
      */
     int open;
     int technology;                /* 0 = 2G, 1 = 4G */
@@ -447,6 +447,24 @@ struct calibration {
  * applied_* fields; until then this is the panel's own draft.
  */
 struct settings_panel {
+    /*
+     * Whether the panel is up. Nested like `cal.open`, `bandscan.open` and
+     * `help.open`, and it was the last of the four that was not.
+     */
+    int open;
+    /*
+     * What went wrong applying the draft, on the panel's own line.
+     *
+     * The panel's, and only since ticket 08's follow-up: the acquisition
+     * lifecycle wrote here too -- "Acquisition is already running", "Cannot
+     * block worker signals", "Could not join acquisition worker" -- from
+     * `start_acquisition()` and `stop_acquisition()`, which every retune and
+     * every rate change go through. The headless startup read it back for its
+     * "Cannot start acquisition" line, with a fallback to "unknown" that was
+     * the tell. Those are `app->receiver_error` now, the same split ticket 07
+     * made for `calibration_status`.
+     */
+    char error[160];
     /* PPM is the only text field here. The centre frequency was beside it
        until the Scope header grew one, and a value with two homes has two
        parsers. */
@@ -950,13 +968,11 @@ struct app {
     Rectangle plot;
     float waterfall_lower_dbfs;
 
-    int settings_open;
     int remove_dc;
-    char settings_error[160];
 
     /*
-     * Why the receiver last refused, in words, from `retune_receiver()` and
-     * the two beside it.
+     * Why the receiver last refused, in words, from `retune_receiver()`, the
+     * two beside it, and the acquisition lifecycle underneath them.
      *
      * A handoff and not calibration's, which is what it used to be: every
      * screen retunes through one function, and all five of its failure
@@ -967,6 +983,13 @@ struct app {
      * something that had nothing to do with calibration. `view_lte.c` knew
      * and quoted it by hand to find out why 1.92 MS/s had been refused, which
      * is the tell.
+     *
+     * `start_acquisition()` and `stop_acquisition()` were writing their
+     * failures into `settings_error` for the same kind of reason, which left
+     * this buffer *stale* on the path that matters most: `retune_receiver()`
+     * stops and restarts acquisition, so a caller quoting this after a failed
+     * retune could read a message from something else entirely. One buffer,
+     * one meaning.
      *
      * The caller decides whether to show it. What matters is that the reason
      * exists under an honest name instead of being thrown away.

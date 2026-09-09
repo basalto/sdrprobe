@@ -450,7 +450,7 @@ void update_calibration_measurement(struct app *app) {
 void update_drift_check(struct app *app, int have_block) {
     if (!app->cal.auto_drift || !app->cal.gsm_valid || !app->receiver_mode)
         return;
-    if (app->cal.open || app->bandscan.open || app->settings_open)
+    if (app->cal.open || app->bandscan.open || app->set.open)
         return;
 
     double now = monotonic_seconds();

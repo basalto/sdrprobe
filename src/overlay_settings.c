@@ -56,10 +56,10 @@ void open_settings(struct app *app) {
                 app->applied_gain_tenths)
                 app->set.gain_choice = i + 1;
     }
-    app->settings_error[0] = '\0';
+    app->set.error[0] = '\0';
     app->set.remove_dc = app->remove_dc;
     app->set.auto_drift = app->cal.auto_drift;
-    app->settings_open = 1;
+    app->set.open = 1;
 }
 
 int apply_settings(struct app *app) {
@@ -72,7 +72,7 @@ int apply_settings(struct app *app) {
     uint32_t frequency = app->applied_frequency;
     int ppm;
     if (parse_int(app->set.ppm, &ppm) < 0 || ppm < -1000 || ppm > 1000) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->set.error, sizeof(app->set.error),
                  "PPM must be a signed integer from -1000 to 1000");
         return -1;
     }
@@ -121,7 +121,7 @@ int apply_settings(struct app *app) {
         app->spectrum_ready = 0;
         app->spectrum_peak_ready = 0;
         if (recreate_waterfall(app, app->plot, 1) < 0) {
-            snprintf(app->settings_error, sizeof(app->settings_error),
+            snprintf(app->set.error, sizeof(app->set.error),
                      "Could not reset waterfall for the new frequency");
             return -1;
         }
@@ -142,14 +142,14 @@ int apply_settings(struct app *app) {
         set_frequency_correction(&app->source, ppm) < 0 ||
         device_set_frequency_hz(&app->source, frequency) < 0 ||
         device_flush(&app->source) < 0) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->set.error, sizeof(app->set.error),
                  "Receiver rejected the requested settings");
         device_set_gain(&app->source, old_manual, old_gain);
         set_frequency_correction(&app->source, old_ppm);
         device_set_frequency_hz(&app->source, old_frequency);
         device_flush(&app->source);
         if (start_acquisition(app) < 0)
-            snprintf(app->settings_error, sizeof(app->settings_error),
+            snprintf(app->set.error, sizeof(app->set.error),
                      "Settings failed and acquisition could not restart");
         return -1;
     }
@@ -158,7 +158,7 @@ int apply_settings(struct app *app) {
                               ? reported_frequency - frequency
                               : frequency - reported_frequency;
     if (reported_frequency == 0 || difference > 1000U) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->set.error, sizeof(app->set.error),
                  "Frequency readback mismatch: requested %u, got %u",
                  frequency, reported_frequency);
         device_set_gain(&app->source, old_manual, old_gain);
@@ -166,7 +166,7 @@ int apply_settings(struct app *app) {
         device_set_frequency_hz(&app->source, old_frequency);
         device_flush(&app->source);
         if (start_acquisition(app) < 0)
-            snprintf(app->settings_error, sizeof(app->settings_error),
+            snprintf(app->set.error, sizeof(app->set.error),
                      "Readback failed and acquisition could not restart");
         return -1;
     }
@@ -181,7 +181,7 @@ int apply_settings(struct app *app) {
     app->spectrum_ready = 0;
     app->spectrum_peak_ready = 0;
     if (recreate_waterfall(app, app->plot, 1) < 0) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->set.error, sizeof(app->set.error),
                  "Could not reset waterfall for the new frequency");
         device_set_gain(&app->source, old_manual, old_gain);
         set_frequency_correction(&app->source, old_ppm);
@@ -246,12 +246,12 @@ void handle_settings_input(struct app *app) {
     if (clicked(l.drift_toggle))
         app->set.auto_drift = !app->set.auto_drift;
     if (clicked(l.cancel)) {
-        app->settings_open = 0;
+        app->set.open = 0;
         return;
     }
     if (clicked(l.apply) || IsKeyPressed(KEY_ENTER)) {
         if (apply_settings(app) == 0)
-            app->settings_open = 0;
+            app->set.open = 0;
     }
 
 }
@@ -336,8 +336,8 @@ void draw_settings(const struct app *app) {
     GuiCheckBox(l.drift_toggle, "Auto GSM drift check (periodic re-tune)",
                 &drift_checked);
 
-    if (app->settings_error[0])
-        DrawText(app->settings_error, (int)l.error.x, (int)l.error.y, 16,
+    if (app->set.error[0])
+        DrawText(app->set.error, (int)l.error.x, (int)l.error.y, 16,
                  (Color){ 255, 105, 100, 255 });
     draw_button(l.cancel, "Cancel", 0);
     draw_button(l.apply, "Apply", 1);
