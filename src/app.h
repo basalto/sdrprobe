@@ -33,6 +33,7 @@
 #include "sdr_dsp.h"
 #include "signal_findings.h"
 #include "survey_sweep.h"
+#include "survey_session.h"
 
 
 /*
@@ -662,24 +663,18 @@ struct help_overlay {
 #define SURVEY_MAX_BANDS 48         /* allocations drawn behind the trace */
 
 /*
- * What a sweep produced, kept so that drilling into a region can be undone.
- * "Sweep region" narrows the swept range to the region, which throws away
- * everything outside it -- and re-sweeping to get it back costs minutes. A
- * copy costs 44 KB and comes back instantly.
+ * The survey screen: the text fields, the menus, the frequency window, and
+ * what is selected.
+ *
+ * **The sweep itself is not here.** `survey_session.h` owns the machine --
+ * plan, fold, candidates, carriers, confirmation verdicts, history marks,
+ * watch summary -- and this is what the drawing needs on top of it
+ * (`.scratch/deepening/issues/04-survey-session.md`). The split is the point:
+ * everything in this struct is about a window and nothing in it decides.
  */
-struct survey_snapshot {
-    int valid;
-    double lower_hz;
-    double upper_hz;
-    int bins;
-    float power[SURVEY_BINS];
-    struct sdr_peak peaks[SURVEY_MAX_PEAKS];
-    int peak_count;
-    char from[24];
-    char to[24];
-};
-
 struct survey_view {
+    struct survey_session session;
+
     char from[24];
     int from_length;
     char to[24];
@@ -702,93 +697,9 @@ struct survey_view {
     int band_menu_open;
     int band_scroll;
     int antenna_menu_open;
-    /*
-     * What this site heard before, and how this sweep compares.
-     *
-     * `peak_status` runs alongside `peaks`, so the chart and the list can show
-     * which candidates are new here without asking again per frame.
-     * `missing` points into `history`, which outlives a frame.
-     */
-    /*
-     * The peaks grouped into signals. A carrier has several local maxima and
-     * the finder returns each; everything above the measurement -- what is
-     * new, what is missing, what to ask again about, what to remember -- works
-     * on carriers, because a station is one thing and not five.
-     */
-    struct survey_carrier carriers[SURVEY_CARRIER_MAX];
-    int carrier_count;
 
-    struct site_history history;
-    int history_loaded;
-    signed char carrier_status[SURVEY_CARRIER_MAX];
-    const struct site_entry *missing[32];
-    int missing_count;
-    /*
-     * Asking again about what changed. The sweep's marks are claims made from
-     * a tenth of a second each; this revisits them one at a time and gives
-     * each a proper look.
-     */
-    /*
-     * Watching: sweep, fold what was found into what the site knows, say what
-     * changed, and sweep again. A survey answers "what is out there"; running
-     * it round the clock answers "what changed while nobody was looking",
-     * which is the question a single sweep can never reach -- and it is the
-     * only way a signal's daily pattern becomes visible at all.
-     */
-    int watching;
-    int watch_sweeps;
-    int watch_appeared;      /* what the last sweep of the watch changed */
-    int watch_lost;
-    int watch_total_appeared;
-    int watch_total_lost;
-    double watch_started_at;
-
-    struct {
-        int running;
-        int index;
-        int count;
-        int looks;
-        int settled;
-        double started_at;
-        /* Nested inside the survey view's own claim: the pass walks the
-           receiver across the candidates and hands it back to the sweep's
-           tuning, not to whatever was on screen before the survey. */
-        struct receiver_lease_token lease_token;
-        int confirmed;
-        int intermittent;
-        int refuted;
-        int printed;      /* report the verdicts on stdout when done */
-        struct survey_confirm_target target[SURVEY_CONFIRM_MAX];
-        /*
-         * The best of this target's looks, and how many of them it was up in.
-         *
-         * Every look is measured on its own block. A held spectrum was tried
-         * first and is the wrong instrument: peak-holding raises the noise
-         * floor along with the signal, so a burst present in two blocks of six
-         * came back reading 4.7 dB -- below the bar it had cleared twice --
-         * and the verdict contradicted the number beside it.
-         */
-        struct sdr_carrier_report best;
-        int measured;   /* whether `best` holds anything at all */
-        int hits;
-        /*
-         * What kind of thing the best look found, scratch until
-         * survey_confirm_decide() copies it into the caller's target. Kept
-         * here rather than written straight into a target because the
-         * headless pass keeps its own array and does not advance
-         * `confirm.index`, so a function writing through that index would put
-         * every target's measurement into the first one.
-         */
-        int kind_measured;
-        struct signal_carrier carrier;
-        struct signal_bursts bursts;
-        struct signal_envelope envelope;
-    } confirm;
     int focus;                  /* 0 from, 1 to, 2 dwell, 3 site, 4 antenna */
-    double dwell_seconds;       /* parsed at the start of a sweep */
 
-    double lower_hz;            /* the range actually swept */
-    double upper_hz;
     /* The range currently typed in the fields. Before the first sweep there is
        no swept range, and the chart, the zoom and the drag all need something
        to work against -- so they work against this. */
@@ -798,24 +709,22 @@ struct survey_view {
        the array, so the same measurements are simply drawn larger. */
     double view_lower_hz;
     double view_upper_hz;
-    int bins;                   /* of SURVEY_BINS, in use for this range */
-    float power[SURVEY_BINS];
 
-    struct survey_plan plan;    /* what the running sweep is working through */
-    int sweeping;
-    int step;
-    int step_count;
-    double step_started_at;
-    int step_folded;            /* a block has been folded into this step */
     /* Where the operator had the receiver before a sweep walked it across a
        band. Held for as long as the view is up, because it still owns the
        right to sweep again; given up for good by "Open waterfall", which is
        a deliberate handoff rather than a forgotten restore. */
     struct receiver_lease_token lease_token;
+    /* Nested inside that claim: a confirmation pass walks the receiver across
+       the candidates and hands it back to the sweep's tuning, not to whatever
+       was on screen before the survey. */
+    struct receiver_lease_token confirm_lease_token;
+    /* Whether the pass running was asked for on the command line, and so has
+       to report on stdout: a verdict nobody can read is a verdict that may as
+       well not have been reached (ADR-0012). */
+    int confirm_printed;
 
-    struct sdr_peak peaks[SURVEY_MAX_PEAKS];
-    int peak_count;
-    int selected;               /* index into peaks, -1 for none */
+    int selected;               /* index into the session's peaks, -1 for none */
     /* How far down the candidate list is scrolled, in rows. The list used to
        draw the first seventeen and stop, which put the rest of a full-tuner
        sweep somewhere no pointer or key could reach. survey_list.h holds the
@@ -831,30 +740,15 @@ struct survey_view {
     double drag_from_hz;
     double drag_to_hz;
 
-    /* Measuring the selected candidate, once retuned to it. */
-    int measuring;
-    double measure_started_at;
-    double measure_expected_hz;
-    struct survey_measurement measure;
-    struct sdr_carrier_report report;
-    int report_valid;
-    /* What kind of thing it is, rather than that it is there. Measured from
-       the raw samples rather than the spectrum, because a standing carrier is
-       a property of the samples and the transform has already averaged it
-       together with everything beside it. */
-    struct signal_carrier carrier;
-    int carrier_valid;
-    /* And what it does in time. The duty above is per 65.5 ms block, which
-       cannot tell a 120 us squitter from a carrier that never stops. */
-    struct signal_bursts bursts;
-    /* And what shape its envelope has, measured in the isolated channel --
-       on the whole 2 MHz span it would be the envelope of the noise beside
-       the signal. */
-    struct signal_envelope envelope;
-
-    struct survey_snapshot previous;
-
-    char status[200];
+    /*
+     * The spelling of the range a narrowing sweep replaced, so Reset zoom can
+     * put the fields back the way they were typed. The *measurements* it puts
+     * back are the session's (`survey_session_keep()`), because a measurement
+     * is not a property of a window -- and keeping them here is how the
+     * restore came to be written twice and broken twice.
+     */
+    char kept_from[24];
+    char kept_to[24];
 };
 
 struct app {

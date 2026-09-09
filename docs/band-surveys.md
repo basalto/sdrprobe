@@ -149,16 +149,27 @@ From a script, `--survey-confirm` runs it as soon as a sweep finishes, and
 prints the verdicts:
 
 ```
-confirm 94728027 new refuted 2.9 0/6
-confirm 95706500 missing refuted 47.8 6/6
-confirm 1617030029 new intermittent 6.0 1/6
+# confirm <frequency_hz> <claim> <verdict> <prominence_db> <hits>/<looks> <bandwidth_hz> <flags|->
+confirm 94728027 new refuted 2.9 0/6 1953 unresolved
+confirm 95706500 missing refuted 47.8 6/6 33203 -
+confirm 1617030029 new intermittent 6.0 1/6 26367 -
 confirm-summary asked 11 confirmed 8 intermittent 1 refuted 2
 ```
 
-The trailing figure is the count: how many of the looks it was up in, and how
-many there were. The second line is why the pass exists at all -- the sweep
-called that frequency missing and a proper look found it 47.8 dB above the
-floor -- and the third is why it needed a third answer.
+The count is how many of the looks it was up in and how many there were; the
+width and the flags after it are what the closer look measured, which the
+sweep could not supply -- at 212 kHz a bin cannot resolve a 25 kHz carrier,
+and the comb test refuses to run at all when the bin is that wide.
+
+**Both callers print that record through one function.** The window's pass and
+the headless sweep's each had their own `printf` loop, and the two had already
+drifted: the headless header line promised five fields where its rows carried
+seven, and the window printed no `kind` line at all. One spelling, or a saved
+survey and a screen come to disagree about the same signal.
+
+The second line is why the pass exists at all -- the sweep called that
+frequency missing and a proper look found it 47.8 dB above the floor -- and
+the third is why it needed a third answer.
 
 **The window and a script ask about different things, deliberately.** The
 window has a site history to lean on, so it revisits only what changed -- what

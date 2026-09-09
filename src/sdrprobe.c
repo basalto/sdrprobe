@@ -1725,9 +1725,18 @@ static int run_gui(struct app *app) {
             update_waterfall(app);
             update_scan(app);
             update_calibration_measurement(app);
-            if (app->tab == TAB_SURVEY && !app->calibration_open)
-                update_survey(app, now, spectrum_updated);
         }
+        /*
+         * Every frame, and `spectrum_updated` says whether a block came with
+         * it. The survey's machine has decisions on both clocks: a look is
+         * counted only when a block arrives -- counting frames gave the
+         * confirmation pass six looks in a tenth of a second, at a spectrum
+         * from before the receiver had retuned -- while a step that has
+         * already heard something is over on time alone, and waiting for one
+         * more block to say so costs a block per step.
+         */
+        if (app->tab == TAB_SURVEY && !app->calibration_open)
+            update_survey(app, now, spectrum_updated);
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_ADSB && !app->calibration_open)
             update_adsb(app, now);

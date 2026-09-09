@@ -7,12 +7,12 @@
 
 #include "app.h"
 #include "view.h"
+#include "survey_session.h"
 #include "survey_sweep.h"
 #include "survey_suspect.h"
 #include "survey_store.h"
 #include "survey_carrier.h"
 #include "site_history.h"
-#include <time.h>
 
 /*
  * The band survey with no window and nobody watching: sweep, then print what
@@ -28,14 +28,19 @@
  * It also does something for the operator that clicking cannot: an agent can
  * sweep the same range twice an hour apart and diff the two.
  *
+ * **It decides nothing.** `survey_session.h` owns the sweep, the fold, the
+ * confirmation pass and the watch, and this is the printing adapter over it --
+ * the window in `view_survey.c` is the other one
+ * (`.scratch/deepening/issues/04-survey-session.md`). Before that split this
+ * file re-sequenced the same steps, and the two copies had already drifted:
+ * this one held its own peak-held spectrum and its own step loop, and its
+ * `# confirm` header promised five fields where its rows carried seven.
+ *
  * The output is meant to be read by a program. One record per line, a keyword
  * first so a grep is enough, integer hertz so comparisons are exact, and the
  * allocation last because it is the only field that can contain a space.
  */
 
-/* The array the sweep folds into, and the spectrum it was folded from. Static
-   rather than on the stack: SURVEY_BINS floats is 32 KB, and this runs on the
-   main thread beside everything else. */
 /*
  * What the sweep was taken with, printed before anything it found.
  *
@@ -54,37 +59,21 @@ static void survey_print_installation(const struct app *app) {
         printf("survey gain %.1f\n", (double)app->applied_gain_tenths / 10.0);
 }
 
-static float survey_power[SURVEY_BINS];
-static float held_spectrum[SDR_DSP_FFT_SIZE];
-static int held_valid;
+/* One block, as the session sees it. */
+static struct survey_block survey_block_now(struct app *app) {
+    struct survey_block block;
 
-static void fold_spectrum(struct app *app, const struct survey_plan *plan) {
-    double rate = (double)app->applied_sample_rate;
-    double centre = (double)app->applied_frequency;
-    double bin_hz = rate / (double)SDR_DSP_FFT_SIZE;
-    double lower = centre - rate / 2.0;
-
-    for (int i = 0; i < SDR_DSP_FFT_SIZE; i++) {
-        double hz = lower + ((double)i + 0.5) * bin_hz;
-        int bin;
-
-        if (!survey_fold_keeps(hz, centre, rate))
-            continue;
-        bin = survey_plan_bin_at(plan, hz);
-        if (bin < 0)
-            continue;
-        survey_power[bin] = survey_fold_hold(survey_power[bin],
-                                             app->spectrum_average[i]);
-    }
-    /* Keep the spectrum itself too, peak-held the same way. A single-tuning
-       survey can measure its own candidates out of this without retuning,
-       which is what makes a capture's report complete. */
-    for (int i = 0; i < SDR_DSP_FFT_SIZE; i++)
-        held_spectrum[i] = held_valid
-                               ? survey_fold_hold(held_spectrum[i],
-                                                  app->spectrum_average[i])
-                               : app->spectrum_average[i];
-    held_valid = 1;
+    memset(&block, 0, sizeof(block));
+    block.i_samples = app->i_samples;
+    block.q_samples = app->q_samples;
+    block.pair_count = app->pair_count;
+    block.spectrum = app->spectrum_average;
+    block.scratch = app->magnitude_sorted;
+    block.centre_hz = (double)app->applied_frequency;
+    block.sample_rate = (double)app->applied_sample_rate;
+    block.reference_clock_hz = app->device.reference_clock_hz;
+    block.remove_dc = app->remove_dc;
+    return block;
 }
 
 /*
@@ -92,15 +81,15 @@ static void fold_spectrum(struct app *app, const struct survey_plan *plan) {
  * block was consumed and turned into a spectrum, 0 when none had arrived, and
  * -1 when the source has ended.
  *
- * What to *do* with it is the caller's, and that is the point of the split: a
+ * What to *do* with it is the session's, and that is the point of the split: a
  * block consumed before a retune's settle is over was in the pipeline while
  * the tuner was still moving, so it holds the previous tuning's samples.
  * Folding it writes that tuning's signal into these bins, at a frequency
  * nothing is transmitting on -- survey_sweep.h says so, the window has always
- * obeyed it, and this path did not: it folded every block it consumed, which
- * on a 0.10 s settle and a 0.10 s dwell was a third of everything it measured.
- * It is still consumed, because leaving it in the slot only means meeting it
- * again a moment later.
+ * obeyed it, and this path did not until the two shared a machine: it folded
+ * every block it consumed, which on a 0.10 s settle and a 0.10 s dwell was a
+ * third of everything it measured. It is still consumed, because leaving it in
+ * the slot only means meeting it again a moment later.
  */
 static int next_block(struct app *app, struct slot_snapshot *snapshot) {
     struct timespec pause = { 0, 2 * 1000 * 1000L };
@@ -113,78 +102,99 @@ static int next_block(struct app *app, struct slot_snapshot *snapshot) {
     return 0;
 }
 
-/* A capture holds one tuning and never retunes, so nothing it delivers is
-   stale and every block counts. Returns 0 when the source has ended. */
-static int fold_next_block(struct app *app, const struct survey_plan *plan,
-                           struct slot_snapshot *snapshot, int *folded) {
-    int got = next_block(app, snapshot);
+/*
+ * Do what the session asked for: this side holds the receiver with a straight
+ * retune, having no lease to nest and nothing on screen to put back.
+ */
+static void survey_obey_headless(struct app *app,
+                                 const struct survey_session_event *event,
+                                 int printing) {
+    struct survey_session *ss = &app->survey.session;
 
-    if (got < 0)
-        return 0;
-    if (got > 0) {
-        fold_spectrum(app, plan);
-        (*folded)++;
+    if (printing && event->target_finished > 0)
+        survey_print_confirm_target(
+            &ss->confirm.target[event->target_finished - 1]);
+    if (event->history_dirty && ss->history_loaded)
+        installation_history_save(&app->installation, &ss->history);
+    if (event->watch_swept) {
+        printf("watch sweep %d carriers %d appeared %d quiet %d\n",
+               ss->watch_sweeps, ss->watch_carriers, ss->watch_appeared,
+               ss->watch_lost);
+        fflush(stdout);
+    }
+    if (event->watch_finished) {
+        printf("watch-summary sweeps %d appeared %d quiet %d\n",
+               ss->watch_sweeps, ss->watch_total_appeared,
+               ss->watch_total_lost);
+        fflush(stdout);
+    }
+    if (event->sweep_stopped)
+        fprintf(stderr, "%s\n", ss->status);
+    if (event->retune_hz) {
+        if (retune_receiver(app, event->retune_hz, app->applied_ppm) < 0) {
+            struct survey_session_event refusal;
+
+            fprintf(stderr, "The receiver would not tune to %.3f MHz.\n",
+                    (double)event->retune_hz / 1e6);
+            survey_session_retune_failed(ss, (double)event->retune_hz,
+                                         &refusal);
+        } else {
+            /* The settle starts when the tuner moved, not when it was asked
+               to: a retune flushes the pipeline and costs about a tenth of a
+               second, which is the whole of the settle. */
+            survey_session_retuned(ss, monotonic_seconds());
+        }
+    }
+}
+
+/*
+ * Drive the session until it stops. Returns 0 when the source ended under it.
+ *
+ * One loop for the sweep, the confirmation pass and the measurement, because
+ * the session makes them one machine: feed it whatever arrives, obey what it
+ * asks for. The two shapes this replaced -- a `do/while` over
+ * `survey_step_may_advance` for the sweep and a nested `while` over the looks
+ * for the pass -- were the same loop written twice with different bugs.
+ */
+static int survey_drive(struct app *app, struct slot_snapshot *snapshot,
+                        int printing) {
+    struct survey_session *ss = &app->survey.session;
+
+    while (ss->state != SURVEY_SESSION_IDLE && !stop_requested()) {
+        struct survey_session_event event;
+        struct survey_block block;
+        int got = next_block(app, snapshot);
+
+        if (got < 0) {
+            survey_session_source_ended(ss,
+                                        snapshot->worker_error[0]
+                                            ? snapshot->worker_error : NULL,
+                                        &event);
+            survey_obey_headless(app, &event, printing);
+            return 0;
+        }
+        block = survey_block_now(app);
+        survey_session_tick(ss, &block, got > 0, monotonic_seconds(), &event);
+        survey_obey_headless(app, &event, printing);
     }
     return 1;
 }
 
-
-/* The sweep's maxima grouped into signals, decided once so the report, the
-   confirmation pass and the saved file cannot disagree about how many there
-   were. */
-static int survey_carriers_now(const struct survey_plan *plan,
-                               const struct sdr_peak *peaks, int count,
-                               struct survey_carrier *out, int max) {
-    return survey_carriers_from(survey_power, plan->bins,
-                                SURVEY_SENTINEL_DBFS,
-                                survey_plan_bin_centre(plan, 0), plan->bin_hz,
-                                SURVEY_BANDWIDTH_DB, peaks, count, out, max);
-}
-
 /*
- * Print the candidates. `spectrum` is non-NULL only when the whole survey came
- * from one tuning, in which case every candidate can be measured out of it;
- * across a swept range the spectrum belongs to whichever step happened to be
- * last, and a bandwidth read from it would be a number about the wrong signal.
+ * Print the candidates. The spectrum a candidate may be measured out of is the
+ * session's to hand over, and it refuses across a swept range: there the held
+ * spectrum belongs to whichever step was last, and a bandwidth read from it
+ * would be a number about the wrong signal.
  */
-/*
- * What kind of thing the pass found, on its own line.
- *
- * Separate from the `confirm` line rather than appended to it: that line has
- * a documented shape and readers parse it, and a target the pass never caught
- * has no kind to report at all. One record per line, keyword first
- * (docs/band-surveys.md).
- *
- * The words are signal_probe's own verdicts rather than new ones. Two
- * vocabularies for the same measurement is how a saved survey and a screen
- * come to disagree about the same signal.
- *
- * The envelope reads -1 when it refused, which it does for a signal down in
- * the quantiser's floor. Zero would mean "does not vary at all", which is the
- * strongest claim the statistic can make and the wrong one to make by
- * accident.
- */
-static void survey_report_kind(const struct survey_confirm_target *target) {
-    if (!target->kind_measured)
-        return;
-    printf("kind %.0f %s %.1f %.3f %.3f %s %.4f\n", target->hz,
-           signal_verdict_name(signal_carrier_verdict(&target->carrier)),
-           target->carrier.carrier_over_noise_db,
-           target->carrier.carrier_power_fraction,
-           target->envelope.found ? target->envelope.variation : -1.0,
-           survey_burst_name(target->bursts.verdict),
-           target->bursts.occupancy);
-}
-
-static void report_candidates(struct app *app, const struct survey_plan *plan,
-                              const struct sdr_peak *peaks, int count,
-                              const float *spectrum) {
+static void report_candidates(struct app *app) {
+    const struct survey_session *ss = &app->survey.session;
     struct survey_candidate candidates[SURVEY_MAX_PEAKS];
     int suspicious = 0;
     int i, found;
 
-    found = survey_candidates_from(app, plan, peaks, count, spectrum,
-                                   candidates, SURVEY_MAX_PEAKS);
+    found = survey_candidates_from(app, &ss->plan, ss->peaks, ss->peak_count,
+                                   survey_session_spectrum(ss), candidates,
+                                   SURVEY_MAX_PEAKS);
     /*
      * `extent_hz` is the width in the sweep's own bins, and `resolved` says
      * whether that width means anything. A full-tuner sweep puts 212 kHz in a
@@ -212,8 +222,8 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
         printf("candidate %.0f %.1f %.1f %s %s %.0f %s %s %s\n",
                c->found_hz, (double)c->power_dbfs, (double)c->prominence_db,
                centre, width, c->extent_hz,
-               survey_extent_is_floor(c->extent_hz, plan->bin_hz) ? "floor"
-                                                                  : "resolved",
+               survey_extent_is_floor(c->extent_hz, ss->plan.bin_hz)
+                   ? "floor" : "resolved",
                survey_flag_text(c->suspect, flags, sizeof(flags)),
                c->allocation ? c->allocation : "-");
     }
@@ -225,27 +235,22 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
      * candidates" and "6 stations", which is the number anybody actually
      * wanted.
      */
-    {
-        struct survey_carrier carriers[SURVEY_CARRIER_MAX];
-        int carrier_count = survey_carriers_now(plan, peaks, count, carriers,
-                                                SURVEY_CARRIER_MAX);
-        int c;
-        printf("# carrier <centre_hz> <power_centre_hz> <lower_hz> "
-               "<upper_hz> <width_hz> <level_dbfs> <prominence_db> <maxima> "
-               "<allocation|->\n");
-        for (c = 0; c < carrier_count; c++) {
-            const struct band_plan_entry *entry =
-                band_plan_lookup(carriers[c].centre_hz);
-            printf("carrier %.0f %.0f %.0f %.0f %.0f %.1f %.1f %d %s\n",
-                   carriers[c].centre_hz, carriers[c].power_centre_hz,
-                   carriers[c].lower_hz, carriers[c].upper_hz,
-                   carriers[c].width_hz,
-                   (double)carriers[c].peak_dbfs,
-                   (double)carriers[c].prominence_db, carriers[c].peaks,
-                   entry ? entry->name : "-");
-        }
-        printf("survey carriers %d\n", carrier_count);
+    printf("# carrier <centre_hz> <power_centre_hz> <lower_hz> "
+           "<upper_hz> <width_hz> <level_dbfs> <prominence_db> <maxima> "
+           "<allocation|->\n");
+    for (i = 0; i < ss->carrier_count; i++) {
+        const struct band_plan_entry *entry =
+            band_plan_lookup(ss->carriers[i].centre_hz);
+        printf("carrier %.0f %.0f %.0f %.0f %.0f %.1f %.1f %d %s\n",
+               ss->carriers[i].centre_hz, ss->carriers[i].power_centre_hz,
+               ss->carriers[i].lower_hz, ss->carriers[i].upper_hz,
+               ss->carriers[i].width_hz,
+               (double)ss->carriers[i].peak_dbfs,
+               (double)ss->carriers[i].prominence_db,
+               ss->carriers[i].peaks,
+               entry ? entry->name : "-");
     }
+    printf("survey carriers %d\n", ss->carrier_count);
     /*
      * The old count of distinct measured centres is gone. It answered the same
      * question the `survey carriers` line above answers -- how many signals
@@ -274,8 +279,8 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
  *
  * So every signal the sweep found is revisited: tune to it, look six times,
  * and say whether it is there. It is the same pass the window runs, through
- * the same two helpers, so the two cannot answer differently -- and it is the
- * only way the answer is reachable from a script at all (ADR-0012).
+ * the same machine, so the two cannot answer differently -- and it is the only
+ * way the answer is reachable from a script at all (ADR-0012).
  *
  * A refuted candidate is still reported. What the pass adds is the verdict
  * beside it: this one held up, that one did not, and the third was never
@@ -283,106 +288,28 @@ static void report_candidates(struct app *app, const struct survey_plan *plan,
  * also throw away the interesting half -- a signal that comes and goes is a
  * finding, not a mistake.
  */
-static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
-                                const struct sdr_peak *peaks, int count,
-                                struct survey_confirm_target *targets,
-                                int max) {
-    struct survey_carrier carriers[SURVEY_CARRIER_MAX];
-    struct slot_snapshot snapshot;
+static int survey_confirm_sweep(struct app *app,
+                                struct slot_snapshot *snapshot) {
+    struct survey_session *ss = &app->survey.session;
+    struct survey_session_event event;
     uint32_t home = app->applied_frequency;
-    int carrier_count, i, asked, confirmed = 0, intermittent = 0, refuted = 0;
+    int asked;
 
-    carrier_count = survey_carriers_now(plan, peaks, count, carriers,
-                                        SURVEY_CARRIER_MAX);
-    asked = carrier_count < max ? carrier_count : max;
-    for (i = 0; i < asked; i++) {
-        targets[i].hz = carriers[i].centre_hz;
-        targets[i].power_centre_hz = carriers[i].power_centre_hz;
-        targets[i].claim = SURVEY_CLAIM_NEW;
-        targets[i].verdict = SURVEY_VERDICT_PENDING;
-        targets[i].prominence_db = 0.0f;
+    asked = survey_session_confirm_all(ss, monotonic_seconds(), &event);
+    survey_print_confirm_header();
+    if (asked > 0) {
+        survey_obey_headless(app, &event, 1);
+        survey_drive(app, snapshot, 1);
     }
-    memset(&snapshot, 0, sizeof(snapshot));
-    printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
-           "<hits>/<looks>\n");
-    printf("# kind <frequency_hz> <carrier> <over_noise_db> <standing_share> "
-           "<envelope> <bursts> <occupancy>\n");
-    for (i = 0; i < asked && !stop_requested(); i++) {
-        struct sdr_carrier_report report;
-        double started;
-        int settled = 0;
-
-        /* Below the target, not onto it: signal_find_carrier() guards DC so
-           it cannot lock onto the receiver's own offset, and tuned onto the
-           target a guarded search would skip it. survey_confirm.h has what
-           the offset costs, measured. */
-        if (retune_receiver(app,
-                            (uint32_t)llround(targets[i].hz -
-                                              SURVEY_CONFIRM_OFFSET_HZ),
-                            app->applied_ppm) < 0) {
-            fprintf(stderr, "The receiver would not tune to %.3f MHz.\n",
-                    targets[i].hz / 1e6);
-            break;
-        }
-        survey_confirm_begin_target(app);
-        started = monotonic_seconds();
-        while (app->survey.confirm.looks < SURVEY_CONFIRM_LOOKS &&
-               !stop_requested()) {
-            double elapsed = monotonic_seconds() - started;
-
-            int got = next_block(app, &snapshot);
-
-            if (got < 0)
-                break;
-            if (!settled && elapsed < SURVEY_CONFIRM_SETTLE_SECONDS)
-                continue;          /* still the previous target's spectrum */
-            settled = 1;
-            if (got > 0) {
-                survey_confirm_look(app, &targets[i]);
-            } else if (elapsed > SURVEY_CONFIRM_SETTLE_SECONDS + 3.0) {
-                break;             /* the blocks stopped coming */
-            }
-        }
-        survey_confirm_decide(app, &targets[i], &report);
-        if (targets[i].verdict == SURVEY_VERDICT_CONFIRMED)
-            confirmed++;
-        else if (targets[i].verdict == SURVEY_VERDICT_INTERMITTENT)
-            intermittent++;
-        else
-            refuted++;
-        {
-            /* The width and the suspicion the closer look measured. The sweep
-               could not supply either: at 212 kHz a bin cannot resolve a
-               25 kHz carrier, and the comb test refuses to run at all when
-               half a bin is a large fraction of the comb's spacing. */
-            char flags[64];
-            printf("confirm %.0f %s %s %.1f %d/%d %.0f %s\n", targets[i].hz,
-                   targets[i].claim == SURVEY_CLAIM_MISSING ? "missing"
-                                                            : "new",
-                   survey_verdict_name(targets[i].verdict),
-                   (double)targets[i].prominence_db, targets[i].hits,
-                   targets[i].looks, targets[i].bandwidth_hz,
-                   survey_flag_text(targets[i].suspicion, flags,
-                                    sizeof(flags)));
-        }
-        survey_report_kind(&targets[i]);
-    }
-    printf("confirm-summary asked %d confirmed %d intermittent %d refuted "
-           "%d\n", asked, confirmed, intermittent, refuted);
-    fflush(stdout);
     /* A sweep that found nothing still says so: "asked 0" is a pass that had
        nothing to ask about, and no summary line at all is a pass that did not
        run. A script reading this has to be able to tell them apart. */
+    survey_print_confirm_summary(ss);
     if (asked > 0 && home)
         retune_receiver(app, home, app->applied_ppm);
-    return asked;
+    return ss->confirm.count;
 }
 
-/*
- * Survey a capture. It holds one tuning, so there is one step, and the range
- * is whatever that tuning covers -- asking for another range would be asking
- * the capture for samples it does not contain.
- */
 /*
  * Write the sweep down, as the window's Save button does.
  *
@@ -392,15 +319,11 @@ static int survey_confirm_sweep(struct app *app, const struct survey_plan *plan,
  * sweep unable to teach the history anything, and the history is the half that
  * answers questions.
  */
-static void survey_save_run(struct app *app, const struct survey_plan *plan,
-                            const struct sdr_peak *peaks, int count,
-                            const float *spectrum,
-                            const struct survey_confirm_target *targets,
-                            int target_count) {
+static void survey_save_run(struct app *app) {
+    const struct survey_session *ss = &app->survey.session;
     struct survey_candidate candidates[SURVEY_MAX_PEAKS];
-    struct survey_carrier carriers[SURVEY_CARRIER_MAX];
     char path[256];
-    int found, carrier_count;
+    int found;
 
     if (!app->config.site[0]) {
         /* Refused, not saved as unknown: two sweeps with no site compare as
@@ -408,16 +331,15 @@ static void survey_save_run(struct app *app, const struct survey_plan *plan,
         fprintf(stderr, "Not saving: no site is set. Use --site.\n");
         return;
     }
-    found = survey_candidates_from(app, plan, peaks, count, spectrum,
-                                   candidates, SURVEY_MAX_PEAKS);
-    carrier_count = survey_carriers_now(plan, peaks, count, carriers,
-                                        SURVEY_CARRIER_MAX);
-    if (survey_store_write(app, plan, candidates, found, carriers,
-                           carrier_count, targets, target_count, path,
-                           sizeof(path)) < 0)
+    found = survey_candidates_from(app, &ss->plan, ss->peaks, ss->peak_count,
+                                   survey_session_spectrum(ss), candidates,
+                                   SURVEY_MAX_PEAKS);
+    if (survey_store_write(app, &ss->plan, candidates, found, ss->carriers,
+                           ss->carrier_count, ss->confirm.target,
+                           ss->confirm.count, path, sizeof(path)) < 0)
         return;
     printf("survey-saved %s candidates %d carriers %d\n", path, found,
-           carrier_count);
+           ss->carrier_count);
 
     {
         struct site_history history;
@@ -429,13 +351,14 @@ static void survey_save_run(struct app *app, const struct survey_plan *plan,
 
         localtime_r(&now, &local);
         installation_history_load(&app->installation, &history);
-        for (i = 0; i < carrier_count; i++) {
-            hz[i] = carriers[i].centre_hz;
-            level[i] = carriers[i].peak_dbfs;
-            prom[i] = carriers[i].prominence_db;
+        for (i = 0; i < ss->carrier_count; i++) {
+            hz[i] = ss->carriers[i].centre_hz;
+            level[i] = ss->carriers[i].peak_dbfs;
+            prom[i] = ss->carriers[i].prominence_db;
         }
-        added = site_history_merge(&history, hz, level, prom, carrier_count,
-                                   plan->bin_hz, local.tm_hour);
+        added = site_history_merge(&history, hz, level, prom,
+                                   ss->carrier_count, ss->plan.bin_hz,
+                                   local.tm_hour);
         if (installation_history_save(&app->installation, &history) == 0) {
             printf("survey-history site %s sweeps %d signals %d new %d "
                    "quiet %d\n", app->installation.site, history.sweeps,
@@ -456,82 +379,78 @@ static void survey_save_run(struct app *app, const struct survey_plan *plan,
     fflush(stdout);
 }
 
+/* What the sweep cost, in blocks: how many were folded and how many arrived
+   while the tuner was still moving. */
+static void survey_print_blocks(const struct survey_session *ss) {
+    printf("survey blocks %d settling %d%s\n", ss->blocks_folded,
+           ss->blocks_discarded,
+           ss->source_ended && ss->step + 1 < ss->step_count
+               ? " incomplete" : "");
+}
+
+static void survey_print_floor_bar(void) {
+    /* Chosen from the fold, not from a constant: a bin holding 218 transform
+       bins over two blocks reaches further into the noise than one holding 27
+       (ADR-0013). */
+    printf("survey floor_bar %.1f\n", (double)SURVEY_FLOOR_THRESHOLD_DB);
+}
+
+/*
+ * Survey a capture. It holds one tuning, so there is one step, and the range
+ * is whatever that tuning covers -- asking for another range would be asking
+ * the capture for samples it does not contain.
+ */
 static int survey_capture(struct app *app) {
-    struct survey_plan plan;
+    struct survey_session *ss = &app->survey.session;
     struct slot_snapshot snapshot;
-    struct sdr_peak peaks[SURVEY_MAX_PEAKS];
-    struct sdr_peak_gate gate;
+    struct survey_session_event event;
     double rate = (double)app->applied_sample_rate;
     double centre = (double)app->applied_frequency;
-    double usable = rate * SURVEY_USABLE_SPAN;
-    int folded = 0;
-    int count;
 
-    if (survey_plan_make(centre - usable / 2.0, centre + usable / 2.0, rate,
-                         SDR_DSP_FFT_SIZE, SURVEY_DWELL_MIN,
-                         &plan) != SURVEY_PLAN_OK) {
+    if (survey_session_one_tuning(ss, centre, rate, &event) !=
+        SURVEY_PLAN_OK) {
         fprintf(stderr, "Cannot plan a survey at %.3f MHz.\n", centre / 1e6);
         return -1;
     }
-    for (int i = 0; i < plan.bins; i++)
-        survey_power[i] = SURVEY_SENTINEL_DBFS;
-
     memset(&snapshot, 0, sizeof(snapshot));
-    while (!stop_requested() &&
-           fold_next_block(app, &plan, &snapshot, &folded))
-        ;
+    survey_drive(app, &snapshot, 0);
     if (snapshot.worker_failed) {
         fprintf(stderr, "Acquisition failed: %s\n", snapshot.worker_error);
         return -1;
     }
-    if (folded == 0) {
+    if (ss->blocks_folded == 0) {
         fprintf(stderr, "No spectrum was produced from the capture.\n");
         return -1;
     }
 
     survey_print_installation(app);
-    printf("survey range %.0f %.0f\n", plan.lower_hz, plan.upper_hz);
-    printf("survey steps %d bins %d bin_hz %.1f blocks %d\n", plan.step_count,
-           plan.bins, plan.bin_hz, folded);
-    /* The bar noise has to clear here, which depends on how deeply this
-       capture's blocks were peak-held into each bin (ADR-0013). */
-    gate.topographic_db = SURVEY_MIN_PROMINENCE_DB;
-    gate.floor_db = SURVEY_FLOOR_THRESHOLD_DB;
-    gate.bandwidth_db = SURVEY_BANDWIDTH_DB;
-    printf("survey floor_bar %.1f\n", (double)gate.floor_db);
-    count = sdr_dsp_find_peaks(survey_power, plan.bins, SURVEY_SENTINEL_DBFS,
-                               &gate, app->magnitude_sorted, peaks,
-                               SURVEY_MAX_PEAKS);
-    report_candidates(app, &plan, peaks, count, held_spectrum);
+    printf("survey range %.0f %.0f\n", ss->plan.lower_hz, ss->plan.upper_hz);
+    printf("survey steps %d bins %d bin_hz %.1f blocks %d\n",
+           ss->plan.step_count, ss->plan.bins, ss->plan.bin_hz,
+           ss->blocks_folded);
+    survey_print_floor_bar();
+    report_candidates(app);
     if (app->options.survey_save)
-        survey_save_run(app, &plan, peaks, count, held_spectrum, NULL, 0);
+        survey_save_run(app);
     return 0;
 }
 
 /* Sweep a receiver across the range asked for, folding whatever arrives in
-   each step's dwell. The same machine update_survey() runs, without the
-   frame loop around it. */
+   each step's dwell. The same machine the window runs, without the frame loop
+   around it. */
 static int survey_receiver(struct app *app) {
     const struct options *options = &app->options;
-    struct survey_plan plan;
+    struct survey_session *ss = &app->survey.session;
     struct slot_snapshot snapshot;
-    struct sdr_peak peaks[SURVEY_MAX_PEAKS];
-    struct sdr_peak_gate gate;
+    struct survey_session_event event;
     double dwell = options->survey_dwell_seconds > 0.0
                        ? options->survey_dwell_seconds
                        : SURVEY_DWELL_DEFAULT;
-    struct survey_confirm_target confirmed[SURVEY_CONFIRM_MAX];
-    int confirm_count = 0;
-    int folded = 0;
-    int discarded = 0;
-    int step_folded = 0;
-    int ended = 0;
-    int count;
 
-    switch (survey_plan_make((double)options->survey_from_hz,
-                             (double)options->survey_to_hz,
-                             (double)app->applied_sample_rate,
-                             SDR_DSP_FFT_SIZE, dwell, &plan)) {
+    switch (survey_session_sweep(ss, (double)options->survey_from_hz,
+                                 (double)options->survey_to_hz,
+                                 (double)app->applied_sample_rate, dwell,
+                                 monotonic_seconds(), &event)) {
     case SURVEY_PLAN_BAD_RANGE:
         fprintf(stderr, "The high edge of the range must be above the low "
                         "one.\n");
@@ -546,79 +465,21 @@ static int survey_receiver(struct app *app) {
     case SURVEY_PLAN_OK:
         break;
     }
-    for (int i = 0; i < plan.bins; i++)
-        survey_power[i] = SURVEY_SENTINEL_DBFS;
 
     survey_print_installation(app);
-    printf("survey range %.0f %.0f\n", plan.lower_hz, plan.upper_hz);
+    printf("survey range %.0f %.0f\n", ss->plan.lower_hz, ss->plan.upper_hz);
     printf("survey steps %d bins %d bin_hz %.1f dwell %.2f estimate_s %.0f\n",
-           plan.step_count, plan.bins, plan.bin_hz, dwell, plan.seconds);
+           ss->plan.step_count, ss->plan.bins, ss->plan.bin_hz, dwell,
+           ss->plan.seconds);
     fflush(stdout);
 
     memset(&snapshot, 0, sizeof(snapshot));
-    for (int step = 0; step < plan.step_count && !stop_requested();
-         step++) {
-        double centre = survey_plan_step_centre(&plan, step);
-        double started;
-        enum survey_step_phase phase;
+    survey_obey_headless(app, &event, 0);
+    survey_drive(app, &snapshot, 0);
 
-        if (retune_receiver(app, (uint32_t)llround(centre),
-                            app->applied_ppm) < 0) {
-            fprintf(stderr, "The receiver would not tune to %.3f MHz.\n",
-                    centre / 1e6);
-            return -1;
-        }
-        started = monotonic_seconds();
-        step_folded = 0;
-        do {
-            int got;
-
-            phase = survey_step_phase_at(monotonic_seconds() - started, dwell,
-                                         step, plan.step_count);
-            got = next_block(app, &snapshot);
-            if (got < 0) {
-                /* The receiver stopped delivering. Retuning to the next step
-                   would sweep a dead worker in silence, so say so and keep
-                   whatever was folded up to here. */
-                fprintf(stderr,
-                        "Acquisition ended during step %d of %d: %s\n",
-                        step + 1, plan.step_count,
-                        snapshot.worker_error[0] ? snapshot.worker_error
-                                                 : "no more blocks");
-                ended = 1;
-                break;
-            }
-            if (got > 0) {
-                if (phase == SURVEY_STEP_SETTLING) {
-                    discarded++;
-                } else {
-                    fold_spectrum(app, &plan);
-                    step_folded++;
-                }
-            }
-            phase = survey_step_phase_at(monotonic_seconds() - started, dwell,
-                                         step, plan.step_count);
-        } while (!survey_step_may_advance(phase, step_folded));
-        folded += step_folded;
-        if (ended)
-            break;
-    }
-
-    printf("survey blocks %d settling %d%s\n", folded, discarded,
-           ended ? " incomplete" : "");
-    /* Chosen from the fold, not from a constant: a bin holding 218 transform
-       bins over two blocks reaches further into the noise than one holding 27
-       (ADR-0013). */
-    gate.topographic_db = SURVEY_MIN_PROMINENCE_DB;
-    gate.floor_db = SURVEY_FLOOR_THRESHOLD_DB;
-    gate.bandwidth_db = SURVEY_BANDWIDTH_DB;
-    printf("survey floor_bar %.1f\n", (double)gate.floor_db);
-    count = sdr_dsp_find_peaks(survey_power, plan.bins, SURVEY_SENTINEL_DBFS,
-                               &gate, app->magnitude_sorted, peaks,
-                               SURVEY_MAX_PEAKS);
-    /* No spectrum to measure from: it belongs to the last step only. Widths
-       come back as "-" rather than as a number about the wrong signal. */
-    report_candidates(app, &plan, peaks, count, NULL);
+    survey_print_blocks(ss);
+    survey_print_floor_bar();
+    report_candidates(app);
     /*
      * Ask again before saving, so what is written down carries the verdict
      * rather than the sweep's first impression. The sweep is minutes and this
@@ -626,16 +487,28 @@ static int survey_receiver(struct app *app) {
      * archive of findings.
      */
     if (options->survey_confirm)
-        confirm_count = survey_confirm_sweep(app, &plan, peaks, count,
-                                             confirmed, SURVEY_CONFIRM_MAX);
+        survey_confirm_sweep(app, &snapshot);
     if (app->options.survey_save)
-        survey_save_run(app, &plan, peaks, count, NULL, confirmed,
-                        confirm_count);
+        survey_save_run(app);
     return 0;
 }
 
 int survey_report_run(struct app *app) {
-    held_valid = 0;
+    struct survey_session *ss = &app->survey.session;
+
+    survey_session_reset(ss);
+    /*
+     * What this site has heard, so a scripted sweep's marks mean something and
+     * a confirmation pass can teach it what it settled. Loaded here for the
+     * reason the window loads it on the way in: the session holds a history
+     * and never reaches a file (ADR-0022).
+     */
+    if (app->config.site[0]) {
+        struct site_history history;
+
+        if (installation_history_load(&app->installation, &history) == 0)
+            survey_session_set_history(ss, &history, 1);
+    }
     if (app->receiver_mode)
         return survey_receiver(app);
     return survey_capture(app);
