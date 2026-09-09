@@ -21,6 +21,7 @@ make check-band-plan  # the frequency allocation table
 make check-options    # the command line: every flag, value, and rejection
 make check-survey     # the survey window's zoom, pan and clamp arithmetic
 make check-survey-sweep # the sweep's step plan, fold, and measurement
+make check-survey-session # the survey's machine: sweep, ask again, watch, measure
 make check-suspect    # candidates that look like the receiver, not the band
 make check-calibration # the lock gate, and the machine that fills its buffer
 make check-scan       # the band scan's coverage and the channel it chooses
@@ -171,7 +172,13 @@ agrees with it. **Whether a change *improves* anything is a different question
 with its own failures** -- measuring where the answer cannot show, comparing
 two implementations at different gains, drawing noise once -- and
 `does-it-help` carries those, along with how to choose a constant by measuring
-where it breaks.
+where it breaks -- and **a refactor that is supposed to change nothing is the
+same question run backwards**: the survey's machine came out of its view with
+55 suites green, both capture surveys byte-identical and the screen
+byte-identical, while the settle that throws away stale blocks was disabled.
+A capture never retunes, so no capture can exercise it. What caught it was one
+line the program already prints about itself, `survey blocks 26 settling 13`,
+on a live sweep.
 
 **A check that fails on its first run is more often a wrong claim than a found
 bug.** These checks carry prose, and prose can be false beside impeccable
@@ -679,6 +686,59 @@ it measured to, whether it resembles the receiver, which allocation it falls in
 -- is decided once. It used to be decided inside a `printf` loop, where the two
 could have disagreed about the same peak with nothing to say so.
 
+**And the sweep itself is one machine now, in `src/survey_session.{c,h}`:**
+idle to sweeping to confirming, with watching as a sweep that goes round again
+and measuring as a look at one candidate. `view_survey.c` draws it and turns
+clicks into intents; `survey_report.c` prints it. Two refusals give it its
+shape and both are what let the two copies drift apart before it existed: **it
+does not touch the receiver** -- it says where it wants the tuning and the
+adapter obeys, then reports whether the tuner moved
+(`survey_session_retuned()`) or would not -- and **it does not read or write
+files**, holding a `struct site_history` and saying when what it holds changed.
+`struct survey_block` is the seam, so nothing in the machine sees `struct app`.
+
+**Four things the two copies had disagreed about**, none reachable by any
+check, because `make check` never runs a sweep and the answers a capture pins
+are the ones a broken sweep does not change. The headless sweep **folded every
+block it consumed**, settle or not -- about a third of everything it measured,
+written into bins at frequencies nothing was transmitting on, while the window
+had always obeyed the rule. A watch reported **`carriers 0`** for its first
+sweep, because it folds the sweep in and clears the array to go round again
+before an adapter reads the count (`watch_carriers` is the count belonging to
+the sweep that was folded). The **`# confirm` header disagreed with its own
+rows** -- the headless one promised five fields where its rows carried seven,
+and the window printed no `kind` line at all. And the window handed
+`spectrum_average` to a save, which every block rebuilds from scratch, where
+the headless path handed a **peak hold over the whole capture**:
+`survey_session_spectrum()` is the hold, and it refuses across a swept range
+because there it belongs to whichever step was last.
+
+**And five the extraction itself broke**, which is the argument for measuring
+a refactor rather than trusting a green suite. Two came back from a live sweep
+alternated against the old binary: **the settle is timed from the tuning, not
+from the request** -- a retune flushes the pipeline and costs about a tenth of
+a second, the whole of `SURVEY_SETTLE_SECONDS`, so timed from the request the
+same band II sweep reported `settling 0` where it should report 13 -- and **a
+step is over on its own clock once it has heard something**, where returning
+early on "no block" cost a block a step, 39 over a 13-step sweep against 26.
+That is why `update_survey()` is called **every frame** with
+`spectrum_updated` as a parameter rather than as a guard: a *look* counts
+blocks, because counting frames gave the confirmation pass six looks in a
+tenth of a second, and a *step* counts time. The other three were one mistake
+made three times -- reaching for `survey_session_clear()`, which forgets the
+sweep, where the thing to forget was the measurement. The worst of them had
+**Reset zoom restore the kept sweep and then empty it**, and that is what took
+the narrowing snapshot into the session too (`survey_session_keep()` /
+`_restore()`), where the order of the forget and the copy is written down and
+checked -- and where the restore turned out never to have put the sweep's
+*plan* back, so a wide sweep's peaks were being read with a narrow sweep's bin
+width.
+
+The survey view also read the site history **off disk on every folded block**,
+because the marks were refreshed inside the peak finder and the peak finder
+ran during the dwell. The marks come from the history the session holds now,
+and the file is read when the site changes or a sweep ends.
+
 **Measuring one candidate has the same settle, and did not.** Selecting a
 candidate retunes the receiver, and the blocks already in the pipeline hold
 the previous tuning's samples -- so peak power, prominence, bandwidth and duty
@@ -993,7 +1053,11 @@ acquisition` in `acquisition.h`, and `struct scope_view`, `struct gsm_view`,
 `app.h`. Reach for `app->cal.*` rather than adding a `calibration_*` field back
 to `struct app`, and if the frame loop needs something from a view, give the
 view an entry point rather than reaching into its fields —
-`view_scope_resize_if_needed()` is the pattern. Each screen has a file — `view_scope.c` (the four Scope views),
+`view_scope_resize_if_needed()` is the pattern. **`struct survey_view` is the
+one that has been split rather than merely moved**: what decides lives in
+`struct survey_session` and what draws lives beside it, so everything left in
+`survey_view` is a text field, a menu, a frequency window, a selection or a
+lease token. Each screen has a file — `view_scope.c` (the four Scope views),
 `view_gsm.c`, `view_adsb.c`, `view_lte.c`, `view_tetra.c`,
 `overlay_calibration.c`,
 `overlay_settings.c` —

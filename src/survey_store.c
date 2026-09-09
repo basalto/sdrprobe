@@ -235,7 +235,7 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
     fprintf(file, "  \"sweep\": {\"steps\": %d, \"bins\": %d, "
                   "\"bin_hz\": %.1f, \"dwell_s\": %.3f},\n",
             plan->step_count, plan->bins, plan->bin_hz,
-            app->survey.dwell_seconds);
+            app->survey.session.dwell_seconds);
     /*
      * The receiving setup that produced this sweep, from the installation
      * rather than from the config file's spelling of it (ADR-0018, ADR-0022).
