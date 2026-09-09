@@ -24,6 +24,7 @@
 #include "receiver_lease.h"
 #include "options.h"
 #include "gsm_session.h"
+#include "tetra_session.h"
 #include "device_backend.h"
 #include "sdr_dsp.h"
 #include "signal_findings.h"
@@ -438,15 +439,13 @@ struct tetra_log_entry {
 
 struct tetra_view {
     int analysis_mode;
-    int have_identity;
-    int mcc, mnc, colour, la;
-    float lock;
-    double offset_hz;
-    /* Per block, and the session's totals under them. */
-    int bursts, blocks, broadcast;
-    uint64_t bursts_total, blocks_total, broadcast_total, blocks_failed;
+    /* The decode: identity, lock, counters and the last block's symbols. It
+       takes samples and gives back events (tetra_session.h). */
+    struct tetra_session session;
     /* What the charts are drawn from: the last block's phase steps as points
-       on a circle, and how much of each 255-symbol slot repeated. */
+       on a circle, and how much of each 255-symbol slot repeated. Derived from
+       the session's symbols each block, because a point on a circle is a
+       drawing and not a decode. */
     float point_x[TETRA_MAX_SYMBOLS];
     float point_y[TETRA_MAX_SYMBOLS];
     unsigned char point_bit[TETRA_MAX_SYMBOLS];

@@ -36,9 +36,9 @@ static void remember(struct app *app, double now, int mcc, int mnc, int colour,
        times a second and is the same every time. What is worth a row is a
        change -- a different cell, or the first sight of one. */
     if (t->log_count > 0 && t->log[0].colour == colour && t->log[0].la == la) {
-        t->log[0].bursts = t->bursts;
-        t->log[0].blocks = t->blocks;
-        t->log[0].broadcast = t->broadcast;
+        t->log[0].bursts = t->session.bursts;
+        t->log[0].blocks = t->session.blocks;
+        t->log[0].broadcast = t->session.broadcast;
         return;
     }
     for (i = TETRA_LOG_CAPACITY - 1; i > 0; i--)
@@ -48,111 +48,53 @@ static void remember(struct app *app, double now, int mcc, int mnc, int colour,
     t->log[0].mnc = mnc;
     t->log[0].colour = colour;
     t->log[0].la = la;
-    t->log[0].bursts = t->bursts;
-    t->log[0].blocks = t->blocks;
-    t->log[0].broadcast = t->broadcast;
+    t->log[0].bursts = t->session.bursts;
+    t->log[0].blocks = t->session.blocks;
+    t->log[0].broadcast = t->session.broadcast;
     if (t->log_count < TETRA_LOG_CAPACITY)
         t->log_count++;
 }
 
-static int field(const uint8_t *bits, int at, int count) {
-    int v = 0, i;
 
-    for (i = 0; i < count; i++)
-        v = (v << 1) | (bits[at + i] & 1);
-    return v;
-}
-
+/*
+ * Feed the latest block to the decode, then take what the charts draw out of
+ * it.
+ *
+ * Everything past `tetra_session_feed()` is drawing: the constellation is the
+ * phase *step*, which is what carries the dibit -- four points at odd multiples
+ * of pi/4, not the eight the raw symbols make. Drawing the raw symbols would
+ * show a ring and say nothing.
+ */
 void update_tetra(struct app *app, double now) {
-    static float work_i[TETRA_MAX_WORK], work_q[TETRA_MAX_WORK];
-    static struct tetra_symbols symbols;
     struct tetra_view *t = &app->tetra;
-    struct tetra_burst_sync sync;
-    const unsigned char *word = NULL;
-    double coarse;
-    size_t filtered;
-    int at, k;
+    struct tetra_session_event event;
+    int k;
 
-    t->bursts = t->blocks = t->broadcast = 0;
-    if (app->pair_count < 64)
-        return;
-    coarse = tetra_coarse_offset_hz(app->i_samples, app->q_samples,
-                                    app->pair_count,
-                                    (double)app->applied_sample_rate, 12500.0);
-    filtered = tetra_channel(app->i_samples, app->q_samples, app->pair_count,
-                             (double)app->applied_sample_rate, coarse, work_i,
-                             work_q, TETRA_MAX_WORK);
-    if (filtered == 0 || !tetra_demodulate(work_i, work_q, filtered, coarse,
-                                           &symbols))
-        return;
-    t->lock = symbols.lock;
-    t->offset_hz = coarse + symbols.fine_offset_hz;
+    tetra_session_feed(&t->session, app->i_samples, app->q_samples,
+                       app->pair_count, (double)app->applied_sample_rate,
+                       &event);
 
-    /* The constellation is the phase *step*, which is what carries the dibit:
-       four points at odd multiples of pi/4, not the eight the raw symbols
-       make. Drawing the raw symbols would show a ring and say nothing. */
-    t->point_count = symbols.count < TETRA_MAX_SYMBOLS ? symbols.count
-                                                       : TETRA_MAX_SYMBOLS;
-    for (k = 0; k < t->point_count; k++) {
-        t->point_x[k] = (float)cos((double)symbols.step[k]);
-        t->point_y[k] = (float)sin((double)symbols.step[k]);
-        t->point_bit[k] = symbols.dibit[k];
-    }
-
-    /* And how much of a timeslot repeats, which is what a burst structure
-       looks like from the outside -- it needs nothing from the standard. */
+    t->point_count = 0;
     t->profile_valid = 0;
-    /* 200 to 280 covers the 255-symbol slot and no more: the finder wants
-       four periods at the longest lag it is asked for, and a 65.5 ms block is
-       about 1180 symbols. Asking as far as 400 would need 1600 and it would
-       decline every time -- which is what the empty chart looked like. */
-    if (tetra_burst_find(symbols.dibit, symbols.count, 200, 280, &sync) &&
-        sync.period == TETRA_SLOT_SYMBOLS) {
-        memcpy(t->profile, sync.profile, sizeof(t->profile));
-        t->profile_fixed = sync.fixed;
+    if (!t->session.symbols_valid)
+        return;
+
+    t->point_count = t->session.symbols.count < TETRA_MAX_SYMBOLS
+                         ? t->session.symbols.count
+                         : TETRA_MAX_SYMBOLS;
+    for (k = 0; k < t->point_count; k++) {
+        t->point_x[k] = (float)cos((double)t->session.symbols.step[k]);
+        t->point_y[k] = (float)sin((double)t->session.symbols.step[k]);
+        t->point_bit[k] = t->session.symbols.dibit[k];
+    }
+    if (t->session.sync_valid) {
+        memcpy(t->profile, t->session.sync.profile, sizeof(t->profile));
+        t->profile_fixed = t->session.sync.fixed;
         t->profile_valid = 1;
     }
-
-    tetra_sync_dibits(&word);
-    for (at = 60; at + TETRA_SYNC_SYMBOLS <= symbols.count; at++) {
-        uint8_t block[TETRA_SB_MESSAGE_BITS];
-        int hits = 0;
-
-        for (k = 0; k < TETRA_SYNC_SYMBOLS; k++)
-            if (symbols.dibit[at + k] == word[k])
-                hits++;
-        if (hits < 16)
-            continue;
-        t->bursts++;
-        t->bursts_total++;
-        if (!tetra_sync_block_decode(symbols.dibit + at - 60, block)) {
-            t->blocks_failed++;
-            continue;
-        }
-        t->blocks++;
-        t->blocks_total++;
-        t->mcc = field(block, 31, 10);
-        t->mnc = field(block, 41, 14);
-        t->colour = field(block, 4, 6);
-        t->have_identity = 1;
-        /* The broadcast channel is scrambled with the network's own colour
-           code, so it cannot be read until the block above has given it up. */
-        if (at + TETRA_BNCH_AT_SYMBOL + TETRA_BNCH_SCRAMBLED_BITS / 2 <=
-            symbols.count) {
-            uint8_t colour[TETRA_COLOUR_BITS];
-            uint8_t sysinfo[TETRA_BNCH_MESSAGE_BITS];
-
-            tetra_extended_colour(t->mcc, t->mnc, t->colour, colour);
-            if (tetra_bnch_decode(symbols.dibit + at + TETRA_BNCH_AT_SYMBOL,
-                                  colour, sysinfo)) {
-                t->broadcast++;
-                t->broadcast_total++;
-                t->la = field(sysinfo, 82, 14);
-            }
-        }
-    }
-    if (t->blocks > 0)
-        remember(app, now, t->mcc, t->mnc, t->colour, t->la);
+    if (t->session.blocks > 0)
+        remember(app, now, t->session.mcc, t->session.mnc, t->session.colour,
+                 t->session.la);
 }
 
 void handle_tetra_input(struct app *app) {
@@ -176,7 +118,7 @@ static void draw_identity(const struct app *app, Rectangle box) {
     DrawRectangleLinesEx(box, 1.0f, (Color){ 48, 66, 88, 255 });
     DrawText("Network", (int)box.x + 10, (int)box.y + 8, 14,
              (Color){ 150, 176, 202, 255 });
-    if (!t->have_identity) {
+    if (!t->session.have_identity) {
         sdrgui_text_fit("nothing has decoded yet", (int)box.x + 10, y, 14,
                         box.width - 20.0f, (Color){ 120, 140, 160, 255 });
         return;
@@ -188,26 +130,26 @@ static void draw_identity(const struct app *app, Rectangle box) {
      */
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        snprintf(text, sizeof(text), "MCC  %d", t->mcc);
+        snprintf(text, sizeof(text), "MCC  %d", t->session.mcc);
         DrawText(text, (int)box.x + 10, y, 18, (Color){ 226, 236, 245, 255 });
     }
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        snprintf(text, sizeof(text), "MNC  %d", t->mnc);
+        snprintf(text, sizeof(text), "MNC  %d", t->session.mnc);
         DrawText(text, (int)box.x + 10, y, 18, (Color){ 226, 236, 245, 255 });
     }
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        snprintf(text, sizeof(text), "colour code  %d", t->colour);
+        snprintf(text, sizeof(text), "colour code  %d", t->session.colour);
         DrawText(text, (int)box.x + 10, y, 16, (Color){ 190, 210, 228, 255 });
     }
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        if (t->broadcast_total > 0) {
-            snprintf(text, sizeof(text), "location area  %d", t->la);
+        if (t->session.broadcast_total > 0) {
+            snprintf(text, sizeof(text), "location area  %d", t->session.la);
             DrawText(text, (int)box.x + 10, y, 16,
                      (Color){ 190, 210, 228, 255 });
         } else {
@@ -219,7 +161,7 @@ static void draw_identity(const struct app *app, Rectangle box) {
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
         snprintf(text, sizeof(text), "lock %.2f   offset %+.0f Hz",
-                 (double)t->lock, t->offset_hz);
+                 (double)t->session.lock, t->session.offset_hz);
         sdrgui_text_fit(text, (int)box.x + 10, y, 14, box.width - 20.0f,
                         (Color){ 150, 176, 202, 255 });
     }
@@ -269,15 +211,15 @@ void draw_tetra(struct app *app) {
                                              (float)GetScreenHeight());
     char text[192];
 
-    if (t->have_identity)
+    if (t->session.have_identity)
         snprintf(text, sizeof(text),
                  "TETRA  MCC %d  MNC %d  colour code %d  LA %s%d",
-                 t->mcc, t->mnc, t->colour,
-                 t->broadcast_total > 0 ? "" : "un", t->la);
+                 t->session.mcc, t->session.mnc, t->session.colour,
+                 t->session.broadcast_total > 0 ? "" : "un", t->session.la);
     else
         snprintf(text, sizeof(text),
                  "TETRA  no network identity yet  (lock %.2f)",
-                 (double)t->lock);
+                 (double)t->session.lock);
     sdrgui_text_fit(text, (int)l.header_left, 78, 20,
                     l.header_right - l.header_left,
                     (Color){ 226, 236, 245, 255 });
@@ -286,10 +228,10 @@ void draw_tetra(struct app *app) {
        but no parity is a coding fault, no bursts at all is tuning or band. */
     snprintf(text, sizeof(text),
              "%llu burst(s)  %llu with parity  %llu failed  %llu broadcast",
-             (unsigned long long)t->bursts_total,
-             (unsigned long long)t->blocks_total,
-             (unsigned long long)t->blocks_failed,
-             (unsigned long long)t->broadcast_total);
+             (unsigned long long)t->session.bursts_total,
+             (unsigned long long)t->session.blocks_total,
+             (unsigned long long)t->session.blocks_failed,
+             (unsigned long long)t->session.broadcast_total);
     sdrgui_text_fit(text, (int)l.header_left, 106, 16,
                     l.header_right - l.header_left,
                     (Color){ 150, 176, 202, 255 });
