@@ -231,6 +231,7 @@ make probe-periodicity FILE_PERIODICITY=captures/x.bin   # LTE or NR? which grid
 make probe-signal FILE_SIGNAL=captures/x.bin AT_SIGNAL=300000 \
     CONTROLS_SIGNAL=-200000,600000                      # on air, or noise?
 make probe-fm-filter FILE_FM_FILTER=testfiles/fm_rds_tsf.bin  # RDS: which biphase filter?
+make probe-two-cell                          # two cells on one carrier: how often?
 ```
 
 `probe-periodicity` is the odd one out: it demodulates nothing, and works on a
@@ -252,6 +253,15 @@ later. **`FILE_NBIOT=--self-test` lays the sequence into noise and finds it at
 worth anything: a negative from a detector nobody has seen fire is not a
 finding. Six band 8 carriers read 2.9 to 5.1 deviations and 50 to 79%, against
 a known-empty LTE capture at 4.0 and 68%.
+
+`probe-two-cell` is the odd one out in a different way: its subject is a
+*check* rather than a capture. It builds the two-cell fixture over forty draws
+of its interfering traffic and reports what the multi-cell search makes of
+each, which is what turned "this check is flaky under clang" into a number --
+and it is compiled from `tests/lte_dsp_test.c` itself, with `-DLTE_TWO_CELL_SWEEP`,
+because a harness that copies a fixture is running a second fixture.
+`MODE_TWO_CELL=--fixture` hashes the fixture stage by stage, which is how two
+compilers can be asked where they stop agreeing.
 
 `probe-signal` is what `signal_probe` says about a capture **at a signal and
 at its controls**, and the shape is the point: a measurement at one frequency
@@ -433,11 +443,34 @@ clang 22 against gcc 16 at `-O3`: the GSM SCH decode 20.3 ms a block against
 against 20.3 -- 33% to 59% slower on every stage that matters, and slower on
 the small ones too. It produces no diagnostic gcc does not, so it is not
 earning its place as a second opinion on warnings either. Where clang *is*
-worth running is as a second implementation: it passes 41 of 42 suites, and
-the one it fails is `check-lte-dsp`'s two-cell fixture, which its own comment
-documents as sitting at the exact edge of what the search can do
-(`.scratch/two-cell-fixture/`). That is a fragile check rather than a bug --
-gcc with `-fsanitize=undefined,address` runs the same suite clean.
+worth running is as a second implementation, and it has now earned that
+twice over: `make CC=clang check` passes **all 55 suites**, and the one it
+used to fail paid for itself.
+
+That was `check-lte-dsp`'s two-cell fixture, and this file recorded it as a
+fragile check sitting at the edge of what the search can do. It was neither.
+`fill_other_traffic()` drew both bits of every QPSK symbol as two `rng_next()`
+calls **in one argument list**, where evaluation order is *unspecified* -- not
+undefined, which is why gcc with `-fsanitize=undefined,address` had nothing to
+say about it -- so the two compilers built **different carriers** and got
+different answers about them. A second implementation is what tells that from
+arithmetic; nothing else here could have. `.scratch/two-cell-fixture/` has the
+stage hashes, and the lesson generalises past one line: **a side effect in an
+argument list is a fixture that depends on the compiler**, and a suite whose
+fixtures do that is measuring the toolchain.
+
+The fix to the check is worth as much as the fix to the fixture. Once both
+compilers built the same carrier, the old fixture separated two cells on
+neither -- because the level was never the variable. Over forty draws of the
+interfering traffic, two cells come back on 19 at equal power, 20 at -0.7 dB
+and 15 at -1.4 dB, so there is no level with margin to move a single fixture
+to. **The fixture is a population now**: sixteen carriers with the same two
+identities and different traffic, asserting the rate against a floor of four,
+and asserting absolutely that a pair reported is never the wrong pair -- 54 of
+54. `make probe-two-cell` is the harness, built from the check's own
+translation unit because a copy of a fixture is a second fixture: an earlier
+standalone copy reported zero cells at every level, having left
+`twiddles_init()` behind in the suite's `main`.
 
 **`-O3` is the default and one stage is why.** Measured three times each,
 alternating so a drifting machine cannot fake it: the GSM SCH decode goes from

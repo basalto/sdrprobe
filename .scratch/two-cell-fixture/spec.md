@@ -1,37 +1,55 @@
-# One check passes on gcc and fails on clang
+# One check passed on gcc and failed on clang
 
-`check-lte-dsp`'s "two cells on one carrier: how many are found" expects 2,
-gets 2 under gcc at -O2 and -O3, and gets **1** under clang 22 at -O3 --
-with `-ffp-contract=off` as well, so it is not FMA contraction alone.
+`check-lte-dsp`'s "two cells on one carrier: how many are found" expected 2,
+got 2 under gcc at -O2 and -O3, and got **1** under clang 22 at -O3 -- with
+`-ffp-contract=off` as well, so it was not FMA contraction alone.
 
-It is not undefined behaviour. The same suite under gcc with
-`-fsanitize=undefined,address` runs 588 checks clean, no runtime errors and no
-memory errors.
+It was not undefined behaviour. The same suite under gcc with
+`-fsanitize=undefined,address` ran clean, no runtime errors and no memory
+errors.
 
-## Why it is fragile by construction
+## Resolved 2026-09-09, and the diagnosis above was wrong
 
-The fixture's own comment says so:
+Both halves of this page's reasoning were wrong, and the second is the more
+useful mistake.
 
-> it is only 1.4 dB down, because that is where this works: a sweep from
-> -16.5 dB to -1.4 dB finds the second cell at -1.4 and nowhere below it
+**The cause is not float codegen.** `fill_other_traffic()` drew the two bits
+of every QPSK symbol as two `rng_next()` calls inside one argument list:
 
-So the positive claim -- that two cells on one carrier are separable -- is
-made at the exact edge of what the algorithm can do, and a correlation moved
-by a hair of float codegen crosses it. `test_two_cells_needs_similar_levels`
-pins the *negative* at 0.45 amplitude and nothing pins a comfortable positive.
+```c
+qpsk((int)(rng_next() & 1u), (int)(rng_next() & 1u), &re, &im);
+```
 
-**That is the wrong place for a capability check to sit.** A check at the edge
-flakes across compilers, optimisation levels and CPUs, and when it flakes it
-says nothing about the capability -- only about the arithmetic of the day. The
-edge is worth recording; it is not worth being the only evidence.
+Argument evaluation order is **unspecified** -- not undefined, which is
+exactly why a sanitiser has nothing to say about it -- and gcc and clang
+choose opposite ways. Every symbol of the interfering traffic came out with
+its two bits swapped between the two compilers, so **the two compilers built
+different carriers**, and a different interference pattern is a different
+answer to how many cells are separable. Hashing the fixture stage by stage is
+what found it: the twiddles, the broadcast bits and all three transcribed
+sequences agreed, and the resource grid did not.
 
-## What this is not
+The tell that "a hair of float codegen" was never the explanation was there in
+the numbers and was not read: the primary-sequence correlations differed by
+0.06 between the compilers, and antenna-port coherence by 0.3. Rounding does
+not move a correlation by six percent.
 
-Not a reason to loosen the check or to raise the fixture until it passes. That
-is tuning a constant until it agrees, which this repository has refused twice
-in one session -- once for `SIGNAL_CARRIER_PRESENT_DB` when a single frequency
-slipped past it.
+**And the check was not merely sitting at an edge.** With the draw order made
+explicit, both compilers build the same carrier -- and the old fixture then
+separates two cells on *neither*. The level was never the variable this page
+assumed it was. Over forty draws of the traffic, two cells are separated on 19
+of them at equal power, 20 at -0.7 dB and 15 at -1.4 dB. There is no level
+with margin, because the spread is not across level. The old check was pinning
+one draw of something close to a coin flip, and the coin came up heads under
+gcc.
 
-Not a reason to prefer one compiler. gcc is the default for measured reasons
-(`Makefile`), and clang passing 41 of 42 suites is a useful second opinion
-rather than a vote.
+## What replaced it
+
+The fixture is a population: `TWO_CELL_SEEDS` (16) carriers with the same two
+identities and different traffic. What is asserted is the rate, with a floor
+of 4 against a measured 9, and -- the half worth having -- that a report of
+two cells is **never** a report of the wrong two, 54 times out of 54 across
+every level measured. `make probe-two-cell` is the harness.
+
+`make CC=clang check` now passes **all 55 suites**. The "41 of 42" this
+repository has carried was this one check and nothing else.
