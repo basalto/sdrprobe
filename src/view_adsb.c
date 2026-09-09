@@ -89,33 +89,28 @@ static void adsb_format(const struct adsb_message *msg,
     }
 }
 
+/*
+ * Feed the latest block to the decode, then log what it produced.
+ *
+ * Everything before the loop is `adsb_session.h`'s. The log is this view's:
+ * formatting a message into a row, and fading the previous rows' highlight,
+ * are about looking at frames rather than reading them.
+ */
 void update_adsb(struct app *app, double now) {
+    int count, i;
+
     if (!app->have_samples || app->pair_count == 0)
         return;
-    struct adsb_frame_trace trace;
-    struct adsb_demod_stats stats;
-    memset(&trace, 0, sizeof(trace));
-    size_t count = adsb_demod(&app->adsb.decoder, app->magnitudes,
-                              app->pair_count, now, app->adsb.scratch,
-                              sizeof(app->adsb.scratch) /
-                                  sizeof(app->adsb.scratch[0]),
-                              &trace, &stats);
-    app->adsb.block_stats = stats;
-    adsb_totals_add(&app->adsb.totals, &stats);
-    adsb_trace_keep(&app->adsb.trace, &app->adsb.good_trace, &trace);
-    size_t emitted = count;
-    size_t capacity = sizeof(app->adsb.scratch) / sizeof(app->adsb.scratch[0]);
-    if (emitted > capacity)
-        emitted = capacity;
+    count = adsb_session_feed(&app->adsb.session, app->magnitudes,
+                              app->pair_count, now);
+
     /* Fade the previous rows' highlight before adding new ones. */
     adsb_log_fade(app->adsb.log, app->adsb.log_count);
-    for (size_t i = 0; i < emitted; i++) {
+    for (i = 0; i < count; i++) {
         struct adsb_log_entry entry;
-        adsb_format(&app->adsb.scratch[i], &entry, now);
+
+        adsb_format(&app->adsb.session.messages[i], &entry, now);
         adsb_log_push(app->adsb.log, &app->adsb.log_count, &entry);
-        app->adsb.frames_total++;
-        if (app->adsb.scratch[i].has_position)
-            app->adsb.positions_total++;
     }
 }
 
@@ -150,7 +145,7 @@ void handle_adsb_input(struct app *app) {
 /* The trace the charts draw: the most recent attempt, or the last frame that
    passed its CRC when the reader has pinned that instead. */
 static const struct adsb_frame_trace *adsb_shown_trace(const struct app *app) {
-    return adsb_trace_shown(&app->adsb.trace, &app->adsb.good_trace,
+    return adsb_trace_shown(&app->adsb.session.trace, &app->adsb.session.good_trace,
                             app->adsb.hold_last_good);
 }
 
@@ -176,7 +171,7 @@ static void draw_trace_caption(const struct app *app, Rectangle first_chart,
                  (Color){ 151, 174, 188, 255 });
         return;
     }
-    const char *held = app->adsb.hold_last_good && app->adsb.good_trace.valid
+    const char *held = app->adsb.hold_last_good && app->adsb.session.good_trace.valid
                            ? "   [held]"
                            : "";
     if (trace->crc_ok)
@@ -267,8 +262,8 @@ static void draw_decision_scatter(const struct app *app,
 
 void draw_adsb(struct app *app) {
     struct adsb_layout l = adsb_layout_now();
-    const struct adsb_demod_stats *total = &app->adsb.totals;
-    const struct adsb_demod_stats *block = &app->adsb.block_stats;
+    const struct adsb_demod_stats *total = &app->adsb.session.totals;
+    const struct adsb_demod_stats *block = &app->adsb.session.block_stats;
     int analysis = adsb_analysis_showing(app);
     uint64_t record_bytes = 0;
     char record_path[ACQUISITION_PATH_MAX];
@@ -283,8 +278,8 @@ void draw_adsb(struct app *app) {
 
     snprintf(text, sizeof(text),
              "1090 MHz extended squitter   frames decoded: %llu   positions: %llu",
-             (unsigned long long)app->adsb.frames_total,
-             (unsigned long long)app->adsb.positions_total);
+             (unsigned long long)app->adsb.session.frames_total,
+             (unsigned long long)app->adsb.session.positions_total);
     sdrgui_text_fit(text, header_x, 88, 17, l.header_right - l.header_left,
                     (Color){ 187, 205, 216, 255 });
 

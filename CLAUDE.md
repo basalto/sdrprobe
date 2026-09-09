@@ -39,6 +39,8 @@ make check-add-argument # the refactoring tool below, against its own traps
 make check-gsm-session  # a GSM decode, block by block, no window
 make check-tetra-session # a TETRA decode, block by block
 make check-lte-session  # an LTE decode, and the repeat a message needs
+make check-adsb-session # Mode S, and the even/odd pairing across blocks
+make check-fm-session   # an RDS decode, and the bits it must not recount
 make check-layout     # GSM view geometry (raylib headers only, no window)
 make check-geometry   # where a chart's plot sits, and which bar is under the pointer
 make check-input      # which control a key press reaches
