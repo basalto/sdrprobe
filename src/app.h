@@ -26,6 +26,8 @@
 #include "gsm_session.h"
 #include "tetra_session.h"
 #include "lte_session.h"
+#include "adsb_session.h"
+#include "fm_session.h"
 #include "device_backend.h"
 #include "sdr_dsp.h"
 #include "signal_findings.h"
@@ -219,28 +221,11 @@ struct fm_view {
     int frequency_length;
     int typing;
 
-    struct fm_rds_front front;
-    int front_rate;                 /* the rate it was built for */
-
-    float bb_i[FM_VIEW_BASEBAND];
-    float bb_q[FM_VIEW_BASEBAND];
-    size_t bb_count;
-    float soft[FM_VIEW_SOFT_BITS];
-    size_t soft_count;
-    /* Everything the window has produced, oldest first. */
-    float bits[FM_VIEW_BIT_MEMORY];
-    size_t bit_count;
-    size_t bb_consumed;     /* baseband already turned into bits */
-
-    struct rds_station station;
-    int timing_offset;
-    double axis_radians;
-
-    /* Cumulative across the session, where the station is a window: these are
-       what say whether reception is getting better or worse. */
-    long blocks_seen;
-    long groups_total;
-    double last_group_at;
+    /* The RDS decode: the front end, the baseband accumulator, the chunking,
+       the bits and the station (fm_session.h). The sound and the chart spectra
+       stay below, because neither is a decode -- one writes into a raylib
+       stream and the other exists to be drawn. */
+    struct fm_session session;
 
     /*
      * The audio, and the ring between the two rates that produce and consume
@@ -401,24 +386,17 @@ struct settings_panel {
  * the newest-first log of messages it has recovered.
  */
 struct adsb_view {
-    struct adsb_decoder decoder;
-    struct adsb_message scratch[64];
+    /* The decode: the demodulator, its even/odd pairing cache, this block's
+       messages, the funnel and the traces the charts draw
+       (adsb_session.h). */
+    struct adsb_session session;
     struct adsb_log_entry log[ADSB_LOG_CAPACITY]; /* newest first */
     int log_count;
-    uint64_t frames_total;
-    uint64_t positions_total;
 
-    /* Analysis mode: the charts drawn from one frame's trace, and the funnel
-       counters that say what never became a message. `trace` is the most
-       recent attempt whatever its outcome, because a frame that failed its CRC
-       is the one worth looking at; `good_trace` is the last one that passed,
-       for the Hold last good toggle to pin. */
+    /* Analysis mode: which charts are up, and whether the reader has pinned
+       the last frame that passed. Both are about looking, not decoding. */
     int analysis_mode;
     int hold_last_good;
-    struct adsb_frame_trace trace;
-    struct adsb_frame_trace good_trace;
-    struct adsb_demod_stats block_stats;   /* the latest block alone */
-    struct adsb_demod_stats totals;        /* accumulated over the session */
 };
 
 /*

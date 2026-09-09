@@ -1,8 +1,8 @@
 # 02 - A decode session per technology, shared by window and headless
 
-Status: in progress. **GSM done 2026-09-08**, as the ticket's own order asks
+Status: resolved. **GSM done 2026-09-08**, as the ticket's own order asks
 -- it was already shared, so if extracting it had changed an answer the design
-would have been wrong rather than the code. It changed none. **TETRA and LTE done 2026-09-09.** ADS-B and FM/RDS remain.
+would have been wrong rather than the code. It changed none. **All five done 2026-09-09**: GSM, TETRA, LTE, ADS-B, FM/RDS.
 Blocked by: 01 (done)
 
 Per-block decode orchestration -- feed the block, latch the trace, count the
@@ -221,3 +221,54 @@ A diagnostic of mine was wrong on the way to that, and nearly became the
 finding: the first version printed the *session's latched* cell rather than the
 failing block's attempt, so it reported a strong SSS where there was none.
 Asking `lte_cell_search()` directly is what settled it.
+
+
+## ADS-B and FM/RDS
+
+**ADS-B** was already shared -- `run_headless` called `update_adsb()` -- so
+this was an extraction like GSM's. `struct adsb_session` owns the demodulator,
+and with it the **even/odd pairing cache**, which is the part that has to
+survive between blocks: a global position needs two frames of opposite parity
+from the same aircraft. The view keeps the log, the analysis toggle and the
+hold, because formatting a message into a row is about looking at frames rather
+than reading them.
+
+`check-adsb-session` replays `adsb_cpr_pair.bin` -- six frames, one position --
+and then replays it again **resetting the session before every block**. The
+frames still come out and the position does not, which is what makes the cache
+visibly load-bearing rather than merely present.
+
+**FM/RDS** is the one whose boundary needed deciding rather than following.
+`update_fm_flush()` did three things in one pass over the multiplex: decoded
+RDS, produced **sound**, and built two chart spectra. Only the first is a
+decode -- the sound writes into a raylib `AudioStream` -- so the session is the
+RDS chain and the other two stay in the view. The caller does the
+discriminator, because it wants the multiplex anyway and doing it twice would
+be the same work for the same answer.
+
+### Two of my checks were wrong, in different ways
+
+**The ADS-B one passed a block index as `now`.** Unlike the other four
+sessions, ADS-B's timestamp does real work: the pairing cache expires a held
+frame after a few seconds, so block numbers stretched the gap between a pair by
+about fifteen times and no position ever resolved. It read as a broken cache. A
+block is 65.5 ms and the check says so now.
+
+**The FM one named a fault it could not see.** It compared `bit_count` against
+`groups * 104 * 4` to catch the window being re-appended every block -- and
+passed under both the right code and the mutation, because the bit memory caps
+at 32768 either way. Measured instead: appending only what is new gives **2057
+bits and 19 groups**, re-appending the whole window gives **4092 and 31**. The
+station reads 0x8343 `TSF` under both, so the identity is no help. Those two
+numbers are pinned, and the mutation now fails by name.
+
+## Where this leaves the ticket
+
+Five sessions, five checks, `check-pipelines` unchanged throughout. `make
+check` is 17493 in 53 suites, from 17332 before this ticket.
+
+`run_headless`'s five branches are adapters now rather than second
+implementations -- except `--lte-chain`, which keeps its own message counting
+deliberately, because it is a diagnostic reporting every attempt rather than a
+decode latching what it believes. That is recorded above as a question worth
+deciding rather than a duplication to remove.
