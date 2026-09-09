@@ -1,6 +1,8 @@
 # 03 - One installation module behind config, history and sidecar
 
-Status: ready-for-agent
+Status: in progress. **The model and both ADRs' refusals are in**
+(`src/installation.h`, `check-installation`, 47 checks). The four writer sites
+and the history's on-disk key are next.
 
 Site, antenna and the tuning correction are remembered and saved from four
 places, each repeating the same three calls:
@@ -86,3 +88,54 @@ The consequence if it is missing is worth stating because it is invisible: a
 wrong comb does not look like a fault, it looks like signals. Unflagged
 artifacts enter the history and are remembered, then reported "gone" whenever
 a later sweep misses them.
+
+
+## Built 2026-09-09: the model, and the two refusals
+
+`src/installation.h` is the receiving setup -- receiver, site, antenna -- and
+the calibration profiles keyed to it. Pure: a model and some string handling,
+no files, so `check-installation` reaches all of it (ADR-0012).
+
+**ADR-0018, the correction.** Keyed by receiver *and* site. A legacy site-only
+value is held with an empty receiver, is visible through
+`installation_legacy_ppm()` so an operator can be offered it, and
+`installation_ppm()` **will not return it**. `installation_claim_legacy()` is
+the operator's explicit act; it converts the entry in place rather than copying
+it, because claiming one legacy value for two receivers would invent exactly
+the provenance the ADR refuses.
+
+**ADR-0022, the history.** Keyed by receiver, site and antenna together.
+Changing any member selects a different baseline rather than mutating the
+previous one. Gain is deliberately not in the key: the history's presence
+claims should survive an ordinary gain adjustment, and the recorded level keeps
+the setting needed to read it. **An incomplete setup has no key at all** --
+that is the refusal, not a shortfall.
+
+### Receiver identity, and what this dongle actually reports
+
+`device_profile` gained a `serial`, filled by `backend_rtlsdr.c` from
+`rtlsdr_get_device_usb_strings()`. Asked directly, the dongle here reports
+`77771111153705700` -- a real one, so ADR-0018's USB-serial path works.
+
+`installation_identify()` takes a serial and a label and prefers **the label**.
+That is the right way round and the ADR's own reasoning is why: many of these
+dongles ship with the same serial or none, uniqueness cannot be judged from one
+device, and an operator sets a label precisely to resolve that. A receiver with
+neither has no identity, and a correction that cannot say whose crystal it
+compensates is not persisted.
+
+### Verified by mutation
+
+Both refusals were reverted and both fail by name:
+
+- applying a legacy value without claiming it -- "it is not applied" fails;
+- keying the history by site alone -- "and it is a different one" and "and a
+  different receiver too" fail.
+
+## Still to do
+
+- The four writer sites collapse to `installation_commit()`.
+- `site_history`'s on-disk key becomes the setup's, with legacy site-only
+  files held unassigned -- the same shape as the correction's legacy path.
+- `survey_store_write` takes the installation rather than reading
+  `app->config.*`.

@@ -59,6 +59,20 @@ static int rtl_open(struct device_session *s, int index,
     *out = device_profile_rtlsdr(name, gain_count > 0 ? gains : NULL,
                                  gain_count);
 
+    /*
+     * The USB serial, for ADR-0018's keying. Many of these dongles ship with
+     * "00000001" or nothing at all, so this is offered rather than trusted:
+     * `installation.h` decides whether it is an identity.
+     */
+    {
+        char manufacturer[256], product[256], serial[256];
+
+        manufacturer[0] = product[0] = serial[0] = '\0';
+        if (rtlsdr_get_device_usb_strings((uint32_t)index, manufacturer,
+                                          product, serial) == 0)
+            snprintf(out->serial, sizeof(out->serial), "%s", serial);
+    }
+
     s->backend = device_backend_rtlsdr();
     s->handle = dev;
     return 0;
