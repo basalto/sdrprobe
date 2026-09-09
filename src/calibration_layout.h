@@ -44,6 +44,14 @@ struct calibration_layout {
     Rectangle channel;         /* ARFCN or EARFCN entry */
     Rectangle start;
     Rectangle apply_ppm;
+    /*
+     * Claiming a correction from before ADR-0018, which is a rare one-time act
+     * and so gets the gap between the scan button and the channel field rather
+     * than a row of its own. **Zero-width when that gap will not hold it**, on
+     * the same rule as the 4G controls below: a caller that draws it anyway
+     * draws nothing rather than drawing it over the channel entry.
+     */
+    Rectangle claim_ppm;
     /* 4G only; zero-width when 2G is selected, so a caller that draws them
        anyway draws nothing rather than drawing them somewhere wrong. */
     Rectangle lte_band[CALIBRATION_LTE_BANDS];
@@ -79,6 +87,17 @@ static inline struct calibration_layout calibration_layout_for(float width,
     l.channel = (Rectangle){ right - 346.0f, y, 110.0f, CALIBRATION_ROW_H };
     l.start = (Rectangle){ right - 224.0f, y, 88.0f, CALIBRATION_ROW_H };
     l.apply_ppm = (Rectangle){ right - 124.0f, y, 124.0f, CALIBRATION_ROW_H };
+    {
+        /* Between the scan button's right edge and the channel field, with a
+           gap either side. Nothing when the window is too narrow for it. */
+        float from = l.scan.x + l.scan.width + 10.0f;
+        float to = l.channel.x - 10.0f;
+
+        if (to - from >= 132.0f)
+            l.claim_ppm = (Rectangle){ from, y, 132.0f, CALIBRATION_ROW_H };
+        else
+            l.claim_ppm = (Rectangle){ 0.0f, 0.0f, 0.0f, 0.0f };
+    }
     y += CALIBRATION_ROW_H + 6.0f;
 
     /* Row two, 4G only: the band to scan, and the button that scans it. */

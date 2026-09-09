@@ -687,6 +687,26 @@ void handle_calibration_input(struct app *app) {
         start_calibration(app);
     if (clicked(scan) && app->calibration_technology == 0)
         start_scan(app);
+    /*
+     * Claiming a correction from before calibrations named a receiver. The
+     * operator's explicit act, which is what ADR-0018 requires instead of the
+     * program guessing whose crystal an old number compensates.
+     */
+    if (cl.claim_ppm.width > 0.0f && clicked(cl.claim_ppm)) {
+        int legacy = 0;
+
+        if (installation_legacy_ppm(&app->installation, &legacy) &&
+            installation_claim_legacy(&app->installation) == 0 &&
+            installation_commit(&app->installation, &app->config) == 0)
+            snprintf(app->calibration_status,
+                     sizeof(app->calibration_status),
+                     "Claimed %+d PPM for this receiver at \"%s\"", legacy,
+                     app->installation.site);
+        else
+            snprintf(app->calibration_status,
+                     sizeof(app->calibration_status),
+                     "Nothing to claim, or this receiver has no identity");
+    }
     if (clicked(apply_ppm) && app->cal.track.stable) {
         if (retune_receiver(app, app->cal.tune_hz,
                             app->cal.suggested_ppm) == 0) {
@@ -695,11 +715,14 @@ void handle_calibration_input(struct app *app) {
                 app->lte_cal_valid = 1;
                 app->lte_cal_ppm = app->cal.suggested_ppm;
             }
-            /* A measured correction belongs to where it was measured. */
-            if (app->config.site[0] &&
-                config_set_site_ppm(&app->config, app->config.site,
-                                    app->cal.suggested_ppm))
-                config_save(&app->config);
+            /*
+             * A measured correction belongs to where it was measured **and to
+             * the crystal it compensates** (ADR-0018). One writer, which is
+             * what installation_commit() is for.
+             */
+            if (installation_record_ppm(&app->installation,
+                                        app->cal.suggested_ppm) == 0)
+                installation_commit(&app->installation, &app->config);
             app->cal.track.measurements = 0;
             app->cal.track.recent_count = 0;
             app->cal.track.recent_head = 0;
@@ -859,6 +882,22 @@ void draw_calibration(struct app *app) {
     draw_button(start, app->cal.running ? "Retune" : "Start",
                 app->calibration_technology == 0);
     draw_button(apply_ppm, "Apply PPM", app->cal.track.stable);
+    /*
+     * Only when there is one to claim, and only when it fits. An unassigned
+     * correction is invisible otherwise -- the operator would have to read a
+     * stderr line from startup to know it exists.
+     */
+    {
+        int legacy = 0;
+
+        if (cl.claim_ppm.width > 0.0f &&
+            installation_legacy_ppm(&app->installation, &legacy)) {
+            char label[48];
+
+            snprintf(label, sizeof(label), "Claim %+d PPM", legacy);
+            draw_button(cl.claim_ppm, label, 0);
+        }
+    }
     draw_button(scan, "Scan", app->calibration_technology == 0);
     draw_button_enabled(back, "Back",
                         calibration_back_target(app->calibration_technology,
