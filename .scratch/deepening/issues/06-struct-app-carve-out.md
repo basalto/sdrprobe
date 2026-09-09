@@ -148,3 +148,25 @@ whose job was to find out whether there was anything left:
 
 The number to quote in `spec.md` is the one above: **85 fields, 30 of which
 are handoffs or containers.**
+
+## After 07 and 08, 2026-09-09
+
+**62 fields.** Twenty-three gone in two tickets, and both of them found a
+field whose *owner* was wrong rather than merely its address -- which is the
+question this audit could not ask, because counting readers says where a
+field is used and not what it is about:
+
+- 07: `calibration_status` was also the receiver's error line, written by
+  `retune_receiver()` from every screen and prefixed "Calibration". Now
+  `app->receiver_error`.
+- 08: `scan_selected_arfcn` was the GSM view's inspected channel, set by
+  `--arfcn` with no scan involved. Now `gsm.selected_arfcn`. And
+  `scan_step_count` was a copy of `bandscan.plan.step_count`, so it was
+  deleted rather than moved.
+
+What is left of the four clusters is one: **the receiver's applied state**,
+ticket 09, which is `needs-triage` and should wait for the second receiver.
+The spectrum display cluster stands as it was -- `sdrprobe.c` computing for
+`view_scope.c` is a handoff. `settings_open` is the last overlay flag loose in
+`struct app`, and belongs in `struct settings_panel` beside the rest of the
+panel's draft.

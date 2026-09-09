@@ -76,8 +76,8 @@ void open_calibration(struct app *app) {
     app->cal.expected_hz = 0;
     calibration_tracker_init(&app->cal.track);
     app->cal.fcch_confidence = 0.0f;
-    app->scan_open = 0;
-    app->scan_running = 0;
+    app->bandscan.open = 0;
+    app->bandscan.running = 0;
     scan_release_receiver(app);
     app->cal.measured_hz = 0.0;
     app->cal.offset_hz = 0.0;
@@ -330,7 +330,7 @@ static void update_lte_calibration_scan(struct app *app) {
 }
 
 void update_calibration_measurement(struct app *app) {
-    if (!app->cal.open || app->scan_open)
+    if (!app->cal.open || app->bandscan.open)
         return;
     if (app->cal.lte_scanning) {
         update_lte_calibration_scan(app);
@@ -450,7 +450,7 @@ void update_calibration_measurement(struct app *app) {
 void update_drift_check(struct app *app, int have_block) {
     if (!app->cal.auto_drift || !app->cal.gsm_valid || !app->receiver_mode)
         return;
-    if (app->cal.open || app->scan_open || app->settings_open)
+    if (app->cal.open || app->bandscan.open || app->settings_open)
         return;
 
     double now = monotonic_seconds();
@@ -569,7 +569,7 @@ void close_calibration(struct app *app) {
 static int calibration_scan_has_results(const struct app *app) {
     int arfcn;
     for (arfcn = 1; arfcn <= 124; arfcn++)
-        if (app->scan_power[arfcn] > SCAN_SENTINEL_DBFS)
+        if (app->bandscan.power[arfcn] > SCAN_SENTINEL_DBFS)
             return 1;
     return 0;
 }
@@ -787,7 +787,7 @@ void handle_calibration_input(struct app *app) {
         if ((clicked(back) || escape) && target != CALIBRATION_BACK_NONE) {
             if (calibration_stop_measuring(app) == 0 &&
                 target == CALIBRATION_BACK_SCAN)
-                app->scan_open = 1;
+                app->bandscan.open = 1;
             return;
         }
         if (clicked(cl.exit) || escape) {

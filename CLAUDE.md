@@ -1053,9 +1053,14 @@ acquisition` in `acquisition.h`, and `struct scope_view`, `struct gsm_view`,
 `app.h`. Reach for `app->cal.*` rather than adding a `calibration_*` field back
 to `struct app` — advice `struct app` did not follow until sixteen of them
 were counted and moved, which is what the audit in
-`.scratch/deepening/issues/06-*` is for: **85 fields then, 70 now, and the
-survivors are handoffs, per-view containers, the band scan's state (ticket 08)
-and the receiver's own applied state (09).** If the frame loop needs something
+`.scratch/deepening/issues/06-*` is for: **85 fields when it was counted, 62
+now, and the survivors are handoffs, per-view containers and the receiver's
+own applied state (ticket 09).** Two of those moves corrected the field's
+*owner* rather than merely its address, and the question that found both is
+worth asking of anything being moved: `scan_selected_arfcn` was the GSM view's
+inspected channel and not the scan's -- set by `--arfcn` with no scan
+involved -- and `scan_step_count` was a copy of `bandscan.plan.step_count`
+that needed deleting rather than moving. If the frame loop needs something
 from a view, give the view an entry point rather than reaching into its fields
 —
 `view_scope_resize_if_needed()` is the pattern. **`struct survey_view` is the

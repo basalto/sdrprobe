@@ -715,7 +715,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
 /* The topic that answers the question the current screen raises. */
 static int help_topic_for_screen(const struct app *app) {
     if (app->cal.open)
-        return app->scan_open ? HELP_SCAN : HELP_CALIBRATION;
+        return app->bandscan.open ? HELP_SCAN : HELP_CALIBRATION;
     if (app->tab == TAB_DECODE) {
         if (app->decode == DECODE_ADSB)
             return app->adsb.analysis_mode ? HELP_ADSB_ANALYSIS : HELP_ADSB;
@@ -723,7 +723,7 @@ static int help_topic_for_screen(const struct app *app) {
             return HELP_LTE;
         if (app->decode == DECODE_FM)
             return HELP_FM;
-        if (app->scan_selected_arfcn > 0 && app->gsm.analysis_mode)
+        if (app->gsm.selected_arfcn > 0 && app->gsm.analysis_mode)
             return HELP_BURST;
         return HELP_SCAN;
     }

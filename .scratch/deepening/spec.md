@@ -106,6 +106,19 @@ callers it was earning its keep.
    deliberately.
 8. **Band scan state into `struct band_scan`** (`08`) -- the same edit,
    smaller: eight fields beside a struct with one reader.
+   **Done, 2026-09-09**: `struct app` is **62 fields, down from 70**, and 07's
+   question -- *is this field doing the job its name claims* -- corrected two
+   of the eight. `scan_selected_arfcn` is **not the scan's**: it is the GSM
+   view's inspected channel, set by `gsm_tune_selected()` and by `--arfcn`
+   with no scan involved, read by a recording's sidecar, and fourteen of its
+   twenty uses were already in `view_gsm.c` -- so it is `gsm.selected_arfcn`,
+   beside `gsm.selected_hz`, which is the same fact in hertz written on the
+   next line every time. And `scan_step_count` was a copy of
+   `bandscan.plan.step_count` set once and never changed, so it is **gone**
+   rather than moved. `bandscan.open` follows `cal.open` and `help.open`;
+   `settings_open` is the last overlay flag still loose. A live scan still
+   autoselects and decodes -- it landed on ARFCN 113 and read BSIC 38, MNC 06,
+   cell 16134, which is exactly what `gsm_arfcn_113.bin` reads.
 9. **Name the receiver's applied state** (`09`) -- seven fields, nineteen
    files, and no home. `needs-triage` and probably wants the second
    receiver first: a "what is applied" struct designed against one device is

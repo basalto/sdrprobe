@@ -315,8 +315,44 @@ enum view_kind {
 #include "input_route.h"
 
 struct band_scan {
+    /*
+     * Whether the overlay is up, and whether a sweep is actually walking.
+     *
+     * Two things and not one: the GSM view runs the same scan *inline*, with
+     * the overlay closed, so `open` without `running` is the overlay sitting
+     * on a finished scan and `running` without `open` is the GSM view's own.
+     * `open` is nested like `cal.open` and `help.open`; `settings_open` is
+     * the last overlay flag that is not.
+     */
+    int open;
+    int running;
+    int step;
     double step_started_at;
     struct scan_plan plan;      /* how the downlink is covered, in scan_plan.h */
+    /*
+     * What the sweep measured, per ARFCN: the channel's power, and how
+     * confident the FCCH tone detector is that it carries a BCCH.
+     *
+     * Measurements, which is why they belong here rather than beside the
+     * drawing -- the same argument the survey's snapshot settled
+     * (`survey_session_keep()`, ticket 04).
+     *
+     * Indexed by ARFCN directly, so index 0 is unused and the bound is
+     * scan_plan.h's own `SCAN_ARFCN_LAST` rather than the bare 125 these were
+     * declared with.
+     */
+    float power[SCAN_ARFCN_LAST + 1];
+    float bcch_conf[SCAN_ARFCN_LAST + 1];
+    /*
+     * Pick the best BCCH when this scan finishes, rather than leaving the
+     * reader on a chart.
+     *
+     * A scan option and not a flag of the GSM view's, even though the GSM
+     * view is the only thing that sets it: it changes what the scan does when
+     * it ends, so the scan is what has to know. The same shape as
+     * `gsm_session.options`, which the view sets and the decode obeys.
+     */
+    int autoselect;
     /* Borrowed from whatever the GSM view had tuned, and given back to it --
        not to whatever was on screen before GSM (receiver_lease.h). */
     struct receiver_lease_token lease_token;
@@ -356,7 +392,7 @@ struct calibration {
      *
      * Nested like `help.open`, which set the precedent: the precedence chain
      * reads it through `input_state_now()` and does not care where it lives.
-     * `settings_open` and `scan_open` are the two that still do not.
+     * `settings_open` is the last one that still does not.
      */
     int open;
     int technology;                /* 0 = 2G, 1 = 4G */
@@ -591,6 +627,18 @@ struct gsm_view {
        span, shared with every other frequency chart (chart_window.h). */
     struct chart_window window;
 
+    /*
+     * The channel being inspected, as a channel number and as its carrier.
+     *
+     * Two spellings of one fact, always written on the same two lines --
+     * `gsm_tune_selected()` and `--arfcn` are the only writers. The number
+     * used to be `scan_selected_arfcn` in `struct app`, which named the wrong
+     * owner: no scan is involved when the operator picks a channel or when
+     * `--arfcn` names one at startup, and a recording's sidecar reads it to
+     * say which channel the capture is of. Fourteen of its twenty uses were
+     * already in `view_gsm.c` (ticket 08).
+     */
+    int selected_arfcn;         /* 0 = none */
     double selected_hz;         /* carrier of the selected ARFCN (0 = none) */
     /* The tuning this view borrowed on the way in (receiver_lease.h). The
        band scan nests inside it, so the two unwind in order. */
@@ -924,19 +972,6 @@ struct app {
      * exists under an honest name instead of being thrown away.
      */
     char receiver_error[160];
-
-
-    int scan_open;
-    int scan_running;
-    int scan_step;
-    int scan_step_count;
-    float scan_power[125];
-    float scan_bcch_conf[125];
-    int scan_selected_arfcn;
-
-    /* GSM decode view: the currently inspected channel and the tuning to
-       restore when the view is left. */
-    int gsm_autoselect_pending;     /* pick the best BCCH when the open-scan ends */
 
 
 };
