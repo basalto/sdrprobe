@@ -133,7 +133,11 @@ static inline int signal_findings_from(const struct signal_carrier *carrier,
                            carrier->carrier_over_noise_db, 0.0);
         /* "only 0% stands still" is what a percentage rounds a real
            measurement down to, and it reads as a missing number rather than
-           a small one. Below half a percent the words are the honest form. */
+           a small one. Below half a percent the words are the honest form.
+           Rare since `carrier_power_fraction` became a mean over segments --
+           the modulated signals in the corpus read 0.03 to 0.33 where they
+           read 0.000 to 0.003 before -- but kept, because what it guards
+           against is a rounding artefact rather than a particular signal. */
         if (carrier->carrier_power_fraction < 0.005)
             signal_finding_text(out,
                 "almost none of the channel stands still");

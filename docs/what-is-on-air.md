@@ -87,6 +87,10 @@ them is a decoder.
 **VHF band I television, 60-68 MHz**, the second-strongest group in the sweep.
 Two narrow carriers a few kilohertz wide, one of them *bare*: 62.4058 MHz at
 43.5 dB with 89% of the channel standing still. A television channel is 7 MHz.
+(That share was measured before `carrier_power_fraction` became a mean over
+segments; the statistic reads a little higher now for a bare carrier and
+higher again for a modulated one, and the verdict is unaffected --
+`.scratch/standing-fraction-drifts/`.)
 **62.4 MHz is exactly 39 x 1.6 MHz**, and the candidate sits 5.8 kHz off it.
 
 **GNSS L1 / E1.** One candidate, which the survey flagged itself as the
