@@ -83,13 +83,89 @@ int signal_find_carrier(const float *i_samples, const float *q_samples,
 
 /*
  * Above this fraction of the channel standing in one constant, there is
- * nothing riding the carrier worth looking for. Measured: a synthetic tone in
- * no noise reads 1.00 and the 75.000 MHz recording 0.87, against 0.00 for the
- * modulated 1090 MHz carrier and 0.00 for an empty frequency.
+ * nothing riding the carrier worth looking for.
+ *
+ * **Re-measured after the statistic became a mean over segments**, because
+ * every number behind the old 0.80 came from the unsegmented form and a
+ * segmented mean cannot reproduce them -- if it could, it would not have
+ * fixed anything. The corpus, over the whole of each capture:
+ *
+ * | signal | unsegmented | segmented |
+ * | --- | --- | --- |
+ * | a synthetic tone, no drift | 1.000 | 1.000 |
+ * | the 75.0005 MHz harmonic, 2 s | **0.779** | **0.923** |
+ * | Mode S, `adsb_cpr_pair` | 0.253 | 0.327 |
+ * | FM broadcast, `fm_rds_tsf` | 0.000 | 0.145 |
+ * | TETRA, `tetra_cc17` | 0.001 | 0.100 |
+ * | GSM, `gsm_arfcn_69` | 0.000 | 0.063 |
+ * | LTE, `lte_b20_pci28` | 0.000 | 0.028 |
+ *
+ * The negatives all rose, because within one segment a modulated signal is
+ * partly coherent -- and the one positive rose further and in the direction
+ * that matters: 0.779 was *below* this threshold and called a bare carrier
+ * modulated, which is the defect
+ * (`.scratch/standing-fraction-drifts/`).
+ *
+ * **0.80 stands**, and the margins are what say so: it sits 0.12 under the
+ * lowest positive and 0.47 above the highest negative. Lopsided on purpose --
+ * the positives are what drift and the fix bought them 0.14 of headroom,
+ * while nothing in the corpus reads between 0.33 and 0.92, so there is no
+ * measurement to justify moving it into that gap.
+ *
+ * On the one sample block both shipped callers hand it, **every verdict in
+ * that table is unchanged** by the segmenting; only the numbers move.
  */
 /* Probes across the search window, medianed. Enough that a handful landing
    on other signals cannot move the answer. */
 #define SIGNAL_FLOOR_PROBES 33
+
+/*
+ * How many blocks of the decimated channel one segment of the standing
+ * fraction holds.
+ *
+ * **The statistic is a mean over segments and not over the look**, and that
+ * is not tidiness: mixed at one fixed frequency, a carrier drifting even a
+ * fraction of a hertz walks out of phase across a long observation and the
+ * global mean cancels against itself -- which reads exactly like modulation,
+ * because modulation is what the statistic is looking for. Measured on the
+ * 75.0005 MHz recording, the unsegmented form fell from 0.921 at 0.2 s to
+ * **0.779 at 2 s** and turned a bare carrier into a modulated one
+ * (`.scratch/standing-fraction-drifts/`). A synthetic carrier makes it
+ * unmistakable: at 5 Hz/s it went 1.000 at 0.07 s to 0.022 at 2 s, and with
+ * the drift removed it read 1.000 at every length.
+ *
+ * The length is a trade with a floor and a ceiling, and both were measured.
+ * Short segments are biased upward -- one block reads exactly 1.0, so B
+ * blocks of noise read about 1/B -- and long ones cancel. A bare carrier over
+ * 2 s in the narrowest channel the callers can ask for, against drift:
+ *
+ * | drift | B=64 | B=128 | B=256 |
+ * | --- | --- | --- | --- |
+ * | 0 Hz/s | 1.000 | 1.000 | 1.000 |
+ * | 5 | 0.996 | 0.982 | 0.932 |
+ * | 10 | 0.982 | 0.932 | 0.766 |
+ * | 20 | 0.932 | 0.765 | 0.442 |
+ * | 50 | 0.671 | 0.357 | 0.188 |
+ *
+ * against a noise floor of 0.015 at B=64, 0.007 at 128, and a modulated
+ * carrier at 0.033 and 0.018. **64 has the most drift margin of the three and
+ * still keeps noise an order of magnitude under the threshold**, so it is 64:
+ * it holds a bare carrier over 0.98 out to 10 Hz/s, which at 75 MHz is
+ * 0.13 ppm per second. Both shipped callers floor the channel at
+ * SURVEY_CARRIER_MIN_CHANNEL_HZ, four times wider than that table's channel,
+ * so a segment there is 3.2 ms rather than 12.8 and the margin is larger
+ * again.
+ *
+ * The per-segment fractions are **averaged**, rather than their numerators
+ * and denominators being summed. The two are indistinguishable on anything
+ * power-stationary -- identical to three decimals across every case above,
+ * since the segments then share a denominator -- and they part company on a
+ * carrier that keys on and off, where averaging the fractions returns the
+ * duty (0.11 at a tenth, 0.51 at a half) and summing returns nearly 1
+ * (0.790 and 0.958). The duty is what the unsegmented form gave, so
+ * averaging is the change that leaves every other answer alone.
+ */
+#define SIGNAL_STANDING_SEGMENT_BLOCKS 64
 
 #define SIGNAL_BARE_FRACTION 0.80
 

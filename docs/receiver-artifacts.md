@@ -298,6 +298,10 @@ arithmetic on a frequency.
 Some frequencies clear the confirmation pass's bar and are still empty. Five
 in one 290–310 MHz sweep were confirmed **six looks out of six**:
 
+The standing shares in this table were recorded before the statistic became a
+mean over segments, so they read lower than the same signals would now; the
+envelope is what the flag rests on and is untouched.
+
 | frequency | prominence | over floor | standing share | envelope |
 | --- | --- | --- | --- | --- |
 | 292.9480 MHz | 12.0 dB | 11.9 | 0.006 | 0.533 |
@@ -375,17 +379,24 @@ produces a "line": ten draws gave **8.2 to 13.6 dB** over the median floor.
 Fifteen sits above every one of those, against 49.8 dB for the bare carrier at
 75.000 MHz.
 
-**`SIGNAL_BARE_FRACTION = 0.80`.** A synthetic tone in no noise reads 1.00 and
-the 75.000 MHz recording 0.87, against 0.00 for a modulated 1090 MHz carrier
-and 0.00 for an empty frequency.
+**`SIGNAL_BARE_FRACTION = 0.80`,** and the table behind it was re-measured
+when `carrier_power_fraction` became a mean over segments. Over the whole of
+each capture: a synthetic tone 1.00, the 75.0005 MHz recording **0.923**, then
+Mode S 0.327, FM 0.145, TETRA 0.100, GSM 0.063, LTE 0.028. Every negative rose
+— inside one segment a modulated signal is partly coherent — and 0.80 still
+sits **0.12 under the lowest positive and 0.47 above the highest negative**,
+with nothing in the corpus between 0.33 and 0.92.
 
-> **Known defect.** `carrier_power_fraction` falls as the observation
-> lengthens, because it mixes at one fixed frequency and a drifting carrier
-> walks out of phase — the 75 MHz harmonic reads 0.888–0.921 from 0.07 s to
-> 1 s and **0.779 at 2 s**, crossing the threshold and turning a bare carrier
-> into a modulated one. No shipped path hits it: both callers pass one block.
-> `.scratch/standing-fraction-drifts/` has the fix and the table that has to
-> be re-measured with it.
+> **The defect this replaced.** `carrier_power_fraction` used to fall as the
+> observation lengthened, because it mixed at one fixed frequency and a
+> drifting carrier walks out of phase — the 75 MHz harmonic read 0.888–0.921
+> from 0.07 s to 1 s and **0.779 at 2 s**, crossing the threshold and turning
+> a bare carrier into a modulated one. It is a mean over segments of
+> `SIGNAL_STANDING_SEGMENT_BLOCKS` now and reads 0.905 at one block against
+> 0.923 at 2 s. No shipped verdict changed: both callers pass one block, and
+> every verdict in the corpus is the same at that length.
+> `.scratch/standing-fraction-drifts/` has the segment-length measurement and
+> the reason the per-segment fractions are averaged rather than summed.
 
 ### What the flag claims
 
@@ -428,7 +439,8 @@ measure them per device and reach them from Settings.
 | `RECEIVER_TONE_BINS` | 4 | `survey_suspect.h` | the window's own −20 dB response |
 | `SURVEY_RESOLVED_BINS` | 2.5 | `survey_suspect.h` | a maximum between two bins occupies both |
 | `SIGNAL_CARRIER_PRESENT_DB` | 15 dB | `signal_probe.h` | noise reaches 8.2–13.6 dB over its own median |
-| `SIGNAL_BARE_FRACTION` | 0.80 | `signal_probe.h` | tone 1.00, the harmonic 0.87, modulated ~0.00 |
+| `SIGNAL_BARE_FRACTION` | 0.80 | `signal_probe.h` | tone 1.00, the harmonic 0.923, highest modulated 0.327 |
+| `SIGNAL_STANDING_SEGMENT_BLOCKS` | 64 | `signal_probe.h` | 64 keeps a bare carrier over 0.98 out to 10 Hz/s of drift; 1/64 is the noise bias it costs |
 | `SIGNAL_ENVELOPE_RAYLEIGH` | 0.5227 | `signal_probe.h` | `sqrt(4/π − 1)`; not adjustable, it is a constant of the distribution |
 | `SURVEY_NOISE_ENVELOPE_TOLERANCE` | 0.10 | `survey_confirm.h` | noise within 0.017, nearest signal 0.27 |
 | `SURVEY_MIN_PROMINENCE_DB` | 8 dB | `survey_sweep.h` | ADR-0017; three replacements built, measured on air, put back |

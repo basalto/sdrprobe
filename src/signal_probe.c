@@ -56,15 +56,38 @@ static double line_magnitude(const float *i_samples, const float *q_samples,
  * a carrier that stands 49 dB over its own floor, and the header claimed 0.93
  * -- a number that came from reasoning rather than from running it.
  */
+/*
+ * How much of one segment's channel power sits in its own constant.
+ *
+ * `blocks` of the decimated stream, so `|mean|^2 / mean(|.|^2)`: 1.0 for a
+ * pure tone and about `1/blocks` for noise, since one block reads exactly 1
+ * whatever it holds. That bias is why the segment cannot be short.
+ */
+static double segment_fraction(double sum_re, double sum_im, double sum_sq,
+                               size_t blocks) {
+    double b = (double)blocks;
+    double mean_re, mean_im, mean_sq;
+
+    if (!blocks || sum_sq <= 0.0)
+        return 0.0;
+    mean_re = sum_re / b;
+    mean_im = sum_im / b;
+    mean_sq = sum_sq / b;
+    if (mean_sq <= 0.0)
+        return 0.0;
+    return (mean_re * mean_re + mean_im * mean_im) / mean_sq;
+}
+
 static double constant_fraction(const float *i_samples, const float *q_samples,
                                 size_t count, double carrier_hz,
                                 double sample_rate, double channel_hz) {
     double w = -2.0 * M_PI * carrier_hz / sample_rate;
     double step_re = cos(w), step_im = sin(w);
     double pr = 1.0, pi = 0.0;
-    double sum_re = 0.0, sum_im = 0.0, sum_sq = 0.0;
+    double seg_re = 0.0, seg_im = 0.0, seg_sq = 0.0;
     double block_re = 0.0, block_im = 0.0;
-    size_t n, decimate, in_block = 0, blocks = 0;
+    double ratio_sum = 0.0;
+    size_t n, decimate, in_block = 0, in_segment = 0, segments = 0;
 
     if (!(channel_hz > 0.0) || !count)
         return 0.0;
@@ -85,20 +108,33 @@ static double constant_fraction(const float *i_samples, const float *q_samples,
         if (++in_block == decimate) {
             block_re /= (double)decimate;
             block_im /= (double)decimate;
-            sum_re += block_re;
-            sum_im += block_im;
-            sum_sq += block_re * block_re + block_im * block_im;
+            seg_re += block_re;
+            seg_im += block_im;
+            seg_sq += block_re * block_re + block_im * block_im;
             block_re = block_im = 0.0;
             in_block = 0;
-            blocks++;
+            if (++in_segment == SIGNAL_STANDING_SEGMENT_BLOCKS) {
+                ratio_sum += segment_fraction(seg_re, seg_im, seg_sq,
+                                              in_segment);
+                segments++;
+                seg_re = seg_im = seg_sq = 0.0;
+                in_segment = 0;
+            }
         }
     }
-    if (!blocks || sum_sq <= 0.0)
-        return 0.0;
-    sum_re /= (double)blocks;
-    sum_im /= (double)blocks;
-    sum_sq /= (double)blocks;
-    return (sum_re * sum_re + sum_im * sum_im) / sum_sq;
+    /*
+     * A partial tail is dropped when whole segments were measured, and used
+     * when none was. Dropped because the statistic is biased upward by short
+     * segments -- one block reads exactly 1.0 -- so a stray tail of a few
+     * blocks would pull the mean up by more than it contributes signal. Used
+     * when it is all there is, because that is a look too short for drift to
+     * matter and is exactly what this function did before segments existed.
+     */
+    if (!segments)
+        return in_segment ? segment_fraction(seg_re, seg_im, seg_sq,
+                                             in_segment)
+                          : 0.0;
+    return ratio_sum / (double)segments;
 }
 
 int signal_find_carrier(const float *i_samples, const float *q_samples,

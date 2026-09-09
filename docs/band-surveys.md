@@ -234,13 +234,23 @@ a level, and the fraction of the look occupied.
 The second and third lines are the point of having it. Both are strong,
 confirmed, continuous carriers and the `confirm` line says almost the same
 thing about each; one is a broadcast station carrying a programme and one is a
-clock harmonic with nothing on it, and only the standing fraction -- 0.515 and
-0.871 against a broadcast station's 0.003 -- tells them apart.
+clock harmonic with nothing on it, and only the standing fraction tells them
+apart.
+
+**The shares in those three example lines predate the statistic becoming a
+mean over segments** and are left as they were recorded rather than
+re-invented: `carrier_power_fraction` was measured over the whole look, so a
+drifting carrier cancelled against itself, and it is a mean over segments of
+`SIGNAL_STANDING_SEGMENT_BLOCKS` now (`.scratch/standing-fraction-drifts/`).
+Every reading moved **up** -- a modulated signal is partly coherent inside one
+segment -- and the modulated ones moved most: measured on the corpus over one
+sample block, FM went 0.007 to 0.190 and TETRA 0.013 to 0.108, while the bare
+75.0005 MHz carrier went 0.888 to 0.905. No verdict in the corpus changed.
 
 A line appears only for a target the pass actually caught. A target it never
 caught has no kind, and printing zeros for one would be worse than silence:
-a standing fraction of 0.000 means "heavily modulated" and a burst count of
-zero means "continuous".
+zero is not what a heavily modulated signal reads -- those read a few
+hundredths to a fifth -- and a burst count of zero means "continuous".
 
 **The pass tunes 300 kHz below each target rather than onto it**, because the
 carrier search guards a band around zero so it cannot lock onto the receiver's
@@ -376,8 +386,9 @@ where the measurement refused), `bursts` and `occupancy`.
 `kind` is on the carrier rather than in the confirmation block because the
 carrier is what `diff` compares and what the history remembers, and it is
 **absent rather than zeroed** when the pass never caught the signal: a
-standing share of 0.000 reads as "heavily modulated" and a burst count of
-zero as "continuous", so a zero would be a claim rather than a gap.
+standing share of 0.000 is lower than anything the statistic reports for a
+real modulated signal, and a burst count of zero reads as "continuous", so a
+zero would be a claim rather than a gap.
 
 **Both writers produce the same shape.** The window and `--survey-save` write
 through `survey_store.c`; a script writes through `survey_tool.py ingest`; and

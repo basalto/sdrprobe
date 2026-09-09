@@ -262,14 +262,32 @@ six variants of it -- for the symbol-rate line, the bursts, the envelope, the
 spectral shape, the AIS channels and the ILS sidebands -- and threw every one
 away with the answer left in a transcript.
 
-`PAIRS_SIGNAL` limits how much of the capture is used, and the answer depends
-on it: `carrier_power_fraction` mixes at one fixed frequency, so a drifting
-carrier walks out of phase over a long look and the mean cancels. The
-75.0005 MHz harmonic reads 0.888 to 0.921 from 0.07 s to 1 s and **0.779 at
-2 s**, which crosses `SIGNAL_BARE_FRACTION` and turns a bare carrier into a
-modulated one. No shipped path hits it -- both callers pass one block -- and
-`.scratch/standing-fraction-drifts/` is the fix, which cannot be made without
-re-measuring the whole table behind that threshold.
+`PAIRS_SIGNAL` limits how much of the capture is used, and **it used to change
+the answer**: `carrier_power_fraction` mixes at one fixed frequency, so a
+drifting carrier walked out of phase over a long look and the mean cancelled
+against itself -- which reads exactly like modulation, because modulation is
+what the statistic is looking for. The 75.0005 MHz harmonic read 0.888 to
+0.921 from 0.07 s to 1 s and **0.779 at 2 s**, crossing
+`SIGNAL_BARE_FRACTION` and turning a bare carrier into a modulated one.
+
+It is a mean over **segments** of `SIGNAL_STANDING_SEGMENT_BLOCKS` now, and
+the same capture reads 0.905 at one block and 0.923 at 2 s. The segment length
+is measured from both ends -- one block reads exactly 1.0 whatever it holds,
+so B blocks of noise read about 1/B, while a long segment cancels -- and 64
+has the most drift margin of the lengths tried while keeping noise an order of
+magnitude under the threshold: a bare carrier stays over 0.98 out to 10 Hz/s,
+0.13 ppm per second at 75 MHz.
+
+Two things about that fix are worth carrying. The per-segment fractions are
+**averaged** rather than their numerators and denominators summed: the two are
+identical to three decimals on anything power-stationary, and they part
+company on a carrier that keys on and off, where averaging returns the duty --
+which is what the unsegmented form gave -- and summing calls a carrier keyed a
+tenth of the time "nearly bare" at 0.790. And **the threshold was re-derived
+rather than kept**: every negative in the corpus rose (the highest is now
+Mode S at 0.327 against FM's 0.145), 0.80 still sits 0.12 under the lowest
+positive and 0.47 above the highest negative, and on the one block both
+shipped callers hand it every verdict is unchanged.
 
 `probe-survey-threshold` answers a different kind of question: what a survey of
 *nothing* reports. Pure noise through the real transform and the real fold, at
