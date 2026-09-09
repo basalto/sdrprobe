@@ -89,6 +89,21 @@ callers it was earning its keep.
 7. **Calibration state into `struct calibration`** (`07`) -- sixteen fields
    beside a struct that already holds one of them, five with a single reader.
    Opened by 06's audit, not by the original review.
+   **Done, 2026-09-09**: `struct app` is **70 fields, down from 85**, and the
+   boundary had been running through the middle of coherent pairs --
+   `drift_health_prev` inside while `drift_health` was outside,
+   `gsm_cal_expected_hz` inside while `gsm_cal_valid` was outside. The
+   ticket's hypothesis was **false for one field, and the reason was a
+   fault**: `retune_receiver()` -- which every screen in the program uses --
+   wrote all five of its failure messages into `calibration_status`, prefixed
+   "Calibration", so a survey step that would not tune reported its reason on
+   the calibration overlay's status line, mislabelled, on a screen nobody was
+   looking at. `view_lte.c` already read that buffer by hand to find out why
+   1.92 MS/s had been refused, which is the tell. It is `app->receiver_error`
+   now, a real handoff, and the two calibration paths that had been depending
+   on the shared buffer -- returning -1 with no status and letting the
+   headless report print whatever the retune had left there -- quote it
+   deliberately.
 8. **Band scan state into `struct band_scan`** (`08`) -- the same edit,
    smaller: eight fields beside a struct with one reader.
 9. **Name the receiver's applied state** (`09`) -- seven fields, nineteen
