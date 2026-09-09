@@ -917,6 +917,9 @@ static void check_real_capture(const char *path, int pci, int integer_offset,
     float *i, *q;
     int blocks = 0, cells = 0, agreed = 0, prefix = 0, offset_ok = 0;
     int messages = 0, described = 0, advanced = 0, steps = 0;
+    /* What the multi-cell path made of the same blocks, so the two can be
+       compared on real samples rather than only on a built carrier. */
+    int many_seen = 0, many_silent_with_a_cell = 0;
     int previous_sfn = -1;
     size_t got;
 
@@ -941,6 +944,26 @@ static void check_real_capture(const char *path, int pci, int integer_offset,
             q[n] = ((float)raw[2 * n + 1] - 127.5f) / 127.5f;
         }
         blocks++;
+        {
+            /*
+             * The invariant, on real samples: whatever the single-cell search
+             * can find, the multi-cell search finds too. It could not, and
+             * that is what this is here for -- the coherence gate was applied
+             * to the strongest cell as well as to its neighbours, so on 1 of
+             * this capture's 6 blocks `lte_cell_search_all` came back empty
+             * while `lte_cell_search` returned cell 330. A path that reports
+             * fewer cells than the one it generalises is not a generalisation.
+             */
+            struct lte_cell many[LTE_MAX_CELLS_PER_CARRIER];
+            int found = lte_cell_search_all(i, q, pairs, LTE_SAMPLE_RATE_HZ,
+                                            g_probe_device.full_scale, many,
+                                            LTE_MAX_CELLS_PER_CARRIER, NULL);
+            if (found > 0)
+                many_seen += found;
+            if (lte_cell_search(i, q, pairs, LTE_SAMPLE_RATE_HZ, &cell,
+                                NULL) == 1 && found <= 0)
+                many_silent_with_a_cell++;
+        }
         if (lte_cell_search(i, q, pairs, LTE_SAMPLE_RATE_HZ, &cell, NULL) != 1)
             continue;
         cells++;
@@ -993,6 +1016,13 @@ static void check_real_capture(const char *path, int pci, int integer_offset,
               cells, blocks);
     check_msg(agreed == cells, "%s: cell %d in %d of the %d found\n", path,
               pci, agreed, cells);
+    check_msg(many_silent_with_a_cell == 0,
+              "%s: the multi-cell search was empty on %d blocks where the "
+              "single-cell search found one\n", path,
+              many_silent_with_a_cell);
+    check_msg(many_seen >= cells,
+              "%s: %d cell-sightings on the carrier against %d blocks with a "
+              "cell\n", path, many_seen, cells);
     check_msg(prefix == cells, "%s: the normal prefix in %d of %d\n", path,
               prefix, cells);
     /* Without the whole-subcarrier search this is zero and everything above
@@ -1246,14 +1276,28 @@ static void test_two_cells_on_one_carrier(void) {
     two_cell_tally(0.92f, &t);
 
     /*
-     * The capability, with room. Nine of sixteen separate both cells; the
-     * floor is four, so a change has to lose more than half of what works
-     * before this fails. `probe-two-cell` prints the number, and moving it up
-     * is what an improvement to the multi-cell path would look like.
+     * The capability, with room. Eleven of sixteen separate both cells; the
+     * floor is six, so a change has to lose nearly half of what works before
+     * this fails. `probe-two-cell` prints the number, and it is a number an
+     * improvement moves: it was **nine** until the coherence gate stopped
+     * being applied to the strongest cell as well as to its neighbours.
      */
-    check_msg(t.two >= 4,
+    check_msg(t.two >= 6,
               "two cells on one carrier: separated on %d of %d carriers, "
-              "floor 4\n", t.two, t.carriers);
+              "floor 6\n", t.two, t.carriers);
+
+    /*
+     * And never none. A carrier holding two cells that reports neither is a
+     * worse answer than one that reports one, and this path could give it:
+     * with the coherence gate applied to the strongest cell too, two
+     * co-channel cells depressed each other under it and both were dropped --
+     * 2 of 40 carriers at equal power, and 1 of 6 blocks of
+     * `lte_b8_pci330_4port.bin`, where there is only one cell to lose.
+     * `lte_cell_search_all` may never see less than `lte_cell_search` does.
+     */
+    check_msg(t.none == 0,
+              "and no carrier comes back empty: %d of %d did\n", t.none,
+              t.carriers);
 
     /*
      * And the half that is absolute rather than statistical, which is the
