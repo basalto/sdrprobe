@@ -616,7 +616,31 @@ static void test_version_flag(void) {
     }
 }
 
+
+/* ADR-0018's two flags: a stable receiver name, and claiming a legacy
+   correction. Both are the operator saying something the program may not
+   guess. */
+static void test_receiver_identity_flags(void) {
+    struct options o;
+
+    check_int("a label is taken",
+              parse_line("--receiver-label rooftop-dongle", &o), 0);
+    check_str("and kept", o.receiver_label, "rooftop-dongle");
+    check_int("claiming is off unless asked", o.claim_calibration, 0);
+
+    check_int("claiming is taken", parse_line("--claim-calibration", &o), 0);
+    check_int("and set", o.claim_calibration, 1);
+
+    check_int("a label twice is a contradiction",
+              parse_line("--receiver-label a --receiver-label b", &o), -1);
+    check_int("claiming twice too",
+              parse_line("--claim-calibration --claim-calibration", &o), -1);
+    check_int("a label with no value",
+              parse_line("--receiver-label", &o), -1);
+}
+
 int main(void) {
+    test_receiver_identity_flags();
     test_defaults();
     test_frequency_spellings();
     test_gain_and_numbers();

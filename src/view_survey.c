@@ -257,12 +257,12 @@ static void survey_save_sweep(struct app *app) {
             prom[i] = s->carriers[i].prominence_db;
         }
         if (!s->history_loaded)
-            site_history_load(app->config.site, &s->history);
+            installation_history_load(&app->installation, &s->history);
         site_history_init(&s->history, app->config.site);
-        site_history_load(app->config.site, &s->history);
+        installation_history_load(&app->installation, &s->history);
         site_history_merge(&s->history, hz, level, prom, s->carrier_count,
                            s->plan.bin_hz, survey_hour_now());
-        site_history_save(&s->history);
+        installation_history_save(&app->installation, &s->history);
     }
     /* Whatever "Ask again" has already settled about this sweep. Cleared when
        a sweep starts, so a save can never carry the previous sweep's
@@ -625,7 +625,7 @@ static void survey_confirm_step(struct app *app, double now, int have_block) {
                                     (double)app->applied_sample_rate /
                                         SDR_DSP_FFT_SIZE,
                                     survey_hour_now());
-            site_history_save(&s->history);
+            installation_history_save(&app->installation, &s->history);
         }
     }
 
@@ -668,7 +668,7 @@ static void survey_watch_fold(struct app *app) {
     if (!app->config.site[0])
         return;
     if (!s->history_loaded)
-        site_history_load(app->config.site, &s->history);
+        installation_history_load(&app->installation, &s->history);
     for (i = 0; i < s->carrier_count; i++) {
         hz[i] = s->carriers[i].centre_hz;
         level[i] = s->carriers[i].peak_dbfs;
@@ -681,7 +681,7 @@ static void survey_watch_fold(struct app *app) {
     s->watch_total_appeared += s->watch_appeared;
     s->watch_total_lost += s->watch_lost;
     s->watch_sweeps++;
-    site_history_save(&s->history);
+    installation_history_save(&app->installation, &s->history);
 }
 
 /*
@@ -704,7 +704,7 @@ static void survey_history_refresh(struct app *app) {
         site_history_init(&s->history, "");
         return;
     }
-    if (site_history_load(app->config.site, &s->history) < 0)
+    if (installation_history_load(&app->installation, &s->history) < 0)
         return;
     s->history_loaded = 1;
 

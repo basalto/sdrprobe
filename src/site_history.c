@@ -425,13 +425,14 @@ int site_history_path(const char *site, char *out, size_t size) {
     return (written < 0 || (size_t)written >= size) ? -1 : 0;
 }
 
-int site_history_load(const char *site, struct site_history *history) {
-    char path[256], text[65536];
+int site_history_load_path(const char *path, const char *label,
+                           struct site_history *history) {
+    char text[65536];
     FILE *file;
     size_t got;
 
-    site_history_init(history, site);
-    if (site_history_path(site, path, sizeof(path)) < 0)
+    site_history_init(history, label);
+    if (!path || !*path)
         return -1;
     file = fopen(path, "rb");
     if (!file)
@@ -442,17 +443,44 @@ int site_history_load(const char *site, struct site_history *history) {
     site_history_parse(text, history);
     /* The file's own site line is authoritative for what it holds, but the
        caller asked about this one; keep the caller's spelling. */
-    snprintf(history->site, sizeof(history->site), "%s", site);
+    snprintf(history->site, sizeof(history->site), "%s", label);
     return 0;
 }
 
-int site_history_save(const struct site_history *history) {
+int site_history_load(const char *site, struct site_history *history) {
     char path[256];
+
+    if (site_history_path(site, path, sizeof(path)) < 0) {
+        site_history_init(history, site);
+        return -1;
+    }
+    return site_history_load_path(path, site, history);
+}
+
+/*
+ * How much a legacy site-only baseline holds, or -1 when there is none.
+ *
+ * Offered rather than merged: ADR-0022 will not invent which receiver and
+ * antenna produced a file that cannot say.
+ */
+int site_history_legacy_entries(const char *site) {
+    static struct site_history legacy;   /* it is large; not a stack */
+    char path[256];
+
+    if (site_history_path(site, path, sizeof(path)) < 0)
+        return -1;
+    if (site_history_load_path(path, site, &legacy) != 0)
+        return -1;
+    return legacy.count;
+}
+
+int site_history_save_path(const char *path,
+                           const struct site_history *history) {
     char *text;
     FILE *file;
     int length;
 
-    if (!history || site_history_path(history->site, path, sizeof(path)) < 0)
+    if (!history || !path || !*path)
         return -1;
     if (mkdir("surveys", 0755) < 0 && errno != EEXIST) {
         fprintf(stderr, "Could not create surveys/: %s\n", strerror(errno));
@@ -476,4 +504,12 @@ int site_history_save(const struct site_history *history) {
     fclose(file);
     free(text);
     return 0;
+}
+
+int site_history_save(const struct site_history *history) {
+    char path[256];
+
+    if (!history || site_history_path(history->site, path, sizeof(path)) < 0)
+        return -1;
+    return site_history_save_path(path, history);
 }

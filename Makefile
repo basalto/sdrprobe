@@ -71,7 +71,7 @@ all: sdrprobe
 DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/adsb_session.c $(SRC)/fm_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c
-APP_SRC=$(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
+APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/backend_uhd.c \
 	$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
@@ -239,10 +239,10 @@ check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 # out, so it links nothing at all.
 # The antenna and site that persist between runs. Text in, text out.
 check-installation: $(TESTS)/installation_test.c $(TESTS)/check.h \
-		$(SRC)/installation.h
+		$(SRC)/installation.h $(SRC)/site_history.h $(SRC)/site_history.c
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/installation_test \
-		$(TESTS)/installation_test.c -lm
+		$(TESTS)/installation_test.c $(SRC)/site_history.c -lm
 	$(Q)./$(BUILD)/installation_test
 
 check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
