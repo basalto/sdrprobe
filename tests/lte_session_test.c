@@ -136,10 +136,9 @@ static void test_a_message_needs_a_second_that_agrees(void) {
     check_int("the first pass is never a message on its own",
               r.messages, r.parity_passes - 1);
     check_int("and the counters agree with the events",
-              (int)session.mibs_decoded, r.messages);
-    check_int("as do the parity ones",
-              (int)session.mib_parity_passes, r.parity_passes);
-    check_int("two agreements make a message", LTE_SESSION_MIB_AGREEMENTS, 2);
+              (int)session.mibs_confirmed, r.messages);
+    check_int("as do the decoded ones",
+              (int)session.mibs_decoded, r.parity_passes);
 }
 
 /*
@@ -215,11 +214,100 @@ static void test_reset(void) {
     lte_session_reset(&session);
     check_int("and then it is not", session.cell_valid, 0);
     check_int("nor its broadcast", session.mib_valid, 0);
-    check_int("nor the pending message", session.pending_mib_hits, 0);
+    check_int("nor the previous pass it was comparing against",
+              session.repeat.have_previous, 0);
     check_msg(session.blocks_seen == 0, "the funnel is cleared too\n");
 }
 
+
+/*
+ * The agreement rule, on its own.
+ *
+ * It is one function with two users -- this session and `--lte-chain` -- and
+ * it got there by being written twice and then proved identical. The property
+ * below is what "identical" meant: **a pass is agreed exactly when it equals
+ * the pass before it**, so over any sequence the count is the number of
+ * adjacent equal pairs. Both old spellings satisfied it; this pins the rule
+ * rather than either spelling.
+ */
+static void test_the_repeat_rule(void) {
+    struct lte_mib_repeat r;
+    struct lte_mib a, b;
+    int i, mismatches = 0;
+
+    memset(&a, 0, sizeof(a));
+    a.bandwidth_prb = 50;
+    a.phich_resource_sixths = 1;
+    a.antenna_ports = 2;
+    b = a;
+    b.antenna_ports = 4;   /* a cell does not change this between frames */
+
+    lte_mib_repeat_reset(&r);
+    check_int("the first pass agrees with nothing",
+              lte_mib_repeat_observe(&r, &a), 0);
+    check_int("a repeat of it agrees", lte_mib_repeat_observe(&r, &a), 1);
+    check_int("and again", lte_mib_repeat_observe(&r, &a), 1);
+    check_int("a different message does not",
+              lte_mib_repeat_observe(&r, &b), 0);
+    check_int("but its own repeat does", lte_mib_repeat_observe(&r, &b), 1);
+    check_int("back to the first, which is not a repeat of the second",
+              lte_mib_repeat_observe(&r, &a), 0);
+
+    /* The frame number advances and must not break agreement -- that is what
+       lte_mib_same_cell leaves out, and what it is for. */
+    {
+        struct lte_mib later = a;
+        later.system_frame_number = a.system_frame_number + 7;
+        lte_mib_repeat_reset(&r);
+        lte_mib_repeat_observe(&r, &a);
+        check_int("a later frame of the same cell still agrees",
+                  lte_mib_repeat_observe(&r, &later), 1);
+    }
+
+    /* Reset forgets, so the next pass agrees with nothing. */
+    lte_mib_repeat_reset(&r);
+    check_int("after a reset, nothing to agree with",
+              lte_mib_repeat_observe(&r, &a), 0);
+
+    /*
+     * The property, over every sequence of eight passes drawn from three
+     * distinct messages: the count equals the number of adjacent equal pairs.
+     */
+    {
+        const struct lte_mib *alphabet[3];
+        struct lte_mib c = a;
+        long combo;
+
+        c.bandwidth_prb = 6;
+        alphabet[0] = &a;
+        alphabet[1] = &b;
+        alphabet[2] = &c;
+
+        for (combo = 0; combo < 6561; combo++) {   /* 3^8 */
+            long v = combo;
+            int seq[8], agreed = 0, adjacent = 0;
+
+            for (i = 0; i < 8; i++) { seq[i] = (int)(v % 3); v /= 3; }
+            lte_mib_repeat_reset(&r);
+            for (i = 0; i < 8; i++)
+                agreed += lte_mib_repeat_observe(&r, alphabet[seq[i]]);
+            for (i = 1; i < 8; i++)
+                adjacent += (seq[i] == seq[i - 1]);
+            if (agreed != adjacent)
+                mismatches++;
+        }
+        check_int("over 6561 sequences, agreements are adjacent equal pairs",
+                  mismatches, 0);
+    }
+
+    check_int("a null rule agrees with nothing",
+              lte_mib_repeat_observe(NULL, &a), 0);
+    check_int("and a null message too",
+              lte_mib_repeat_observe(&r, NULL), 0);
+}
+
 int main(void) {
+    test_the_repeat_rule();
     test_cell_28();
     test_a_message_needs_a_second_that_agrees();
     test_off_the_grid_says_so();

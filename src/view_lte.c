@@ -968,15 +968,16 @@ void draw_lte(struct app *app) {
     /* The funnel. Two empty panels look the same whether nothing is
        transmitting or every message is failing, and this is the difference. */
     snprintf(text, sizeof(text),
-             "funnel   blocks %llu -> cells %llu -> parity %llu -> "
-             "messages %llu%s",
+             "funnel   blocks %llu -> cells %llu -> decoded %llu -> "
+             "confirmed %llu%s",
              (unsigned long long)app->lte.session.blocks_seen,
              (unsigned long long)app->lte.session.cells_found,
-             (unsigned long long)app->lte.session.mib_parity_passes,
              (unsigned long long)app->lte.session.mibs_decoded,
+             (unsigned long long)app->lte.session.mibs_confirmed,
              lte_on_grid(app) ? "" : "   [wrong sample rate]");
     sdrgui_text_fit(text, header_x, 110, 16, l.header_right - l.header_left,
-                    (app->lte.session.cells_found > 0 && app->lte.session.mibs_decoded == 0)
+                    (app->lte.session.cells_found > 0 &&
+                     app->lte.session.mibs_confirmed == 0)
                         ? warning
                         : (Color){ 151, 174, 188, 255 });
 

@@ -39,11 +39,50 @@
 #define LTE_SESSION_PORT_HYPOTHESES 3
 extern const int lte_session_port_hypotheses[LTE_SESSION_PORT_HYPOTHESES];
 
-/* How many agreeing parity passes make a message. Two, and the reasoning is
-   in the header comment: thirty-six attempts a block makes one pass expected
-   rather than rare, and two random passes agree about a cell's three fixed
-   fields once in about a hundred and forty-four. */
-#define LTE_SESSION_MIB_AGREEMENTS 2
+/*
+ * The rule itself, as a value with one implementation and two users: this
+ * session, and `--lte-chain`.
+ *
+ * Those two had it written out separately and **the two spellings were
+ * provably the same rule** -- driven by every sequence of up to eight parity
+ * passes over three distinct messages, 9840 of them, they never disagreed, and
+ * a live run reads `decoded 140 agreed 139`, the same `n - 1` the session gives
+ * on a capture. It is one function now.
+ *
+ * It is a **memory of the previous pass, not a counter**. An earlier shape
+ * here was `pending_mib` plus `pending_mib_hits`, compared against a threshold
+ * of two -- which read as state accumulating toward a bar and could never mean
+ * more than "did the previous pass agree", because a message was emitted on
+ * every pass once the count reached two. The threshold was decoration.
+ */
+struct lte_mib_repeat {
+    struct lte_mib previous;
+    int have_previous;
+};
+
+static inline void lte_mib_repeat_reset(struct lte_mib_repeat *r) {
+    if (r)
+        r->have_previous = 0;
+}
+
+/*
+ * Offer a parity pass. Returns 1 when it agrees with the one before it about
+ * what a cell does not change between frames -- its bandwidth, its
+ * acknowledgement channel and its antenna count -- and 0 otherwise. The frame
+ * number is left out of that comparison because it advances, which is what it
+ * is for.
+ */
+static inline int lte_mib_repeat_observe(struct lte_mib_repeat *r,
+                                         const struct lte_mib *mib) {
+    int agrees;
+
+    if (!r || !mib)
+        return 0;
+    agrees = r->have_previous && lte_mib_same_cell(&r->previous, mib);
+    r->previous = *mib;
+    r->have_previous = 1;
+    return agrees;
+}
 
 struct lte_session {
     struct lte_cell cell;
@@ -70,14 +109,16 @@ struct lte_session {
     double mib_time;
     int mib_ports_used;         /* the combining the message decoded under */
 
-    /* The message waiting to be believed, and how many have agreed with it. */
-    struct lte_mib pending_mib;
-    int pending_mib_hits;
+    /* The previous parity pass, which is all the rule needs. */
+    struct lte_mib_repeat repeat;
 
     uint64_t blocks_seen;
     uint64_t cells_found;
-    uint64_t mib_parity_passes;  /* before the repeat is required */
+    /* Two different things, and they were both called "messages" somewhere
+       until this ticket. `decoded` is a broadcast whose parity passed;
+       `confirmed` is one that also agreed with the pass before it. */
     uint64_t mibs_decoded;
+    uint64_t mibs_confirmed;
 
     /*
      * Why the last block produced nothing, when it produced nothing.
