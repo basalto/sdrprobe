@@ -236,8 +236,20 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
                   "\"bin_hz\": %.1f, \"dwell_s\": %.3f},\n",
             plan->step_count, plan->bins, plan->bin_hz,
             app->survey.dwell_seconds);
+    /*
+     * The receiving setup that produced this sweep, from the installation
+     * rather than from the config file's spelling of it (ADR-0018, ADR-0022).
+     * `id` is new: a sweep that cannot say which receiver took it cannot be
+     * matched to a calibration or to a baseline, which is the whole argument
+     * of both ADRs. Written as null rather than omitted when the receiver has
+     * no identity, so a reader can tell "nobody said" from "not recorded".
+     */
     fprintf(file, "  \"receiver\": {\n");
-    put_string(file, "    ", "antenna", app->config.antenna, ",");
+    if (installation_identified(&app->installation))
+        put_string(file, "    ", "id", app->installation.receiver, ",");
+    else
+        fprintf(file, "    \"id\": null,\n");
+    put_string(file, "    ", "antenna", app->installation.antenna, ",");
     if (app->applied_gain_tenths > 0)
         fprintf(file, "    \"gain_db\": %.1f\n",
                 (double)app->applied_gain_tenths / 10.0);
@@ -247,9 +259,9 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
     /* No site is written as null rather than an empty string: a reader must be
        able to tell "nobody said" from "somebody said nothing", because two
        sweeps with an empty label would compare as the same place. */
-    if (app->config.site[0]) {
+    if (app->installation.site[0]) {
         fprintf(file, "  \"site\": {\n");
-        put_string(file, "    ", "label", app->config.site, "");
+        put_string(file, "    ", "label", app->installation.site, "");
         fprintf(file, "  },\n");
     } else {
         fprintf(file, "  \"site\": {},\n");

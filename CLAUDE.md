@@ -647,7 +647,11 @@ explicit act: `--claim-calibration`, with `--receiver-label` for a receiver
 whose USB serial is missing or shared, which many of these dongles are. A
 receiver with no identity is told so rather than offered a claim it cannot
 make. `installation_commit()` is the one writer, where four call sites each
-used to decide when a save was due. A sweep's marks are claims from a tenth of a second each;
+used to decide when a save was due. A sweep's JSON names the receiver too
+(`receiver.id`, `null` when there is none), because a sweep that cannot say
+what took it cannot be matched to a calibration or a baseline — and a
+headless survey of a capture now says *"survey-history not kept"* rather
+than reporting a baseline it did not write. A sweep's marks are claims from a tenth of a second each;
 **Ask again**, or `--survey-confirm` on a scripted sweep, revisits each with six
 blocks on the frequency, each measured on its own, and prints a verdict with
 the count behind it -- `confirmed` when it was up in every look, `refuted` when

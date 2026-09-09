@@ -225,6 +225,7 @@ static void check_calibration_overlay(void) {
         all[n] = l.channel;     names[n++] = "channel";
         all[n] = l.start;       names[n++] = "start";
         all[n] = l.apply_ppm;   names[n++] = "apply";
+        all[n] = l.claim_ppm;   names[n++] = "claim";
         if (lte) {
             for (i = 0; i < CALIBRATION_LTE_BANDS; i++) {
                 all[n] = l.lte_band[i]; names[n++] = "lte band";

@@ -2922,19 +2922,15 @@ int main(int argc, char **argv) {
             config_remember_antenna(&config, config.antenna))
             changed = 1;
         /*
-         * The correction follows the site. Arriving somewhere the receiver has
-         * been calibrated should restore that calibration, not carry the last
-         * one measured somewhere else -- but an explicit --ppm outranks it and
-         * is recorded against wherever we now are.
+         * The correction is **not** decided here any more.
+         *
+         * It follows the site *and the receiver* (ADR-0018), and the receiver
+         * is not known until it is open -- this runs before that. Reading a
+         * site-only value here is what used to apply a legacy correction to
+         * whatever happened to be plugged in, which is the thing the ADR
+         * refuses. It is done after `installation_load()` below, where the
+         * serial is in hand.
          */
-        if (config.site[0]) {
-            if (options.ppm_seen) {
-                if (config_set_site_ppm(&config, config.site, options.ppm))
-                    changed = 1;
-            } else {
-                options.ppm = config_site_ppm(&config, config.site);
-            }
-        }
         if (changed && config_save(&config) == 0)
             fprintf(stderr, "Saved: antenna \"%s\"%s%s\n", config.antenna,
                     config.site[0] ? ", site " : "", config.site);
@@ -3034,7 +3030,27 @@ int main(int argc, char **argv) {
     installation_load(&app->installation, &app->config, app->device.serial,
                       app->options.receiver_label);
     {
-        int legacy = 0;
+        int legacy = 0, profile = 0;
+
+        /*
+         * An explicit --ppm outranks everything and is recorded against
+         * wherever and whatever we now are. Otherwise a profile for this
+         * receiver at this site is restored -- which is what "arriving
+         * somewhere the receiver has been calibrated restores that
+         * calibration" means once a correction knows whose crystal it is.
+         */
+        if (app->options.ppm_seen) {
+            if (installation_record_ppm(&app->installation,
+                                        app->options.ppm) == 0)
+                installation_commit(&app->installation, &app->config);
+        } else if (installation_ppm(&app->installation, &profile)) {
+            app->options.ppm = profile;
+            if (app->receiver_mode &&
+                set_frequency_correction(&app->source, profile) >= 0)
+                app->applied_ppm = profile;
+            fprintf(stderr, "Restored %+d ppm for %s at \"%s\".\n", profile,
+                    app->installation.receiver, app->installation.site);
+        }
 
         if (app->installation.site[0] &&
             !installation_ppm(&app->installation, NULL) &&

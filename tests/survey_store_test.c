@@ -215,9 +215,15 @@ static void test_the_file_it_writes(void) {
     plan.bin_hz = 2441.4;
     app->survey.dwell_seconds = 0.12;
     app->applied_gain_tenths = 297;
-    snprintf(app->config.antenna, sizeof(app->config.antenna),
-             "a \"quoted\" whip");
-    snprintf(app->config.site, sizeof(app->config.site), "home-desk");
+    /*
+     * The receiving setup, which is what a sweep records now -- ADR-0018 and
+     * ADR-0022 -- rather than the config file's spelling of it. The antenna
+     * still carries a quote, because a name a person typed has to survive
+     * being written into JSON.
+     */
+    installation_identify(&app->installation, "77771111153705700", NULL);
+    installation_set_id(app->installation.antenna, "a \"quoted\" whip");
+    installation_set_id(app->installation.site, "home-desk");
 
     memset(c, 0, sizeof(c));
     c[0].found_hz = 94492310;
@@ -271,7 +277,10 @@ static void test_the_file_it_writes(void) {
         remove(path);
 
         /* The keys, spelled exactly as the reporting tool looks them up. */
-        check_true("antenna is under receiver, spelled plainly",
+        check_true("the receiver names itself, so the sweep can be matched to a "
+               "calibration and a baseline",
+               strstr(text, "\"id\": \"77771111153705700\"") != NULL);
+    check_true("antenna is under receiver, spelled plainly",
                    strstr(text, "\"antenna\": \"a \\\"quoted\\\" whip\"") != NULL);
         check_true("the site has a label", strstr(text, "\"label\": \"home-desk\"") != NULL);
         check_true("the gain is a number, not a string",
