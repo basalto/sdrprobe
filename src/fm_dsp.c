@@ -350,6 +350,10 @@ double fm_pilot_ppm(const struct fm_pilot *pilot) {
     return (measured - FM_PILOT_HZ) / FM_PILOT_HZ * 1e6;
 }
 
+double fm_pilot_coherence(const struct fm_pilot *pilot) {
+    return pilot ? pilot->coherence : 0.0;
+}
+
 int fm_rds_front_init(struct fm_rds_front *front, double sample_rate) {
     if (!front)
         return -1;

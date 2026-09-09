@@ -374,10 +374,12 @@ static void draw_signal_panel(const struct app *app, Rectangle rect) {
                  fm_pilot_ppm(&fm->session.front.pilot));
         draw_row_at(&rows, r++, "pilot offset", text, row_value);
     }
-    snprintf(text, sizeof(text), "%.2f", fm->session.front.pilot.coherence);
-    draw_row_at(&rows, r++, "coherence", text,
-                fm->session.front.pilot.coherence >= FM_PILOT_MIN_COHERENCE
-                    ? row_good : row_weak);
+    {
+        double coherence = fm_pilot_coherence(&fm->session.front.pilot);
+        snprintf(text, sizeof(text), "%.2f", coherence);
+        draw_row_at(&rows, r++, "coherence", text,
+                    coherence >= FM_PILOT_MIN_COHERENCE ? row_good : row_weak);
+    }
     if (locked) {
         snprintf(text, sizeof(text), "%d/%d", fm->session.timing_offset,
                  FM_RDS_SAMPLES_PER_SYMBOL);

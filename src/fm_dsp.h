@@ -189,6 +189,18 @@ double fm_pilot_hz(const struct fm_pilot *pilot);
  * Not a frequency reference, and the note in fm_dsp.c says why at length.
  */
 double fm_pilot_ppm(const struct fm_pilot *pilot);
+/*
+ * How much of what the loop is tracking is actually a tone, 0 to 1 -- the
+ * smoothed correlation against its own length. It is half of the lock
+ * decision and the half worth showing, because it degrades gradually where
+ * `fm_pilot_locked` is a cliff: a station fading out reads 0.9, 0.7, 0.5
+ * while the lock stays true and then is not.
+ *
+ * Read `FM_PILOT_MIN_COHERENCE` for where the lock draws its line. This
+ * exists so that nothing outside this module reaches into `struct fm_pilot`
+ * for it -- with this accessor, nothing does.
+ */
+double fm_pilot_coherence(const struct fm_pilot *pilot);
 
 /*
  * Stage three and four: the subcarrier, brought down to baseband at exactly

@@ -254,6 +254,14 @@ worth anything: a negative from a detector nobody has seen fire is not a
 finding. Six band 8 carriers read 2.9 to 5.1 deviations and 50 to 79%, against
 a known-empty LTE capture at 4.0 and 68%.
 
+`probe-lte-chain` reports what the multi-cell search made of each block
+beside what the single-cell one did, because until that line existed
+`lte_cell_search_all` had **no route to a capture at all** -- `--lte-chain`
+refuses a file, so it was reachable only with a receiver attached, which is
+how it came to lose a cell on a committed test capture with nothing noticing.
+Its summary says how often it came back silent and how often the single-cell
+search refused, and the first may never exceed the second.
+
 `probe-two-cell` is the odd one out in a different way: its subject is a
 *check* rather than a capture. It builds the two-cell fixture over forty draws
 of its interfering traffic and reports what the multi-cell search makes of
@@ -1220,7 +1228,22 @@ sightings would have confirmed the wrong one. `src/lte_confirm.h` asks instead
 whether the identity's *own* broadcast channel decoded -- scrambled with the
 identity, checked by a CRC, and so not something repetition can manufacture --
 and reports `confirmed`, `unread` or `spurious`. Three verdicts, because "seen
-often and never read" is its own answer and a weak real cell lands there too. The `power`
+often and never read" is its own answer and a weak real cell lands there too.
+
+**The antenna-port coherence gate that suppresses those false identities is a
+gate on the *neighbours*, not on the cell the carrier is about**, and it was
+applied to both until 2026-09-09. `lte_cell_search` admits the strongest
+root's cell on the primary and secondary sequences alone -- no coherence
+anywhere -- and every other caller takes that answer, so gating it again here
+made `lte_cell_search_all` able to report **fewer** cells than the path it
+generalises: `lte_b8_pci330_4port.bin` came back empty on 1 of its 6 blocks
+where the single-cell search returns cell 330, because two co-channel cells
+depress each other's reference coherence under 0.55 and both were dropped.
+`check-lte-dsp` pins the invariant on both real captures now -- whatever the
+single-cell search finds, the multi-cell search finds too -- and on air the
+second cell of EARFCN 3625 went from 57 decoded broadcast messages in 45 s to
+186, still `confirmed`. Nothing was loosened for it: the constant is
+untouched and the neighbours still have to earn their place. The `power`
 line is 36.214's reference-signal measurements over the six central resource
 blocks: `rsrp_dbfs`, `rssi_dbfs` and `rsrq_db`. **RSRP is dBFS and not dBm**,
 because nothing here knows the antenna's gain or the cable's loss, so it
