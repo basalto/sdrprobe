@@ -723,7 +723,7 @@ static int help_topic_for_screen(const struct app *app) {
             return HELP_LTE;
         if (app->decode == DECODE_FM)
             return HELP_FM;
-        if (app->scan_selected_arfcn > 0 && app->gsm_analysis_mode)
+        if (app->scan_selected_arfcn > 0 && app->gsm.analysis_mode)
             return HELP_BURST;
         return HELP_SCAN;
     }

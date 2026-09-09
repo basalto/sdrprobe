@@ -143,7 +143,7 @@ static float gsm_header_width(int x) {
 void draw_gsm(struct app *app) {
     char text[320];
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
-        draw_button(gsm_view_toggle_button(), app->gsm_analysis_mode ? "View: Waterfall" : "View: Burst", 0);
+        draw_button(gsm_view_toggle_button(), app->gsm.analysis_mode ? "View: Waterfall" : "View: Burst", 0);
         draw_button(gsm_back_to_scan_button(), "Back to Scan", 1);
     } else {
         draw_button(gsm_scan_button(),
@@ -275,7 +275,7 @@ void draw_gsm(struct app *app) {
                      (Color){ 151, 174, 188, 255 });
         }
 
-        if (app->gsm_analysis_mode) {
+        if (app->gsm.analysis_mode) {
             /* Burst Analysis Chart replaces Waterfall. sdrgui_burst_chart
                keeps its labels inside its own rectangle, so this gap is only
                breathing room between panels. */
@@ -499,7 +499,7 @@ void handle_gsm_input(struct app *app) {
     }
     if (app->scan_selected_arfcn > 0 && !app->scan_running) {
         if (clicked(gsm_view_toggle_button())) {
-            app->gsm_analysis_mode = !app->gsm_analysis_mode;
+            app->gsm.analysis_mode = !app->gsm.analysis_mode;
             return;
         }
         if (clicked(gsm_back_to_scan_button())) {
@@ -521,7 +521,7 @@ void handle_gsm_input(struct app *app) {
         int arfcn = gsm_scan_arfcn_at(GetMousePosition(), gsm_scan_rect());
         if (arfcn > 0 && app->scan_power[arfcn] > SCAN_SENTINEL_DBFS) {
             gsm_tune_selected(app, arfcn);
-            app->gsm_analysis_mode = 1;
+            app->gsm.analysis_mode = 1;
         }
     }
 }
@@ -561,7 +561,7 @@ void enter_gsm(struct app *app) {
         arfcn = app->scan_selected_arfcn;
     if (arfcn > 0) {
         gsm_tune_selected(app, arfcn);
-        app->gsm_analysis_mode = 1; /* Default to Burst mode when inspecting */
+        app->gsm.analysis_mode = 1; /* Default to Burst mode when inspecting */
     } else if (app->receiver_mode) {
         if (start_scan(app) == 0) {
             app->scan_open = 0;

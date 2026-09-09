@@ -72,7 +72,29 @@ callers it was earning its keep.
 5. **FM receiver interface** (`05`) -- speculative; analysis mode wants
    internals on screen and they must become readouts, not vanish.
 6. **`struct app` carve-out** (`06`) -- not a project; the measure of whether
-   01-04 worked.
+   01-04 worked. **Measured, 2026-09-09**: `app.h` is 898 lines against the
+   1019 the ticket cites, and `struct app` holds **85 fields, 30 of which are
+   handoffs or per-view containers**. So 01-04 worked, and the ticket cannot
+   close: its premise -- "each straggler belongs to one of 01-04" -- is wrong,
+   because the 55 survivors cluster into calibration (16 fields, five with a
+   single reader, beside a `struct calibration` that already exists), the GSM
+   band scan (8, same shape), the receiver's applied state (7 fields across
+   nineteen files, three of them read more widely than the sample buffers, a
+   module that never had a name) and the
+   spectrum display (16, and almost all of it is `sdrprobe.c` computing for
+   `view_scope.c`, which is what a handoff looks like). Those become tickets
+   07, 08 and 09; the spectrum cluster is left alone. The one direct fix was
+   `gsm_analysis_mode`, the last analysis mode not nested in its own view.
+
+7. **Calibration state into `struct calibration`** (`07`) -- sixteen fields
+   beside a struct that already holds one of them, five with a single reader.
+   Opened by 06's audit, not by the original review.
+8. **Band scan state into `struct band_scan`** (`08`) -- the same edit,
+   smaller: eight fields beside a struct with one reader.
+9. **Name the receiver's applied state** (`09`) -- seven fields, nineteen
+   files, and no home. `needs-triage` and probably wants the second
+   receiver first: a "what is applied" struct designed against one device is
+   the mistake `.scratch/device-model/` exists to avoid.
 
 ## What this is not
 

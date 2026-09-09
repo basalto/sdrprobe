@@ -1192,7 +1192,7 @@ static struct debug_screen debug_screen_now(const struct app *app) {
     s.help_open = app->help.open;
     s.menu_open = app->survey.site_menu_open || app->survey.antenna_menu_open;
     s.analysis = app->adsb.analysis_mode || app->lte.analysis_mode ||
-                 app->gsm_analysis_mode;
+                 app->gsm.analysis_mode;
     return s;
 }
 
@@ -1436,7 +1436,7 @@ static int run_gui(struct app *app) {
     app->adsb.analysis_mode = app->options.analysis;
     app->lte.analysis_mode = app->options.analysis;
     app->tetra.analysis_mode = app->options.analysis;
-    app->gsm_analysis_mode = app->options.analysis;
+    app->gsm.analysis_mode = app->options.analysis;
 
     /* A recording asked for on the command line starts as soon as the worker
        is up, exactly as the button's does. */

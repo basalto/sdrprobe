@@ -1573,7 +1573,7 @@ void handle_survey_input(struct app *app) {
             set_tab(app, TAB_DECODE);
             if (arfcn > 0)
                 gsm_tune_selected(app, arfcn);
-            app->gsm_analysis_mode = 1;
+            app->gsm.analysis_mode = 1;
         } else if (decoder == BAND_PLAN_ADSB) {
             view_survey_leave(app);
             set_decode(app, DECODE_ADSB);
