@@ -558,6 +558,21 @@ struct gsm_view {
        front-end options. It takes samples and gives back events, and knows
        nothing about a window (gsm_session.h). */
     struct gsm_session session;
+    /*
+     * Charts instead of the waterfall. A boolean: 0 waterfall, 1 burst
+     * analysis, only ever set to those or toggled between them.
+     *
+     * Nested like every other technology's -- `fm`, `lte`, `tetra` and `adsb`
+     * all have one, and this was the last that did not: it sat loose at the
+     * top of `struct app` as `gsm_analysis_mode`, read from five files, which
+     * is the straggler `.scratch/deepening/issues/06-*` names.
+     *
+     * Its comment there read "Burst Analysis Chart: 0=Corr, 1=Soft Bits,
+     * 2=Phase", describing a three-way selector the view has not had for some
+     * time. Impeccable arithmetic beside false prose, in a field nobody could
+     * see because it was loose in a thousand-line struct.
+     */
+    int analysis_mode;
     int const_amplitude; /* constellation: show amplitude vs unit circle */
     int const_derotated; /* constellation: derotated sample vs differential */
 };
@@ -884,16 +899,6 @@ struct app {
     char drift_notice[160];
     int drift_phase;               /* enum drift_phase */
 
-    /* ADS-B / Mode S decoder tab (the Decoder context). */
-
-    /* GSM SCH decode of the inspected channel. */
-    int gsm_analysis_mode;   /* Burst Analysis Chart: 0=Corr, 1=Soft Bits, 2=Phase */
-    
-
-    /* Raw-I/Q recording (to build a GSM test capture). Written by the
-       acquisition thread, so record_mutex guards every field here. */
-    /* Snapshotted by start_record on the main thread, so the acquisition
-       thread never reads live tuning state. */
 };
 
 #endif
