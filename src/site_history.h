@@ -244,4 +244,32 @@ int site_history_load(const char *site, struct site_history *history);
 /* Write it, creating `surveys/` if need be. Returns 0, or -1. */
 int site_history_save(const struct site_history *history);
 
+/*
+ * The same two, addressed by path rather than by site.
+ *
+ * ADR-0022 keys a history by the whole receiving setup, and
+ * `installation_history_path()` builds that name. These take it directly so
+ * the format layer stays the format layer: it reads and writes a file and has
+ * no opinion about what identifies one.
+ *
+ * `site_history_load_path` still stamps `label` into the history's own site
+ * field, because that is what the file's `site` line means to a later reader
+ * and to `survey_store`.
+ */
+int site_history_load_path(const char *path, const char *label,
+                           struct site_history *history);
+int site_history_save_path(const char *path,
+                           const struct site_history *history);
+
+/*
+ * Whether a legacy site-only baseline exists, and how much is in it.
+ *
+ * ADR-0022 keeps these rather than renaming them: a file written before the
+ * ADR cannot say which receiver and antenna produced it, and inventing that is
+ * what it refuses. So one is **found and offered**, never merged
+ * automatically. Returns the number of entries it holds, or -1 when there is
+ * no such file.
+ */
+int site_history_legacy_entries(const char *site);
+
 #endif

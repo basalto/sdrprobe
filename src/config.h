@@ -55,8 +55,35 @@
  */
 struct config_site {
     char label[CONFIG_VALUE_MAX];
+    /*
+     * The correction this site had before ADR-0018, and **only** that.
+     *
+     * A `known_site` line names a site and, since corrections were kept per
+     * site, a number. That number cannot say which crystal it compensates, so
+     * it is a **legacy, unassigned** value: `installation.h` offers it and
+     * will not apply it. A correction measured now is written as a
+     * `calibration` line instead, and claiming a legacy one moves it there and
+     * clears this.
+     */
     int ppm;
 };
+
+/*
+ * One calibration profile as the file carries it: `calibration <receiver>
+ * <ppm> <site>` (ADR-0018).
+ *
+ * A separate line rather than a wider `known_site`, so a file written by this
+ * build still reads correctly in an older one -- it keeps the site list and
+ * ignores what it does not know -- and so a legacy value stays visibly legacy
+ * rather than being silently given an owner.
+ */
+struct config_calibration {
+    char receiver[CONFIG_VALUE_MAX];
+    char site[CONFIG_VALUE_MAX];
+    int ppm;
+};
+
+#define CONFIG_CALIBRATIONS_MAX 32
 
 struct config {
     char antenna[CONFIG_VALUE_MAX];
@@ -73,6 +100,9 @@ struct config {
        and spelling it differently is how one place becomes two. */
     struct config_site sites[CONFIG_SITES_MAX];
     int site_count;
+    /* Corrections that know whose crystal they compensate (ADR-0018). */
+    struct config_calibration calibrations[CONFIG_CALIBRATIONS_MAX];
+    int calibration_count;
     /* Every antenna named so far, most recent first. Same reason as the
        sites: one antenna spelled two ways is two antennas, and levels only
        compare between sweeps taken with the same one. */
@@ -105,6 +135,21 @@ int config_site_ppm(const struct config *config, const char *site);
 /* Record one against a site, remembering the site if it is new. Returns 1 when
    the value changed and the file is worth writing. */
 int config_set_site_ppm(struct config *config, const char *site, int ppm);
+
+/*
+ * A correction for one receiver at one site. `config_calibration_ppm` returns
+ * 1 and writes `ppm` when there is one, 0 otherwise -- a legacy `known_site`
+ * value is deliberately not an answer here (ADR-0018).
+ */
+int config_calibration_ppm(const struct config *config, const char *receiver,
+                           const char *site, int *ppm);
+/* Record one, replacing any for the same receiver and site. Returns 1 when
+   something changed, 0 when it already said that, -1 when there is no room. */
+int config_set_calibration(struct config *config, const char *receiver,
+                           const char *site, int ppm);
+/* Clear a site's legacy value, which claiming it does. Returns 1 if there was
+   one. */
+int config_clear_legacy_ppm(struct config *config, const char *site);
 /* Returns non-zero when the value changed and the file is worth writing. */
 int config_set_fft_size(struct config *config, int size);
 

@@ -268,4 +268,63 @@ static inline int installation_history_key(const struct installation *inst,
     }
 }
 
+/*
+ * Where a receiving setup's history lives.
+ *
+ * `surveys/history-<receiver>-<site>-<antenna>.txt`, with everything outside
+ * `[A-Za-z0-9_-]` reduced to a dash so a site typed with spaces or accents
+ * still names one file. The old shape -- `surveys/history-<site>.txt` -- is
+ * `site_history_path()` and stays exactly where it is, because ADR-0022 keeps
+ * legacy baselines rather than renaming them: a file written before the ADR
+ * cannot say which receiver and antenna produced it, and inventing that is the
+ * one thing the ADR refuses.
+ *
+ * So the two paths coexist. A legacy baseline is found, offered, and merged
+ * only when an operator assigns it. Returns 0, or -1 when the setup is
+ * incomplete or the name will not fit.
+ */
+static inline int installation_history_path(const struct installation *inst,
+                                            char *out, size_t size) {
+    char key[INSTALLATION_ID_MAX * 3 + 3];
+    char safe[sizeof(key)];
+    size_t i;
+    int written;
+
+    if (installation_history_key(inst, key, sizeof(key)) < 0 || !out)
+        return -1;
+    for (i = 0; i + 1 < sizeof(safe) && key[i]; i++) {
+        char c = key[i];
+        int ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                 (c >= '0' && c <= '9') || c == '-' || c == '_';
+        safe[i] = ok ? c : '-';
+    }
+    safe[i] = '\0';
+    if (!safe[0])
+        return -1;
+    written = snprintf(out, size, "surveys/history-%s.txt", safe);
+    return (written < 0 || (size_t)written >= size) ? -1 : 0;
+}
+
+/*
+ * The file-touching half, in installation.c. Declared here rather than in a
+ * second header because they are the same module; the split is only that these
+ * cannot be checked without a filesystem.
+ */
+struct config;
+struct site_history;
+
+/* Fill the installation in from a loaded config and whatever the device said
+   about itself. Legacy `known_site` corrections arrive unclaimed. */
+void installation_load(struct installation *inst, const struct config *config,
+                       const char *serial, const char *label);
+/* Write everything that changed, once. Returns 0, or -1. Does nothing and
+   returns 0 when nothing changed. */
+int installation_commit(struct installation *inst, struct config *config);
+
+/* This receiving setup's history, by ADR-0022's key. */
+int installation_history_load(const struct installation *inst,
+                              struct site_history *history);
+int installation_history_save(const struct installation *inst,
+                              const struct site_history *history);
+
 #endif /* INSTALLATION_H */

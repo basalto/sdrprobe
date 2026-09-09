@@ -28,6 +28,7 @@
 #include "lte_session.h"
 #include "adsb_session.h"
 #include "fm_session.h"
+#include "installation.h"
 #include "device_backend.h"
 #include "sdr_dsp.h"
 #include "signal_findings.h"
@@ -871,8 +872,15 @@ struct app {
     struct acquisition acq;
     struct options options;
     /* Antenna and site: what makes one sweep comparable to another, loaded
-       once at startup and reported by anything that measures. */
+       once at startup and reported by anything that measures. The file
+       format; `installation` below is what decides. */
     struct config config;
+    /*
+     * The receiving setup -- receiver, site, antenna -- and what has been
+     * calibrated for it (installation.h, ADR-0018 and ADR-0022). Views set
+     * fields on it and never save; `installation_commit()` is the one writer.
+     */
+    struct installation installation;
     struct sdr_dsp dsp;
     /* The open source, whatever kind it is: a receiver, a capture, later a
        UHD device. `device_backend.h` owns the handle; nothing here looks at
