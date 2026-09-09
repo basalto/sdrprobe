@@ -184,9 +184,23 @@ static void fill_other_traffic(void) {
     for (symbol = 0; symbol < FRAME_SYMBOLS; symbol++) {
         for (sc = -50; sc <= 50; sc++) {
             double re, im;
+            int bit0, bit1;
             if (sc == 0)
                 continue;
-            qpsk((int)(rng_next() & 1u), (int)(rng_next() & 1u), &re, &im);
+            /*
+             * One draw per statement, and that is load-bearing rather than
+             * style. Written as two calls inside one argument list, the order
+             * they are evaluated in is *unspecified* -- not undefined, so no
+             * sanitiser reports it -- and gcc and clang choose opposite ways.
+             * Every symbol of this traffic then came out with its two bits
+             * swapped between the two compilers, which is a different
+             * interference pattern, which is a different answer to how many
+             * cells are separable. `.scratch/two-cell-fixture/` is the whole
+             * story; it cost this suite a compiler.
+             */
+            bit0 = (int)(rng_next() & 1u);
+            bit1 = (int)(rng_next() & 1u);
+            qpsk(bit0, bit1, &re, &im);
             grid_add(symbol, sc, 0, re * 0.9, im * 0.9);
         }
     }
@@ -1140,56 +1154,139 @@ static float other_q[BUFFER_SAMPLES];
  * That limit is not a disappointment, it is the measured case. The real pair
  * differ by 1.7 dB.
  */
+/*
+ * Zero, and the fixture is the one the checks below use. The two-cell sweep
+ * in `.scratch/two-cell-fixture/` sets it to walk the same construction over
+ * other draws of the interfering traffic, which is how a claim about this
+ * fixture is told from a claim about one seed.
+ */
+static uint32_t two_cell_seed_offset = 0;
+
 static void build_two_cell_carrier(float amplitude) {
     int n;
 
-    build_buffer(402, 2, 0.0, 0.004, 61u);
+    build_buffer(402, 2, 0.0, 0.004, 61u + two_cell_seed_offset);
     for (n = 0; n < BUFFER_SAMPLES; n++) {
         other_i[n] = buffer_i[n] * amplitude;
         other_q[n] = buffer_q[n] * amplitude;
     }
-    build_buffer(190, 2, 0.0, 0.004, 62u);
+    build_buffer(190, 2, 0.0, 0.004, 62u + two_cell_seed_offset);
     for (n = BUFFER_SAMPLES - 1; n >= TWO_CELL_OFFSET; n--) {
         buffer_i[n] += other_i[n - TWO_CELL_OFFSET];
         buffer_q[n] += other_q[n - TWO_CELL_OFFSET];
     }
 }
 
-static void test_two_cells_on_one_carrier(void) {
-    struct lte_cell cells[LTE_MAX_CELLS_PER_CARRIER];
-    int found, saw_190 = 0, saw_402 = 0, n;
+/*
+ * How many carriers of a kind, not one carrier.
+ *
+ * This used to build one fixture and assert that two cells came back, and
+ * that was a claim about one draw of the interfering traffic rather than
+ * about the capability. Two things were measured in
+ * `.scratch/two-cell-fixture/` and both say so. The level is not the
+ * variable -- over forty draws, two cells are separated on 19 of them at
+ * equal power, 20 at -0.7 dB and 15 at -1.4 dB, so there is no level with
+ * margin to move the old fixture to. And the draw that check happened to
+ * use passed under gcc and failed under clang, because the traffic's QPSK
+ * bits were drawn by two calls in one argument list, whose order is
+ * unspecified: the two compilers built different carriers. `fill_other_traffic`
+ * above now draws them in separate statements and both build the same one.
+ *
+ * So the fixture is a population. `TWO_CELL_SEEDS` carriers are built with
+ * the same two identities and different traffic, and what is asserted is the
+ * rate and, more importantly, the *kind* of answer.
+ */
+#define TWO_CELL_SEEDS 16
 
-    build_two_cell_carrier(0.85f);
-    found = lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
-                                LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, cells,
-                                LTE_MAX_CELLS_PER_CARRIER, NULL);
-    check_int("two cells on one carrier: how many are found", found, 2);
-    if (found != 2)
-        return;
-    for (n = 0; n < found; n++) {
-        if (cells[n].pci == 190)
-            saw_190 = 1;
-        if (cells[n].pci == 402)
-            saw_402 = 1;
+struct two_cell_tally {
+    int carriers;
+    int none;               /* returned no cell at all */
+    int one;
+    int two;
+    int two_and_both_right; /* of `two`, the pair really was 190 and 402 */
+    int one_and_stronger;   /* of `one`, it was 190 */
+    int more_than_two;
+};
+
+static void two_cell_tally(float amplitude, struct two_cell_tally *out) {
+    struct lte_cell cells[LTE_MAX_CELLS_PER_CARRIER];
+    int s;
+
+    memset(out, 0, sizeof(*out));
+    for (s = 0; s < TWO_CELL_SEEDS; s++) {
+        int found;
+        two_cell_seed_offset = (uint32_t)(s * 2);
+        build_two_cell_carrier(amplitude);
+        found = lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                    LTE_SAMPLE_RATE_HZ,
+                                    g_probe_device.full_scale, cells,
+                                    LTE_MAX_CELLS_PER_CARRIER, NULL);
+        out->carriers++;
+        if (found <= 0) {
+            out->none++;
+        } else if (found == 1) {
+            out->one++;
+            if (cells[0].pci == 190)
+                out->one_and_stronger++;
+        } else if (found == 2) {
+            out->two++;
+            if ((cells[0].pci == 190 && cells[1].pci == 402) ||
+                (cells[0].pci == 402 && cells[1].pci == 190))
+                out->two_and_both_right++;
+        } else {
+            out->more_than_two++;
+        }
     }
-    check_true("the carrier's two identities are both reported",
-               saw_190 && saw_402);
+    two_cell_seed_offset = 0;
+}
+
+static void test_two_cells_on_one_carrier(void) {
+    struct two_cell_tally t;
+
+    two_cell_tally(0.92f, &t);
+
     /*
-     * The *set* and not the order. Both cells transmit across the whole
-     * measured bandwidth, so each one's reference power is measured through
-     * the other's transmission -- at a decibel and a half apart that is
-     * inside the interference, and asserting which comes first would be
-     * pinning noise. The ordering is worth having on air, where cells differ
-     * by more; it is not worth asserting here.
+     * The capability, with room. Nine of sixteen separate both cells; the
+     * floor is four, so a change has to lose more than half of what works
+     * before this fails. `probe-two-cell` prints the number, and moving it up
+     * is what an improvement to the multi-cell path would look like.
      */
+    check_msg(t.two >= 4,
+              "two cells on one carrier: separated on %d of %d carriers, "
+              "floor 4\n", t.two, t.carriers);
+
+    /*
+     * And the half that is absolute rather than statistical, which is the
+     * one worth having: a report of two cells is never a report of the wrong
+     * two. Nineteen of nineteen at equal power, 54 of 54 across every level
+     * measured. A search that guessed would fail here long before it failed
+     * the rate above.
+     */
+    check_int("and a pair reported is always 190 and 402",
+              t.two_and_both_right, t.two);
+    check_int("never a third identity out of the roots that did not match",
+              t.more_than_two, 0);
 
     {
+        /* The single-cell path over the same population: it must return
+           exactly one cell every time, and one of the two really there. */
         struct lte_cell one;
-        check_int("the single-cell search still returns one",
-                  lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
-                                  LTE_SAMPLE_RATE_HZ, &one, NULL), 1);
-        check_true("and it is one of the two",
-                   one.pci == 190 || one.pci == 402);
+        int s, returned_one = 0, was_one_of_the_two = 0;
+        for (s = 0; s < TWO_CELL_SEEDS; s++) {
+            two_cell_seed_offset = (uint32_t)(s * 2);
+            build_two_cell_carrier(0.92f);
+            if (lte_cell_search(buffer_i, buffer_q, BUFFER_SAMPLES,
+                                LTE_SAMPLE_RATE_HZ, &one, NULL) != 1)
+                continue;
+            returned_one++;
+            if (one.pci == 190 || one.pci == 402)
+                was_one_of_the_two++;
+        }
+        two_cell_seed_offset = 0;
+        check_int("the single-cell search returns one on every carrier",
+                  returned_one, TWO_CELL_SEEDS);
+        check_int("and it is one of the two that are there",
+                  was_one_of_the_two, returned_one);
     }
 }
 
@@ -1202,16 +1299,26 @@ static void test_two_cells_on_one_carrier(void) {
  * transmission, which no amount of integration removes. Getting it would mean
  * subtracting the stronger cell first, which this does not do and the header
  * says so.
+ *
+ * Measured over the same population rather than one carrier, because "not
+ * recovered" turned out to be a rate too: one of the sixteen does separate
+ * it, and one of forty over the wider sweep. That is the difference between
+ * a limit and an absolute, and it is worth saying which this is.
  */
 static void test_two_cells_needs_similar_levels(void) {
-    struct lte_cell cells[LTE_MAX_CELLS_PER_CARRIER];
+    struct two_cell_tally t;
 
-    build_two_cell_carrier(0.45f);
-    check_int("a cell 6.9 dB down is not separated",
-              lte_cell_search_all(buffer_i, buffer_q, BUFFER_SAMPLES,
-                                  LTE_SAMPLE_RATE_HZ, g_probe_device.full_scale, cells,
-                                  LTE_MAX_CELLS_PER_CARRIER, NULL), 1);
-    check_int("and the one reported is the stronger", cells[0].pci, 190);
+    two_cell_tally(0.45f, &t);
+
+    check_msg(t.two <= 3,
+              "a cell 6.9 dB down is separated on %d of %d carriers, "
+              "ceiling 3\n", t.two, t.carriers);
+    check_msg(t.one + t.two == t.carriers,
+              "and a cell is found on every one of them: %d silent\n",
+              t.none);
+    check_msg(t.one_and_stronger >= t.one - 1,
+              "the one reported is the stronger: %d of %d\n",
+              t.one_and_stronger, t.one);
 }
 
 /* One cell is one cell: the multi-cell path must not invent neighbours out of
@@ -1361,6 +1468,10 @@ static void test_channel_shape(void) {
                 flat.drift_hz, 60.0);
 }
 
+#ifdef LTE_TWO_CELL_SWEEP
+#include "two_cell_sweep.inc"
+#else
+
 int main(void) {
     g_probe_device = device_profile_rtlsdr("check", NULL, 0);
     twiddles_init();
@@ -1414,3 +1525,5 @@ int main(void) {
 
     return check_report("lte cell search and broadcast channel");
 }
+
+#endif /* LTE_TWO_CELL_SWEEP */
