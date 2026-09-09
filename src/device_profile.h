@@ -72,8 +72,23 @@ enum gain_unit {
    missing a gain nobody can then select. */
 #define DEVICE_GAIN_LIST_MAX 64
 
+#define DEVICE_SERIAL_MAX 32
+
 struct device_profile {
     char name[DEVICE_NAME_MAX];
+
+    /*
+     * The receiver's own identity, for keying a calibration to the crystal it
+     * compensates rather than to whatever was plugged in last (ADR-0018).
+     *
+     * A USB serial when the device reports one, empty when it does not --
+     * many RTL-SDR dongles ship with the same string or none, so this is
+     * **not guaranteed unique** and a caller must treat an empty or duplicated
+     * serial as "no identity" and fall back to an operator-assigned label.
+     * The device *index* is never an identity: it changes with enumeration
+     * order.
+     */
+    char serial[DEVICE_SERIAL_MAX];
 
     /*
      * The sample container, and the number dBFS is relative to.
