@@ -120,7 +120,7 @@ void update_scan(struct app *app) {
             app->tab == TAB_DECODE && app->decode == DECODE_GSM &&
             !app->calibration_open) {
             app->gsm_autoselect_pending = 0;
-            app->gsm_analysis_mode = 1;     /* Default to Burst mode after scan */
+            app->gsm.analysis_mode = 1;     /* Default to Burst mode after scan */
             gsm_tune_selected(app, chosen); /* show the best channel above */
             /* Keeping this channel is the point of having scanned, so the
                claim is given up rather than returned -- the same shape as the
