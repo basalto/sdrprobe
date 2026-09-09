@@ -1053,14 +1053,16 @@ acquisition` in `acquisition.h`, and `struct scope_view`, `struct gsm_view`,
 `app.h`. Reach for `app->cal.*` rather than adding a `calibration_*` field back
 to `struct app` — advice `struct app` did not follow until sixteen of them
 were counted and moved, which is what the audit in
-`.scratch/deepening/issues/06-*` is for: **85 fields when it was counted, 62
+`.scratch/deepening/issues/06-*` is for: **85 fields when it was counted, 60
 now, and the survivors are handoffs, per-view containers and the receiver's
-own applied state (ticket 09).** Two of those moves corrected the field's
-*owner* rather than merely its address, and the question that found both is
-worth asking of anything being moved: `scan_selected_arfcn` was the GSM view's
-inspected channel and not the scan's -- set by `--arfcn` with no scan
-involved -- and `scan_step_count` was a copy of `bandscan.plan.step_count`
-that needed deleting rather than moving. If the frame loop needs something
+own applied state (ticket 09).** Three of those moves corrected the field's
+*owner* rather than its address, and **the question that found all three is
+worth asking of every field before moving it**: `scan_selected_arfcn` was the
+GSM view's inspected channel and not the scan's, set by `--arfcn` with no scan
+involved; `scan_step_count` was a copy of `bandscan.plan.step_count` that
+needed deleting rather than moving; and `settings_error` was also the
+acquisition layer's failure line, which is what left `receiver_error` stale on
+the very path it had just been created for. If the frame loop needs something
 from a view, give the view an entry point rather than reaching into its fields
 —
 `view_scope_resize_if_needed()` is the pattern. **`struct survey_view` is the
@@ -1099,7 +1101,13 @@ Its shape:
   and whichever screen asked is the reader. Two calibration paths had been
   *depending* on the shared buffer -- returning -1 with no status and letting
   the headless report print whatever the retune had left there -- and quote it
-  deliberately now.
+  deliberately now. **The acquisition lifecycle was the other half of the same
+  buffer**, writing into `settings_error` instead: `start_acquisition()` and
+  `stop_acquisition()` are what `retune_receiver()` calls, so fixing only the
+  retune left `receiver_error` stale on exactly the path it was made for. Both
+  halves report there now, and the one path that returned -1 with no message
+  at all -- `acquisition_attach_source()` -- is why the headless line had an
+  `"unknown"` fallback.
 - **The receiver is behind a seam.** `src/device_backend.h` is a vtable --
   open, close, tune, rate, ppm, gain, flush, stream, stop -- and
   `<rtl-sdr.h>` is included by **exactly one file**, `backend_rtlsdr.c`.

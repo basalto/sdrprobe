@@ -142,4 +142,41 @@ last overlay flag still loose in `struct app`.**
   be reachable from the command line for the same reason every decision does"
   -- says that is a gap; the inline panel in the GSM view is reachable and was
   used here instead.
-- `settings_open` into `struct settings_panel`, which is the last one.
+## The follow-up, done the same day
+
+`settings_open` into `struct settings_panel`, which was the last overlay flag
+loose in `struct app` -- and asking 07's question of its neighbour found the
+same fault a third time.
+
+**`settings_error` was also the acquisition layer's failure line.** All six of
+its writers in `sdrprobe.c` are acquisition lifecycle: "Acquisition is already
+running", "Cannot block worker signals", "Cannot restore signal mask", "Cannot
+start acquisition worker", "Could not stop receiver acquisition", "Could not
+join acquisition worker". None is a settings error, and the headless startup
+read the buffer back for its own line --
+
+```c
+fprintf(stderr, "Cannot start acquisition: %s\n",
+        app->receiver_error[0] ? app->receiver_error : "unknown");
+```
+
+-- where the `"unknown"` fallback is the tell that the author knew the buffer
+might hold something unrelated, or nothing.
+
+**And it left `receiver_error` stale on the path that matters most.** Ticket 07
+gave the retune's failures their own name, but `retune_receiver()` *stops and
+restarts acquisition*, and when that half failed it returned -1 having written
+`settings_error` -- so `view_lte.c` and the two calibration paths that quote
+`receiver_error` could print a message from something else entirely. 07 fixed
+half a failure path and split the other half further. One buffer, one meaning,
+now.
+
+One more hole closed: `acquisition_attach_source()` failing was the single
+path in `start_acquisition()` that returned -1 with **no message at all**,
+which is what made `"unknown"` reachable. It says so now.
+
+So: `set.open`, `set.error`, and the acquisition writers on `receiver_error`.
+**`struct app` is 60 fields**, and all four overlay flags are nested.
+
+Measured: the Settings panel and the GSM view are both byte-identical
+before and after, and `make check` is green.

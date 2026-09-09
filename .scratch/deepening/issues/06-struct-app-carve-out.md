@@ -164,9 +164,19 @@ field is used and not what it is about:
   `scan_step_count` was a copy of `bandscan.plan.step_count`, so it was
   deleted rather than moved.
 
+**60 fields** after 08's follow-up took `settings_open` and `settings_error`
+into `struct settings_panel`, where the same fault turned up a *third* time:
+the acquisition lifecycle was writing its failures into `settings_error`, and
+because `retune_receiver()` stops and restarts acquisition, that left ticket
+07's own `receiver_error` stale on the path it was created for.
+
+**Three tickets, three fields whose owner was wrong**, and the audit could not
+have found any of them: counting readers says where a field is used, never
+what it is about. The question that did find them is one line -- *is this
+field doing the job its name claims?* -- and it is worth asking of every field
+before moving it, not after.
+
 What is left of the four clusters is one: **the receiver's applied state**,
 ticket 09, which is `needs-triage` and should wait for the second receiver.
 The spectrum display cluster stands as it was -- `sdrprobe.c` computing for
-`view_scope.c` is a handoff. `settings_open` is the last overlay flag loose in
-`struct app`, and belongs in `struct settings_panel` beside the rest of the
-panel's draft.
+`view_scope.c` is a handoff. All four overlay flags are nested.

@@ -118,7 +118,13 @@ callers it was earning its keep.
    rather than moved. `bandscan.open` follows `cal.open` and `help.open`;
    `settings_open` is the last overlay flag still loose. A live scan still
    autoselects and decodes -- it landed on ARFCN 113 and read BSIC 38, MNC 06,
-   cell 16134, which is exactly what `gsm_arfcn_113.bin` reads.
+   cell 16134, which is exactly what `gsm_arfcn_113.bin` reads. A follow-up
+   the same day took `settings_open` and `settings_error` into
+   `struct settings_panel`, leaving **60 fields** and all four overlay flags
+   nested -- and found the same fault a third time: the acquisition lifecycle
+   was writing its failures into `settings_error`, which left 07's own
+   `receiver_error` **stale** on the path it was created for, since
+   `retune_receiver()` stops and restarts acquisition.
 9. **Name the receiver's applied state** (`09`) -- seven fields, nineteen
    files, and no home. `needs-triage` and probably wants the second
    receiver first: a "what is applied" struct designed against one device is
