@@ -50,3 +50,24 @@ one of those has to be re-measured, because a segmented mean will not give the
 same numbers -- it cannot, or it would not be a fix.
 
 `make probe-signal` is the instrument for that table now.
+
+
+## Resolved, 2026-09-09
+
+`SIGNAL_STANDING_SEGMENT_BLOCKS` is 64, the fractions are averaged over
+segments, and `SIGNAL_BARE_FRACTION` stays 0.80 -- re-derived from the new
+table rather than kept by default. `issues/01-average-over-segments.md` has
+every number.
+
+The same capture that raised this now reads **0.905 at one block and 0.923 at
+2 s**, and on the one block both shipped callers hand it every verdict in the
+corpus is unchanged. Three checks in `check-signal-probe` hold it: the
+length-independence property (which failed on the old code, 0.9996 against
+0.0974), its no-drift control, and the dilution the segmenting must not have
+cost.
+
+Two claims written while doing it were false and running them is what said so:
+a tone under six times its own amplitude in noise reads 0.679 rather than low,
+because the channel filter discards broadband noise; and noise reads 0.00
+through `signal_find_carrier()` rather than the segment's 1/64 bias, because
+the search finds no coherent line to mix against.

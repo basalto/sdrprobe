@@ -790,6 +790,139 @@ static void test_a_real_bare_carrier(void) {
     }
 }
 
+
+/* ------------------------------------------------------------------ *
+ * The standing fraction must not depend on how much signal it is handed
+ * ------------------------------------------------------------------ */
+
+/*
+ * A carrier whose frequency creeps, which is what an uncalibrated crystal
+ * does. Phase is the integral of frequency, so a constant drift enters as a
+ * half-t-squared term.
+ */
+#define DRIFT_PAIRS 1000000
+static float dri[DRIFT_PAIRS], drq[DRIFT_PAIRS];
+
+static void drifting_tone(double hz, double drift_hz_per_s, double amplitude) {
+    size_t n;
+    for (n = 0; n < DRIFT_PAIRS; n++) {
+        double t = (double)n / FS;
+        double p = 2.0 * M_PI * (hz * t + 0.5 * drift_hz_per_s * t * t);
+        dri[n] = (float)(amplitude * cos(p));
+        drq[n] = (float)(amplitude * sin(p));
+    }
+}
+
+static double standing_over(size_t pairs) {
+    struct signal_carrier c;
+
+    if (!signal_find_carrier(dri, drq, pairs, FS, 260000.0, 340000.0,
+                             150000.0, 20000.0, &c))
+        return -1.0;
+    return c.carrier_power_fraction;
+}
+
+/*
+ * The property `.scratch/standing-fraction-drifts/` was raised for, and the
+ * whole point of segmenting: **the answer must not depend on the length of
+ * the look.**
+ *
+ * `constant_fraction()` mixes at one fixed frequency and used to take the
+ * mean over the entire buffer, so a carrier drifting even a fraction of a
+ * hertz walked out of phase across a long observation and the mean cancelled
+ * against itself -- which reads exactly like modulation, because modulation
+ * is what the statistic is looking for. On the real 75.0005 MHz recording it
+ * fell from 0.921 at 0.2 s to 0.779 at 2 s and flipped the verdict at
+ * SIGNAL_BARE_FRACTION.
+ *
+ * Synthetic here, because a synthetic carrier separates the two candidate
+ * causes that a capture cannot: length and drift. Measured against the
+ * unsegmented form, this exact case read **0.9996 at 0.066 s and 0.0974 at
+ * 0.5 s** -- so it is a check that failed before the fix and passes after,
+ * which is the right way round.
+ */
+static void test_the_standing_fraction_does_not_depend_on_the_look(void) {
+    double brief, long_look;
+
+    drifting_tone(300000.0, 20.0, 1.0);
+    brief = standing_over(131072);          /* one sample block, 0.066 s */
+    long_look = standing_over(DRIFT_PAIRS); /* 0.5 s of the same carrier */
+
+    check_true("the drifting carrier is found in a brief look", brief >= 0.0);
+    check_true("and in a long one", long_look >= 0.0);
+    check_close("a brief look sees a bare carrier", brief, 1.0, 0.02);
+    check_close("and so does a look seven times longer", long_look, 1.0, 0.02);
+    /* The property itself, rather than the two values separately: whatever
+       the number is, it is the same number. */
+    check_msg(fabs(long_look - brief) <= 0.02,
+              "the standing fraction moved with the length of the look: "
+              "%.4f over 0.066 s against %.4f over 0.500 s\n", brief,
+              long_look);
+}
+
+/*
+ * And with the drift taken out, the length changes nothing either -- which is
+ * the control that says the fix addresses drift rather than length. The
+ * unsegmented form passed this one too; it is here so that a future change
+ * cannot trade one for the other.
+ */
+static void test_a_steady_carrier_reads_the_same_at_any_length(void) {
+    double brief, long_look;
+
+    drifting_tone(300000.0, 0.0, 1.0);
+    brief = standing_over(131072);
+    long_look = standing_over(DRIFT_PAIRS);
+    check_close("a steady carrier is all line in a brief look", brief, 1.0,
+                0.01);
+    check_close("and in a long one", long_look, 1.0, 0.01);
+}
+
+/*
+ * Segmenting must not have cost the dilution, which is the property the
+ * statistic exists for: energy *inside the channel* beside the line is what
+ * makes a carrier modulated rather than bare, and a wider channel admits
+ * more of it.
+ *
+ * Written after two wrong guesses about what segmenting would do to noise,
+ * both of which this suite already warns against. A tone under six times its
+ * own amplitude in broadband noise still reads 0.679 in a 40 kHz channel --
+ * the channel filter throws almost all of that noise away, exactly as
+ * test_only_in_channel_energy_counts says. And noise with no tone in it reads
+ * **0.00** through this entry point, not the segment's own 1/64 bias: the
+ * search finds no coherent line to mix against, so the bias is not reachable
+ * from outside and cannot be asserted here.
+ *
+ * What is assertable is the trend, and it is monotone: 0.679 at 40 kHz,
+ * 0.514 at 80, 0.339 at 160, 0.209 at 320, 0.123 at 640.
+ */
+static void test_a_wider_channel_admits_more_of_the_noise(void) {
+    struct signal_carrier c;
+    double narrow, wide;
+
+    clear();
+    add_tone(120000.0, 1.0);
+    add_noise(6.0);
+    if (!signal_find_carrier(ir, qr, N, FS, 60000.0, 180000.0, 2000.0,
+                             40000.0, &c)) {
+        check_true("a line is found under the noise", 0);
+        return;
+    }
+    narrow = c.carrier_power_fraction;
+    if (!signal_find_carrier(ir, qr, N, FS, 60000.0, 180000.0, 2000.0,
+                             640000.0, &c)) {
+        check_true("and in a wider channel", 0);
+        return;
+    }
+    wide = c.carrier_power_fraction;
+    check_close("a 40 kHz channel keeps most of the line", narrow, 0.679,
+                0.05);
+    check_close("sixteen times the channel admits sixteen times the noise",
+                wide, 0.123, 0.05);
+    check_msg(wide < narrow,
+              "a wider channel did not dilute the line: %.3f at 640 kHz "
+              "against %.3f at 40 kHz\n", wide, narrow);
+}
+
 int main(void) {
     test_a_pure_tone_is_all_line();
     test_only_in_channel_energy_counts();
@@ -810,5 +943,8 @@ int main(void) {
     test_an_on_off_envelope_varies_more_than_noise();
     test_envelope_refusals();
     test_a_real_bare_carrier();
+    test_the_standing_fraction_does_not_depend_on_the_look();
+    test_a_steady_carrier_reads_the_same_at_any_length();
+    test_a_wider_channel_admits_more_of_the_noise();
     return check_report("where a carrier is, and whether anything rides it");
 }
