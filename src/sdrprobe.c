@@ -504,7 +504,7 @@ int stop_acquisition(struct app *app) {
                 worker_is_reading(app, &done);
             }
             if (cancel_result != 0 && !done) {
-                snprintf(app->settings_error, sizeof(app->settings_error),
+                snprintf(app->receiver_error, sizeof(app->receiver_error),
                          "Could not stop receiver acquisition (%d)",
                          cancel_result);
                 return -1;
@@ -514,7 +514,7 @@ int stop_acquisition(struct app *app) {
 
     int join_result = pthread_join(app->acq.worker, NULL);
     if (join_result != 0) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Could not join acquisition worker: %s",
                  strerror(join_result));
         return -1;
@@ -530,7 +530,7 @@ int start_acquisition(struct app *app) {
        than an error here. stop_acquisition() clears the flag, so the ordinary
        stop-then-start path is unaffected. */
     if (app->acq.worker_started) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Acquisition is already running");
         return -1;
     }
@@ -551,7 +551,7 @@ int start_acquisition(struct app *app) {
     int mask_result = pthread_sigmask(SIG_BLOCK, &worker_signals,
                                       &original_mask);
     if (mask_result != 0) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Cannot block worker signals: %s", strerror(mask_result));
         return -1;
     }
@@ -559,8 +559,15 @@ int start_acquisition(struct app *app) {
                                   app->applied_sample_rate,
                                   app->device.bytes_per_pair,
                                   app->options.file_path,
-                                  !app->options.play_once) < 0)
+                                  !app->options.play_once) < 0) {
+        /* Said rather than left blank: this was the one path here that
+           returned -1 with no message, so the headless "Cannot start
+           acquisition" fell through to "unknown" -- or to whatever an
+           unrelated failure had left in the buffer. */
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
+                 "Could not attach the source to the acquisition worker");
         return -1;
+    }
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
         app->receiver_mode ? receiver_worker : file_worker, &app->acq);
@@ -569,12 +576,12 @@ int start_acquisition(struct app *app) {
     int restore_result = pthread_sigmask(SIG_SETMASK, &original_mask, NULL);
     if (restore_result != 0) {
         request_worker_stop(&app->acq);
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Cannot restore signal mask: %s", strerror(restore_result));
         return -1;
     }
     if (thread_result != 0) {
-        snprintf(app->settings_error, sizeof(app->settings_error),
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Cannot start acquisition worker: %s",
                  strerror(thread_result));
         return -1;
@@ -989,7 +996,7 @@ void set_tab(struct app *app, int new_tab) {
        walked it away. */
     if (app->tab == TAB_SURVEY)
         view_survey_leave(app);
-    app->settings_open = 0;
+    app->set.open = 0;
     app->tab = new_tab;
     if (new_tab == TAB_SURVEY)
         view_survey_enter(app);
@@ -1156,7 +1163,7 @@ static struct input_state input_state_now(const struct app *app) {
     struct input_state state;
 
     state.help_open = app->help.open;
-    state.settings_open = app->settings_open;
+    state.settings_open = app->set.open;
     state.calibration_open = app->cal.open;
     state.scan_open = app->bandscan.open;
     state.tab = app->tab;
@@ -1189,7 +1196,7 @@ static struct debug_screen debug_screen_now(const struct app *app) {
     s.tab = (int)app->tab;
     s.view = (int)app->view;
     s.decode = (int)app->decode;
-    s.settings_open = app->settings_open;
+    s.settings_open = app->set.open;
     s.calibration_open = app->cal.open;
     s.scan_open = app->bandscan.open;
     s.help_open = app->help.open;
@@ -1320,8 +1327,15 @@ static int run_gui(struct app *app) {
                                   app->applied_sample_rate,
                                   app->device.bytes_per_pair,
                                   app->options.file_path,
-                                  !app->options.play_once) < 0)
+                                  !app->options.play_once) < 0) {
+        /* Said rather than left blank: this was the one path here that
+           returned -1 with no message, so the headless "Cannot start
+           acquisition" fell through to "unknown" -- or to whatever an
+           unrelated failure had left in the buffer. */
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
+                 "Could not attach the source to the acquisition worker");
         return -1;
+    }
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
         app->receiver_mode ? receiver_worker : file_worker, &app->acq);
@@ -1505,7 +1519,7 @@ static int run_gui(struct app *app) {
             break;
         case INPUT_TARGET_SETTINGS:
             if (IsKeyPressed(KEY_ESCAPE))
-                app->settings_open = 0;
+                app->set.open = 0;
             else
                 handle_settings_input(app);
             break;
@@ -1687,7 +1701,7 @@ static int run_gui(struct app *app) {
             /* The control row first: while one of its fields has focus the
                digits are a frequency being typed, not a view number. That is
                what input_view_keys_live() below is reading. */
-            if (!app->cal.open && !app->settings_open &&
+            if (!app->cal.open && !app->set.open &&
                 !app->help.open)
                 scope_header_input(app);   /* retune_receiver logs its own */
             /* While a survey range field has focus the digits belong to it,
@@ -1815,7 +1829,7 @@ static int run_gui(struct app *app) {
                     draw_waterfall(app);
             }
             draw_header(app);
-            if (app->settings_open)
+            if (app->set.open)
                 draw_settings(app);
         }
         if (app->help.open)
@@ -2138,7 +2152,7 @@ static int run_headless(struct app *app) {
 
     if (start_acquisition(app) < 0) {
         fprintf(stderr, "Cannot start acquisition: %s\n",
-                app->settings_error[0] ? app->settings_error : "unknown");
+                app->receiver_error[0] ? app->receiver_error : "unknown");
         return -1;
     }
     started = monotonic_seconds();
