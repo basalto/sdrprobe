@@ -42,7 +42,10 @@ transmitted information lives in a second bounded context (see
 - The rest of the unit layer, one suite per module, each a `make check-*` of
   its own and all of them in `make check`:
   `check-survey-sweep` (the sweep's step plan, its fold into the survey array,
-  and what measuring a candidate adds up to), `check-suspect` (candidates that
+  and what measuring a candidate adds up to), `check-survey-session` (the
+  machine over those: which block is stale, when a step is over, what a
+  confirmation pass asks about and concludes from six looks, what a watch
+  reports as appeared and gone), `check-suspect` (candidates that
   look like the receiver rather than the band -- its own reference comb, and
   the DC offset at a step centre), `check-scan` (how the GSM
   downlink is covered and which channel the scan hands back),
@@ -380,7 +383,30 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   DSP, no GUI, no receiver, and its own `make check-band-plan`, which walks the
   whole table for overlaps and unreachable entries because most of what goes
   wrong with a table is typing.
+- `src/survey_session.{c,h}` — the band survey's state machine: idle to
+  sweeping to confirming, with watching as a sweep that goes round again and
+  measuring as a look at one candidate. It owns the plan, the fold, the
+  candidates and carriers, the confirmation targets and verdicts, the history
+  marks and the watch summary. It **says** where it wants the tuning
+  (`event.retune_hz`) and never touches the receiver, and it holds a
+  `struct site_history` and never reads a file -- both refusals are what let
+  the window's copy of this sequence and the headless one drift apart before
+  it existed (`.scratch/deepening/issues/04-survey-session.md`). `struct
+  survey_block` is its input seam: samples, a spectrum, a scratch array and
+  the facts about the container, so nothing in the machine sees `struct app`.
+  It also holds the sweep a narrowing one replaces (`survey_session_keep()` /
+  `_restore()`), because that is measurements and not window state -- kept in
+  the view the restore was written twice and broken twice. Links `-lm`;
+  `check-survey-session` drives it.
 - `src/view_survey.c`, `src/survey_layout.h` — the band survey and its layout.
+  One of two adapters over `survey_session.h`: it draws the machine's state
+  and turns input into intents, and it is where the receiver is borrowed
+  through a lease and where the site's history reaches a file.
+- `src/survey_report.c` — the other adapter, printing the same machine for
+  `--survey`, `--survey-confirm`, `--survey-watch` and `--survey-save`. One
+  `while` loop for the sweep, the pass and the measurement, because the
+  session makes them one machine; the two shapes it replaced were the same
+  loop written twice with different bugs.
 - `src/adsb_layout.h` — where the ADS-B decode view puts things, in the shape
   of `gsm_layout.h` and for the same reason: the analysis mode packs three
   charts over a log and a square scatter, and both modes' log rectangles are

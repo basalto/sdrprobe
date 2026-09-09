@@ -97,6 +97,39 @@ be observed here either.
 `fm_rds_soft_bits_with()` and the probe stayed, so the default is one argument
 away and the question is re-answerable rather than re-arguable.
 
+## A refactor is an A/B too, and the answer has to be *no difference*
+
+Moving a decision out of a view and into a module is a change like any other,
+and the measurement is the same shape run backwards: the number to compare is
+one the program **already prints about itself**, and the result you want is
+that it did not move.
+
+`make check` cannot supply it. The survey's machine was pulled out of
+`view_survey.c` with all 55 suites green, both capture surveys
+**byte-identical**, and the survey screen rendering byte-identical -- while the
+settle that throws away stale blocks was disabled. Captures never retune, so no
+capture can exercise it, and the identity a capture pins is exactly the thing a
+broken settle does not change.
+
+What caught it was one line of the program's own output on a live sweep:
+
+    survey blocks 26 settling 13     before
+    survey blocks 40 settling  0     after
+
+**So find the self-report before starting.** `survey blocks N settling M`,
+`decoded N agreed M`, a funnel, a block count, a message count: every one of
+these is a count the program prints about its own working, and a refactor that
+moves one has changed something. Two of the four faults in that extraction were
+found this way and neither was reachable any other way -- the second, a step
+that could only end when a block arrived, showed up as `blocks 39` on the fix
+for the first.
+
+And **run the case the corpus cannot reach.** For anything that retunes, that
+is a receiver: a capture holds one tuning, so every settle, every stale block
+and every step boundary is untested by `testfiles/`. The same asymmetry applies
+wherever the corpus is narrower than the program -- one gain, one rate, one
+site.
+
 ## Choosing a constant is the same question
 
 A dwell, a chunk length, a visit budget, a capture duration: measure the

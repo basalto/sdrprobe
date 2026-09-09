@@ -253,34 +253,30 @@ void view_survey_enter(struct app *app);
 /* Point the range fields at the nth offerable band, 1-based. */
 int survey_choose_band(struct app *app, int nth);
 void view_survey_leave(struct app *app);
-/* `spectrum_updated` says a fresh averaged spectrum arrived this frame.
-   The confirmation pass counts blocks, not frames: counting frames gave it
-   six looks in a tenth of a second and it measured a spectrum from before
-   the receiver had retuned. */
+/*
+ * Every frame, with `spectrum_updated` saying whether a block came with it.
+ *
+ * The machine has decisions on both clocks and that is why this is a
+ * parameter rather than a guard around the call. A confirmation *look* counts
+ * blocks: counting frames gave the pass six looks in a tenth of a second, at
+ * a spectrum from before the receiver had retuned. A sweep *step* that has
+ * already heard something is over on time alone, and waiting for one more
+ * block to say so costs a block per step -- 39 over a 13-step sweep of band
+ * II instead of 26.
+ */
 void update_survey(struct app *app, double now, int spectrum_updated);
 /*
- * The two halves of one confirmation look, shared with the headless sweep so
- * the window and a script cannot answer the same question differently.
+ * What a confirmation pass settled, printed for a pass nobody is watching.
  *
- * `begin` forgets the last target's spectrum, `look` peak-holds this block's
- * into it, and `decide` reads the answer out and fills in the verdict. The
- * hold is what makes six looks worth more than one: a bursty transmitter is
- * absent from most blocks, and averaging or overwriting throws away the one
- * block it was up in.
+ * Shared with the headless sweep so a scripted pass and a scripted window
+ * cannot spell the same verdict two ways: the two used to have their own
+ * printf loops, and their `# confirm` header lines had already drifted apart
+ * -- the headless one promised five fields where its rows carried seven.
+ * docs/band-surveys.md is the format.
  */
-void survey_confirm_begin_target(struct app *app);
-/*
- * One of a target's looks. The target itself rather than its frequency,
- * because the kind measurement needs to aim at the energy and not at the
- * middle of the extent -- and because reaching for it through
- * `confirm.index` would work on screen and put every headless target's
- * measurement into the first one, the headless pass keeping its own array
- * and never advancing that index.
- */
-void survey_confirm_look(struct app *app,
-                         const struct survey_confirm_target *target);
-int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
-                          struct sdr_carrier_report *report);
+void survey_print_confirm_header(void);
+void survey_print_confirm_target(const struct survey_confirm_target *target);
+void survey_print_confirm_summary(const struct survey_session *ss);
 void handle_survey_input(struct app *app);
 void draw_survey(struct app *app);
 

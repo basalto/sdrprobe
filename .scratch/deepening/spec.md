@@ -46,6 +46,29 @@ callers it was earning its keep.
    layer 1 reachable for decode orchestration.
 3. **Installation** (`03`) -- where ADR-0018 and ADR-0022 have to land anyway.
 4. **Survey machine** (`04`) -- the Probe-side twin of 02.
+   **Done, 2026-09-09**: `src/survey_session.{c,h}` and
+   `check-survey-session`, 158 checks where the sweep, the confirmation pass,
+   the watch and the measurement had none. The session says where it wants the
+   tuning and never touches the receiver; it holds a site history and never
+   reads a file. It found four faults, three of them differences between the
+   window's copy and the headless one that no check could see: the headless
+   sweep folded stale blocks, the watch reported its first sweep's carrier
+   count as zero, the two `# confirm` headers disagreed with their own rows,
+   and the window handed a *rebuilt* spectrum where the headless path handed a
+   peak hold. Two the extraction itself introduced and measurement caught: the
+   settle timed from the retune *request* rather than from the tuning, and a
+   step that could only end when a block arrived. `update_survey()` is now
+   called every frame, because a look counts blocks and a step counts time.
+   Three more the extraction introduced and review caught, all the same wrong
+   reset: a no-receiver select that cleared the sweep, a stop that left a
+   confirmation pass running in front of a view that waits on one, and a Reset
+   zoom that restored the kept sweep and then emptied it. That last one took
+   the narrowing snapshot into the session as well
+   (`survey_session_keep`/`_restore`), which `.scratch/testability/` ticket 01
+   had named as an operator-reported fault with no check -- and the restore
+   turned out never to have put the sweep's **plan** back, so a wide sweep's
+   peaks were being read with a narrow sweep's bin width. Both capture surveys
+   and the survey screen are byte-identical.
 5. **FM receiver interface** (`05`) -- speculative; analysis mode wants
    internals on screen and they must become readouts, not vanish.
 6. **`struct app` carve-out** (`06`) -- not a project; the measure of whether

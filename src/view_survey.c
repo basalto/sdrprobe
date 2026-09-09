@@ -28,6 +28,14 @@
  * demodulated, and a carrier inside the GSM downlink allocation is a carrier
  * inside an allocation. The words on screen carry that distinction, because
  * the code alone cannot (ADR-0015).
+ *
+ * **The sweep is not here.** `survey_session.h` owns the machine -- when a
+ * step is over, when the fold is applied, what a confirmation pass asks about,
+ * what a watch reports -- and this file is one of its two adapters
+ * (`.scratch/deepening/issues/04-survey-session.md`, ADR-0012). What is left
+ * is the window: the text fields, the frequency window, the chart, the
+ * candidate list, and the receiver, which the session asks for and never
+ * touches.
  */
 
 int survey_editing(const struct app *app) {
@@ -38,17 +46,10 @@ int survey_editing(const struct app *app) {
 static int survey_start(struct app *app);
 static void survey_keep_current(struct survey_view *s);
 static void survey_sweep_span(struct app *app, double from, double to);
-
-/* Start the same range again, for a watch. Returns 0 when it began. */
-static int survey_start_sweep_again(struct app *app) {
-    struct survey_view *s = &app->survey;
-    if (!app->receiver_mode || s->lower_hz >= s->upper_hz)
-        return -1;
-    survey_sweep_span(app, s->lower_hz, s->upper_hz);
-    return s->sweeping ? 0 : -1;
-}
 static int survey_sweep_target(const struct survey_view *s, double *from,
                                double *to);
+static void survey_history_refresh(struct app *app);
+static void survey_select(struct app *app, int index);
 
 /* Back into the spelling the field takes, so a range given on the command
    line reads the way someone would have typed it. */
@@ -65,6 +66,168 @@ static struct survey_layout survey_layout_now(void) {
     return survey_layout_for((float)GetScreenWidth(), (float)GetScreenHeight());
 }
 
+/* The hour of the day, for the clock the history keeps. */
+static int survey_hour_of_day(void) {
+    time_t now = time(NULL);
+    struct tm local;
+
+    localtime_r(&now, &local);
+    return local.tm_hour;
+}
+
+/*
+ * What one block looks like to the session: samples, a spectrum, and the
+ * facts about the container they came out of. No `struct app` past this
+ * point, which is what lets a check drive the same machine (ADR-0012).
+ */
+static struct survey_block survey_block_of(struct app *app) {
+    struct survey_block b;
+
+    memset(&b, 0, sizeof(b));
+    b.i_samples = app->i_samples;
+    b.q_samples = app->q_samples;
+    b.pair_count = app->pair_count;
+    b.spectrum = app->spectrum_average;
+    b.scratch = app->magnitude_sorted;
+    b.centre_hz = (double)app->applied_frequency;
+    b.sample_rate = (double)app->applied_sample_rate;
+    b.reference_clock_hz = app->device.reference_clock_hz;
+    b.remove_dc = app->remove_dc;
+    return b;
+}
+
+/*
+ * Print what a confirmation pass settled, for a pass nobody is watching.
+ *
+ * A pass started from the command line has no status line and no panel, and a
+ * verdict nobody can read is a verdict that may as well not have been reached
+ * (ADR-0012). The same two records the headless sweep writes, through the same
+ * spellings -- docs/band-surveys.md is the format.
+ */
+void survey_print_confirm_target(const struct survey_confirm_target *target) {
+    char flags[64];
+
+    printf("confirm %.0f %s %s %.1f %d/%d %.0f %s\n", target->hz,
+           target->claim == SURVEY_CLAIM_MISSING ? "missing" : "new",
+           survey_verdict_name(target->verdict),
+           (double)target->prominence_db, target->hits, target->looks,
+           target->bandwidth_hz,
+           survey_flag_text(target->suspicion, flags, sizeof(flags)));
+    if (!target->kind_measured)
+        return;
+    printf("kind %.0f %s %.1f %.3f %.3f %s %.4f\n", target->hz,
+           signal_verdict_name(signal_carrier_verdict(&target->carrier)),
+           target->carrier.carrier_over_noise_db,
+           target->carrier.carrier_power_fraction,
+           target->envelope.found ? target->envelope.variation : -1.0,
+           survey_burst_name(target->bursts.verdict),
+           target->bursts.occupancy);
+}
+
+void survey_print_confirm_header(void) {
+    printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
+           "<hits>/<looks> <bandwidth_hz> <flags|->\n");
+    printf("# kind <frequency_hz> <carrier> <over_noise_db> <standing_share> "
+           "<envelope> <bursts> <occupancy>\n");
+}
+
+void survey_print_confirm_summary(const struct survey_session *ss) {
+    printf("confirm-summary asked %d confirmed %d intermittent %d refuted "
+           "%d\n", ss->confirm.count, ss->confirm.confirmed,
+           ss->confirm.intermittent, ss->confirm.refuted);
+    fflush(stdout);
+}
+
+/*
+ * Do what the session asked for.
+ *
+ * The session says where it wants the tuning and never touches the receiver,
+ * so this is where a lease is borrowed, a retune is attempted, and a refusal
+ * is handed back. It is also where the history reaches a file: the session
+ * holds one and says when it changed, and only the program knows which
+ * installation it belongs to (ADR-0022).
+ */
+static void survey_obey(struct app *app,
+                        const struct survey_session_event *event) {
+    struct survey_view *s = &app->survey;
+    struct survey_session *ss = &s->session;
+
+    if (event->target_finished > 0 && s->confirm_printed)
+        survey_print_confirm_target(
+            &ss->confirm.target[event->target_finished - 1]);
+    if (event->history_dirty && ss->history_loaded)
+        installation_history_save(&app->installation, &ss->history);
+    if (event->watch_swept && app->options.survey_watch > 0) {
+        /* A watch started from the command line has nobody reading the
+           status line. */
+        printf("watch sweep %d carriers %d appeared %d quiet %d\n",
+               ss->watch_sweeps, ss->watch_carriers, ss->watch_appeared,
+               ss->watch_lost);
+        fflush(stdout);
+    }
+    if (event->watch_finished && app->options.survey_watch > 0) {
+        printf("watch-summary sweeps %d appeared %d quiet %d\n",
+               ss->watch_sweeps, ss->watch_total_appeared,
+               ss->watch_total_lost);
+        fflush(stdout);
+    }
+    if (event->confirm_finished) {
+        if (s->confirm_printed) {
+            survey_print_confirm_summary(ss);
+            s->confirm_printed = 0;
+        }
+        /* Inside out: returning the pass's claim puts the receiver back on the
+           sweep's tuning, which is where it belongs -- not on whatever was on
+           screen before the survey opened. The view keeps its own claim. */
+        receiver_return(app, &s->confirm_lease_token);
+    }
+    if (event->marks_stale)
+        survey_history_refresh(app);
+    if (event->retune_hz) {
+        /* Borrowed on the way in when nothing holds it yet: a confirmation
+           pass nests inside the survey's own claim, and the sweep's claim is
+           the one the view keeps for as long as it is up. */
+        int failed;
+
+        if (survey_session_confirming(ss)) {
+            failed = receiver_lease_token_active(&s->confirm_lease_token)
+                         ? retune_receiver(app, event->retune_hz,
+                                           app->applied_ppm) < 0
+                         : receiver_borrow_at(app, &s->confirm_lease_token,
+                                              event->retune_hz, 0) < 0;
+        } else {
+            failed = retune_receiver(app, event->retune_hz,
+                                     app->applied_ppm) < 0;
+        }
+        if (!failed) {
+            /* The settle starts when the tuner moved, not when it was asked
+               to: a retune costs about a tenth of a second, which is the
+               whole of the settle. */
+            survey_session_retuned(ss, GetTime());
+        } else {
+            struct survey_session_event refusal;
+
+            survey_session_retune_failed(ss, (double)event->retune_hz,
+                                         &refusal);
+            if (refusal.confirm_finished) {
+                if (s->confirm_printed) {
+                    survey_print_confirm_summary(ss);
+                    s->confirm_printed = 0;
+                }
+                receiver_return(app, &s->confirm_lease_token);
+            } else if (refusal.release_receiver) {
+                receiver_restore_held(app, &s->lease_token);
+            }
+        }
+    } else if (event->release_receiver && !event->confirm_finished &&
+               !survey_session_confirming(ss)) {
+        /* Back where the operator was, until they pick a candidate -- and
+           still holding the receiver, because this view keeps the right to
+           sweep again. */
+        receiver_restore_held(app, &s->lease_token);
+    }
+}
+
 /*
  * The window arithmetic lives in freq_window.h, as plain doubles that
  * tests/freq_window_test.c can exercise without a window or a receiver.
@@ -73,10 +236,11 @@ static struct survey_layout survey_layout_now(void) {
  * before that.
  */
 static struct freq_window freq_window_of(const struct survey_view *s) {
+    const struct survey_session *ss = &s->session;
     struct freq_window w;
 
-    w.data_lower_hz = s->bins > 0 ? s->lower_hz : s->field_lower_hz;
-    w.data_upper_hz = s->bins > 0 ? s->upper_hz : s->field_upper_hz;
+    w.data_lower_hz = ss->bins > 0 ? ss->lower_hz : s->field_lower_hz;
+    w.data_upper_hz = ss->bins > 0 ? ss->upper_hz : s->field_upper_hz;
     w.view_lower_hz = s->view_lower_hz;
     w.view_upper_hz = s->view_upper_hz;
     return w;
@@ -88,7 +252,6 @@ static void freq_window_put(struct survey_view *s,
     s->view_upper_hz = w->view_upper_hz;
 }
 
-/* The frequency at the middle of a survey bin. */
 /*
  * What is suspicious about a frequency this survey found. The bandwidth is
  * only known once the candidate has been measured, so it is passed as 0 until
@@ -96,8 +259,8 @@ static void freq_window_put(struct survey_view *s,
  */
 static unsigned survey_suspect_at(const struct app *app, double hz,
                                   double bandwidth_hz) {
-    return survey_suspect(&app->survey.plan, app->device.reference_clock_hz,
-                          hz, bandwidth_hz,
+    return survey_suspect(&app->survey.session.plan,
+                          app->device.reference_clock_hz, hz, bandwidth_hz,
                           (double)app->applied_sample_rate, SDR_DSP_FFT_SIZE,
                           app->remove_dc);
 }
@@ -106,28 +269,29 @@ static unsigned survey_suspect_at(const struct app *app, double hz,
    frame rather than stored: it is a few hundred multiplications, and a stored
    count is one more thing that can disagree with the list beside it. */
 static int survey_suspicious_now(const struct app *app) {
-    return survey_suspect_count(&app->survey.plan,
+    return survey_suspect_count(&app->survey.session.plan,
                                 app->device.reference_clock_hz,
-                                app->survey.peaks,
-                                app->survey.peak_count,
+                                app->survey.session.peaks,
+                                app->survey.session.peak_count,
                                 (double)app->applied_sample_rate,
                                 SDR_DSP_FFT_SIZE, app->remove_dc);
 }
 
+/* The frequency at the middle of a survey bin, through the window the chart
+   is drawn against rather than through the session's own range: they differ
+   only before the first sweep, where the fields are the honest answer. */
 static double survey_bin_hz(const struct survey_view *s, int bin) {
     struct freq_window w = freq_window_of(s);
 
     /* Bins span what was swept, so before a sweep there is nothing to index
        into and the range's low edge is the honest answer. */
-    if (s->bins <= 0)
-        return s->lower_hz;
-    return freq_window_bin_hz(&w, s->bins, bin);
+    if (s->session.bins <= 0)
+        return s->session.lower_hz;
+    return freq_window_bin_hz(&w, s->session.bins, bin);
 }
 
 static double survey_bin_width_hz(const struct survey_view *s) {
-    if (s->bins <= 0)
-        return 0.0;
-    return (s->upper_hz - s->lower_hz) / (double)s->bins;
+    return survey_session_bin_width_hz(&s->session);
 }
 
 /*
@@ -158,18 +322,6 @@ static void survey_reset_view(struct survey_view *s) {
     freq_window_reset(&w);
     freq_window_put(s, &w);
 }
-
-/* Keep the field range current, and before the first sweep keep the window on
-   it: editing the range should move the chart it is about to sweep. */
-/* The hour of the day, for the clock the history keeps. */
-static int survey_hour_now(void) {
-    time_t now = time(NULL);
-    struct tm local;
-    localtime_r(&now, &local);
-    return local.tm_hour;
-}
-
-static void survey_history_refresh(struct app *app);
 
 /*
  * Which field a focus index names, and what it will accept.
@@ -208,20 +360,21 @@ static struct survey_field survey_field_at(struct survey_view *s, int focus) {
 /*
  * Write the sweep down, so the next one has something to be compared with.
  *
- * The spectrum is only handed over when the whole survey came from one tuning.
- * Across a swept range it belongs to whichever step happened to be last, and a
+ * The spectrum is only handed over when the whole survey came from one tuning;
+ * across a swept range it belongs to whichever step happened to be last, and a
  * bandwidth measured out of it would be a number about the wrong signal --
- * the same rule the headless report follows, and the reason both now go
- * through survey_candidates_from().
+ * which is survey_session_spectrum()'s own refusal, and the reason both
+ * adapters go through survey_candidates_from().
  */
 static void survey_save_sweep(struct app *app) {
     struct survey_view *s = &app->survey;
+    struct survey_session *ss = &s->session;
     struct survey_candidate candidates[SURVEY_MAX_PEAKS];
     char path[256];
     int count;
 
-    if (s->peak_count <= 0) {
-        snprintf(s->status, sizeof(s->status),
+    if (ss->peak_count <= 0) {
+        snprintf(ss->status, sizeof(ss->status),
                  "Nothing to save yet: sweep first.");
         return;
     }
@@ -229,16 +382,15 @@ static void survey_save_sweep(struct app *app) {
         /* Refused rather than saved as unknown. Two sweeps with no site
            compare as the same place, which is the one way this archive can
            mislead instead of merely disappoint. */
-        snprintf(s->status, sizeof(s->status),
+        snprintf(ss->status, sizeof(ss->status),
                  "Name the site first -- a sweep without one cannot be "
                  "compared with another.");
         s->focus = 3;
         return;
     }
-    count = survey_candidates_from(app, &s->plan, s->peaks, s->peak_count,
-                                   s->plan.step_count <= 1
-                                       ? app->spectrum_average : NULL,
-                                   candidates, SURVEY_MAX_PEAKS);
+    count = survey_candidates_from(app, &ss->plan, ss->peaks, ss->peak_count,
+                                   survey_session_spectrum(ss), candidates,
+                                   SURVEY_MAX_PEAKS);
     /*
      * The archive and the memory are written together. If they drift apart --
      * a sweep in surveys/ that the history never saw -- the window starts
@@ -247,30 +399,29 @@ static void survey_save_sweep(struct app *app) {
     {
         double hz[SURVEY_CARRIER_MAX];
         float level[SURVEY_CARRIER_MAX], prom[SURVEY_CARRIER_MAX];
+        struct site_history history;
         int i;
         /* Carriers, not candidates. The site remembers signals; a candidate
            is one maximum of one, and a station with four would arrive as four
            things to be surprised by next time. */
-        for (i = 0; i < s->carrier_count; i++) {
-            hz[i] = s->carriers[i].centre_hz;
-            level[i] = s->carriers[i].peak_dbfs;
-            prom[i] = s->carriers[i].prominence_db;
+        for (i = 0; i < ss->carrier_count; i++) {
+            hz[i] = ss->carriers[i].centre_hz;
+            level[i] = ss->carriers[i].peak_dbfs;
+            prom[i] = ss->carriers[i].prominence_db;
         }
-        if (!s->history_loaded)
-            installation_history_load(&app->installation, &s->history);
-        site_history_init(&s->history, app->config.site);
-        installation_history_load(&app->installation, &s->history);
-        site_history_merge(&s->history, hz, level, prom, s->carrier_count,
-                           s->plan.bin_hz, survey_hour_now());
-        installation_history_save(&app->installation, &s->history);
+        site_history_init(&history, app->config.site);
+        installation_history_load(&app->installation, &history);
+        site_history_merge(&history, hz, level, prom, ss->carrier_count,
+                           ss->plan.bin_hz, survey_hour_of_day());
+        installation_history_save(&app->installation, &history);
     }
     /* Whatever "Ask again" has already settled about this sweep. Cleared when
        a sweep starts, so a save can never carry the previous sweep's
        verdicts under this one's frequencies. */
-    if (survey_store_write(app, &s->plan, candidates, count, s->carriers,
-                           s->carrier_count, s->confirm.target,
-                           s->confirm.count, path, sizeof(path)) < 0) {
-        snprintf(s->status, sizeof(s->status),
+    if (survey_store_write(app, &ss->plan, candidates, count, ss->carriers,
+                           ss->carrier_count, ss->confirm.target,
+                           ss->confirm.count, path, sizeof(path)) < 0) {
+        snprintf(ss->status, sizeof(ss->status),
                  "Could not write the survey; see the terminal.");
         return;
     }
@@ -278,7 +429,7 @@ static void survey_save_sweep(struct app *app) {
         /* The name, not the path: the status line is one line and the
            directory is always the same one. */
         const char *slash = strrchr(path, '/');
-        snprintf(s->status, sizeof(s->status),
+        snprintf(ss->status, sizeof(ss->status),
                  "Saved %d candidates to surveys/%.64s -- compare sweeps "
                  "with scripts/survey_tool.py diff", count,
                  slash ? slash + 1 : path);
@@ -287,449 +438,35 @@ static void survey_save_sweep(struct app *app) {
 }
 
 /*
- * The confirmation pass: revisit each thing the sweep called new or missing
- * and give it a proper look.
+ * Reload what this site has heard, and re-mark this sweep against it.
  *
- * It does not touch the survey's power array. Re-sweeping a narrow span would
- * throw away the wide sweep that produced the claims in the first place, and
- * getting that back costs minutes -- so this tunes to each target, folds
- * several blocks into one spectrum, and asks whether a carrier is there. That
- * is also better evidence than a re-sweep: six blocks on one frequency against
- * the one or two the sweep could spare.
- */
-static int survey_confirm_begin(struct app *app) {
-    struct survey_view *s = &app->survey;
-    int i, count = 0;
-
-    if (!app->receiver_mode)
-        return -1;
-    for (i = 0; i < s->carrier_count && count < SURVEY_CONFIRM_MAX; i++) {
-        if (s->carrier_status[i] != SITE_STATUS_NEW)
-            continue;
-        memset(&s->confirm.target[count], 0,
-               sizeof(s->confirm.target[count]));
-        s->confirm.target[count].hz = s->carriers[i].centre_hz;
-        s->confirm.target[count].power_centre_hz =
-            s->carriers[i].power_centre_hz;
-        s->confirm.target[count].claim = SURVEY_CLAIM_NEW;
-        s->confirm.target[count].verdict = SURVEY_VERDICT_PENDING;
-        s->confirm.target[count].prominence_db = 0.0f;
-        count++;
-    }
-    for (i = 0; i < s->missing_count && count < SURVEY_CONFIRM_MAX; i++) {
-        memset(&s->confirm.target[count], 0,
-               sizeof(s->confirm.target[count]));
-        s->confirm.target[count].hz = s->missing[i]->hz;
-        s->confirm.target[count].claim = SURVEY_CLAIM_MISSING;
-        s->confirm.target[count].verdict = SURVEY_VERDICT_PENDING;
-        s->confirm.target[count].prominence_db = 0.0f;
-        count++;
-    }
-    if (count == 0)
-        return -1;
-
-    s->confirm.count = count;
-    s->confirm.index = 0;
-    s->confirm.confirmed = 0;
-    s->confirm.intermittent = 0;
-    s->confirm.refuted = 0;
-    s->confirm.running = 1;
-    if (receiver_borrow_at(app, &s->confirm.lease_token,
-                           (uint32_t)llround(s->confirm.target[0].hz -
-                                             SURVEY_CONFIRM_OFFSET_HZ),
-                           0) < 0) {
-        s->confirm.running = 0;
-        return -1;
-    }
-    s->confirm.settled = 0;
-    s->confirm.looks = 0;
-    s->confirm.started_at = GetTime();
-    survey_confirm_begin_target(app);
-    return 0;
-}
-
-/*
- * One target's looks, held rather than averaged.
- *
- * This used to read `spectrum_average` straight, and `spectrum_average` is
- * rebuilt from scratch by every block -- so "six blocks folded into one
- * spectrum" was in fact the sixth block alone. That is the wrong instrument
- * for the thing the pass exists to settle: the candidates that do not
- * reproduce are largely bursty, and a burst is in one block of the six. Held,
- * the pass sees whatever was up at any point in the look; overwritten, it sees
- * whatever happened to be up at the end.
- */
-void survey_confirm_begin_target(struct app *app) {
-    app->survey.confirm.measured = 0;
-    app->survey.confirm.hits = 0;
-    app->survey.confirm.looks = 0;
-    /* Cleared, not carried over: a target the pass never catches must read as
-       never measured rather than inheriting the previous one's answer, which
-       is the quietest way to attribute one signal's kind to another. */
-    app->survey.confirm.kind_measured = 0;
-    memset(&app->survey.confirm.carrier, 0,
-           sizeof(app->survey.confirm.carrier));
-    memset(&app->survey.confirm.bursts, 0, sizeof(app->survey.confirm.bursts));
-    memset(&app->survey.confirm.envelope, 0,
-           sizeof(app->survey.confirm.envelope));
-}
-
-/*
- * What kind of thing this look found, from the raw samples.
- *
- * Only on a look that found the signal at all. Measuring the kind of a block
- * the carrier was absent from measures the noise -- and it would then
- * overwrite a look that had caught it, which for anything bursty is most of
- * them. The pass already holds its best look for the same reason.
- *
- * The search window is centred where the target was *put* rather than where
- * the spectrum says it is: the pass tunes SURVEY_CONFIRM_OFFSET_HZ below it
- * so the signal lands clear of the receiver's own DC spike, and that offset
- * is also the guard signal_find_carrier() needs.
- */
-static void survey_confirm_measure_kind(struct app *app,
-                                        const struct survey_confirm_target *target,
-                                        const struct sdr_carrier_report *block) {
-    struct survey_view *s = &app->survey;
-    /*
-     * Aimed at the energy rather than at the middle of the extent, when the
-     * caller supplied one. The receiver is tuned SURVEY_CONFIRM_OFFSET_HZ
-     * below the target's `hz`, so the line sits that far up plus however far
-     * the energy is from the middle.
-     */
-    double at = SURVEY_CONFIRM_OFFSET_HZ +
-                (target->power_centre_hz > 0.0
-                     ? target->power_centre_hz - target->hz : 0.0);
-    double channel = block->bandwidth_hz;
-    double search = survey_carrier_search_hz(block->bandwidth_hz);
-
-    if (channel < SURVEY_CARRIER_MIN_CHANNEL_HZ)
-        channel = SURVEY_CARRIER_MIN_CHANNEL_HZ;
-    if (!signal_find_carrier(app->i_samples, app->q_samples, app->pair_count,
-                             (double)app->applied_sample_rate,
-                             at - search, at + search,
-                             SURVEY_CONFIRM_OFFSET_HZ / 2.0, channel,
-                             &s->confirm.carrier))
-        return;
-    signal_find_bursts(app->i_samples, app->q_samples, app->pair_count,
-                       (double)app->applied_sample_rate,
-                       SIGNAL_BURST_GAP_DEFAULT, &s->confirm.bursts);
-    signal_envelope_stats(app->i_samples, app->q_samples, app->pair_count,
-                          (double)app->applied_sample_rate,
-                          s->confirm.carrier.offset_hz, channel,
-                          &s->confirm.envelope);
-    s->confirm.kind_measured = 1;
-}
-
-/*
- * One look: measure this block on its own, and keep it if it is the best yet.
- *
- * Per block, because that is the only way to count *how often* the signal was
- * there, which is the difference between a transmitter and a burst. And the
- * best single look rather than a peak-held spectrum, because holding raises
- * the noise floor along with the signal: a burst present in two blocks of six
- * measured 4.7 dB against the hold, under the 6 dB bar it had cleared twice,
- * so the reported number contradicted the verdict beside it.
- *
- * The best look is also the right one to report. "How far above the floor did
- * it stand" means when it was transmitting, not averaged over the silence.
- */
-void survey_confirm_look(struct app *app,
-                         const struct survey_confirm_target *target) {
-    struct survey_view *s = &app->survey;
-    struct sdr_carrier_report block;
-
-    s->confirm.looks++;
-    if (!sdr_dsp_characterise_carrier(
-            app->spectrum_average, SDR_DSP_FFT_SIZE,
-            (double)app->applied_frequency,
-            (double)app->applied_sample_rate, target->hz, 200000.0, 20.0f,
-            app->magnitude_sorted, &block))
-        return;
-    if (survey_confirm_present(block.prominence_db))
-        s->confirm.hits++;
-    /* Kept even when it did not clear the bar: a refuted target saying how
-       close it came is worth more than one saying nothing. */
-    if (survey_confirm_better(s->confirm.measured,
-                              s->confirm.best.prominence_db,
-                              block.prominence_db)) {
-        s->confirm.best = block;
-        s->confirm.measured = 1;
-        /*
-         * And the kind comes from the same look, so every number reported
-         * about a target describes one block of signal. Only when the signal
-         * was actually present: measuring the kind of a block it was absent
-         * from measures the noise, and for anything bursty that is most of
-         * them.
-         */
-        if (survey_confirm_present(block.prominence_db))
-            survey_confirm_measure_kind(app, target, &block);
-    }
-}
-
-/*
- * Read the answer out and fill in the verdict. Returns whether the carrier was
- * measurable at all; `report` is left with the best look when it was.
- *
- * The verdict comes from the count of looks and the level from the best of
- * them. A signal up in one look of six is intermittent however loud that look
- * was, and one up in all six is continuous however quiet.
- */
-int survey_confirm_decide(struct app *app, struct survey_confirm_target *target,
-                          struct sdr_carrier_report *report) {
-    struct survey_view *s = &app->survey;
-
-    if (s->confirm.measured)
-        *report = s->confirm.best;
-    target->hits = s->confirm.hits;
-    target->looks = s->confirm.looks;
-    target->prominence_db = s->confirm.measured
-                                ? s->confirm.best.prominence_db : 0.0f;
-    /*
-     * The width and the suspicion at the pass's own resolution, which is
-     * three orders finer than the sweep that raised the candidate. This is
-     * the only place either can be measured honestly: a 212 kHz bin cannot
-     * resolve a 25 kHz carrier, and the comb test refuses to run at all when
-     * the bin is that wide.
-     */
-    target->bandwidth_hz = s->confirm.measured ? s->confirm.best.bandwidth_hz
-                                               : 0.0;
-    target->kind_measured = s->confirm.kind_measured;
-    target->carrier = s->confirm.carrier;
-    target->bursts = s->confirm.bursts;
-    target->envelope = s->confirm.envelope;
-    /*
-     * And a frequency where the closer look found a prominence and nothing
-     * else is flagged as empty, whatever the count of looks said. The two
-     * live in the same field because they are the same kind of statement --
-     * "do not believe this at face value" -- and different flags because a
-     * reader acts differently on each.
-     */
-    if (survey_confirm_is_empty(s->confirm.kind_measured, &s->confirm.carrier,
-                                &s->confirm.envelope))
-        target->suspicion |= SURVEY_SUSPECT_NO_CARRIER;
-    target->suspicion |= s->confirm.measured
-                            ? survey_suspect_confirmed(
-                                  app->device.reference_clock_hz,
-                                  s->confirm.best.centre_hz,
-                                  s->confirm.best.bandwidth_hz,
-                                  (double)app->applied_sample_rate,
-                                  SDR_DSP_FFT_SIZE)
-                            : 0u;
-    target->verdict = (signed char)survey_confirm_verdict_from(
-        target->claim, s->confirm.hits, s->confirm.looks);
-    return s->confirm.measured;
-}
-
-/* Fold what the closer look found back into what the site remembers, then
-   forget the claims: they have been answered. */
-static void survey_confirm_finish(struct app *app) {
-    struct survey_view *s = &app->survey;
-
-    s->confirm.running = 0;
-    receiver_return(app, &s->confirm.lease_token);
-    /*
-     * Printed as well as shown. A pass started from the command line has
-     * nobody watching the status line, and a verdict nobody can read is a
-     * verdict that may as well not have been reached (ADR-0012).
-     */
-    if (s->confirm.printed) {
-        int i;
-        printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
-               "<hits>/<looks> <bandwidth_hz> <flags|->\n");
-        for (i = 0; i < s->confirm.count; i++) {
-            const struct survey_confirm_target *target = &s->confirm.target[i];
-            char flags[64];
-            printf("confirm %.0f %s %s %.1f %d/%d %.0f %s\n", target->hz,
-                   target->claim == SURVEY_CLAIM_NEW ? "new" : "missing",
-                   survey_verdict_name(target->verdict),
-                   (double)target->prominence_db, target->hits,
-                   target->looks, target->bandwidth_hz,
-                   survey_flag_text(target->suspicion, flags, sizeof(flags)));
-        }
-        printf("confirm-summary asked %d confirmed %d intermittent %d "
-               "refuted %d\n", s->confirm.count, s->confirm.confirmed,
-               s->confirm.intermittent, s->confirm.refuted);
-        fflush(stdout);
-        s->confirm.printed = 0;
-    }
-    snprintf(s->status, sizeof(s->status),
-             "Asked again about %d: %d held up, %d came and went, %d did not."
-             "  %s",
-             s->confirm.count, s->confirm.confirmed, s->confirm.intermittent,
-             s->confirm.refuted,
-             s->confirm.intermittent
-                 ? "Bursty is a finding, not a mistake."
-                 : (s->confirm.refuted
-                        ? "A sweep step is a tenth of a second; this was six "
-                          "blocks."
-                        : "The sweep had them right."));
-}
-
-static void survey_confirm_step(struct app *app, double now, int have_block) {
-    struct survey_view *s = &app->survey;
-    struct survey_confirm_target *target;
-
-    if (!s->confirm.running)
-        return;
-    target = &s->confirm.target[s->confirm.index];
-
-    if (!s->confirm.settled) {
-        if (now - s->confirm.started_at >= SURVEY_CONFIRM_SETTLE_SECONDS) {
-            s->confirm.settled = 1;
-            s->confirm.started_at = now;
-        }
-        return;
-    }
-    if (have_block) {
-        survey_confirm_look(app, target);      /* counts the look too */
-        if (s->confirm.looks < SURVEY_CONFIRM_LOOKS)
-            return;
-    } else if (now - s->confirm.started_at < 3.0) {
-        return;                        /* still waiting for blocks */
-    }
-
-    {
-        /* Every block of this look, peak-held into one spectrum, so the
-           question is simply whether a carrier stands above the local floor
-           here at any point during it. */
-        struct sdr_carrier_report report;
-        int measured = survey_confirm_decide(app, target, &report);
-
-        if (target->verdict == SURVEY_VERDICT_CONFIRMED)
-            s->confirm.confirmed++;
-        else if (target->verdict == SURVEY_VERDICT_INTERMITTENT)
-            s->confirm.intermittent++;
-        else
-            s->confirm.refuted++;
-
-        /*
-         * Teach the site what the closer look found, not what the sweep
-         * guessed. A "new" that held up is worth remembering; one that did not
-         * was noise and must not enter the history, or the next sweep will
-         * call it missing and the noise becomes a permanent ghost.
-         */
-        if (app->config.site[0] && s->history_loaded &&
-            survey_confirm_should_record(target->claim, target->verdict,
-                                         target->suspicion)) {
-            /*
-             * Recorded at the carrier's measured centre, not at the peak that
-             * pointed here. A 200 kHz FM signal has several local maxima and
-             * the sweep reports each; remembering each would fill the history
-             * with five entries for one station, all of them "new" next time
-             * something moved by a bin.
-             */
-            site_history_record_one(&s->history,
-                                    measured ? report.centre_hz : target->hz,
-                                    report.peak_dbfs, report.prominence_db,
-                                    (double)app->applied_sample_rate /
-                                        SDR_DSP_FFT_SIZE,
-                                    survey_hour_now());
-            installation_history_save(&app->installation, &s->history);
-        }
-    }
-
-    s->confirm.index++;
-    if (s->confirm.index >= s->confirm.count) {
-        survey_confirm_finish(app);
-        survey_history_refresh(app);
-        return;
-    }
-    if (retune_receiver(app,
-                        (uint32_t)llround(
-                            s->confirm.target[s->confirm.index].hz -
-                            SURVEY_CONFIRM_OFFSET_HZ),
-                        app->applied_ppm) < 0) {
-        survey_confirm_finish(app);
-        return;
-    }
-    s->confirm.settled = 0;
-    s->confirm.looks = 0;
-    s->confirm.started_at = now;
-    survey_confirm_begin_target(app);
-}
-
-/*
- * One sweep of a watch: fold what was found into what the site knows, and
- * count what changed.
- *
- * The folding is the point. A watch that only looked would learn nothing --
- * every sweep would find the same signals "new", because new means "this site
- * has not heard it" and nothing would ever have been written down. It is also
- * the only way an hour accumulates enough sweeps for a daily pattern to be
- * visible at all.
- */
-static void survey_watch_fold(struct app *app) {
-    struct survey_view *s = &app->survey;
-    double hz[SURVEY_CARRIER_MAX];
-    float level[SURVEY_CARRIER_MAX], prom[SURVEY_CARRIER_MAX];
-    int i;
-
-    if (!app->config.site[0])
-        return;
-    if (!s->history_loaded)
-        installation_history_load(&app->installation, &s->history);
-    for (i = 0; i < s->carrier_count; i++) {
-        hz[i] = s->carriers[i].centre_hz;
-        level[i] = s->carriers[i].peak_dbfs;
-        prom[i] = s->carriers[i].prominence_db;
-    }
-    s->watch_appeared = site_history_merge(&s->history, hz, level, prom,
-                                           s->carrier_count, s->plan.bin_hz,
-                                           survey_hour_now());
-    s->watch_lost = site_history_lost_now(&s->history);
-    s->watch_total_appeared += s->watch_appeared;
-    s->watch_total_lost += s->watch_lost;
-    s->watch_sweeps++;
-    installation_history_save(&app->installation, &s->history);
-}
-
-/*
- * Reload what this site has heard, and work out how this sweep compares.
- *
- * Done when the site changes or a sweep ends rather than per frame: it reads
- * a file and walks every candidate against every remembered entry, and
- * neither answer changes between frames.
+ * The one place the history reaches a file on this side: the session holds it
+ * and marks against it, and only the program knows which installation the
+ * baseline belongs to (ADR-0022). Done when the site changes or a sweep ends
+ * rather than per frame -- it reads a file, and the answer does not change
+ * between frames. It used to be inside the peak finder, which runs on every
+ * folded block.
  */
 static void survey_history_refresh(struct app *app) {
-    struct survey_view *s = &app->survey;
-    double hz[SURVEY_CARRIER_MAX];
-    double tolerance;
-    int i;
+    struct survey_session *ss = &app->survey.session;
+    struct site_history history;
 
-    s->missing_count = 0;
-    memset(s->carrier_status, 0, sizeof(s->carrier_status));
-    s->history_loaded = 0;
     if (!app->config.site[0]) {
-        site_history_init(&s->history, "");
+        survey_session_set_history(ss, NULL, 0);
         return;
     }
-    if (installation_history_load(&app->installation, &s->history) < 0)
+    if (installation_history_load(&app->installation, &history) < 0) {
+        survey_session_set_history(ss, NULL, 0);
         return;
-    s->history_loaded = 1;
-
-    tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
-    for (i = 0; i < s->carrier_count; i++) {
-        hz[i] = s->carriers[i].centre_hz;
-        s->carrier_status[i] = (signed char)site_history_status(
-            &s->history, hz[i], tolerance);
     }
-    if (s->carrier_count > 0)
-        s->missing_count = site_history_missing(
-            &s->history, hz, s->carrier_count, s->plan.lower_hz,
-            s->plan.upper_hz, tolerance, s->missing,
-            (int)(sizeof(s->missing) / sizeof(s->missing[0])));
+    survey_session_set_history(ss, &history, 1);
 }
 
 /* Which signal a maximum belongs to, or NULL. The list and the popup both ask,
    because a reader points at a bump and wants to know about the carrier. */
 static const struct survey_carrier *survey_carrier_at(const struct survey_view *s,
                                                       double hz) {
-    int i;
-    for (i = 0; i < s->carrier_count; i++)
-        if (hz >= s->carriers[i].lower_hz && hz <= s->carriers[i].upper_hz)
-            return &s->carriers[i];
-    return NULL;
+    return survey_session_carrier_at(&s->session, hz);
 }
 
 /* What the popup says about one remembered signal. */
@@ -798,7 +535,7 @@ static void survey_commit_installation(struct app *app) {
             if (ppm != app->applied_ppm &&
                 retune_receiver(app, app->applied_frequency, ppm) == 0) {
                 app->options.ppm = ppm;
-                snprintf(s->status, sizeof(s->status),
+                snprintf(s->session.status, sizeof(s->session.status),
                          "Site %s: applied its %+d PPM correction.",
                          app->config.site, ppm);
             }
@@ -826,19 +563,17 @@ static void survey_refresh_fields(struct survey_view *s) {
        about what the one Sweep button is going to sweep. */
     s->view_lower_hz = lower;
     s->view_upper_hz = upper;
-    if (s->bins > 0)
+    if (s->session.bins > 0)
         survey_clamp_view(s);
 }
 
-/* Zoom about an anchor: the selected candidate when there is one, so zooming
-   in keeps what you picked in sight, otherwise the middle of the window. */
 /* Zoom about the selected candidate when there is one, so zooming in keeps
    what you picked in sight; otherwise about the middle. */
 static void survey_zoom(struct survey_view *s, double factor) {
     struct freq_window w = freq_window_of(s);
-    int has_anchor = s->selected >= 0 && s->selected < s->peak_count;
+    int has_anchor = s->selected >= 0 && s->selected < s->session.peak_count;
     double anchor = has_anchor
-                        ? survey_bin_hz(s, s->peaks[s->selected].index)
+                        ? survey_bin_hz(s, s->session.peaks[s->selected].index)
                         : 0.0;
 
     freq_window_zoom(&w, factor, anchor, has_anchor, SURVEY_MIN_SPAN_HZ);
@@ -853,7 +588,7 @@ static void survey_pan(struct app *app, double fraction) {
     double span = w.view_upper_hz - w.view_lower_hz;
 
     if (!freq_window_pan(&w, fraction, SURVEY_MIN_SPAN_HZ))
-        snprintf(s->status, sizeof(s->status),
+        snprintf(s->session.status, sizeof(s->session.status),
                  "Already showing %s of the range; zoom in first (+ or the "
                  "wheel over the chart).",
                  span >= (w.data_upper_hz - w.data_lower_hz) - 1.0
@@ -868,15 +603,16 @@ static void survey_pan(struct app *app, double fraction) {
 static int survey_peak_visible(const struct survey_view *s, int index) {
     struct freq_window w = freq_window_of(s);
 
-    if (index < 0 || index >= s->peak_count)
+    if (index < 0 || index >= s->session.peak_count)
         return 0;
-    return freq_window_bin_visible(&w, s->bins, s->peaks[index].index);
+    return freq_window_bin_visible(&w, s->session.bins,
+                                   s->session.peaks[index].index);
 }
 
 static int survey_visible_count(const struct survey_view *s) {
     int count = 0;
 
-    for (int i = 0; i < s->peak_count; i++)
+    for (int i = 0; i < s->session.peak_count; i++)
         if (survey_peak_visible(s, i))
             count++;
     return count;
@@ -886,7 +622,7 @@ static int survey_visible_count(const struct survey_view *s) {
 static int survey_nth_visible(const struct survey_view *s, int n) {
     int seen = 0;
 
-    for (int i = 0; i < s->peak_count; i++) {
+    for (int i = 0; i < s->session.peak_count; i++) {
         if (!survey_peak_visible(s, i))
             continue;
         if (seen == n)
@@ -899,7 +635,7 @@ static int survey_nth_visible(const struct survey_view *s, int n) {
 static int survey_visible_rank(const struct survey_view *s, int index) {
     int seen = 0;
 
-    for (int i = 0; i < s->peak_count; i++) {
+    for (int i = 0; i < s->session.peak_count; i++) {
         if (i == index)
             return seen;
         if (survey_peak_visible(s, i))
@@ -928,6 +664,7 @@ static int survey_visible_bands(struct sdrgui_survey_band *bands, int capacity,
 void view_survey_defaults(struct app *app) {
     struct survey_view *s = &app->survey;
 
+    survey_session_reset(&s->session);
     /* The tuner's full span, which is what an operator asking "what is out
        there" means. R820T limits; another tuner simply refuses to tune part of
        it, and the sweep reports the steps it could not take. */
@@ -938,14 +675,13 @@ void view_survey_defaults(struct app *app) {
     snprintf(s->dwell, sizeof(s->dwell), "%.2f", SURVEY_DWELL_DEFAULT);
     s->dwell_length = (int)strlen(s->dwell);
     survey_load_installation(app);
-    s->dwell_seconds = SURVEY_DWELL_DEFAULT;
     s->list_scroll = 0;
     s->selected = -1;
     s->hover = -1;
     /* No field is focused until one is clicked, so the number keys keep
        switching views the way they do in every other Scope view. */
     s->focus = -1;
-    snprintf(s->status, sizeof(s->status),
+    snprintf(s->session.status, sizeof(s->session.status),
              "Set a range and press Sweep. The whole tuner takes a few minutes;"
              " a band takes seconds.");
 }
@@ -965,7 +701,7 @@ void view_survey_enter(struct app *app) {
         receiver_borrow(app, &s->lease_token);
     /* A range given on the command line arrives here, and sweeps without
        being asked twice: someone who typed it has already asked. */
-    if (app->options.survey_seen && !s->sweeping) {
+    if (app->options.survey_seen && !survey_session_sweeping(&s->session)) {
         survey_format_hz(s->from, sizeof(s->from), app->options.survey_from_hz);
         s->from_length = (int)strlen(s->from);
         survey_format_hz(s->to, sizeof(s->to), app->options.survey_to_hz);
@@ -983,192 +719,101 @@ void view_survey_enter(struct app *app) {
 void view_survey_leave(struct app *app) {
     struct survey_view *s = &app->survey;
 
-    s->sweeping = 0;
-    s->measuring = 0;
+    survey_session_stop(&s->session, NULL);
     /* Inside out: a confirmation pass borrows from this view, and the lease
        refuses to let this view return while the pass still holds it. */
-    s->confirm.running = 0;
-    receiver_return(app, &s->confirm.lease_token);
+    receiver_return(app, &s->confirm_lease_token);
     receiver_return(app, &s->lease_token);
 }
 
+/* What the drawing forgets when the measurements under it are replaced. */
 static void survey_clear(struct survey_view *s) {
-    for (int i = 0; i < s->bins; i++)
-        s->power[i] = SURVEY_SENTINEL_DBFS;
-    s->peak_count = 0;
+    survey_session_clear(&s->session);
     s->list_scroll = 0;
     s->selected = -1;
     s->hover = -1;
-    s->report_valid = 0;
-    s->measuring = 0;
 }
 
 static int survey_start(struct app *app) {
     struct survey_view *s = &app->survey;
+    struct survey_session *ss = &s->session;
+    struct survey_session_event event;
     uint32_t from_hz;
     uint32_t to_hz;
+    double dwell;
 
     if (!app->receiver_mode) {
-        snprintf(s->status, sizeof(s->status),
+        snprintf(ss->status, sizeof(ss->status),
                  "A sweep needs a live receiver: a capture holds one tuning.");
         return -1;
     }
     if (parse_frequency(s->from, &from_hz) < 0 ||
         parse_frequency(s->to, &to_hz) < 0) {
-        snprintf(s->status, sizeof(s->status),
+        snprintf(ss->status, sizeof(ss->status),
                  "Use Hz or a K/M/G value, for example 88M");
         return -1;
     }
-    if (parse_seconds(s->dwell, &s->dwell_seconds) < 0) {
-        snprintf(s->status, sizeof(s->status),
+    if (parse_seconds(s->dwell, &dwell) < 0) {
+        snprintf(ss->status, sizeof(ss->status),
                  "Dwell must be between %.2f and %.0f seconds.",
                  SURVEY_DWELL_MIN, SURVEY_DWELL_MAX);
         return -1;
     }
 
-    switch (survey_plan_make((double)from_hz, (double)to_hz,
-                             (double)app->applied_sample_rate,
-                             SDR_DSP_FFT_SIZE, s->dwell_seconds, &s->plan)) {
-    case SURVEY_PLAN_BAD_RANGE:
-        snprintf(s->status, sizeof(s->status),
-                 "The high edge must be above the low one.");
+    if (survey_session_sweep(ss, (double)from_hz, (double)to_hz,
+                             (double)app->applied_sample_rate, dwell,
+                             GetTime(), &event) != SURVEY_PLAN_OK)
         return -1;
-    case SURVEY_PLAN_BAD_DWELL:
-        snprintf(s->status, sizeof(s->status),
-                 "Dwell must be between %.2f and %.0f seconds.",
-                 SURVEY_DWELL_MIN, SURVEY_DWELL_MAX);
-        return -1;
-    case SURVEY_PLAN_BAD_RATE:
-        snprintf(s->status, sizeof(s->status),
-                 "Sample rate is too low to sweep.");
-        return -1;
-    case SURVEY_PLAN_OK:
-        break;
-    }
-
-    s->lower_hz = s->plan.lower_hz;
-    s->upper_hz = s->plan.upper_hz;
-    s->bins = s->plan.bins;
-    survey_clear(s);
-
-    survey_reset_view(s);
-    s->step_count = s->plan.step_count;
-    s->step = 0;
-    s->step_folded = 0;
-    s->sweeping = 1;
-    /* A new sweep has not been asked about yet. Leaving the last one's
-       verdicts here would attach them to whatever this sweep finds at those
-       frequencies, which is a claim nobody made. */
-    s->confirm.count = 0;
-    s->confirm.confirmed = 0;
-    s->confirm.intermittent = 0;
-    s->confirm.refuted = 0;
-    view_survey_enter(app);
-
-    double first = survey_plan_step_centre(&s->plan, 0);
-    if (retune_receiver(app, (uint32_t)llround(first), app->applied_ppm) < 0) {
-        s->sweeping = 0;
-        snprintf(s->status, sizeof(s->status),
-                 "The receiver would not tune to %.3f MHz.", first / 1e6);
-        return -1;
-    }
-    s->step_started_at = GetTime();
-    /* What this is going to cost, before it is spent: a long dwell over a wide
-       range is minutes, and knowing that up front is the difference between
-       patience and pressing Stop. */
-    snprintf(s->status, sizeof(s->status),
-             "Sweeping %.3f - %.3f MHz in %d steps, %.2f s each: about %s.",
-             s->lower_hz / 1e6, s->upper_hz / 1e6, s->step_count,
-             s->dwell_seconds,
-             s->plan.seconds < 90.0 ? "a minute" : "a few minutes");
-    return 0;
-}
-
-/* Fold the usable middle of the current spectrum into the survey array. The
-   outer fifth of each step is discarded: the tuner's response rolls off at the
-   edges of its span, so a signal there reads low, and the next step covers it
-   properly anyway. */
-static void survey_fold_block(struct app *app) {
-    struct survey_view *s = &app->survey;
-    double rate = (double)app->applied_sample_rate;
-    double centre = (double)app->applied_frequency;
-    double bin_hz = rate / (double)SDR_DSP_FFT_SIZE;
-    double lower = centre - rate / 2.0;
-
-    for (int i = 0; i < SDR_DSP_FFT_SIZE; i++) {
-        double hz = lower + ((double)i + 0.5) * bin_hz;
-        int bin;
-
-        if (!survey_fold_keeps(hz, centre, rate))
-            continue;
-        bin = survey_plan_bin_at(&s->plan, hz);
-        if (bin < 0)
-            continue;
-        s->power[bin] = survey_fold_hold(s->power[bin],
-                                         app->spectrum_average[i]);
-    }
-}
-
-static void survey_find_peaks(struct app *app) {
-    struct survey_view *s = &app->survey;
-    struct sdr_peak_gate gate;
-
-    /* Two bars, and the second is chosen from how deeply this sweep folded
-       into each bin rather than from a constant (ADR-0013). */
-    gate.topographic_db = SURVEY_MIN_PROMINENCE_DB;
-    gate.floor_db = SURVEY_FLOOR_THRESHOLD_DB;
-    gate.bandwidth_db = SURVEY_BANDWIDTH_DB;
-    s->peak_count = sdr_dsp_find_peaks(s->power, s->bins, SURVEY_SENTINEL_DBFS,
-                                       &gate, app->magnitude_sorted, s->peaks,
-                                       SURVEY_MAX_PEAKS);
-    /* Maxima into signals, before anything asks what changed: a carrier's
-       shoulders are not separate things to notice. */
-    s->carrier_count = survey_carriers_from(
-        s->power, s->bins, SURVEY_SENTINEL_DBFS,
-        survey_plan_bin_centre(&s->plan, 0),
-        s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1.0, SURVEY_BANDWIDTH_DB,
-        s->peaks, s->peak_count,
-        s->carriers, SURVEY_CARRIER_MAX);
-    /* The peaks just changed, so what is new and what is absent has
-       changed with them. */
-    survey_history_refresh(app);
     /*
-     * A watch asked for on the command line arms itself, and it has to be
-     * armed here rather than at the end: the sweep's last frame is what folds
-     * the sweep into the history, and it only does that while watching.
+     * A watch asked for on the command line arms itself, which is the only
+     * way it is reachable without somebody to click it (ADR-0012). Armed
+     * before the sweep runs rather than after: the sweep's last block is what
+     * folds it into the history, and it only does that while watching.
      */
-    if (app->options.survey_watch > 0 && !app->survey.watching &&
-        app->survey.watch_sweeps == 0 && app->config.site[0]) {
-        app->survey.watching = 1;
-        app->survey.watch_started_at = GetTime();
+    if (app->options.survey_watch > 0 && ss->watch_sweeps == 0 &&
+        app->config.site[0]) {
+        struct survey_session_event armed;
+
+        survey_session_watch(ss, 1, app->options.survey_watch, GetTime(),
+                             &armed);
     }
+    /* The drawing follows the range that is about to be swept. */
+    survey_clear(s);
+    survey_reset_view(s);
+    view_survey_enter(app);
+    survey_obey(app, &event);
+    return survey_session_sweeping(ss) ? 0 : -1;
 }
 
 /*
  * A sweep asked for on the command line asks again by itself, which is the
  * only way the pass is reachable without somebody to click it (ADR-0012).
  *
- * At the end of the sweep, and this used to be inside survey_find_peaks()
- * where it looked equivalent and was not: that runs on every block of every
- * dwell, so the trigger fired on the first block of the first step, with seven
- * bins of eight thousand measured and nothing yet to call new. It found no
- * targets, cleared the flag -- once, deliberately, so a second sweep is not a
- * repeat -- and the pass never ran again. `--survey-confirm` was accepted and
- * did nothing for the rest of the run, which is what a transcript in
+ * At the end of the sweep, and this used to be inside the peak finder where it
+ * looked equivalent and was not: that runs on every block of every dwell, so
+ * the trigger fired on the first block of the first step, with seven bins of
+ * eight thousand measured and nothing yet to call new. It found no targets,
+ * cleared the flag -- once, deliberately, so a second sweep is not a repeat --
+ * and the pass never ran again. `--survey-confirm` was accepted and did
+ * nothing for the rest of the run, which is what a transcript in
  * .scratch/phantom-candidates/ shows and nobody could read from it.
  */
 static void survey_confirm_if_asked(struct app *app) {
-    if (!app->options.survey_confirm || app->survey.confirm.running)
+    struct survey_view *s = &app->survey;
+    struct survey_session_event event;
+
+    if (!app->options.survey_confirm ||
+        survey_session_confirming(&s->session))
         return;
     app->options.survey_confirm = 0;
-    /* The caller writes its own "swept N steps" line after this returns, so
-       there is no point announcing the pass here; it announces itself on the
-       button and reports when it is done. */
-    if (survey_confirm_begin(app) == 0)
-        app->survey.confirm.printed = 1;
-    else
+    if (survey_session_confirm_changes(&s->session, GetTime(), &event) > 0) {
+        s->confirm_printed = 1;
+        survey_print_confirm_header();
+        survey_obey(app, &event);
+    } else {
         fprintf(stderr, "Nothing to ask again about: the sweep found nothing "
                         "this site has not heard before.\n");
+    }
 }
 
 /*
@@ -1206,12 +851,12 @@ int survey_choose_band(struct app *app, int nth) {
      * else goes.
      */
     survey_clear(s);
-    s->bins = 0;
+    s->session.bins = 0;
     s->field_lower_hz = from;
     s->field_upper_hz = to;
     s->view_lower_hz = from;
     s->view_upper_hz = to;
-    snprintf(s->status, sizeof(s->status),
+    snprintf(s->session.status, sizeof(s->session.status),
              "%s: %.3f to %.3f MHz. Press Sweep.", entry->name, from / 1e6,
              to / 1e6);
     return 0;
@@ -1243,17 +888,18 @@ static int survey_strongest_visible(const struct survey_view *s, int rank) {
     int taken[SURVEY_MAX_PEAKS];
     int i, r, best = -1;
 
-    if (rank < 1 || s->peak_count <= 0)
+    if (rank < 1 || s->session.peak_count <= 0)
         return -1;
-    for (i = 0; i < s->peak_count; i++)
+    for (i = 0; i < s->session.peak_count; i++)
         taken[i] = 0;
     for (r = 0; r < rank; r++) {
         best = -1;
-        for (i = 0; i < s->peak_count; i++) {
+        for (i = 0; i < s->session.peak_count; i++) {
             if (taken[i] || !survey_peak_visible(s, i))
                 continue;
             if (best < 0 ||
-                s->peaks[i].power_dbfs > s->peaks[best].power_dbfs)
+                s->session.peaks[i].power_dbfs >
+                    s->session.peaks[best].power_dbfs)
                 best = i;
         }
         if (best < 0)
@@ -1266,21 +912,17 @@ static int survey_strongest_visible(const struct survey_view *s, int rank) {
 /* Point the receiver at a candidate and start measuring it. The candidate is
    placed off centre on purpose: the receiver's own DC spike sits at the middle
    of the span, and a carrier measured on top of it would be measuring the
-   receiver. */
+   receiver -- survey_session_measure() owns that offset. */
 static void survey_select(struct app *app, int index) {
     struct survey_view *s = &app->survey;
+    struct survey_session *ss = &s->session;
+    struct survey_session_event event;
     double hz;
 
-    if (index < 0 || index >= s->peak_count)
+    if (index < 0 || index >= ss->peak_count)
         return;
     s->selected = index;
-    s->report_valid = 0;
-    s->carrier_valid = 0;
-    memset(&s->bursts, 0, sizeof(s->bursts));
-    memset(&s->envelope, 0, sizeof(s->envelope));
-    survey_measure_reset(&s->measure);
-    hz = survey_bin_hz(s, s->peaks[index].index);
-    s->measure_expected_hz = hz;
+    hz = survey_bin_hz(s, ss->peaks[index].index);
     /* Stepping the list with Up/Down can land on a candidate the window is
        zoomed past; follow it rather than selecting something invisible. */
     if (hz < s->view_lower_hz || hz > s->view_upper_hz) {
@@ -1291,20 +933,16 @@ static void survey_select(struct app *app, int index) {
     }
 
     if (!app->receiver_mode) {
-        snprintf(s->status, sizeof(s->status),
+        /* The measurement goes, the sweep stays: the candidates are what the
+           sweep found, and a click cannot empty the list it was a click in. */
+        survey_session_forget_measurement(ss);
+        snprintf(ss->status, sizeof(ss->status),
                  "%.4f MHz selected; measuring needs a live receiver.",
                  hz / 1e6);
         return;
     }
-    if (retune_receiver(app, (uint32_t)llround(hz - SURVEY_OFFSET_HZ),
-                        app->applied_ppm) < 0) {
-        snprintf(s->status, sizeof(s->status),
-                 "The receiver would not tune to %.4f MHz.", hz / 1e6);
-        return;
-    }
-    s->measuring = 1;
-    s->measure_started_at = GetTime();
-    snprintf(s->status, sizeof(s->status), "Measuring %.4f MHz", hz / 1e6);
+    survey_session_measure(ss, hz, GetTime(), &event);
+    survey_obey(app, &event);
 }
 
 /*
@@ -1341,217 +979,49 @@ static void survey_walk_to(struct app *app, int rank, Rectangle list) {
     survey_follow_selection(app, list);
 }
 
-/*
- * Is anything riding it? Measured from the raw samples, not the spectrum.
- *
- * The search window is centred on where the candidate was *put* rather than
- * on where the spectrum says it is: survey_select() tunes SURVEY_OFFSET_HZ
- * below the candidate precisely so it lands clear of the receiver's own DC
- * spike, and that offset is also the guard this needs. Passing a guard of
- * zero here would find the DC spike every time -- it is the strongest thing
- * in any capture, at an empty frequency as readily as an occupied one -- and
- * then measure its sidebands. Three runs of this analysis were thrown away to
- * exactly that before signal_find_carrier() grew the parameter, and the tell
- * was a control at an empty frequency reporting a stronger carrier than the
- * signal under test.
- *
- * The channel width is what the sweep measured, floored: below about a
- * transform bin the "width" is the instrument's resolution rather than the
- * signal's, and a channel narrower than the line itself compares the carrier
- * against nothing.
- */
-static void survey_measure_carrier(struct app *app,
-                                   const struct sdr_carrier_report *report) {
-    struct survey_view *s = &app->survey;
-    double at = SURVEY_OFFSET_HZ;
-    double channel = report->bandwidth_hz;
-
-    if (channel < SURVEY_CARRIER_MIN_CHANNEL_HZ)
-        channel = SURVEY_CARRIER_MIN_CHANNEL_HZ;
-    /* The gap that says what is one burst rather than two is
-       SIGNAL_BURST_GAP_DEFAULT, chosen by measurement across every capture
-       here -- narrow enough to resolve the shortest transmission this
-       receiver is likely to meet, wide enough not to find structure in
-       noise. */
-    signal_find_bursts(app->i_samples, app->q_samples, app->pair_count,
-                       (double)app->applied_sample_rate,
-                       SIGNAL_BURST_GAP_DEFAULT, &s->bursts);
-    s->carrier_valid = signal_find_carrier(app->i_samples, app->q_samples,
-                                           app->pair_count,
-                                           (double)app->applied_sample_rate,
-                                           at - SURVEY_CARRIER_SEARCH_HZ,
-                                           at + SURVEY_CARRIER_SEARCH_HZ,
-                                           SURVEY_OFFSET_HZ / 2.0,
-                                           channel, &s->carrier);
-    /* The envelope's shape, in the channel the carrier search just located
-       rather than at the frequency the sweep guessed -- and only when it
-       located one, since isolating a channel around nothing measures noise. */
-    if (s->carrier_valid)
-        signal_envelope_stats(app->i_samples, app->q_samples, app->pair_count,
-                              (double)app->applied_sample_rate,
-                              s->carrier.offset_hz, channel, &s->envelope);
-    else
-        memset(&s->envelope, 0, sizeof(s->envelope));
-}
-
-/* One block's worth of measurement of the selected candidate. */
-static void survey_measure_block(struct app *app) {
-    struct survey_view *s = &app->survey;
-    struct sdr_carrier_report report;
-    int found;
-
-    found = sdr_dsp_characterise_carrier(app->spectrum_average,
-                                         SDR_DSP_FFT_SIZE,
-                                         (double)app->applied_frequency,
-                                         (double)app->applied_sample_rate,
-                                         s->measure_expected_hz, 200000.0,
-                                         SURVEY_BANDWIDTH_DB,
-                                         app->magnitude_sorted, &report);
-    /* The duty rule -- what counts as the candidate being up in this block --
-       is in survey_sweep.h with the rest of the arithmetic. */
-    if (survey_measure_observe(&s->measure, found, report.prominence_db,
-                               report.centre_hz)) {
-        s->report = report;
-        s->report_valid = 1;
-        survey_measure_carrier(app, &report);
-    }
-}
-
 void update_survey(struct app *app, double now, int spectrum_updated) {
     struct survey_view *s = &app->survey;
+    struct survey_session *ss = &s->session;
+    struct survey_block block = survey_block_of(app);
+    struct survey_session_event event;
+    int was_sweeping = survey_session_sweeping(ss);
 
-    if (s->confirm.running) {
-        /* A block arriving is what advances it, the same as the sweep. */
-        survey_confirm_step(app, now, spectrum_updated);
-        return;
-    }
-    if (s->sweeping) {
-        double elapsed = now - s->step_started_at;
-        enum survey_step_phase phase = survey_step_phase_at(
-            elapsed, s->dwell_seconds, s->step, s->step_count);
-
-        if (phase == SURVEY_STEP_SETTLING)
-            return;
-        /* Every block that arrives during the dwell is folded in, and the fold
-           is a peak hold, so a burst anywhere inside the dwell leaves its mark
-           even though the blocks either side of it were quiet. That is the
-           whole point of dwelling: one block only ever catches what happened
-           to be transmitting at that instant. */
-        survey_fold_block(app);
-        s->step_folded = 1;
-        if (phase == SURVEY_STEP_DWELLING) {
-            survey_find_peaks(app);
-            return;
-        }
-        s->step++;
-        if (phase == SURVEY_STEP_FINISHED) {
-            s->sweeping = 0;
-            survey_find_peaks(app);
-            survey_confirm_if_asked(app);
-            snprintf(s->status, sizeof(s->status),
-                     "Swept %.3f - %.3f MHz in %d steps; %d candidates%s."
-                     "   Up/Down or click to inspect one.",
-                     s->lower_hz / 1e6, s->upper_hz / 1e6, s->step_count,
-                     s->peak_count,
-                     s->peak_count >= SURVEY_MAX_PEAKS
-                         ? " (as many as this view holds)"
-                         : " found");
-            /*
-             * A watch folds the sweep in, says what changed, and goes round
-             * again. It does not park the receiver back where it started --
-             * it is about to move it anyway.
-             */
-            if (s->watching) {
-                survey_watch_fold(app);
-                if (app->options.survey_watch > 0) {
-                    /* A watch started from the command line has nobody
-                       reading the status line. */
-                    printf("watch sweep %d carriers %d appeared %d quiet %d\n",
-                           s->watch_sweeps, s->carrier_count,
-                           s->watch_appeared, s->watch_lost);
-                    fflush(stdout);
-                    if (s->watch_sweeps >= app->options.survey_watch) {
-                        printf("watch-summary sweeps %d appeared %d quiet %d\n",
-                               s->watch_sweeps, s->watch_total_appeared,
-                               s->watch_total_lost);
-                        fflush(stdout);
-                        s->watching = 0;
-                    }
-                }
-                snprintf(s->status, sizeof(s->status),
-                         "Watching %s: sweep %d, %d appeared, %d went quiet"
-                         "  (%d and %d since the watch began)",
-                         app->config.site[0] ? app->config.site : "nowhere",
-                         s->watch_sweeps, s->watch_appeared, s->watch_lost,
-                         s->watch_total_appeared, s->watch_total_lost);
-                if (survey_start_sweep_again(app) == 0)
-                    return;
-                s->watching = 0;
-            }
-            /* Back where the operator was, until they pick a candidate --
-               and still holding the receiver, because this view keeps the
-               right to sweep again. */
-            receiver_restore_held(app, &s->lease_token);
-            /*
-             * Unless a script asked for one. The detail panel and its Inspect
-             * button only exist once a candidate has been chosen and
-             * measured, so without this there is no way to photograph that
-             * screen -- and it is a screen this program has twice shipped
-             * broken (CLAUDE.md).
-             */
-            if (app->options.survey_select > 0) {
-                int rank = app->options.survey_select;
-                int best = survey_strongest_visible(s, rank);
-                app->options.survey_select = 0;
-                if (best >= 0)
-                    survey_select(app, best);
-            }
-            return;
-        }
-        double next = survey_plan_step_centre(&s->plan, s->step);
-        if (retune_receiver(app, (uint32_t)llround(next), app->applied_ppm) < 0) {
-            s->sweeping = 0;
-            snprintf(s->status, sizeof(s->status),
-                     "Stopped: the receiver would not tune to %.3f MHz.",
-                     next / 1e6);
-            return;
-        }
-        s->step_folded = 0;
-        s->step_started_at = now;
-        return;
-    }
-
-    if (s->measuring) {
-        /* Not until the tuner has settled: the blocks before that are the
-           previous tuning's, and measuring them measures the wrong
-           frequency. survey_measure_settled() carries the reason. */
-        if (survey_measure_settled(now - s->measure_started_at))
-            survey_measure_block(app);
-        if (now - s->measure_started_at >= SURVEY_MEASURE_SECONDS) {
-            s->measuring = 0;
-            snprintf(s->status, sizeof(s->status),
-                     "Measured %.4f MHz over %d blocks.",
-                     s->measure_expected_hz / 1e6, s->measure.blocks);
-        }
+    survey_session_tick(ss, &block, spectrum_updated, now, &event);
+    if (was_sweeping && event.sweep_finished)
+        survey_confirm_if_asked(app);
+    survey_obey(app, &event);
+    /*
+     * And a script may ask for a candidate to be selected and measured.
+     *
+     * The detail panel and its Inspect button only exist once one has been,
+     * so without this there is no way to photograph that screen -- and it is
+     * a screen this program has twice shipped broken (CLAUDE.md). Not while a
+     * confirmation pass is running: it has the receiver, and selecting would
+     * retune it out from under the pass.
+     */
+    if (event.sweep_finished && app->options.survey_select > 0 &&
+        !survey_session_confirming(ss)) {
+        int rank = app->options.survey_select;
+        int best = survey_strongest_visible(s, rank);
+        app->options.survey_select = 0;
+        if (best >= 0)
+            survey_select(app, best);
     }
 }
 
-/* Keep the survey a narrowing sweep is about to replace, so Reset zoom can
-   put it back without re-sweeping. */
+/*
+ * Keep the survey a narrowing sweep is about to replace, so Reset zoom can put
+ * it back without re-sweeping.
+ *
+ * The measurements are the session's to keep; the spelling of the range is
+ * this view's, because it is what someone typed.
+ */
 static void survey_keep_current(struct survey_view *s) {
-    struct survey_snapshot *keep = &s->previous;
-
-    if (s->bins <= 0)
+    if (s->session.bins <= 0)
         return;
-    keep->valid = 1;
-    keep->lower_hz = s->lower_hz;
-    keep->upper_hz = s->upper_hz;
-    keep->bins = s->bins;
-    memcpy(keep->power, s->power, (size_t)s->bins * sizeof(*s->power));
-    memcpy(keep->peaks, s->peaks, (size_t)s->peak_count * sizeof(*s->peaks));
-    keep->peak_count = s->peak_count;
-    snprintf(keep->from, sizeof(keep->from), "%s", s->from);
-    snprintf(keep->to, sizeof(keep->to), "%s", s->to);
+    survey_session_keep(&s->session);
+    snprintf(s->kept_from, sizeof(s->kept_from), "%s", s->from);
+    snprintf(s->kept_to, sizeof(s->kept_to), "%s", s->to);
 }
 
 /*
@@ -1584,6 +1054,7 @@ static void survey_sweep_span(struct app *app, double from, double to) {
 
 void handle_survey_input(struct app *app) {
     struct survey_view *s = &app->survey;
+    struct survey_session *ss = &s->session;
     struct survey_layout l = survey_layout_now();
     int character;
 
@@ -1653,11 +1124,15 @@ void handle_survey_input(struct app *app) {
         if (was != s->focus && (was == 3 || was == 4))
             survey_commit_installation(app);
     }
-    if (s->confirm.running) {
+    if (survey_session_confirming(ss)) {
         /* Everything else waits: the receiver is somewhere the operator did
            not put it, and a click that retunes now would strand the pass. */
-        if (clicked(l.confirm_button) || IsKeyPressed(KEY_ESCAPE))
-            survey_confirm_finish(app);
+        if (clicked(l.confirm_button) || IsKeyPressed(KEY_ESCAPE)) {
+            struct survey_session_event event;
+
+            survey_session_confirm_abandon(ss, &event);
+            survey_obey(app, &event);
+        }
         return;
     }
     if (clicked(l.antenna_menu_button)) {
@@ -1744,54 +1219,38 @@ void handle_survey_input(struct app *app) {
         }
     }
     if (clicked(l.watch_button)) {
-        s->watching = !s->watching;
-        if (s->watching) {
-            s->watch_sweeps = 0;
-            s->watch_appeared = s->watch_lost = 0;
-            s->watch_total_appeared = s->watch_total_lost = 0;
-            s->watch_started_at = GetTime();
-            if (!app->config.site[0]) {
-                /* Without a site there is nothing to fold into, so a watch
-                   would sweep for hours and learn nothing. */
-                s->watching = 0;
-                snprintf(s->status, sizeof(s->status),
-                         "Name the site first -- a watch has nowhere to put "
-                         "what it learns.");
-                s->focus = 3;
-            } else if (!s->sweeping && survey_start_sweep_again(app) < 0) {
-                s->watching = 0;
-                snprintf(s->status, sizeof(s->status),
-                         "Watching needs a live receiver and a range swept "
-                         "once.");
-            }
+        if (ss->watching) {
+            survey_session_watch_stop(ss);
         } else {
-            snprintf(s->status, sizeof(s->status),
-                     "Watch stopped after %d sweeps: %d appeared, %d went "
-                     "quiet.", s->watch_sweeps, s->watch_total_appeared,
-                     s->watch_total_lost);
+            struct survey_session_event event;
+
+            /* No limit: a watch started by hand runs until it is stopped. */
+            if (survey_session_watch(ss, app->config.site[0] != '\0', 0,
+                                     GetTime(), &event) < 0) {
+                /* The session says why in its own words; which field to fix
+                   is the window's to know. */
+                if (!app->config.site[0])
+                    s->focus = 3;
+            } else {
+                survey_obey(app, &event);
+            }
         }
         return;
     }
     if ((clicked(l.confirm_button) ||
          (s->focus < 0 && IsKeyPressed(KEY_A))) &&
-        !s->confirm.running && !s->sweeping) {
-        int changes = 0, i;
-        for (i = 0; i < s->carrier_count; i++)
-            if (s->carrier_status[i] == SITE_STATUS_NEW)
-                changes++;
-        changes += s->missing_count;
-        if (changes == 0)
-            snprintf(s->status, sizeof(s->status),
+        !survey_session_confirming(ss) && !survey_session_sweeping(ss)) {
+        struct survey_session_event event;
+
+        if (survey_session_change_count(ss) == 0)
+            snprintf(ss->status, sizeof(ss->status),
                      "Nothing to ask about: this sweep matches what the site"
                      " has heard before.");
-        else if (survey_confirm_begin(app) < 0)
-            snprintf(s->status, sizeof(s->status),
+        else if (!app->receiver_mode)
+            snprintf(ss->status, sizeof(ss->status),
                      "Asking again needs a live receiver.");
-        else
-            snprintf(s->status, sizeof(s->status),
-                     "Asking again about %d %s, %.0f s.", changes,
-                     changes == 1 ? "change" : "changes",
-                     survey_confirm_seconds(changes));
+        else if (survey_session_confirm_changes(ss, GetTime(), &event) > 0)
+            survey_obey(app, &event);
         return;
     }
     if (clicked(l.save_button)) {
@@ -1825,13 +1284,11 @@ void handle_survey_input(struct app *app) {
         }
         return;
     }
-    if (s->sweeping && clicked(l.stop_button)) {
-        s->sweeping = 0;
-        survey_find_peaks(app);
-        snprintf(s->status, sizeof(s->status),
-                 "Stopped after %d of %d steps; %d candidates so far.",
-                 s->step, s->step_count, s->peak_count);
-        receiver_restore_held(app, &s->lease_token);
+    if (survey_session_sweeping(ss) && clicked(l.stop_button)) {
+        struct survey_session_event event;
+
+        survey_session_stop(ss, &event);
+        survey_obey(app, &event);
         return;
     }
 
@@ -1922,49 +1379,39 @@ void handle_survey_input(struct app *app) {
        the swept range, then the tuner's full span. It never starts a sweep on
        its own -- a full sweep is minutes, and that is not something a button
        press should commit you to without saying so. */
-    if (clicked(l.reset_button) && !s->sweeping) {
+    if (clicked(l.reset_button) && !survey_session_sweeping(ss)) {
         s->focus = -1;
         if (s->view_upper_hz > s->view_lower_hz &&
-            (s->view_lower_hz > s->lower_hz + 1.0 ||
-             s->view_upper_hz < s->upper_hz - 1.0)) {
+            (s->view_lower_hz > ss->lower_hz + 1.0 ||
+             s->view_upper_hz < ss->upper_hz - 1.0)) {
             survey_reset_view(s);
-            snprintf(s->status, sizeof(s->status),
+            snprintf(ss->status, sizeof(ss->status),
                      "Showing the whole sweep, %.3f - %.3f MHz.",
-                     s->lower_hz / 1e6, s->upper_hz / 1e6);
-        } else if (s->previous.valid) {
+                     ss->lower_hz / 1e6, ss->upper_hz / 1e6);
+        } else if (survey_session_has_kept(ss)) {
             /* Put the earlier survey back on the chart, measurements and all.
-               Restoring only the range fields left the chart still showing the
-               region, which is not what "reset" means to anyone looking at
-               it. */
-            struct survey_snapshot *keep = &s->previous;
-            s->lower_hz = keep->lower_hz;
-            s->upper_hz = keep->upper_hz;
-            s->bins = keep->bins;
-            memcpy(s->power, keep->power,
-                   (size_t)keep->bins * sizeof(*s->power));
-            memcpy(s->peaks, keep->peaks,
-                   (size_t)keep->peak_count * sizeof(*s->peaks));
-            s->peak_count = keep->peak_count;
-            snprintf(s->from, sizeof(s->from), "%s", keep->from);
+               Restoring only the range fields left the chart still showing
+               the region, which is not what "reset" means to anyone looking
+               at it. */
+            survey_session_restore(ss);
+            snprintf(s->from, sizeof(s->from), "%s", s->kept_from);
             s->from_length = (int)strlen(s->from);
-            snprintf(s->to, sizeof(s->to), "%s", keep->to);
+            snprintf(s->to, sizeof(s->to), "%s", s->kept_to);
             s->to_length = (int)strlen(s->to);
             s->selected = -1;
             s->hover = -1;
-            s->report_valid = 0;
-            s->measuring = 0;
-            keep->valid = 0;
+            s->list_scroll = 0;
             survey_refresh_fields(s);
             survey_reset_view(s);
-            snprintf(s->status, sizeof(s->status),
+            snprintf(ss->status, sizeof(ss->status),
                      "Back to the sweep of %.3f - %.3f MHz; %d candidates.",
-                     s->lower_hz / 1e6, s->upper_hz / 1e6, s->peak_count);
+                     ss->lower_hz / 1e6, ss->upper_hz / 1e6, ss->peak_count);
         } else {
             snprintf(s->from, sizeof(s->from), "24M");
             s->from_length = (int)strlen(s->from);
             snprintf(s->to, sizeof(s->to), "1766M");
             s->to_length = (int)strlen(s->to);
-            snprintf(s->status, sizeof(s->status),
+            snprintf(ss->status, sizeof(ss->status),
                      "Range set to the whole tuner; press Sweep to survey it.");
         }
         return;
@@ -1972,17 +1419,17 @@ void handle_survey_input(struct app *app) {
 
     /* Hover and selection, in the chart and in the list. */
     struct sdrgui_survey_params params = {
-        l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS,
+        l.chart, ss->power, ss->bins, SURVEY_SENTINEL_DBFS,
         survey_data_lower(s), survey_data_upper(s),
         s->view_upper_hz > s->view_lower_hz ? s->view_lower_hz
                                             : survey_data_lower(s),
         s->view_upper_hz > s->view_lower_hz ? s->view_upper_hz
                                             : survey_data_upper(s),
-        NULL, 0, s->peaks, s->peak_count, survey_suspicious_now(app),
+        NULL, 0, ss->peaks, ss->peak_count, survey_suspicious_now(app),
         s->selected, -1,
-        s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
-                    : s->bins,
-        s->sweeping, 0, 0.0, 0.0, "",
+        survey_session_sweeping(ss) ? (ss->step * ss->bins) / (ss->step_count > 0 ? ss->step_count : 1)
+                    : ss->bins,
+        survey_session_sweeping(ss), 0, 0.0, 0.0, "",
         NULL   /* peak_flags: this copy only hit-tests, and never draws */
     };
     Vector2 mouse = GetMousePosition();
@@ -2013,12 +1460,12 @@ void handle_survey_input(struct app *app) {
                 s->view_lower_hz = from;
                 s->view_upper_hz = to;
                 survey_clamp_view(s);
-                snprintf(s->status, sizeof(s->status),
+                snprintf(ss->status, sizeof(ss->status),
                          "Zoomed to %.3f - %.3f MHz.   0 shows the whole sweep"
                          " again.", s->view_lower_hz / 1e6,
                          s->view_upper_hz / 1e6);
             } else if (dragged) {
-                snprintf(s->status, sizeof(s->status),
+                snprintf(ss->status, sizeof(ss->status),
                          "That is narrower than %.0f kHz; nothing to zoom to.",
                          SURVEY_MIN_SPAN_HZ / 1e3);
             } else if (s->hover >= 0) {
@@ -2049,10 +1496,10 @@ void handle_survey_input(struct app *app) {
        around it says what its neighbourhood looks like, in bins as fine as the
        FFT allows rather than the hundreds of kilohertz a full-tuner sweep can
        afford. Reset zoom comes back, because the survey it replaces is kept. */
-    if (s->selected >= 0 && clicked(l.scan_button) && !s->sweeping) {
-        double centre = s->report_valid
-                            ? s->report.centre_hz
-                            : survey_bin_hz(s, s->peaks[s->selected].index);
+    if (s->selected >= 0 && clicked(l.scan_button) && !survey_session_sweeping(ss)) {
+        double centre = ss->report_valid
+                            ? ss->report.centre_hz
+                            : survey_bin_hz(s, ss->peaks[s->selected].index);
         double from = centre - SURVEY_SCAN_HALF_SPAN_HZ;
         double to = centre + SURVEY_SCAN_HALF_SPAN_HZ;
 
@@ -2071,16 +1518,15 @@ void handle_survey_input(struct app *app) {
        cleared, because rows drawn at other frequencies say nothing about this
        one. */
     if (s->selected >= 0 && clicked(l.waterfall_button)) {
-        double centre = s->report_valid
-                            ? s->report.centre_hz
-                            : survey_bin_hz(s, s->peaks[s->selected].index);
+        double centre = ss->report_valid
+                            ? ss->report.centre_hz
+                            : survey_bin_hz(s, ss->peaks[s->selected].index);
 
-        s->sweeping = 0;
-        s->measuring = 0;
+        survey_session_stop(ss, NULL);
         if (app->receiver_mode &&
             retune_receiver(app, (uint32_t)llround(centre - SURVEY_OFFSET_HZ),
                             app->applied_ppm) < 0) {
-            snprintf(s->status, sizeof(s->status),
+            snprintf(ss->status, sizeof(ss->status),
                      "The receiver would not tune to %.4f MHz.", centre / 1e6);
             return;
         }
@@ -2114,14 +1560,14 @@ void handle_survey_input(struct app *app) {
 
     /* The handoff: point a decoder at what was found, which is an invitation
        to go and find out, not a claim about what it is. */
-    if (s->selected >= 0 && s->report_valid && clicked(l.inspect_button)) {
+    if (s->selected >= 0 && ss->report_valid && clicked(l.inspect_button)) {
         const struct band_plan_entry *entry =
-            band_plan_lookup(s->report.centre_hz);
+            band_plan_lookup(ss->report.centre_hz);
         enum band_plan_decoder decoder = entry ? entry->decoder
                                                : BAND_PLAN_NONE;
 
         if (decoder == BAND_PLAN_GSM) {
-            int arfcn = gsm_arfcn_for_hz(s->report.centre_hz);
+            int arfcn = gsm_arfcn_for_hz(ss->report.centre_hz);
             view_survey_leave(app);
             set_decode(app, DECODE_GSM);
             set_tab(app, TAB_DECODE);
@@ -2142,7 +1588,7 @@ void handle_survey_input(struct app *app) {
              * to 1.92 MS/s, which the cell search refuses to work without
              * (ADR-0014).
              */
-            int earfcn = lte_earfcn_for_hz(s->report.centre_hz);
+            int earfcn = lte_earfcn_for_hz(ss->report.centre_hz);
             uint32_t centre = 0;
 
             view_survey_leave(app);
@@ -2163,7 +1609,7 @@ void handle_survey_input(struct app *app) {
              * has no results, so seeding the frequency and tuning first is
              * enough to keep it quiet.
              */
-            double hz = s->report.centre_hz;
+            double hz = ss->report.centre_hz;
 
             view_survey_leave(app);
             set_decode(app, DECODE_FM);
@@ -2186,18 +1632,19 @@ void handle_survey_input(struct app *app) {
  * field and are read together, because a row wants to show both.
  */
 static unsigned survey_confirmed_flags_at(const struct app *app, double hz) {
-    const struct survey_view *s = &app->survey;
+    const struct survey_session *ss = &app->survey.session;
     const struct survey_confirm_target *target;
-    double tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
+    double tolerance = ss->plan.bin_hz > 0.0 ? ss->plan.bin_hz : 1e5;
 
-    if (s->confirm.count <= 0)
+    if (ss->confirm.count <= 0)
         return 0u;
-    target = survey_confirm_for(s->confirm.target, s->confirm.count, hz,
+    target = survey_confirm_for(ss->confirm.target, ss->confirm.count, hz,
                                tolerance);
     return target ? target->suspicion : 0u;
 }
 
 static void draw_peak_list(const struct app *app, Rectangle rect) {
+    const struct survey_session *ss = &app->survey.session;
     const struct survey_view *s = &app->survey;
     char text[160];
 
@@ -2205,11 +1652,11 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
 
     DrawRectangleRec(rect, (Color){ 6, 10, 17, 255 });
     DrawRectangleLinesEx(rect, 1.0f, (Color){ 82, 109, 126, 255 });
-    if (visible == s->peak_count)
-        snprintf(text, sizeof(text), "Candidates (%d)", s->peak_count);
+    if (visible == ss->peak_count)
+        snprintf(text, sizeof(text), "Candidates (%d)", ss->peak_count);
     else
         snprintf(text, sizeof(text), "Candidates (%d of %d, in view)", visible,
-                 s->peak_count);
+                 ss->peak_count);
     DrawText(text, (int)rect.x + 12, (int)rect.y + 10, 16,
              (Color){ 151, 174, 188, 255 });
     /* A sweep that is mostly the receiver talking to itself should say so
@@ -2220,8 +1667,8 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
            count because it is a separate finding -- and one only a
            confirmation pass can produce. */
         int empty = 0, k;
-        for (k = 0; k < s->confirm.count; k++)
-            if (survey_suspect_empty(s->confirm.target[k].suspicion))
+        for (k = 0; k < ss->confirm.count; k++)
+            if (survey_suspect_empty(ss->confirm.target[k].suspicion))
                 empty++;
         /* Short enough to survive the panel. "%d marked *   %d marked ~" did
            not: at the default window it came out "1 marked *   10 mar...",
@@ -2246,8 +1693,8 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
              (Color){ 126, 151, 166, 255 });
 
     if (visible == 0) {
-        DrawText(s->sweeping ? "sweeping..."
-                             : s->peak_count > 0 ? "none in this window"
+        DrawText(survey_session_sweeping(ss) ? "sweeping..."
+                             : ss->peak_count > 0 ? "none in this window"
                                                  : "nothing found yet",
                  (int)rect.x + 12, (int)rect.y + 56, 16,
                  (Color){ 150, 172, 188, 255 });
@@ -2271,7 +1718,7 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
         } else if (i == s->hover) {
             color = (Color){ 255, 255, 255, 255 };
         }
-        double hz = survey_bin_hz(s, s->peaks[i].index);
+        double hz = survey_bin_hz(s, ss->peaks[i].index);
         /*
          * Through the carrier this maximum belongs to, not through its own
          * frequency. The pass asks about carriers at their measured centre,
@@ -2303,14 +1750,14 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
              */
             const struct survey_carrier *carrier = survey_carrier_at(s, hz);
             const struct site_entry *known =
-                s->history_loaded
-                    ? site_history_find(&s->history,
+                ss->history_loaded
+                    ? site_history_find(&ss->history,
                                         carrier ? carrier->centre_hz : hz,
-                                        s->plan.bin_hz > 0.0 ? s->plan.bin_hz
+                                        ss->plan.bin_hz > 0.0 ? ss->plan.bin_hz
                                                              : 1e5)
                     : NULL;
-            enum site_seen seen = s->history_loaded
-                ? site_history_seen(&s->history, known, 1) : SITE_SEEN_UNKNOWN;
+            enum site_seen seen = ss->history_loaded
+                ? site_history_seen(&ss->history, known, 1) : SITE_SEEN_UNKNOWN;
             char width[16];
 
             if (carrier && carrier->width_hz >= 1e6)
@@ -2322,7 +1769,7 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
             snprintf(text, sizeof(text),
                      "%s %10.4f MHz  %6.1f dBFS  %6s  %-9s  %s",
                      empty ? "~" : suspect ? "*" : " ", hz / 1e6,
-                     (double)s->peaks[i].power_dbfs, width,
+                     (double)ss->peaks[i].power_dbfs, width,
                      carrier ? survey_shape_name(
                                    survey_carrier_shape(carrier->width_hz))
                              : "-",
@@ -2382,6 +1829,7 @@ static int detail_line(const struct survey_layout *l, int *y, int indent,
 }
 
 static void draw_detail(const struct app *app, const struct survey_layout *l) {
+    const struct survey_session *ss = &app->survey.session;
     const struct survey_view *s = &app->survey;
     Rectangle rect = l->detail;
     char text[220];
@@ -2401,51 +1849,51 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
     draw_button(l->scan_button, "Scan this frequency", 1);
     draw_button(l->waterfall_button, "Open waterfall", 1);
 
-    double shown_hz = s->report_valid ? s->report.centre_hz
-                                      : survey_bin_hz(s, s->peaks[s->selected].index);
+    double shown_hz = ss->report_valid ? ss->report.centre_hz
+                                      : survey_bin_hz(s, ss->peaks[s->selected].index);
     snprintf(text, sizeof(text), "Selected  %.4f MHz%s", shown_hz / 1e6,
-             s->report_valid ? "  (measured)" : "");
+             ss->report_valid ? "  (measured)" : "");
     DrawText(text, (int)rect.x + 12, y, 18, (Color){ 235, 242, 246, 255 });
     y += 28;
 
-    if (s->measuring) {
+    if (survey_session_measuring(ss)) {
         DrawText("measuring...", (int)rect.x + 12, y, 17,
                  (Color){ 250, 190, 74, 255 });
         y += line;
     }
-    if (s->report_valid) {
+    if (ss->report_valid) {
         snprintf(text, sizeof(text), "peak power         %.1f dBFS",
-                 (double)s->report.peak_dbfs);
+                 (double)ss->report.peak_dbfs);
         DrawText(text, (int)rect.x + 12, y, 17, (Color){ 213, 226, 234, 255 });
         y += line;
         snprintf(text, sizeof(text), "above local floor  %.1f dB",
-                 (double)s->report.prominence_db);
+                 (double)ss->report.prominence_db);
         DrawText(text, (int)rect.x + 12, y, 17, (Color){ 213, 226, 234, 255 });
         y += line;
         snprintf(text, sizeof(text), "occupied bandwidth %.1f kHz  (-%.0f dB)",
-                 s->report.bandwidth_hz / 1e3,
-                 (double)s->report.bandwidth_ref_db);
+                 ss->report.bandwidth_hz / 1e3,
+                 (double)ss->report.bandwidth_ref_db);
         DrawText(text, (int)rect.x + 12, y, 17, (Color){ 213, 226, 234, 255 });
         y += line;
 
-        if (s->measure.blocks > 0) {
-            double duty = survey_measure_duty(&s->measure);
+        if (ss->measure.blocks > 0) {
+            double duty = survey_measure_duty(&ss->measure);
 
             snprintf(text, sizeof(text), "duty               %s  (%d/%d blocks)",
-                     survey_measure_duty_label(duty), s->measure.hits,
-                     s->measure.blocks);
+                     survey_measure_duty_label(duty), ss->measure.hits,
+                     ss->measure.blocks);
             DrawText(text, (int)rect.x + 12, y, 17,
                      (Color){ 213, 226, 234, 255 });
             y += line;
         }
-        if (s->measure.hits > 1) {
+        if (ss->measure.hits > 1) {
             snprintf(text, sizeof(text), "stability          +/- %.1f kHz",
-                     survey_measure_spread_hz(&s->measure) / 1e3);
+                     survey_measure_spread_hz(&ss->measure) / 1e3);
             DrawText(text, (int)rect.x + 12, y, 17,
                      (Color){ 213, 226, 234, 255 });
             y += line;
         }
-    } else if (!s->measuring) {
+    } else if (!survey_session_measuring(ss)) {
         DrawText("nothing measurable at that frequency now",
                  (int)rect.x + 12, y, 17, (Color){ 250, 190, 74, 255 });
         y += line;
@@ -2459,15 +1907,15 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
      * after it as detail about a beacon; the measurement of the signal itself
      * has to come first to have a chance of being believed over the label.
      */
-    if (s->report_valid || s->carrier_valid) {
+    if (ss->report_valid || ss->carrier_valid) {
         struct signal_findings findings;
         int k;
 
-        signal_findings_from(s->carrier_valid ? &s->carrier : NULL,
-                             &s->bursts, &s->envelope,
-                             survey_measure_duty(&s->measure),
-                             s->measure.hits, s->measure.blocks,
-                             survey_measure_spread_hz(&s->measure),
+        signal_findings_from(ss->carrier_valid ? &ss->carrier : NULL,
+                             &ss->bursts, &ss->envelope,
+                             survey_measure_duty(&ss->measure),
+                             ss->measure.hits, ss->measure.blocks,
+                             survey_measure_spread_hz(&ss->measure),
                              &findings);
         y += 6;
         for (k = 0; k < findings.count; k++) {
@@ -2490,8 +1938,8 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
      * doubt it.
      */
     unsigned suspect = survey_suspect_at(app, shown_hz,
-                                         s->report_valid
-                                             ? s->report.bandwidth_hz
+                                         ss->report_valid
+                                             ? ss->report.bandwidth_hz
                                              : 0.0) |
                        survey_confirmed_flags_at(app, shown_hz);
     if (survey_suspect_empty(suspect)) {
@@ -2547,7 +1995,7 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
         detail_line(l, &y, 12, 15, line - 2,
                     "a frequency lookup, not a detection",
                     (Color){ 126, 151, 166, 255 });
-        if (band_plan_can_inspect(entry->decoder) && s->report_valid)
+        if (band_plan_can_inspect(entry->decoder) && ss->report_valid)
             draw_button(l->inspect_button,
                         band_plan_inspect_label(entry->decoder), 1);
     } else {
@@ -2569,26 +2017,26 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
 static void survey_draw_history_marks(const struct app *app,
                                       const struct survey_layout *l,
                                       const struct sdrgui_survey_params *p) {
-    const struct survey_view *s = &app->survey;
+    const struct survey_session *ss = &app->survey.session;
     const Color fresh = { 120, 214, 140, 255 };
     const Color absent = { 190, 140, 120, 255 };
     float base = l->chart.y + l->chart.height - 34.0f;
     int i;
 
-    if (!s->history_loaded || s->history.sweeps == 0)
+    if (!ss->history_loaded || ss->history.sweeps == 0)
         return;
-    for (i = 0; i < s->carrier_count; i++) {
+    for (i = 0; i < ss->carrier_count; i++) {
         float x;
-        if (s->carrier_status[i] != SITE_STATUS_NEW)
+        if (ss->carrier_status[i] != SITE_STATUS_NEW)
             continue;
-        x = sdrgui_survey_chart_x_at(l->chart, p, s->carriers[i].centre_hz);
+        x = sdrgui_survey_chart_x_at(l->chart, p, ss->carriers[i].centre_hz);
         if (x != x)                       /* NaN: off screen */
             continue;
         DrawTriangle((Vector2){ x, base }, (Vector2){ x - 5.0f, base + 9.0f },
                      (Vector2){ x + 5.0f, base + 9.0f }, fresh);
     }
-    for (i = 0; i < s->missing_count; i++) {
-        float x = sdrgui_survey_chart_x_at(l->chart, p, s->missing[i]->hz);
+    for (i = 0; i < ss->missing_count; i++) {
+        float x = sdrgui_survey_chart_x_at(l->chart, p, ss->missing[i]->hz);
         if (x != x)
             continue;
         DrawLineEx((Vector2){ x - 5.0f, base + 9.0f },
@@ -2737,6 +2185,7 @@ static void survey_draw_pickers(const struct app *app,
 static void survey_draw_popup(const struct app *app,
                               const struct survey_layout *l,
                               const struct sdrgui_survey_params *p) {
+    const struct survey_session *ss = &app->survey.session;
     const struct survey_view *s = &app->survey;
     Vector2 mouse = GetMousePosition();
     char title[96], detail[160];
@@ -2747,10 +2196,10 @@ static void survey_draw_popup(const struct app *app,
     if (s->site_menu_open || s->antenna_menu_open ||
         !CheckCollisionPointRec(mouse, l->chart))
         return;
-    tolerance = s->plan.bin_hz > 0.0 ? s->plan.bin_hz : 1e5;
-    if (s->hover >= 0 && s->hover < s->peak_count) {
-        double peak_hz = survey_plan_bin_centre(&s->plan,
-                                                s->peaks[s->hover].index);
+    tolerance = ss->plan.bin_hz > 0.0 ? ss->plan.bin_hz : 1e5;
+    if (s->hover >= 0 && s->hover < ss->peak_count) {
+        double peak_hz = survey_plan_bin_centre(&ss->plan,
+                                                ss->peaks[s->hover].index);
         const struct survey_carrier *carrier = NULL;
         const struct band_plan_entry *band;
         double hz = peak_hz;
@@ -2758,10 +2207,10 @@ static void survey_draw_popup(const struct app *app,
 
         /* Which signal that maximum belongs to. The reader pointed at a bump;
            what they want to know about is the carrier it is part of. */
-        for (k = 0; k < s->carrier_count; k++)
-            if (peak_hz >= s->carriers[k].lower_hz &&
-                peak_hz <= s->carriers[k].upper_hz) {
-                carrier = &s->carriers[k];
+        for (k = 0; k < ss->carrier_count; k++)
+            if (peak_hz >= ss->carriers[k].lower_hz &&
+                peak_hz <= ss->carriers[k].upper_hz) {
+                carrier = &ss->carriers[k];
                 hz = carrier->centre_hz;
                 break;
             }
@@ -2775,23 +2224,23 @@ static void survey_draw_popup(const struct app *app,
                      band ? band->name : "no band plan entry");
         else
             snprintf(title, sizeof(title), "%.3f MHz   %.1f dBFS   %s",
-                     hz / 1e6, (double)s->peaks[s->hover].power_dbfs,
+                     hz / 1e6, (double)ss->peaks[s->hover].power_dbfs,
                      band ? band->name : "no band plan entry");
-        entry = s->history_loaded
-                    ? site_history_find(&s->history, hz, tolerance) : NULL;
-        if (!s->history_loaded || s->history.sweeps == 0)
+        entry = ss->history_loaded
+                    ? site_history_find(&ss->history, hz, tolerance) : NULL;
+        if (!ss->history_loaded || ss->history.sweeps == 0)
             snprintf(detail, sizeof(detail),
                      "no history for this site yet -- save this sweep to start"
                      " one");
         else
-            survey_history_line(&s->history, entry, detail, sizeof(detail));
+            survey_history_line(&ss->history, entry, detail, sizeof(detail));
     } else {
         /* Not over a candidate. It may still be over the mark left where
            something this site knows about has gone quiet. */
         int i, nearest = -1;
         float best = 7.0f;
-        for (i = 0; i < s->missing_count; i++) {
-            float mx = sdrgui_survey_chart_x_at(l->chart, p, s->missing[i]->hz);
+        for (i = 0; i < ss->missing_count; i++) {
+            float mx = sdrgui_survey_chart_x_at(l->chart, p, ss->missing[i]->hz);
             float gap = mx - mouse.x;
             if (mx != mx)
                 continue;
@@ -2804,10 +2253,10 @@ static void survey_draw_popup(const struct app *app,
         }
         if (nearest < 0)
             return;
-        entry = s->missing[nearest];
+        entry = ss->missing[nearest];
         snprintf(title, sizeof(title), "%.3f MHz   not heard this sweep",
                  entry->hz / 1e6);
-        survey_history_line(&s->history, entry, detail, sizeof(detail));
+        survey_history_line(&ss->history, entry, detail, sizeof(detail));
     }
 
     width = (float)MeasureText(strlen(title) > strlen(detail) ? title : detail,
@@ -2832,6 +2281,7 @@ static void survey_draw_popup(const struct app *app,
 }
 
 void draw_survey(struct app *app) {
+    struct survey_session *ss = &app->survey.session;
     struct survey_view *s = &app->survey;
     struct survey_layout l = survey_layout_now();
     char text[240];
@@ -2863,46 +2313,44 @@ void draw_survey(struct app *app) {
     sdrgui_text_field(l.antenna_field, s->antenna, s->focus == 4);
     draw_button(l.antenna_menu_button, s->antenna_menu_open ? "^" : "v",
                 app->config.antenna_count > 0);
-    draw_button(l.save_button, "Save survey", s->peak_count > 0 && s->site[0]);
+    draw_button(l.save_button, "Save survey", ss->peak_count > 0 && s->site[0]);
     {
-        int changes = 0, i;
-        for (i = 0; i < s->carrier_count; i++)
-            if (s->carrier_status[i] == SITE_STATUS_NEW)
-                changes++;
-        changes += s->missing_count;
-        if (s->confirm.running)
+        int asking = survey_session_confirming(ss);
+        int changes = survey_session_change_count(ss);
+
+        if (asking)
             snprintf(text, sizeof(text), "Asking %d/%d",
-                     s->confirm.index + 1, s->confirm.count);
+                     ss->confirm.index + 1, ss->confirm.count);
         else if (changes > 0)
             snprintf(text, sizeof(text), "Ask again (%d)", changes);
         else
             snprintf(text, sizeof(text), "Ask again");
         draw_button(l.confirm_button, text,
-                    s->confirm.running || (changes > 0 && app->receiver_mode));
-        if (s->watching)
-            snprintf(text, sizeof(text), "Watching %d", s->watch_sweeps);
+                    asking || (changes > 0 && app->receiver_mode));
+        if (ss->watching)
+            snprintf(text, sizeof(text), "Watching %d", ss->watch_sweeps);
         else
             snprintf(text, sizeof(text), "Watch");
-        draw_button(l.watch_button, text, s->watching);
+        draw_button(l.watch_button, text, ss->watching);
     }
-    draw_button(l.sweep_button, s->sweeping ? "Sweeping" : "Sweep",
-                !s->sweeping);
+    draw_button(l.sweep_button, survey_session_sweeping(ss) ? "Sweeping" : "Sweep",
+                !survey_session_sweeping(ss));
     draw_button(l.reset_button, "Reset zoom", 0);
     draw_button(l.band_button, "Band...", app->survey.band_menu_open);
-    if (s->sweeping)
+    if (survey_session_sweeping(ss))
         draw_button(l.stop_button, "Stop", 0);
 
-    if (s->sweeping) {
+    if (survey_session_sweeping(ss)) {
         snprintf(text, sizeof(text),
                  "step %d / %d   %.3f MHz   bin %.0f kHz   dwell %.2f s",
-                 s->step + 1, s->step_count,
+                 ss->step + 1, ss->step_count,
                  app->applied_frequency / 1e6,
-                 survey_bin_width_hz(s) / 1e3, s->dwell_seconds);
+                 survey_bin_width_hz(s) / 1e3, ss->dwell_seconds);
         sdrgui_text_fit(text, (int)l.header_left, (int)l.status_y, 17,
                         l.header_right - l.header_left,
                         (Color){ 250, 190, 74, 255 });
     } else {
-        sdrgui_text_fit(s->status, (int)l.header_left, (int)l.status_y, 17,
+        sdrgui_text_fit(ss->status, (int)l.header_left, (int)l.status_y, 17,
                         l.header_right - l.header_left,
                         (Color){ 190, 208, 218, 255 });
     }
@@ -2920,13 +2368,13 @@ void draw_survey(struct app *app) {
     int band_count = survey_visible_bands(bands, SURVEY_MAX_BANDS,
                                           window_lower, window_upper);
     struct sdrgui_survey_params params = {
-        l.chart, s->power, s->bins, SURVEY_SENTINEL_DBFS, shown_lower,
+        l.chart, ss->power, ss->bins, SURVEY_SENTINEL_DBFS, shown_lower,
         shown_upper, window_lower, window_upper, bands, band_count,
-        s->peaks, s->peak_count, survey_suspicious_now(app),
+        ss->peaks, ss->peak_count, survey_suspicious_now(app),
         s->selected, s->hover,
-        s->sweeping ? (s->step * s->bins) / (s->step_count > 0 ? s->step_count : 1)
-                    : s->bins,
-        s->sweeping, s->drag_active, s->drag_from_hz, s->drag_to_hz,
+        survey_session_sweeping(ss) ? (ss->step * ss->bins) / (ss->step_count > 0 ? ss->step_count : 1)
+                    : ss->bins,
+        survey_session_sweeping(ss), s->drag_active, s->drag_from_hz, s->drag_to_hz,
         app->receiver_mode ? "press Sweep to survey the range"
                            : "a sweep needs a live receiver",
         NULL   /* peak_flags: filled in below where the chart is drawn */
@@ -2942,8 +2390,8 @@ void draw_survey(struct app *app) {
         static unsigned flags[SURVEY_MAX_PEAKS];
         int i;
 
-        for (i = 0; i < s->peak_count && i < SURVEY_MAX_PEAKS; i++) {
-            double hz = survey_bin_hz(s, s->peaks[i].index);
+        for (i = 0; i < ss->peak_count && i < SURVEY_MAX_PEAKS; i++) {
+            double hz = survey_bin_hz(s, ss->peaks[i].index);
             const struct survey_carrier *held = survey_carrier_at(s, hz);
 
             flags[i] = survey_suspect_at(app, hz, 0.0) |

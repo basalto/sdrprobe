@@ -79,10 +79,12 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/band_plan.c \
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
-	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/debug_log.c
+	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
+	$(SRC)/debug_log.c
 APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
+	$(SRC)/survey_session.h \
 	$(SRC)/survey_suspect.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
@@ -590,6 +592,23 @@ check-survey-sweep: $(TESTS)/survey_sweep_test.c $(TESTS)/check.h \
 		$(TESTS)/survey_sweep_test.c -lm
 	$(Q)./$(BUILD)/survey_sweep_test
 
+# The survey's own state machine: which block is stale, when a step is over,
+# what a confirmation pass asks about and concludes, what a watch reports.
+# Every one of those used to be reachable only by running the program against
+# a dongle and clicking (ADR-0012).
+check-survey-session: $(TESTS)/survey_session_test.c $(TESTS)/check.h \
+		$(SRC)/survey_session.c $(SRC)/survey_session.h \
+		$(SRC)/survey_sweep.h $(SRC)/survey_carrier.h \
+		$(SRC)/survey_confirm.h $(SRC)/survey_suspect.h \
+		$(SRC)/site_history.c $(SRC)/site_history.h \
+		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c \
+		testfiles/gsm_arfcn_69.bin testfiles/adsb_cpr_pair.bin
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_session_test \
+		$(TESTS)/survey_session_test.c $(SRC)/survey_session.c \
+		$(SRC)/site_history.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/survey_session_test
+
 # The band survey's window arithmetic: zoom, pan, and what Sweep would sweep.
 # No raylib, no receiver, no window -- which is the point. Every one of these
 # decisions previously had to be checked by building an instrumented binary and
@@ -622,7 +641,8 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 
 CHECK_UNITS=check-installation check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-lte-scan check-band-plan \
-	check-options check-freq-window check-survey-sweep check-suspect \
+	check-options check-freq-window check-survey-sweep check-survey-session \
+	check-suspect \
 	check-calibration \
 	check-layout check-acquisition check-scan check-adsb-analysis \
 	check-fm-dsp check-fm-scan check-rds check-debug-log \
@@ -816,4 +836,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean
+.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean

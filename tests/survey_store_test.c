@@ -213,7 +213,7 @@ static void test_the_file_it_writes(void) {
     plan.step_count = 13;
     plan.bins = 8192;
     plan.bin_hz = 2441.4;
-    app->survey.dwell_seconds = 0.12;
+    app->survey.session.dwell_seconds = 0.12;
     app->applied_gain_tenths = 297;
     /*
      * The receiving setup, which is what a sweep records now -- ADR-0018 and

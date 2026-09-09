@@ -57,3 +57,21 @@ itself rather than against a threshold set for a strong one.
 Not moved: `survey_find_peaks` and `survey_select` still read `struct app`.
 Peak finding is already checked in `check-sdr-dsp`; selection is tuning, not
 arithmetic.
+
+## The rest of it, 2026-09-09
+
+`.scratch/deepening/issues/04-survey-session.md` took the remainder:
+`survey_session.{c,h}` now holds the sequencing this ticket left behind -- when
+the sweep advances or stops, what a confirmation pass asks about, what a watch
+reports. Peak finding moved with it and takes a `struct survey_block` rather
+than `struct app`. `survey_select` stayed in the view and is now only what it
+always was -- an index and a window follow -- with the measurement it starts
+being `survey_session_measure()`'s.
+
+**Including the narrowing snapshot, which is the reason to record this here.**
+This ticket named "Reset-zoom restored the fields and not the chart" as one of
+two faults the operator had reported, and the path still had no check: it was
+broken a second time during 04's own extraction -- the restore put the kept
+sweep back and then cleared it -- and found by reading rather than by running.
+`survey_session_keep()` / `survey_session_restore()` are checked now, order and
+all, and the restore was found to have never put the *plan* back either.
