@@ -2040,7 +2040,7 @@ static void print_new_decodes(struct app *app, double now,
         static uint16_t announced_pi;
         static int announced_valid;
         static char announced_ps[9];
-        const struct rds_station *s = &app->fm.station;
+        const struct rds_station *s = &app->fm.session.station;
 
         update_fm(app, now);
         if (s->pi_valid && (!announced_valid || s->pi != announced_pi)) {
@@ -2082,9 +2082,9 @@ static void print_new_decodes(struct app *app, double now,
         print_broadcast(app, sch);
     } else {
         int before = app->adsb.log_count;
-        uint64_t frames = app->adsb.frames_total;
+        uint64_t frames = app->adsb.session.frames_total;
         update_adsb(app, now);
-        int added = (int)(app->adsb.frames_total - frames);
+        int added = (int)(app->adsb.session.frames_total - frames);
         if (added <= 0)
             return;
         (void)before;

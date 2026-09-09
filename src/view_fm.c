@@ -43,7 +43,7 @@ static const Color row_weak = { 250, 190, 74, 255 };
 
 void view_fm_defaults(struct app *app) {
     memset(&app->fm, 0, sizeof(app->fm));
-    rds_station_init(&app->fm.station);
+    rds_station_init(&app->fm.session.station);
     /* Empty until the scan says what is out there. Nothing here knows the
        band's occupants and guessing one wires this site into the source. */
     app->fm.frequency[0] = '\0';
@@ -68,35 +68,17 @@ void view_fm_defaults(struct app *app) {
  */
 void update_fm_flush(struct app *app, double now, int flush) {
     static float multiplex[SAMPLE_BLOCK_PAIRS];
-    static float fresh_i[FM_VIEW_BASEBAND];
-    static float fresh_q[FM_VIEW_BASEBAND];
     struct fm_view *fm = &app->fm;
-    size_t n, bb;
+    size_t n;
 
     if (app->pair_count < 2)
         return;
-    if (fm->front_rate != (int)app->applied_sample_rate) {
-        if (fm_rds_front_init(&fm->front, (double)app->applied_sample_rate) < 0)
-            return;
-        fm->front_rate = (int)app->applied_sample_rate;
-        fm->bb_count = 0;
-        fm->soft_count = 0;
-    }
-
+    /* The multiplex, which the sound, the charts and the decode all read. One
+       discriminator pass for all three. */
     n = fm_discriminate_f(app->i_samples, app->q_samples, app->pair_count,
                           multiplex, SAMPLE_BLOCK_PAIRS);
-    bb = fm_rds_front_feed(&fm->front, multiplex, n, fresh_i, fresh_q,
-                           FM_VIEW_BASEBAND);
-    if (bb == 0)
+    if (n == 0)
         return;
-
-    /* Accumulate baseband until there is a whole chunk to decode. */
-    if (bb > FM_VIEW_BASEBAND - fm->bb_count)
-        bb = FM_VIEW_BASEBAND - fm->bb_count;
-    memcpy(fm->bb_i + fm->bb_count, fresh_i, bb * sizeof(fresh_i[0]));
-    memcpy(fm->bb_q + fm->bb_count, fresh_q, bb * sizeof(fresh_q[0]));
-    fm->bb_count += bb;
-    fm->blocks_seen++;
 
     /*
      * The multiplex spectrum for the charts, a few times a second. It
@@ -186,95 +168,20 @@ void update_fm_flush(struct app *app, double now, int flush) {
     }
 
     /*
-     * One chunk at a time: a timing search and an axis over each, then its
-     * bits appended and the baseband it came from discarded. Nothing is
-     * decoded twice and nothing straddles two estimates.
-     */
-    /*
-     * `flush` says there will be no more baseband for this tuning -- the band
-     * scan is about to move on -- so whatever has arrived is decoded as a
-     * short chunk instead of being thrown away unread. It is as valid as a
-     * full one and simply carries fewer bits: the fixed size exists so that
-     * *consecutive* chunks agree about which absolute symbol an index means,
-     * and a tuning that is ending has no next chunk to agree with.
-     */
-    size_t chunk = fm_rds_chunk_length(fm->bb_count, flush);
-
-    if (chunk == 0)
-        return;
-
-    fm->soft_count = fm_rds_soft_bits(fm->bb_i, fm->bb_q,
-                                      chunk, fm->soft,
-                                      FM_VIEW_SOFT_BITS, &fm->timing_offset,
-                                      &fm->axis_radians);
-    if (fm->analysis_mode)
-        fm_rds_timing_scores(fm->bb_i, fm->bb_q, chunk,
-                             fm->timing_energy);
-    {
-        size_t k;
-
-        if (fm->bit_count + fm->soft_count > FM_VIEW_BIT_MEMORY) {
-            size_t drop = fm->bit_count + fm->soft_count - FM_VIEW_BIT_MEMORY;
-            if (drop > fm->bit_count)
-                drop = fm->bit_count;
-            memmove(fm->bits, fm->bits + drop,
-                    (fm->bit_count - drop) * sizeof(fm->bits[0]));
-            fm->bit_count -= drop;
-        }
-        for (k = 0; k < fm->soft_count && fm->bit_count < FM_VIEW_BIT_MEMORY;
-             k++)
-            fm->bits[fm->bit_count++] = fm->soft[k];
-    }
-    /* The chunk is spent; keep whatever arrived past its end. */
-    fm->bb_count -= chunk;
-    if (fm->bb_count > 0) {
-        memmove(fm->bb_i, fm->bb_i + chunk,
-                fm->bb_count * sizeof(fm->bb_i[0]));
-        memmove(fm->bb_q, fm->bb_q + chunk,
-                fm->bb_count * sizeof(fm->bb_q[0]));
-    }
-    if (fm->soft_count == 0)
-        return;
-
-    /*
-     * Append only what is new.
-     *
-     * The window slides by whole symbols, so symbol k of this decode is
-     * symbol k + dropped of the last one and the newest few are the ones that
-     * have not been seen. Re-appending the whole window every block would
-     * count each group twenty times over.
+     * And the decode, which is all `fm_session.h`'s: one chunk at a time, a
+     * timing search and an axis over each, its bits appended and the baseband
+     * it came from discarded. Nothing is decoded twice and nothing straddles
+     * two estimates.
      */
     {
-        size_t fresh_bb = fm->bb_count > fm->bb_consumed
-                              ? fm->bb_count - fm->bb_consumed : 0;
-        size_t fresh = fresh_bb / FM_RDS_SAMPLES_PER_SYMBOL;
-        size_t k;
+        struct fm_session_event event;
 
-        if (fresh > fm->soft_count)
-            fresh = fm->soft_count;
-        if (fm->bit_count + fresh > FM_VIEW_BIT_MEMORY) {
-            size_t drop = fm->bit_count + fresh - FM_VIEW_BIT_MEMORY;
-            if (drop > fm->bit_count)
-                drop = fm->bit_count;
-            memmove(fm->bits, fm->bits + drop,
-                    (fm->bit_count - drop) * sizeof(fm->bits[0]));
-            fm->bit_count -= drop;
-        }
-        for (k = 0; k < fresh && fm->bit_count < FM_VIEW_BIT_MEMORY; k++)
-            fm->bits[fm->bit_count++] =
-                fm->soft[fm->soft_count - fresh + k];
-        fm->bb_consumed = fm->bb_count;
-    }
-
-    {
-        long before = fm->station.funnel.groups;
-        /* Over everything remembered, not just the window: the window is
-           three seconds and a radio text is twenty. */
-        rds_decode(fm->bits, fm->bit_count, &fm->station, NULL, 0);
-        if (fm->station.funnel.groups > 0 &&
-            fm->station.funnel.groups != before)
-            fm->last_group_at = now;
-        fm->groups_total = fm->station.funnel.groups;
+        fm_session_feed(&fm->session, multiplex, n,
+                        (double)app->applied_sample_rate, now, flush, &event);
+        if (fm->analysis_mode && fm->session.bb_count > 0)
+            fm_rds_timing_scores(fm->session.bb_i, fm->session.bb_q,
+                                 fm_rds_chunk_length(fm->session.bb_count, 1),
+                                 fm->timing_energy);
     }
 }
 
@@ -426,7 +333,7 @@ static void draw_scan_list(const struct app *app, Rectangle rect) {
 
 static void draw_signal_panel(const struct app *app, Rectangle rect) {
     const struct fm_view *fm = &app->fm;
-    int locked = fm_pilot_locked(&fm->front.pilot);
+    int locked = fm_pilot_locked(&fm->session.front.pilot);
     /* 128 pixels of label gutter was a constant here; as a fraction with the
        same cap it holds on a wide panel and gives the value room on a narrow
        one, where these values are the part worth reading. */
@@ -458,30 +365,30 @@ static void draw_signal_panel(const struct app *app, Rectangle rect) {
                 fm_audio_is_stereo(&fm->audio) ? "stereo" : "mono",
                 fm_audio_is_stereo(&fm->audio) ? row_good : row_value);
     if (locked) {
-        snprintf(text, sizeof(text), "%.2f Hz", fm_pilot_hz(&fm->front.pilot));
+        snprintf(text, sizeof(text), "%.2f Hz", fm_pilot_hz(&fm->session.front.pilot));
         draw_row_at(&rows, r++, "at", text, row_value);
         /* Not "sample clock": five stations here read between +2 and -57 ppm
            on one receiver, so this is the transmitter's pilot far more than
            it is this receiver's clock. */
         snprintf(text, sizeof(text), "%+.1f ppm",
-                 fm_pilot_ppm(&fm->front.pilot));
+                 fm_pilot_ppm(&fm->session.front.pilot));
         draw_row_at(&rows, r++, "pilot offset", text, row_value);
     }
-    snprintf(text, sizeof(text), "%.2f", fm->front.pilot.coherence);
+    snprintf(text, sizeof(text), "%.2f", fm->session.front.pilot.coherence);
     draw_row_at(&rows, r++, "coherence", text,
-                fm->front.pilot.coherence >= FM_PILOT_MIN_COHERENCE
+                fm->session.front.pilot.coherence >= FM_PILOT_MIN_COHERENCE
                     ? row_good : row_weak);
     if (locked) {
-        snprintf(text, sizeof(text), "%d/%d", fm->timing_offset,
+        snprintf(text, sizeof(text), "%d/%d", fm->session.timing_offset,
                  FM_RDS_SAMPLES_PER_SYMBOL);
         draw_row_at(&rows, r++, "symbol timing", text, row_value);
-        snprintf(text, sizeof(text), "%+.2f rad", fm->axis_radians);
+        snprintf(text, sizeof(text), "%+.2f rad", fm->session.axis_radians);
         draw_row_at(&rows, r++, "subcarrier axis", text, row_value);
     }
 }
 
 static void draw_station_panel(const struct app *app, Rectangle rect) {
-    const struct rds_station *s = &app->fm.station;
+    const struct rds_station *s = &app->fm.session.station;
     struct panel_rows rows = panel_rows_for(rect, FM_PANEL_CAPTION_DROP,
                                             FM_PANEL_ROW_HEIGHT, 0.0f,
                                             0.50f, 128.0f);
@@ -578,7 +485,7 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
  * again.
  */
 static void draw_funnel_panel(const struct app *app, Rectangle rect) {
-    const struct rds_funnel *f = &app->fm.station.funnel;
+    const struct rds_funnel *f = &app->fm.session.station.funnel;
     int y = draw_panel(rect, "Where the decode stopped");
     char text[96];
 
@@ -600,7 +507,7 @@ static void draw_funnel_panel(const struct app *app, Rectangle rect) {
 
     /* The reading, in words. A count is only useful to somebody who already
        knows what it should be. */
-    if (!fm_pilot_locked(&app->fm.front.pilot))
+    if (!fm_pilot_locked(&app->fm.session.front.pilot))
         sdrgui_text_fit("no pilot: not an FM station, or not tuned to one",
                         (int)rect.x + 12, y, 15, rect.width - 24.0f, row_weak);
     else if (f->blocks_matched == 0)
@@ -609,7 +516,7 @@ static void draw_funnel_panel(const struct app *app, Rectangle rect) {
     else if (f->groups == 0)
         sdrgui_text_fit("blocks but no groups: too weak to hold sync",
                         (int)rect.x + 12, y, 15, rect.width - 24.0f, row_weak);
-    else if (!app->fm.station.ps_valid)
+    else if (!app->fm.session.station.ps_valid)
         sdrgui_text_fit("groups arriving; the name needs all four segments",
                         (int)rect.x + 12, y, 15, rect.width - 24.0f, row_label);
     else
@@ -665,8 +572,8 @@ static void draw_constellation_chart(const struct app *app, Rectangle rect) {
     struct sdrgui_constellation_params params;
     size_t count;
 
-    count = fm_rds_symbols(fm->bb_i, fm->bb_q, fm->bb_count,
-                           fm->timing_offset, points_i, points_q, 512);
+    count = fm_rds_symbols(fm->session.bb_i, fm->session.bb_q, fm->session.bb_count,
+                           fm->session.timing_offset, points_i, points_q, 512);
     memset(&params, 0, sizeof(params));
     params.plot = rect;
     params.x = points_i;
@@ -692,7 +599,7 @@ static void draw_timing_chart(const struct app *app, Rectangle rect) {
 
     memset(&params, 0, sizeof(params));
     snprintf(title, sizeof(title), "symbol timing: offset %d of %d wins",
-             fm->timing_offset, FM_RDS_SAMPLES_PER_SYMBOL);
+             fm->session.timing_offset, FM_RDS_SAMPLES_PER_SYMBOL);
     params.plot = rect;
     params.data = fm->timing_energy;
     params.count = FM_RDS_SAMPLES_PER_SYMBOL;
@@ -712,7 +619,7 @@ static void draw_timing_chart(const struct app *app, Rectangle rect) {
  * exactly what an empty radio-text line does not say.
  */
 static void draw_groups_chart(const struct app *app, Rectangle rect) {
-    const struct rds_station *s = &app->fm.station;
+    const struct rds_station *s = &app->fm.session.station;
     static float counts[16];
     struct sdrgui_burst_chart_params params;
     int i;
@@ -1093,14 +1000,14 @@ void handle_fm_input(struct app *app) {
 void fm_tune(struct app *app, double hz) {
     if (retune_receiver(app, (uint32_t)llround(hz), app->applied_ppm) < 0)
         return;
-    app->fm.soft_count = 0;
-    app->fm.bit_count = 0;
-    app->fm.bb_consumed = 0;
-    app->fm.bb_count = 0;
-    app->fm.front_rate = 0;
-    app->fm.blocks_seen = 0;
-    app->fm.groups_total = 0;
-    rds_station_init(&app->fm.station);
+    app->fm.session.soft_count = 0;
+    app->fm.session.bit_count = 0;
+    app->fm.session.bb_consumed = 0;
+    app->fm.session.bb_count = 0;
+    app->fm.session.front_rate = 0;
+    app->fm.session.blocks_seen = 0;
+    app->fm.session.groups_total = 0;
+    rds_station_init(&app->fm.session.station);
     /*
      * The audio path too, and its pilot with it.
      *
@@ -1385,8 +1292,8 @@ void update_fm_scan(struct app *app, double now, int have_block) {
             return;
         if (have_block)
             update_fm(app, now);
-        if (app->fm.station.ps_valid) {
-            snprintf(f->ps, sizeof(f->ps), "%s", app->fm.station.ps);
+        if (app->fm.session.station.ps_valid) {
+            snprintf(f->ps, sizeof(f->ps), "%s", app->fm.session.station.ps);
             debug_log_write("fm-scan", "%.1f MHz named \"%s\" after %.1f s",
                             f->frequency_hz / 1e6, f->ps,
                             elapsed - FM_SCAN_VISIT_SETTLE_SECONDS);
@@ -1395,8 +1302,8 @@ void update_fm_scan(struct app *app, double now, int have_block) {
             return;
         } else {
             update_fm_flush(app, now, 1);
-            if (app->fm.station.ps_valid)
-                snprintf(f->ps, sizeof(f->ps), "%s", app->fm.station.ps);
+            if (app->fm.session.station.ps_valid)
+                snprintf(f->ps, sizeof(f->ps), "%s", app->fm.session.station.ps);
             debug_log_write("fm-scan", "%.1f MHz unnamed after %.1f s",
                             f->frequency_hz / 1e6, FM_SCAN_NAME_SECONDS);
         }
@@ -1427,7 +1334,7 @@ void update_fm_scan(struct app *app, double now, int have_block) {
     }
     {
         struct fm_found_station *f = &scan->found[scan->visiting];
-        const struct rds_station *s = &app->fm.station;
+        const struct rds_station *s = &app->fm.session.station;
 
         /* The visit is over: decode the baseband it gathered rather than
            moving on and dropping it. Without this the scan reported every
@@ -1450,8 +1357,8 @@ void update_fm_scan(struct app *app, double now, int have_block) {
                         "soft %ld matched %ld groups %ld pi 0x%04X",
                         f->frequency_hz / 1e6,
                         f->stereo ? "stereo" : "mono",
-                        app->fm.bb_count, app->fm.bb_consumed,
-                        app->fm.bit_count, s->funnel.bits,
+                        app->fm.session.bb_count, app->fm.session.bb_consumed,
+                        app->fm.session.bit_count, s->funnel.bits,
                         s->funnel.blocks_matched, s->funnel.groups, f->pi);
 
         scan->visiting++;
