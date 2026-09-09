@@ -49,31 +49,31 @@ void calibration_select_channel(struct app *app, int arfcn) {
  * second one showed the LTE arrangement under "Select GSM 900 ARFCN 1-124".
  */
 void calibration_select_technology(struct app *app, int technology) {
-    app->calibration_technology = technology;
+    app->cal.technology = technology;
     if (technology == 1) {
         snprintf(app->cal.channel, sizeof(app->cal.channel), "6200");
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "Pick a band and Scan, or type an EARFCN, then press Start");
     } else if (technology == 0) {
         snprintf(app->cal.channel, sizeof(app->cal.channel), "113");
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "Select GSM 900 ARFCN 1-124, then press Start");
     } else {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "5G channel tables are not implemented yet");
     }
     app->cal.channel_length = (int)strlen(app->cal.channel);
 }
 
 void open_calibration(struct app *app) {
-    app->calibration_open = 1;
+    app->cal.open = 1;
     app->cal.running = 0;
-    app->calibration_technology = 0;
+    app->cal.technology = 0;
     app->cal.band = 0;
     snprintf(app->cal.channel, sizeof(app->cal.channel),
              "113");
     app->cal.channel_length = 3;
-    app->calibration_expected_hz = 0;
+    app->cal.expected_hz = 0;
     calibration_tracker_init(&app->cal.track);
     app->cal.fcch_confidence = 0.0f;
     app->scan_open = 0;
@@ -82,7 +82,7 @@ void open_calibration(struct app *app) {
     app->cal.measured_hz = 0.0;
     app->cal.offset_hz = 0.0;
     app->cal.suggested_ppm = app->applied_ppm;
-    snprintf(app->calibration_status, sizeof(app->calibration_status),
+    snprintf(app->cal.status, sizeof(app->cal.status),
              "Select GSM 900 ARFCN 1-124, then press Start");
 }
 
@@ -121,11 +121,11 @@ static int start_lte_calibration(struct app *app) {
 
     if (parse_int(app->cal.channel, &earfcn) < 0 || earfcn <= 0 ||
         !lte_earfcn_downlink_hz((unsigned int)earfcn, &carrier)) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "Not an LTE downlink EARFCN this band table knows");
         return -1;
     }
-    app->calibration_expected_hz = carrier;
+    app->cal.expected_hz = carrier;
     chart_window_sync(&app->cal.window, app->applied_frequency,
                       app->applied_sample_rate, CHART_MIN_SPAN_HZ);
     chart_window_centre_on(&app->cal.window, (double)carrier,
@@ -140,20 +140,24 @@ static int start_lte_calibration(struct app *app) {
     calibration_tracker_init(&app->cal.track);
     app->cal.track.source = CALIBRATION_SOURCE_LTE;
     int acquired;
-    if (calibration_borrow(app, &acquired) < 0)
+    if (calibration_borrow(app, &acquired) < 0) {
+        snprintf(app->cal.status, sizeof(app->cal.status),
+                 "Could not take the receiver: %.100s", app->receiver_error);
         return -1;
+    }
     if (retune_receiver_at_rate(app, app->cal.tune_hz, LTE_SAMPLE_RATE_HZ,
                                 app->applied_ppm) < 0) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "The receiver would not take LTE's 1.92 MS/s");
+        snprintf(app->cal.status, sizeof(app->cal.status),
+                 "The receiver would not take LTE's 1.92 MS/s: %.100s",
+                 app->receiver_error);
         if (acquired)
             receiver_lease_cancel(&app->lease, &app->cal.lease_token);
         return -1;
     }
     app->cal.started_at = monotonic_seconds();
     app->cal.running = 1;
-    app->lte_cal_earfcn = earfcn;
-    snprintf(app->calibration_status, sizeof(app->calibration_status),
+    app->cal.lte_earfcn = earfcn;
+    snprintf(app->cal.status, sizeof(app->cal.status),
              "Measuring LTE EARFCN %d at %.3f MHz", earfcn,
              carrier / 1000000.0);
     return 0;
@@ -162,27 +166,27 @@ static int start_lte_calibration(struct app *app) {
 int start_calibration(struct app *app) {
     int arfcn;
     uint32_t expected;
-    if (app->calibration_technology == 1)
+    if (app->cal.technology == 1)
         return start_lte_calibration(app);
-    if (app->calibration_technology != 0 || app->cal.band != 0) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+    if (app->cal.technology != 0 || app->cal.band != 0) {
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "Only 2G and 4G are supported in this version");
         return -1;
     }
     if (app->applied_sample_rate < 1000000U) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "GSM calibration requires a sample rate of at least 1 MS/s");
         return -1;
     }
     if (parse_int(app->cal.channel, &arfcn) < 0 ||
         arfcn < 1 || arfcn > 124 ||
         !gsm_downlink_hz((unsigned int)arfcn, &expected)) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "GSM 900 ARFCN must be between 1 and 124");
         return -1;
     }
 
-    app->calibration_expected_hz = expected;
+    app->cal.expected_hz = expected;
     chart_window_sync(&app->cal.window, app->applied_frequency,
                       app->applied_sample_rate,
                       chart_min_span(GSM900_ARFCN_SPACING_HZ));
@@ -194,16 +198,30 @@ int start_calibration(struct app *app) {
     app->cal.offset_hz = 0.0;
     calibration_tracker_init(&app->cal.track);
     int acquired;
-    if (calibration_borrow(app, &acquired) < 0)
+    if (calibration_borrow(app, &acquired) < 0) {
+        snprintf(app->cal.status, sizeof(app->cal.status),
+                 "Could not take the receiver: %.100s", app->receiver_error);
         return -1;
+    }
     if (retune_receiver(app, app->cal.tune_hz, app->applied_ppm) < 0) {
+        /*
+         * Quoted rather than assumed. Both of these used to return with no
+         * status at all and let the headless report print whatever
+         * retune_receiver() had left in this same buffer -- which worked by
+         * accident and said "Calibration requires a live RTL-SDR receiver"
+         * for any receiver fault at all. The reason has its own name now
+         * (`app->receiver_error`), so asking for it is explicit.
+         */
+        snprintf(app->cal.status, sizeof(app->cal.status),
+                 "Could not tune to %.3f MHz: %.100s",
+                 app->cal.tune_hz / 1e6, app->receiver_error);
         if (acquired)
             receiver_lease_cancel(&app->lease, &app->cal.lease_token);
         return -1;
     }
     app->cal.started_at = monotonic_seconds();
     app->cal.running = 1;
-    snprintf(app->calibration_status, sizeof(app->calibration_status),
+    snprintf(app->cal.status, sizeof(app->cal.status),
              "Measuring GSM 900 ARFCN %d at %.3f MHz", arfcn,
              expected / 1000000.0);
     return 0;
@@ -211,7 +229,7 @@ int start_calibration(struct app *app) {
 
 
 static void calibration_set_status(struct app *app) {
-    snprintf(app->calibration_status, sizeof(app->calibration_status),
+    snprintf(app->cal.status, sizeof(app->cal.status),
              "%s (%s): %d meas, +/- %.2f PPM (spread %.2f), FCCH hits %d miss %d conf %.2f, suggested %+d PPM",
              app->cal.track.stable ? "Stable lock" : "Acquiring",
              app->cal.track.source == CALIBRATION_SOURCE_FCCH
@@ -243,8 +261,8 @@ static void update_lte_calibration(struct app *app) {
         return;
     if (lte_cell_search(app->i_samples, app->q_samples, app->pair_count,
                         (double)app->applied_sample_rate, &cell, NULL) != 1) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "No LTE cell found at EARFCN %d", app->lte_cal_earfcn);
+        snprintf(app->cal.status, sizeof(app->cal.status),
+                 "No LTE cell found at EARFCN %d", app->cal.lte_earfcn);
         return;
     }
     /* The buffer must never hold two references at once (ADR-0004), and with
@@ -252,15 +270,15 @@ static void update_lte_calibration(struct app *app) {
     calibration_tracker_use(&app->cal.track, CALIBRATION_SOURCE_LTE);
     app->cal.fcch_confidence = cell.pss_correlation;
     app->cal.prominence_db = cell.pss_correlation;
-    app->cal.measured_hz = (double)app->calibration_expected_hz +
+    app->cal.measured_hz = (double)app->cal.expected_hz +
                            cell.frequency_offset_hz;
     app->cal.offset_hz = cell.frequency_offset_hz;
     observed_ppm = app->cal.offset_hz /
-                   (double)app->calibration_expected_hz * 1000000.0;
+                   (double)app->cal.expected_hz * 1000000.0;
     calibration_tracker_observe(&app->cal.track, observed_ppm);
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
         app->applied_ppm, app->cal.measured_hz,
-        (double)app->calibration_expected_hz);
+        (double)app->cal.expected_hz);
     /*
      * And the gate. Easy to leave out, and invisible when you do: the numbers
      * on screen all look right and the lock simply never comes. Headlessly it
@@ -272,7 +290,7 @@ static void update_lte_calibration(struct app *app) {
         app->cal.track.measurements, app->cal.track.recent_count,
         app->cal.track.recent_sem, app->cal.track.source,
         cell.pss_correlation);
-    snprintf(app->calibration_status, sizeof(app->calibration_status),
+    snprintf(app->cal.status, sizeof(app->cal.status),
              "%s (LTE cell %d): %d meas, +/- %.2f PPM (spread %.2f), "
              "offset %+.1f kHz, PSS %.2f, suggested %+d PPM",
              app->cal.track.stable ? "Stable lock" : "Acquiring", cell.pci,
@@ -291,20 +309,20 @@ static void update_lte_calibration(struct app *app) {
  * decode view does on the same band.
  */
 static void update_lte_calibration_scan(struct app *app) {
-    if (!app->cal_lte_scanning)
+    if (!app->cal.lte_scanning)
         return;
     update_lte_scan(app, monotonic_seconds(), 1);
     if (lte_scan_running(app)) {
         const struct lte_band *band =
-            lte_band_for_number(lte_reachable_band(app->cal_lte_band));
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+            lte_band_for_number(lte_reachable_band(app->cal.lte_band));
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "Scanning band %d: %d of %d channels, %d cells so far",
                  band ? band->band : 0, app->lte.scan.candidate + 1,
                  app->lte.scan.total, app->lte.scan.found_count);
         return;
     }
-    app->cal_lte_scanning = 0;
-    snprintf(app->calibration_status, sizeof(app->calibration_status),
+    app->cal.lte_scanning = 0;
+    snprintf(app->cal.status, sizeof(app->cal.status),
              app->lte.scan.found_count > 0
                  ? "%d cells found -- pick one to calibrate against"
                  : "No cells found in that band",
@@ -312,18 +330,18 @@ static void update_lte_calibration_scan(struct app *app) {
 }
 
 void update_calibration_measurement(struct app *app) {
-    if (!app->calibration_open || app->scan_open)
+    if (!app->cal.open || app->scan_open)
         return;
-    if (app->cal_lte_scanning) {
+    if (app->cal.lte_scanning) {
         update_lte_calibration_scan(app);
         return;
     }
     if (!app->cal.running)
         return;
-    if (app->calibration_technology == 1) {
+    if (app->cal.technology == 1) {
         double waited = monotonic_seconds() - app->cal.started_at;
         if (waited < CALIBRATION_SETTLE_SECONDS) {
-            snprintf(app->calibration_status, sizeof(app->calibration_status),
+            snprintf(app->cal.status, sizeof(app->cal.status),
                      "Settling receiver... %.1f s", waited);
             return;
         }
@@ -339,7 +357,7 @@ void update_calibration_measurement(struct app *app) {
                    app->applied_sample_rate / 2.0;
     double elapsed = monotonic_seconds() - app->cal.started_at;
     if (elapsed < CALIBRATION_SETTLE_SECONDS) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "Settling receiver... %.1f s", elapsed);
         return;
     }
@@ -347,7 +365,7 @@ void update_calibration_measurement(struct app *app) {
     /* FCCH detection is independent of the centroid: a dip in centroid
        prominence must not wipe an FCCH accumulation. */
     struct gsm_fcch_result fcch;
-    double fcch_target = (double)app->calibration_expected_hz -
+    double fcch_target = (double)app->cal.expected_hz -
                          (double)app->applied_frequency +
                          GSM_FCCH_TONE_HZ;
     int have_fcch = gsm_fcch_detect(app->i_samples, app->q_samples,
@@ -361,7 +379,7 @@ void update_calibration_measurement(struct app *app) {
     struct sdr_channel_estimate estimate;
     int have_centroid = sdr_dsp_estimate_channel_center(
         app->spectrum_average, SDR_DSP_FFT_SIZE, lower, upper,
-        app->calibration_expected_hz, 100000.0, 50000.0,
+        app->cal.expected_hz, 100000.0, 50000.0,
         app->cal.workspace, &estimate);
     if (have_centroid) {
         app->cal.peak_hz = estimate.peak_frequency_hz;
@@ -387,16 +405,16 @@ void update_calibration_measurement(struct app *app) {
         measured_hz = estimate.measured_frequency_hz;
         break;
     default:
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->cal.status, sizeof(app->cal.status),
                  "No isolated GSM carrier at least 8 dB above guard-band "
                  "floor");
         return;
     }
 
     app->cal.measured_hz = measured_hz;
-    app->cal.offset_hz = measured_hz - app->calibration_expected_hz;
+    app->cal.offset_hz = measured_hz - app->cal.expected_hz;
     double observed_ppm = app->cal.offset_hz /
-                          app->calibration_expected_hz * 1000000.0;
+                          app->cal.expected_hz * 1000000.0;
     /* Individual 65 ms blocks scatter a lot on a modulated GSM channel, but the
        correction applied is the centre of the recent residuals, whose
        uncertainty is the standard error of that centre, not the per-block
@@ -404,9 +422,9 @@ void update_calibration_measurement(struct app *app) {
     calibration_tracker_observe(&app->cal.track, observed_ppm);
 
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
-        app->applied_ppm, app->calibration_expected_hz *
+        app->applied_ppm, app->cal.expected_hz *
                               (1.0 + app->cal.track.recent_center / 1000000.0),
-        app->calibration_expected_hz);
+        app->cal.expected_hz);
     if (app->cal.suggested_ppm < -1000)
         app->cal.suggested_ppm = -1000;
     if (app->cal.suggested_ppm > 1000)
@@ -430,38 +448,38 @@ void update_calibration_measurement(struct app *app) {
    valid FCCH-backed calibration exists, and no overlay owns the tuning. See
    docs/adr/0006-gsm-drift-indicator.md. */
 void update_drift_check(struct app *app, int have_block) {
-    if (!app->auto_drift_check || !app->gsm_cal_valid || !app->receiver_mode)
+    if (!app->cal.auto_drift || !app->cal.gsm_valid || !app->receiver_mode)
         return;
-    if (app->calibration_open || app->scan_open || app->settings_open)
+    if (app->cal.open || app->scan_open || app->settings_open)
         return;
 
     double now = monotonic_seconds();
 
-    if (app->drift_phase == DRIFT_IDLE) {
+    if (app->cal.drift_phase == DRIFT_IDLE) {
         if (now - app->cal.drift_last_check_at < DRIFT_CHECK_INTERVAL_SECONDS)
             return;
-        app->cal.drift_health_prev = app->drift_health;
+        app->cal.drift_health_prev = app->cal.drift_health;
         /* Borrowed from whichever decode view is on screen, and given back
            before that view can leave. */
         if (receiver_borrow(app, &app->cal.drift_token) < 0) {
             app->cal.drift_last_check_at = now;
             return;
         }
-        if (retune_receiver(app, app->cal.gsm_cal_tune_hz, app->gsm_cal_ppm) < 0) {
+        if (retune_receiver(app, app->cal.gsm_tune_hz, app->cal.gsm_ppm) < 0) {
             receiver_lease_cancel(&app->lease, &app->cal.drift_token);
             app->cal.drift_last_check_at = now; /* retry next interval */
             return;
         }
         app->cal.drift_recent_count = 0;
-        app->drift_phase = DRIFT_SETTLE;
+        app->cal.drift_phase = DRIFT_SETTLE;
         app->cal.drift_phase_started_at = now;
-        app->drift_health = CAL_HEALTH_CHECKING;
+        app->cal.drift_health = CAL_HEALTH_CHECKING;
         return;
     }
 
-    if (app->drift_phase == DRIFT_SETTLE) {
+    if (app->cal.drift_phase == DRIFT_SETTLE) {
         if (now - app->cal.drift_phase_started_at >= DRIFT_CHECK_SETTLE_SECONDS) {
-            app->drift_phase = DRIFT_MEASURE;
+            app->cal.drift_phase = DRIFT_MEASURE;
             app->cal.drift_phase_started_at = now;
         }
         return;
@@ -471,7 +489,7 @@ void update_drift_check(struct app *app, int have_block) {
     if (have_block && app->spectrum_ready &&
         app->cal.drift_recent_count < DRIFT_RECENT) {
         struct gsm_fcch_result fcch;
-        double target = (double)app->cal.gsm_cal_expected_hz -
+        double target = (double)app->cal.gsm_expected_hz -
                         (double)app->applied_frequency + GSM_FCCH_TONE_HZ;
         if (gsm_fcch_detect(app->i_samples, app->q_samples, app->pair_count,
                             app->applied_sample_rate, target,
@@ -479,15 +497,15 @@ void update_drift_check(struct app *app, int have_block) {
             double carrier = (double)app->applied_frequency +
                              fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
             app->cal.drift_recent_ppm[app->cal.drift_recent_count++] =
-                (carrier - (double)app->cal.gsm_cal_expected_hz) /
-                (double)app->cal.gsm_cal_expected_hz * 1000000.0;
+                (carrier - (double)app->cal.gsm_expected_hz) /
+                (double)app->cal.gsm_expected_hz * 1000000.0;
         }
     }
     if (now - app->cal.drift_phase_started_at < DRIFT_CHECK_MEASURE_SECONDS)
         return;
 
     receiver_return(app, &app->cal.drift_token);
-    app->drift_phase = DRIFT_IDLE;
+    app->cal.drift_phase = DRIFT_IDLE;
     app->cal.drift_last_check_at = monotonic_seconds();
 
     if (app->cal.drift_recent_count >= DRIFT_MIN_MEASUREMENTS) {
@@ -497,19 +515,19 @@ void update_drift_check(struct app *app, int have_block) {
                              &center, &spread);
         app->cal.drift_ppm = center;
         if (fabs(center) >= DRIFT_MAX_PPM) {
-            app->drift_health = CAL_HEALTH_DRIFT;
-            snprintf(app->drift_notice, sizeof(app->drift_notice),
+            app->cal.drift_health = CAL_HEALTH_DRIFT;
+            snprintf(app->cal.drift_notice, sizeof(app->cal.drift_notice),
                      "Frequency drift %+.1f PPM on ARFCN %d -- recalibrate",
-                     center, app->gsm_cal_arfcn);
+                     center, app->cal.gsm_arfcn);
             fprintf(stderr, "GSM drift check: %+.2f PPM on ARFCN %d\n",
-                    center, app->gsm_cal_arfcn);
+                    center, app->cal.gsm_arfcn);
         } else {
-            app->drift_health = CAL_HEALTH_GOOD;
-            app->drift_notice[0] = '\0';
+            app->cal.drift_health = CAL_HEALTH_GOOD;
+            app->cal.drift_notice[0] = '\0';
         }
     } else {
         /* Inconclusive (tone not found); keep the prior state, retry later. */
-        app->drift_health = app->cal.drift_health_prev;
+        app->cal.drift_health = app->cal.drift_health_prev;
     }
 }
 
@@ -542,7 +560,7 @@ int calibration_stop_measuring(struct app *app) {
 void close_calibration(struct app *app) {
     if (calibration_stop_measuring(app) < 0)
         return;
-    app->calibration_open = 0;
+    app->cal.open = 0;
 }
 
 /* Whether the 2G scan left results worth returning to. Its powers survive the
@@ -566,7 +584,7 @@ void adjust_waterfall_scale(struct app *app, int zoom_in) {
 
 void handle_calibration_input(struct app *app) {
     struct calibration_layout cl =
-        calibration_layout_now(app->calibration_technology == 1);
+        calibration_layout_now(app->cal.technology == 1);
     Rectangle tech_2g = cl.tech[0];
     Rectangle tech_4g = cl.tech[1];
     Rectangle tech_5g = cl.tech[2];
@@ -583,20 +601,20 @@ void handle_calibration_input(struct app *app) {
      * band they have not looked at -- which is the whole reason GSM has a scan
      * and this needed one.
      */
-    if (app->calibration_technology == 1 && !app->cal.running) {
+    if (app->cal.technology == 1 && !app->cal.running) {
         int b;
         for (b = 0; b < CALIBRATION_LTE_BANDS; b++)
             if (clicked(cl.lte_band[b])) {
-                app->cal_lte_band = b;
+                app->cal.lte_band = b;
                 app->lte.scan.found_count = 0;
                 inputs_changed = 1;
             }
-        if (clicked(cl.lte_scan) && !app->cal_lte_scanning) {
+        if (clicked(cl.lte_scan) && !app->cal.lte_scanning) {
             const struct lte_band *band =
-                lte_band_for_number(lte_reachable_band(app->cal_lte_band));
+                lte_band_for_number(lte_reachable_band(app->cal.lte_band));
             if (!app->receiver_mode) {
-                snprintf(app->calibration_status,
-                         sizeof(app->calibration_status),
+                snprintf(app->cal.status,
+                         sizeof(app->cal.status),
                          "A band scan needs a live receiver");
             } else {
                 /* The scan runs on LTE's own grid, like everything else that
@@ -608,21 +626,21 @@ void handle_calibration_input(struct app *app) {
                                             app->applied_ppm) == 0 &&
                     band &&
                     lte_scan_begin(app, band->band, monotonic_seconds()) == 0) {
-                    app->cal_lte_scanning = 1;
-                    snprintf(app->calibration_status,
-                             sizeof(app->calibration_status),
+                    app->cal.lte_scanning = 1;
+                    snprintf(app->cal.status,
+                             sizeof(app->cal.status),
                              "Scanning band %d, about %.0f s for the first "
                              "pass", band->band,
                              lte_scan_first_pass_seconds(band));
                 } else {
-                    snprintf(app->calibration_status,
-                             sizeof(app->calibration_status),
+                    snprintf(app->cal.status,
+                             sizeof(app->cal.status),
                              "Could not start the band scan");
                 }
             }
             return;
         }
-        if (!app->cal_lte_scanning && app->lte.scan.found_count > 0) {
+        if (!app->cal.lte_scanning && app->lte.scan.found_count > 0) {
             int row = calibration_cell_row_at(cl.cell_list,
                                               app->lte.scan.found_count,
                                               GetMousePosition());
@@ -652,7 +670,7 @@ void handle_calibration_input(struct app *app) {
     }
 
     int character;
-    while (app->calibration_technology <= 1 &&
+    while (app->cal.technology <= 1 &&
            (character = GetCharPressed()) != 0) {
         if (character >= '0' && character <= '9' &&
             app->cal.channel_length <
@@ -663,7 +681,7 @@ void handle_calibration_input(struct app *app) {
             inputs_changed = 1;
         }
     }
-    if (app->calibration_technology <= 1 &&
+    if (app->cal.technology <= 1 &&
         IsKeyPressed(KEY_BACKSPACE) &&
         app->cal.channel_length > 0) {
         app->cal.channel[--app->cal.channel_length] = '\0';
@@ -678,14 +696,14 @@ void handle_calibration_input(struct app *app) {
         app->cal.track.recent_spread = 0.0;
         app->cal.track.recent_sem = 0.0;
         if (app->cal.running)
-            snprintf(app->calibration_status,
-                     sizeof(app->calibration_status),
+            snprintf(app->cal.status,
+                     sizeof(app->cal.status),
                      "Editing target ARFCN; press Start to retune");
     }
     if ((clicked(start) || IsKeyPressed(KEY_ENTER)) &&
-        app->calibration_technology == 0)
+        app->cal.technology == 0)
         start_calibration(app);
-    if (clicked(scan) && app->calibration_technology == 0)
+    if (clicked(scan) && app->cal.technology == 0)
         start_scan(app);
     /*
      * Claiming a correction from before calibrations named a receiver. The
@@ -698,22 +716,22 @@ void handle_calibration_input(struct app *app) {
         if (installation_legacy_ppm(&app->installation, &legacy) &&
             installation_claim_legacy(&app->installation) == 0 &&
             installation_commit(&app->installation, &app->config) == 0)
-            snprintf(app->calibration_status,
-                     sizeof(app->calibration_status),
+            snprintf(app->cal.status,
+                     sizeof(app->cal.status),
                      "Claimed %+d PPM for this receiver at \"%s\"", legacy,
                      app->installation.site);
         else
-            snprintf(app->calibration_status,
-                     sizeof(app->calibration_status),
+            snprintf(app->cal.status,
+                     sizeof(app->cal.status),
                      "Nothing to claim, or this receiver has no identity");
     }
     if (clicked(apply_ppm) && app->cal.track.stable) {
         if (retune_receiver(app, app->cal.tune_hz,
                             app->cal.suggested_ppm) == 0) {
             app->options.ppm = app->cal.suggested_ppm;
-            if (app->calibration_technology == 1) {
-                app->lte_cal_valid = 1;
-                app->lte_cal_ppm = app->cal.suggested_ppm;
+            if (app->cal.technology == 1) {
+                app->cal.lte_valid = 1;
+                app->cal.lte_ppm = app->cal.suggested_ppm;
             }
             /*
              * A measured correction belongs to where it was measured **and to
@@ -728,8 +746,8 @@ void handle_calibration_input(struct app *app) {
             app->cal.track.recent_head = 0;
             app->cal.track.stable = 0;
             app->cal.started_at = monotonic_seconds();
-            snprintf(app->calibration_status,
-                     sizeof(app->calibration_status),
+            snprintf(app->cal.status,
+                     sizeof(app->cal.status),
                      "Applied %+d PPM; measuring residual error",
                      app->applied_ppm);
             /* The health indicator turns green only for an FCCH-backed lock;
@@ -737,20 +755,20 @@ void handle_calibration_input(struct app *app) {
             if (app->cal.track.source == CALIBRATION_SOURCE_FCCH) {
                 int arfcn = 0;
                 parse_int(app->cal.channel, &arfcn);
-                app->gsm_cal_valid = 1;
-                app->cal.gsm_cal_expected_hz = app->calibration_expected_hz;
-                app->cal.gsm_cal_tune_hz = app->cal.tune_hz;
-                app->gsm_cal_ppm = app->applied_ppm;
-                app->gsm_cal_arfcn = arfcn;
-                app->drift_health = CAL_HEALTH_GOOD;
+                app->cal.gsm_valid = 1;
+                app->cal.gsm_expected_hz = app->cal.expected_hz;
+                app->cal.gsm_tune_hz = app->cal.tune_hz;
+                app->cal.gsm_ppm = app->applied_ppm;
+                app->cal.gsm_arfcn = arfcn;
+                app->cal.drift_health = CAL_HEALTH_GOOD;
                 app->cal.drift_ppm = 0.0;
-                app->drift_notice[0] = '\0';
-                app->drift_phase = DRIFT_IDLE;
+                app->cal.drift_notice[0] = '\0';
+                app->cal.drift_phase = DRIFT_IDLE;
                 app->cal.drift_last_check_at = monotonic_seconds();
             } else {
-                app->gsm_cal_valid = 0;
-                app->drift_health = CAL_HEALTH_UNKNOWN;
-                app->drift_notice[0] = '\0';
+                app->cal.gsm_valid = 0;
+                app->cal.drift_health = CAL_HEALTH_UNKNOWN;
+                app->cal.drift_notice[0] = '\0';
             }
         }
     }
@@ -761,7 +779,7 @@ void handle_calibration_input(struct app *app) {
      */
     {
         enum calibration_back target =
-            calibration_back_target(app->calibration_technology,
+            calibration_back_target(app->cal.technology,
                                     app->cal.running,
                                     calibration_scan_has_results(app));
         int escape = IsKeyPressed(KEY_ESCAPE);
@@ -777,20 +795,20 @@ void handle_calibration_input(struct app *app) {
             /* Out of calibration is out to the survey: it is where the
                program opens and the only view that says what is on air
                rather than what one tuning looks like. */
-            if (!app->calibration_open)
+            if (!app->cal.open)
                 app->tab = TAB_SURVEY;
         }
     }
 }
 
 Rectangle calibration_chart_rect(const struct app *app) {
-    return calibration_layout_now(app->calibration_technology == 1).chart;
+    return calibration_layout_now(app->cal.technology == 1).chart;
 }
 
 void draw_calibration(struct app *app) {
     char text[256];
     struct calibration_layout cl =
-        calibration_layout_now(app->calibration_technology == 1);
+        calibration_layout_now(app->cal.technology == 1);
     Rectangle tech_2g = cl.tech[0];
     Rectangle tech_4g = cl.tech[1];
     Rectangle tech_5g = cl.tech[2];
@@ -803,34 +821,34 @@ void draw_calibration(struct app *app) {
     DrawText("Cellular frequency calibration", 24, 18, 26,
              (Color){ 235, 242, 246, 255 });
     DrawText("Technology", 24, 50, 16, (Color){ 157, 180, 194, 255 });
-    draw_button(tech_2g, "2G", app->calibration_technology == 0);
-    draw_button(tech_4g, "4G", app->calibration_technology == 1);
-    draw_button(tech_5g, "5G", app->calibration_technology == 2);
-    sdrgui_text_fit(app->calibration_technology == 0
+    draw_button(tech_2g, "2G", app->cal.technology == 0);
+    draw_button(tech_4g, "4G", app->cal.technology == 1);
+    draw_button(tech_5g, "5G", app->cal.technology == 2);
+    sdrgui_text_fit(app->cal.technology == 0
                         ? "Band: GSM 900"
-                        : app->calibration_technology == 1
+                        : app->cal.technology == 1
                               ? "Band: LTE, 1.92 MS/s while measuring"
                               : "Band: unavailable",
                     (int)cl.band_label.x, (int)cl.band_label.y, 17,
                     cl.band_label.width, (Color){ 209, 221, 228, 255 });
-    DrawText(app->calibration_technology == 1 ? "EARFCN" : "ARFCN",
+    DrawText(app->cal.technology == 1 ? "EARFCN" : "ARFCN",
              (int)channel.x, 50, 16, (Color){ 157, 180, 194, 255 });
     /*
      * The picker takes the chart's rectangle, so exactly one of them is drawn.
      * Both were, and the waterfall went over the list -- an overlap no
      * geometry check can see, because the two agree about where they are.
      */
-    if (app->calibration_technology == 1 && !app->cal.running) {
+    if (app->cal.technology == 1 && !app->cal.running) {
         char row[128];
         int b, i, rows;
 
         for (b = 0; b < CALIBRATION_LTE_BANDS; b++) {
             snprintf(row, sizeof(row), "Band %d", lte_reachable_band(b));
-            draw_button(cl.lte_band[b], row, b == app->cal_lte_band);
+            draw_button(cl.lte_band[b], row, b == app->cal.lte_band);
         }
         draw_button(cl.lte_scan,
-                    app->cal_lte_scanning ? "Scanning" : "Scan band",
-                    app->cal_lte_scanning);
+                    app->cal.lte_scanning ? "Scanning" : "Scan band",
+                    app->cal.lte_scanning);
 
         DrawRectangleRec(cl.cell_list, (Color){ 6, 10, 17, 255 });
         DrawRectangleLinesEx(cl.cell_list, 1.0f, (Color){ 82, 109, 126, 255 });
@@ -842,7 +860,7 @@ void draw_calibration(struct app *app) {
         if (rows > calibration_cell_rows(cl.cell_list))
             rows = calibration_cell_rows(cl.cell_list);
         if (rows == 0) {
-            DrawText(app->cal_lte_scanning ? "scanning..."
+            DrawText(app->cal.lte_scanning ? "scanning..."
                                            : "pick a band and press Scan",
                      (int)cl.cell_list.x + 10, (int)cl.cell_list.y + 34, 16,
                      (Color){ 126, 151, 166, 255 });
@@ -875,12 +893,12 @@ void draw_calibration(struct app *app) {
        working -- so the overlay offered an EARFCN caption over a field that
        refused to show one. */
     sdrgui_text_field(channel,
-                      app->calibration_technology <= 1
+                      app->cal.technology <= 1
                           ? app->cal.channel
                           : "N/A",
-                      app->calibration_technology <= 1);
+                      app->cal.technology <= 1);
     draw_button(start, app->cal.running ? "Retune" : "Start",
-                app->calibration_technology == 0);
+                app->cal.technology == 0);
     draw_button(apply_ppm, "Apply PPM", app->cal.track.stable);
     /*
      * Only when there is one to claim, and only when it fits. An unassigned
@@ -898,9 +916,9 @@ void draw_calibration(struct app *app) {
             draw_button(cl.claim_ppm, label, 0);
         }
     }
-    draw_button(scan, "Scan", app->calibration_technology == 0);
+    draw_button(scan, "Scan", app->cal.technology == 0);
     draw_button_enabled(back, "Back",
-                        calibration_back_target(app->calibration_technology,
+                        calibration_back_target(app->cal.technology,
                                                 app->cal.running,
                                                 calibration_scan_has_results(app))
                             != CALIBRATION_BACK_NONE);
@@ -908,7 +926,7 @@ void draw_calibration(struct app *app) {
 
     snprintf(text, sizeof(text),
              "expected: %.6f MHz   tuned center: %.6f MHz   current correction: %+d PPM",
-             app->calibration_expected_hz / 1000000.0,
+             app->cal.expected_hz / 1000000.0,
              app->applied_frequency / 1000000.0, app->applied_ppm);
     sdrgui_text_fit(text, (int)cl.status[0].x, (int)cl.status[0].y, 17,
                     cl.status[0].width, (Color){ 190, 208, 218, 255 });
@@ -918,7 +936,7 @@ void draw_calibration(struct app *app) {
                  app->cal.measured_hz / 1000000.0,
                  app->cal.offset_hz / 1000.0,
                  app->cal.offset_hz /
-                     app->calibration_expected_hz * 1000000.0,
+                     app->cal.expected_hz * 1000000.0,
                  app->cal.track.recent_center,
                  app->cal.track.recent_spread,
                  app->cal.track.recent_sem);
@@ -934,13 +952,13 @@ void draw_calibration(struct app *app) {
                  app->cal.track.stable ? (Color){ 99, 228, 170, 255 }
                                          : (Color){ 250, 190, 74, 255 });
     }
-    sdrgui_text_fit(app->calibration_status, (int)cl.status[3].x,
+    sdrgui_text_fit(app->cal.status, (int)cl.status[3].x,
                     (int)cl.status[3].y, 17, cl.status[3].width,
              (Color){ 158, 204, 230, 255 });
 
     /* One or the other, never both. Before a cell is chosen the chart has
        nothing to say, and the picker is what the operator needs to see. */
-    if (app->calibration_technology == 1 && !app->cal.running)
+    if (app->cal.technology == 1 && !app->cal.running)
         return;
 
     /*
@@ -955,14 +973,14 @@ void draw_calibration(struct app *app) {
      * them.
      */
     draw_waterfall_rect(app, 1, cl.chart, &app->cal.window);
-    if (app->calibration_expected_hz > 0) {
+    if (app->cal.expected_hz > 0) {
         double full_lower = (double)app->applied_frequency -
                             app->applied_sample_rate / 2.0;
         double full_upper = (double)app->applied_frequency +
                             app->applied_sample_rate / 2.0;
-        double lower = (double)app->calibration_expected_hz -
+        double lower = (double)app->cal.expected_hz -
                        CALIBRATION_VIEW_HALF_WIDTH_HZ;
-        double upper = (double)app->calibration_expected_hz +
+        double upper = (double)app->cal.expected_hz +
                        CALIBRATION_VIEW_HALF_WIDTH_HZ;
         if (lower < full_lower)
             lower = full_lower;
@@ -973,7 +991,7 @@ void draw_calibration(struct app *app) {
             upper = full_upper;
         }
         float expected_x = cl.chart.x +
-                           (float)((app->calibration_expected_hz - lower) /
+                           (float)((app->cal.expected_hz - lower) /
                                    (upper - lower)) * cl.chart.width;
         DrawLine((int)expected_x, (int)cl.chart.y, (int)expected_x,
                  (int)(cl.chart.y + cl.chart.height),
@@ -1010,11 +1028,11 @@ void draw_health_indicator(const struct app *app) {
 
     memset(&gsm, 0, sizeof(gsm));
     gsm.centre = chrome.gsm_dot;
-    gsm.state = app->drift_health;
+    gsm.state = app->cal.drift_health;
     gsm.label = "GSM cal";
     gsm.channel_name = "ARFCN";
-    gsm.channel = app->gsm_cal_arfcn;
-    gsm.notice = app->drift_notice;
+    gsm.channel = app->cal.gsm_arfcn;
+    gsm.notice = app->cal.drift_notice;
     sdrgui_health_dot(&gsm);
 
     memset(&lte, 0, sizeof(lte));
@@ -1024,16 +1042,16 @@ void draw_health_indicator(const struct app *app) {
      * measuring now, measured and applied, or nothing yet. Claiming a health
      * it has not checked would be worse than an honest grey.
      */
-    if (app->calibration_open && app->cal.running &&
-        app->calibration_technology == 1)
+    if (app->cal.open && app->cal.running &&
+        app->cal.technology == 1)
         lte.state = SDRGUI_HEALTH_CHECKING;
-    else if (app->lte_cal_valid)
+    else if (app->cal.lte_valid)
         lte.state = SDRGUI_HEALTH_GOOD;
     else
         lte.state = SDRGUI_HEALTH_UNKNOWN;
     lte.label = "LTE cal";
     lte.channel_name = "EARFCN";
-    lte.channel = app->lte_cal_earfcn;
+    lte.channel = app->cal.lte_earfcn;
     lte.notice = NULL;
     sdrgui_health_dot(&lte);
 }

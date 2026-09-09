@@ -243,7 +243,7 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
     struct sdrgui_waterfall_params params = {
         rect, app->sv.waterfall, (double)app->applied_frequency,
         (double)app->applied_sample_rate, calibration_mode,
-        calibration_mode && app->calibration_technology == 0,
+        calibration_mode && app->cal.technology == 0,
         0.0, 0.0,
         app->sv.waterfall_rows, app->sv.waterfall_height, app->pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,

@@ -36,3 +36,19 @@ without a new check is a finding.
 
 They are the same edit twice and 07 is the larger one, so whatever 07 learns
 about writers-while-closed applies here for free.
+
+**What 07 learned, 2026-09-09.** Two things carry over:
+
+- **`scan_open` should move**, and 07 settled the question the ticket was
+  unsure about. `help.open` is the precedent -- the precedence chain reads it
+  through `input_state_now()` and does not care where it lives -- so
+  `calibration_open` became `cal.open`, and `scan_open` and `settings_open`
+  are the only two overlay flags still loose.
+- **Look for a field doing two jobs before moving it.** 07's hypothesis was
+  false for exactly one field, and not because of where it lived:
+  `calibration_status` was also the receiver's error line, written by
+  `retune_receiver()` from every screen in the program. `start_scan()` was one
+  of those writers and now writes `app->receiver_error` instead, so this
+  ticket inherits that already fixed -- but the same question is worth asking
+  of `scan_selected_arfcn` (five readers, and the GSM view acts on it after
+  the overlay has gone) and `gsm_autoselect_pending`.

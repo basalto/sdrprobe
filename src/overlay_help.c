@@ -714,7 +714,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
 
 /* The topic that answers the question the current screen raises. */
 static int help_topic_for_screen(const struct app *app) {
-    if (app->calibration_open)
+    if (app->cal.open)
         return app->scan_open ? HELP_SCAN : HELP_CALIBRATION;
     if (app->tab == TAB_DECODE) {
         if (app->decode == DECODE_ADSB)

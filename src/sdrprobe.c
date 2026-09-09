@@ -600,8 +600,8 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
     int result;
 
     if (!app->receiver_mode) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Changing the sample rate requires a live RTL-SDR receiver");
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
+                 "Changing the sample rate requires a live receiver");
         return -1;
     }
     if (!changed_rate)
@@ -611,7 +611,7 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
         return -1;
     if (device_set_sample_rate_hz(&app->source, sample_rate) < 0 ||
         device_flush(&app->source) < 0) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Receiver refused %.3f MS/s", sample_rate / 1e6);
         device_set_sample_rate_hz(&app->source, old_rate);
         device_flush(&app->source);
@@ -670,7 +670,7 @@ int receiver_borrow(struct app *app, struct receiver_lease_token *token) {
     here.center_hz = app->applied_frequency;
     here.sample_rate_hz = app->applied_sample_rate;
     if (receiver_lease_acquire(&app->lease, here, token) < 0) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Too many screens are borrowing the receiver at once");
         return -1;
     }
@@ -770,8 +770,9 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     debug_log_write("tune", "%.6f MHz, %+d ppm (from %.6f MHz)",
                     frequency / 1e6, ppm, app->applied_frequency / 1e6);
     if (!app->receiver_mode) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Calibration requires a live RTL-SDR receiver");
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
+                 "Tuning requires a live receiver: a capture holds one "
+                 "frequency");
         return -1;
     }
     uint32_t old_frequency = app->applied_frequency;
@@ -781,8 +782,9 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     if (set_frequency_correction(&app->source, ppm) < 0 ||
         device_set_frequency_hz(&app->source, frequency) < 0 ||
         device_flush(&app->source) < 0) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Receiver rejected calibration tuning or PPM correction");
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
+                 "Receiver rejected %.6f MHz or %+d ppm", frequency / 1e6,
+                 ppm);
         set_frequency_correction(&app->source, old_ppm);
         device_set_frequency_hz(&app->source, old_frequency);
         device_flush(&app->source);
@@ -794,8 +796,8 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     }
     uint32_t reported = source_frequency(app);
     if (reported == 0) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Could not read back calibration tuning");
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
+                 "Could not read the tuning back from the receiver");
         set_frequency_correction(&app->source, old_ppm);
         device_set_frequency_hz(&app->source, old_frequency);
         device_flush(&app->source);
@@ -819,8 +821,9 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
         app->applied_frequency = old_frequency;
         app->applied_ppm = old_ppm;
         start_acquisition(app);
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Calibration acquisition failed; restored previous tuning");
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
+                 "Acquisition would not restart; put the previous tuning "
+                 "back");
         return -1;
     }
     return 0;
@@ -1154,7 +1157,7 @@ static struct input_state input_state_now(const struct app *app) {
 
     state.help_open = app->help.open;
     state.settings_open = app->settings_open;
-    state.calibration_open = app->calibration_open;
+    state.calibration_open = app->cal.open;
     state.scan_open = app->scan_open;
     state.tab = app->tab;
     state.view = (int)app->view;
@@ -1187,7 +1190,7 @@ static struct debug_screen debug_screen_now(const struct app *app) {
     s.view = (int)app->view;
     s.decode = (int)app->decode;
     s.settings_open = app->settings_open;
-    s.calibration_open = app->calibration_open;
+    s.calibration_open = app->cal.open;
     s.scan_open = app->scan_open;
     s.help_open = app->help.open;
     s.menu_open = app->survey.site_menu_open || app->survey.antenna_menu_open;
@@ -1517,7 +1520,7 @@ static int run_gui(struct app *app) {
             if (!input.text_focus)
                 view_window_input(app, &app->cal.window,
                                   calibration_chart_rect(app), chart_key,
-                                  app->calibration_technology == 0
+                                  app->cal.technology == 0
                                       ? GSM900_ARFCN_SPACING_HZ : 0.0,
                                   1);
             break;
@@ -1684,7 +1687,7 @@ static int run_gui(struct app *app) {
             /* The control row first: while one of its fields has focus the
                digits are a frequency being typed, not a view number. That is
                what input_view_keys_live() below is reading. */
-            if (!app->calibration_open && !app->settings_open &&
+            if (!app->cal.open && !app->settings_open &&
                 !app->help.open)
                 scope_header_input(app);   /* retune_receiver logs its own */
             /* While a survey range field has focus the digits belong to it,
@@ -1735,22 +1738,22 @@ static int run_gui(struct app *app) {
          * already heard something is over on time alone, and waiting for one
          * more block to say so costs a block per step.
          */
-        if (app->tab == TAB_SURVEY && !app->calibration_open)
+        if (app->tab == TAB_SURVEY && !app->cal.open)
             update_survey(app, now, spectrum_updated);
         if (have_new && app->tab == TAB_DECODE &&
-            app->decode == DECODE_ADSB && !app->calibration_open)
+            app->decode == DECODE_ADSB && !app->cal.open)
             update_adsb(app, now);
         if (have_new && app->tab == TAB_DECODE &&
-            app->decode == DECODE_GSM && !app->calibration_open)
+            app->decode == DECODE_GSM && !app->cal.open)
             update_gsm_sch(app, now);
         /* Every block, and only when one arrived: a TETRA downlink is
            continuous and each block carries several synchronization bursts,
            so there is nothing to carry between them. */
         if (have_new && app->tab == TAB_DECODE &&
-            app->decode == DECODE_TETRA && !app->calibration_open)
+            app->decode == DECODE_TETRA && !app->cal.open)
             update_tetra(app, now);
         if (app->tab == TAB_DECODE && app->decode == DECODE_LTE &&
-            !app->calibration_open) {
+            !app->cal.open) {
             /* The scan drives the tuning, so it runs every frame and not only
                when a block arrives: most of its time is spent waiting for the
                tuner to settle, and nothing arrives worth having then. */
@@ -1773,12 +1776,12 @@ static int run_gui(struct app *app) {
         update_drift_check(app, spectrum_updated);
         update_scatter(app, now,
                        have_new && app->tab == TAB_SCOPE &&
-                           !app->calibration_open &&
+                           !app->cal.open &&
                            app->view == VIEW_SCATTER);
 
         BeginDrawing();
         ClearBackground((Color){ 12, 19, 28, 255 });
-        if (app->calibration_open) {
+        if (app->cal.open) {
             /* Calibration is a global full-screen overlay reached by a button,
                independent of the active tab. */
             if (app->scan_open)
@@ -2675,8 +2678,8 @@ static int run_headless(struct app *app) {
         const char *why = "timeout";
 
         sdr_dsp_init(&app->dsp);
-        app->calibration_open = 1;
-        app->calibration_technology = app->options.calibrate == 1 ? 0 : 1;
+        app->cal.open = 1;
+        app->cal.technology = app->options.calibrate == 1 ? 0 : 1;
         if (app->options.calibrate == 1) {
             snprintf(app->cal.channel, sizeof(app->cal.channel), "%d",
                      app->options.arfcn);
@@ -2737,13 +2740,13 @@ static int run_headless(struct app *app) {
         }
 
         if (start_calibration(app) < 0) {
-            fprintf(stderr, "%s\n", app->calibration_status);
+            fprintf(stderr, "%s\n", app->cal.status);
             return -1;
         }
         printf("calibrate technology %s channel %s expected_hz %u "
                "applied_ppm %d\n",
                app->options.calibrate == 1 ? "gsm" : "lte", app->cal.channel,
-               app->calibration_expected_hz, app->applied_ppm);
+               app->cal.expected_hz, app->applied_ppm);
         fflush(stdout);
 
         while (!signal_stop_requested) {
@@ -2767,7 +2770,7 @@ static int run_headless(struct app *app) {
                 printf("cal-measure %d observed_ppm %.2f centre_ppm %.2f "
                        "sem_ppm %.2f spread_ppm %.2f source %s quality %.2f\n",
                        reported, app->cal.offset_hz /
-                           (double)app->calibration_expected_hz * 1e6,
+                           (double)app->cal.expected_hz * 1e6,
                        app->cal.track.recent_center, app->cal.track.recent_sem,
                        app->cal.track.recent_spread,
                        app->cal.track.source == CALIBRATION_SOURCE_FCCH
