@@ -35,6 +35,7 @@ make check-sample-format # the same signal in an 8- and a 16-bit container
 make check-device-profile # what a receiver is, in the terms the numbers need
 make check-capture-sidecar # what a capture says about its own bytes
 make check-device-backend # the contract a receiver has to satisfy
+make check-installation # what a measurement belongs to
 make check-add-argument # the refactoring tool below, against its own traps
 make check-gsm-session  # a GSM decode, block by block, no window
 make check-tetra-session # a TETRA decode, block by block
@@ -625,10 +626,28 @@ which is what gives a weak peak a width that means something. Its `centre_hz`
 is the middle of that extent and identifies the signal; `power_centre_hz` says
 where the energy sits, and the two part company on a lopsided carrier.
 
-The tuning correction is kept per site (`config_site_ppm()`): it drifts and is
-measured against whatever reference a place offers, so arriving somewhere the
-receiver has been calibrated restores that calibration rather than the last one
-measured anywhere. A sweep's marks are claims from a tenth of a second each;
+**The tuning correction is kept per receiver *and* site**, and the survey
+history per receiver, site *and* antenna — `src/installation.h`, ADR-0018 and
+ADR-0022. A correction drifts and is measured against whatever reference a
+place offers, so arriving somewhere the receiver has been calibrated restores
+that calibration rather than the last one measured anywhere; and it
+compensates *one crystal*, so a second receiver at the same site keeps its own.
+Swapping a whip for a rooftop makes known carriers vanish and new ones appear,
+and a history that could not tell that from a change on air would report it as
+one. Gain is deliberately in neither key, so a presence claim survives an
+ordinary gain adjustment.
+
+**A value from before those ADRs is kept and not applied.** `known_site <ppm>
+<label>` is the legacy shape and stays readable; `calibration <receiver> <ppm>
+<site>` is the new one — a separate line, so an older build still reads the
+file and so a legacy value stays visibly legacy rather than being silently
+given an owner. `surveys/history-<site>.txt` likewise coexists with
+`surveys/history-<receiver>-<site>-<antenna>.txt`. Claiming is the operator's
+explicit act: `--claim-calibration`, with `--receiver-label` for a receiver
+whose USB serial is missing or shared, which many of these dongles are. A
+receiver with no identity is told so rather than offered a claim it cannot
+make. `installation_commit()` is the one writer, where four call sites each
+used to decide when a save was due. A sweep's marks are claims from a tenth of a second each;
 **Ask again**, or `--survey-confirm` on a scripted sweep, revisits each with six
 blocks on the frequency, each measured on its own, and prints a verdict with
 the count behind it -- `confirmed` when it was up in every look, `refuted` when
