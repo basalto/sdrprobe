@@ -755,6 +755,26 @@ probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 		scripts/lte_chain_probe.c $(SRC)/lte_mib.c -lm
 	$(Q)./$(BUILD)/lte_chain_probe $(FILE_LTE)
 
+# Where the two-cell fixture stops separating two cells, and whether that is a
+# property of the fixture or of one draw of its interfering traffic. Built
+# from the check's own translation unit, with the module compiled in rather
+# than linked, so it reaches the per-root scores -- and so it cannot drift
+# from the conditions the suite runs under, which is how an earlier standalone
+# harness came to report zero cells at every level.
+#   MODE_TWO_CELL=--seeds      the rate over many draws of the traffic
+#   MODE_TWO_CELL=--fixture    which stage of the fixture two compilers differ at
+#   MODE_TWO_CELL=--diagnose   what a copy of the fixture leaves out
+MODE_TWO_CELL ?= --seeds
+probe-two-cell: $(TESTS)/lte_dsp_test.c $(TESTS)/two_cell_sweep.inc \
+		$(TESTS)/check.h $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
+		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h \
+		$(SRC)/device_profile.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -Wno-unused-function -I$(SRC) -I$(TESTS) \
+		-DLTE_TWO_CELL_SWEEP -o $(BUILD)/two_cell_sweep \
+		$(TESTS)/lte_dsp_test.c $(SRC)/lte_mib.c -lm
+	$(Q)./$(BUILD)/two_cell_sweep $(MODE_TWO_CELL) $(SEEDS_TWO_CELL)
+
 # What the DSP costs per sample block, against the 65.5 ms one block covers.
 # BENCH_ARCH=-march=native answers the SIMD question by measuring it: the
 # default build has no -march, so the compiler targets the baseline ISA.
@@ -836,4 +856,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean
+.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean

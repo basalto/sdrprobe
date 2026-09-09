@@ -31,7 +31,19 @@ Ask, in this order:
    cap put a band scan at 77 s while the measured run took 37, because the
    name pass stops early. Both numbers are true and they answer different
    questions.
-4. **Only then: is the code wrong?**
+4. **Is the fixture the same thing everywhere it runs?** A check compares the
+   program against a fixture, and a fixture can differ between builds while
+   both are correct C. `check-lte-dsp`'s two-cell carrier drew both bits of
+   every interfering symbol as two `rng_next()` calls **inside one argument
+   list**, where evaluation order is *unspecified* -- not undefined, so no
+   sanitiser reports it -- and gcc and clang chose opposite ways. The two
+   compilers built different carriers and disagreed about how many cells were
+   in them, for a year, read the whole time as a fragile check.
+   **A side effect in an argument list is a fixture that depends on the
+   compiler.** When a check passes under one build and fails under another,
+   hash the fixture under both *before* reading a single number out of it: if
+   the inputs differ, nothing downstream of them is evidence about the code.
+5. **Only then: is the code wrong?**
 
 Fixing the code to satisfy a false claim is the expensive mistake, because the
 check then locks the wrong behaviour in and reads as authority.
@@ -73,6 +85,36 @@ Each of these compiled, read plausibly, and was false.
   walks a window across a whole channel in twentieths -- and confirms that
   half a channel sometimes contains none, which is the half that shows the
   floor is doing work.
+
+## One fixture is one draw
+
+A synthetic fixture has a seed, and a check over it is a claim about *that*
+carrier, that block, that noise. That is fine when the answer does not depend
+on the draw and dishonest when it does -- and which it is has to be measured,
+not assumed.
+
+The two-cell check asserted that two cells on one carrier are separated,
+against one fixture, with a comment explaining that -1.4 dB was where the edge
+lay. Over forty draws of the same construction the answer is 19 of 40 at equal
+power, 20 at -0.7 dB and 15 at -1.4: the level was never the variable, and the
+check had pinned one draw of a coin flip. There was no level with margin to
+move it to.
+
+So when a fixture has a nuisance parameter -- a noise seed, an interference
+pattern, a starting phase -- **sweep it before pinning anything**, and if the
+answer moves, make the fixture a population:
+
+- assert the **rate** with a floor well under what was measured (9 of 16
+  against a floor of 4), so a real regression fails it and a draw does not;
+- and find the claim that is **absolute** rather than statistical, because it
+  is worth more than the rate. Two cells were separated half the time, but a
+  reported pair was the *right* pair 54 times out of 54. A search that guessed
+  fails that long before it fails the rate.
+- Name the population's size in a constant and print the measured number in
+  the failure message, so a failure says `9 of 16` rather than `expected 2`.
+
+The cost is real -- that check went from 1.3 s to 3.5 -- and it is worth it
+where a single draw would otherwise be pinning luck.
 
 ## After a real-signal measurement, pin the number you saw
 
