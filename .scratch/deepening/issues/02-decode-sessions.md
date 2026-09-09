@@ -2,8 +2,7 @@
 
 Status: in progress. **GSM done 2026-09-08**, as the ticket's own order asks
 -- it was already shared, so if extracting it had changed an answer the design
-would have been wrong rather than the code. It changed none. TETRA next, then
-LTE.
+would have been wrong rather than the code. It changed none. **TETRA done 2026-09-09.** LTE next, and largest.
 Blocked by: 01 (done)
 
 Per-block decode orchestration -- feed the block, latch the trace, count the
@@ -122,3 +121,48 @@ options at zero, which is what `memset` leaves. The refinements are what makes
 it 31, and the check states which mask it is replaying under rather than
 leaving it to a default -- and asserts both, since the comparison is more
 informative than either number alone.
+
+
+## TETRA, the clearest duplication
+
+`src/tetra_session.{c,h}`. `update_tetra()` and `print_tetra()` each ran the
+whole chain: coarse offset, channel filter, demodulate, walk the symbols for
+the synchronisation word, decode the block, pull MCC/MNC/colour out of it, then
+the broadcast channel scrambled with the colour code that block just gave up.
+
+**They were not quite the same, which is the argument for the module rather
+than against it.** One pulled its fields with `field(bits, at, count)`; the
+other unrolled four bit loops inline. Two spellings of one transcription from
+ETSI EN 300 392-2, either of which could have been corrected without the other.
+There is one of each offset now.
+
+`struct tetra_view` keeps `analysis_mode`, the constellation points, the slot
+profile and the log -- all drawing -- and the decode is `tetra.session`. The
+points are derived from the session's symbols each block, because a point on a
+circle is a drawing and not a decode.
+
+`rate_unsupported` became an event rather than a silent nothing. The channel
+filter refuses a rate that is not a whole multiple of `TETRA_WORK_RATE_HZ`
+rather than resampling, and a run at the wrong rate decodes nothing for a
+reason that has nothing to do with the signal. Both adapters explained that;
+now they explain it from one flag.
+
+### Checked
+
+`check-tetra-session`, 31 checks. Both captures, block by block: colour code 17
+with location area 4375, and 32 with 4658. That pair is the point --
+`tetra_bnch_decode()` is scrambled with the network's **own** colour code, read
+out of the synchronisation block first, so a decoder that hardcoded one would
+read one capture and fail the other. **Verified by mutation**: hardcoding
+`s->colour = 17` fails three checks by name, including the broadcast one.
+
+It also asserts the funnel is ordered -- broadcasts <= blocks <= bursts -- which
+is what makes "which stage stopped" a diagnosis rather than a guess.
+
+### A claim of mine was wrong first, again
+
+The rate-refusal check used 1999999 S/s, expecting it to be refused. It is
+**accepted**: `tetra_channel()`'s tolerance is `> 1.0` Hz and 1999999 is
+exactly one hertz out. 2.048 MS/s is the rate the check uses now, and it is a
+better one for a second reason -- it is what `fm_rds_tsf.bin` is recorded at,
+so it is a wrong answer a person could actually give.
