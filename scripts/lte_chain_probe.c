@@ -33,6 +33,11 @@
 #include "lte_dsp.c"
 #include "lte_mib.h"
 
+/* These captures are the house 8-bit container. The multi-cell search
+   takes full scale only for the two dBFS readings it ranks cells by, so
+   nothing here depends on it beyond the order of a tie. */
+#define DEVICE_FULL_SCALE_U8 127.5f
+
 #define BLOCK_PAIRS (16 * 16384)
 
 static float i_samples[BLOCK_PAIRS];
@@ -358,6 +363,8 @@ int main(int argc, char **argv) {
     const char *path = argc > 1 ? argv[1] : NULL;
     FILE *f;
     int block = 0, cells = 0, messages = 0;
+    /* What the multi-cell path saw, beside what the single-cell one did. */
+    int multi_total = 0, multi_silent = 0, multi_most = 0;
     int swept = 0;
     int dist_sum[3] = { 0, 0, 0 }, dist_min[3] = { 0, 0, 0 };
     int dist_n[3] = { 0, 0, 0 };
@@ -414,6 +421,34 @@ int main(int argc, char **argv) {
         for (r = 0; r < LTE_N_ID_2_COUNT; r++)
             printf("  N_ID_2 %d %.3f @%zu", r, (double)best[r], where[r]);
         printf("\n");
+
+        /*
+         * What the multi-cell path makes of the same block, which until now
+         * had no route to a capture at all -- `--lte-chain` refuses a file,
+         * so `lte_cell_search_all` was reachable only with a receiver
+         * attached. That is how it came to be able to report *fewer* cells
+         * than the single-cell search on the same samples without anything
+         * noticing (`.scratch/two-cell-fixture/issues/02-*`). The two lines
+         * sit together on purpose: this one may never be shorter than the
+         * one below it.
+         */
+        {
+            struct lte_cell many[LTE_MAX_CELLS_PER_CARRIER];
+            int found = lte_cell_search_all(i_samples, q_samples, pairs,
+                                            LTE_SAMPLE_RATE_HZ,
+                                            DEVICE_FULL_SCALE_U8, many,
+                                            LTE_MAX_CELLS_PER_CARRIER, NULL);
+            int m;
+            printf("          on this carrier: %d cell(s)", found);
+            for (m = 0; m < found; m++)
+                printf("  %d", many[m].pci);
+            printf("\n");
+            multi_total += found > 0 ? found : 0;
+            if (found <= 0)
+                multi_silent++;
+            if (found > multi_most)
+                multi_most = found;
+        }
 
         if (lte_cell_search(i_samples, q_samples, pairs, LTE_SAMPLE_RATE_HZ,
                             &cell, NULL) != 1) {
@@ -690,6 +725,15 @@ int main(int argc, char **argv) {
     fclose(f);
     printf("\n%d blocks, %d with a cell, %d with a message\n", block, cells,
            messages);
+    /*
+     * And the multi-cell path over the same blocks. `silent` is the number it
+     * came back empty on; it must never exceed the blocks the single-cell
+     * search also refused, or this path is losing a cell the program would
+     * otherwise have had.
+     */
+    printf("on the carrier: %d cell-sightings over %d blocks, most %d at "
+           "once, silent on %d (single-cell search refused %d)\n",
+           multi_total, block, multi_most, multi_silent, block - cells);
     if (cells > 0) {
         static const int pp[3] = { 1, 2, 4 };
         int pt;

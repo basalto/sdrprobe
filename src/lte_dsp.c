@@ -1591,9 +1591,31 @@ int lte_cell_search_all(const float *i_samples, const float *q_samples,
          * them coherently. This is the same measurement the antenna-port
          * chart draws, used as a gate.
          */
-        if (!lte_port_coherence(i_samples, q_samples, pair_count, sample_rate,
-                                &cell, coherence) ||
-            coherence[0] < LTE_PORT_COHERENCE_PRESENT)
+        /*
+         * And it is a gate on the *neighbours*, not on the cell the carrier
+         * is about. `lte_cell_search` admits the strongest root's cell on the
+         * primary and secondary sequences alone -- no coherence anywhere --
+         * and every other caller in this program takes that answer. Applying
+         * a further gate here to that same cell made this path able to report
+         * **fewer** cells than the single-cell path does on the same buffer:
+         * on 1 of 40 synthetic carriers holding two equal cells it returned
+         * *none*, having detected both roots and read the right identity for
+         * each, because two co-channel cells depress each other's reference
+         * coherence and both landed under 0.55. Reporting nothing there is
+         * worse than reporting one, and it is not what the gate is for --
+         * `test_one_cell_stays_one` says what it is for, and that is a second
+         * identity invented out of a root that did not match.
+         *
+         * So the strongest root is admitted on the single-cell path's terms
+         * and the others must earn their place. The invariant that buys is
+         * worth stating: this function never returns fewer cells than
+         * `lte_cell_search` would, which `check-lte-dsp` asserts over a
+         * population of carriers.
+         */
+        if (r != best.n_id_2 &&
+            (!lte_port_coherence(i_samples, q_samples, pair_count, sample_rate,
+                                 &cell, coherence) ||
+             coherence[0] < LTE_PORT_COHERENCE_PRESENT))
             continue;
         cells[found] = cell;
         measured[found] = lte_reference_power(i_samples, q_samples, pair_count,
