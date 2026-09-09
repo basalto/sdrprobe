@@ -22,11 +22,11 @@
 /* Both selectors, and the plan below, are in scan_plan.h; these are the
    adapters that hand it the arrays out of struct app. */
 int scan_strongest_arfcn(const struct app *app) {
-    return scan_select_strongest(app->scan_power);
+    return scan_select_strongest(app->bandscan.power);
 }
 
 int scan_strongest_bcch(const struct app *app) {
-    return scan_select_bcch(app->scan_power, app->scan_bcch_conf);
+    return scan_select_bcch(app->bandscan.power, app->bandscan.bcch_conf);
 }
 
 int start_scan(struct app *app) {
@@ -41,13 +41,13 @@ int start_scan(struct app *app) {
                  "Channel scan requires a sample rate of at least 1 MS/s");
         return -1;
     }
-    app->scan_step_count = app->bandscan.plan.step_count;
-    for (int arfcn = 0; arfcn < 125; arfcn++) {
-        app->scan_power[arfcn] = SCAN_SENTINEL_DBFS;
-        app->scan_bcch_conf[arfcn] = 0.0f;
+    app->bandscan.plan.step_count = app->bandscan.plan.step_count;
+    for (int arfcn = 0; arfcn <= SCAN_ARFCN_LAST; arfcn++) {
+        app->bandscan.power[arfcn] = SCAN_SENTINEL_DBFS;
+        app->bandscan.bcch_conf[arfcn] = 0.0f;
     }
-    app->scan_selected_arfcn = 0;
-    app->scan_step = 0;
+    app->gsm.selected_arfcn = 0;
+    app->bandscan.step = 0;
     /*
      * Borrowed from whatever the GSM view had tuned, so finishing puts the
      * receiver back on the channel being inspected rather than on whatever
@@ -65,17 +65,17 @@ int start_scan(struct app *app) {
         return -1;
     }
     app->bandscan.step_started_at = GetTime();
-    app->scan_running = 1;
-    app->scan_open = 1;
+    app->bandscan.running = 1;
+    app->bandscan.open = 1;
     return 0;
 }
 
 void update_scan(struct app *app) {
-    if (!app->scan_running || !app->spectrum_ready)
+    if (!app->bandscan.running || !app->spectrum_ready)
         return;
     double elapsed = GetTime() - app->bandscan.step_started_at;
-    enum scan_step_phase phase = scan_step_phase_at(elapsed, app->scan_step,
-                                                    app->scan_step_count);
+    enum scan_step_phase phase = scan_step_phase_at(elapsed, app->bandscan.step,
+                                                    app->bandscan.plan.step_count);
 
     if (phase == SCAN_STEP_SETTLING)
         return;
@@ -88,7 +88,7 @@ void update_scan(struct app *app) {
                               center - app->bandscan.plan.accept_half_hz,
                               center + app->bandscan.plan.accept_half_hz,
                               GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
-                              1, 124, app->scan_power);
+                              1, 124, app->bandscan.power);
 
     /* Flag BCCH channels: probe each channel in this step's window for its
        FCCH tone (carrier + 67.708 kHz). FCCH is intermittent and a strong
@@ -105,21 +105,21 @@ void update_scan(struct app *app) {
         gsm_fcch_detect(app->i_samples, app->q_samples,
                                app->pair_count, app->applied_sample_rate,
                                target, GSM_FCCH_SEARCH_HALF_HZ, &fcch);
-        app->scan_bcch_conf[arfcn] =
-            scan_hold_confidence(app->scan_bcch_conf[arfcn], fcch.confidence);
+        app->bandscan.bcch_conf[arfcn] =
+            scan_hold_confidence(app->bandscan.bcch_conf[arfcn], fcch.confidence);
     }
 
     if (phase == SCAN_STEP_PROBING)
         return; /* keep probing this step for more FCCH bursts */
 
-    app->scan_step++;
+    app->bandscan.step++;
     if (phase == SCAN_STEP_FINISHED) {
-        app->scan_running = 0;
-        int chosen = scan_choose(app->scan_power, app->scan_bcch_conf);
-        if (chosen > 0 && app->gsm_autoselect_pending &&
+        app->bandscan.running = 0;
+        int chosen = scan_choose(app->bandscan.power, app->bandscan.bcch_conf);
+        if (chosen > 0 && app->bandscan.autoselect &&
             app->tab == TAB_DECODE && app->decode == DECODE_GSM &&
             !app->cal.open) {
-            app->gsm_autoselect_pending = 0;
+            app->bandscan.autoselect = 0;
             app->gsm.analysis_mode = 1;     /* Default to Burst mode after scan */
             gsm_tune_selected(app, chosen); /* show the best channel above */
             /* Keeping this channel is the point of having scanned, so the
@@ -130,14 +130,14 @@ void update_scan(struct app *app) {
             /* Nobody asked to go anywhere, so put the receiver back on the
                channel the GSM view was inspecting. It used to be left on the
                last step of the sweep, which is a frequency nobody chose. */
-            app->scan_selected_arfcn = chosen;
+            app->gsm.selected_arfcn = chosen;
             receiver_return(app, &app->bandscan.lease_token);
         }
         return;
     }
-    double next = scan_plan_step_centre(&app->bandscan.plan, app->scan_step);
+    double next = scan_plan_step_centre(&app->bandscan.plan, app->bandscan.step);
     if (retune_receiver(app, (uint32_t)llround(next), app->applied_ppm) < 0) {
-        app->scan_running = 0;
+        app->bandscan.running = 0;
         receiver_return(app, &app->bandscan.lease_token);
         return;
     }
@@ -158,33 +158,33 @@ void draw_scan(struct app *app) {
 
     DrawText("GSM 900 channel power scan", 24, 18, 26,
              (Color){ 235, 242, 246, 255 });
-    draw_button(rescan, "Rescan", !app->scan_running);
+    draw_button(rescan, "Rescan", !app->bandscan.running);
     draw_button(back, "Back", 0);
 
-    if (app->scan_running)
+    if (app->bandscan.running)
         snprintf(text, sizeof(text),
                  "Scanning ARFCN band... step %d / %d",
-                 app->scan_step + 1, app->scan_step_count);
+                 app->bandscan.step + 1, app->bandscan.plan.step_count);
     else if (strongest_bcch > 0)
         snprintf(text, sizeof(text),
                  "Strongest BCCH ARFCN %d at %.1f dBFS (conf %.2f)   click a green channel to calibrate it",
-                 strongest_bcch, app->scan_power[strongest_bcch],
-                 app->scan_bcch_conf[strongest_bcch]);
+                 strongest_bcch, app->bandscan.power[strongest_bcch],
+                 app->bandscan.bcch_conf[strongest_bcch]);
     else if (strongest > 0)
         snprintf(text, sizeof(text),
                  "No BCCH detected; strongest channel ARFCN %d at %.1f dBFS   click a channel to try it",
-                 strongest, app->scan_power[strongest]);
+                 strongest, app->bandscan.power[strongest]);
     else
         snprintf(text, sizeof(text),
                  "No channels measured; press Rescan");
     DrawText(text, 24, 54, 18, (Color){ 190, 208, 218, 255 });
 
-    int hover = (!app->scan_running) ? scan_arfcn_at(app, GetMousePosition())
+    int hover = (!app->bandscan.running) ? scan_arfcn_at(app, GetMousePosition())
                                      : 0;
     struct sdrgui_scan_chart_params params = {
-        app->plot, app->scan_power, app->scan_bcch_conf, 124,
+        app->plot, app->bandscan.power, app->bandscan.bcch_conf, 124,
         SCAN_SENTINEL_DBFS, SCAN_BCCH_MIN_CONF, hover,
-        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, app->scan_selected_arfcn,
+        GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, app->gsm.selected_arfcn,
         "no channel measured yet"
     };
     sdrgui_scan_chart(&params);
@@ -209,11 +209,11 @@ void handle_scan_input(struct app *app) {
 
     if (clicked(back) || IsKeyPressed(KEY_ESCAPE)) {
         receiver_return(app, &app->bandscan.lease_token);
-        app->scan_running = 0;
-        app->scan_open = 0;
+        app->bandscan.running = 0;
+        app->bandscan.open = 0;
         return;
     }
-    if (app->scan_running)
+    if (app->bandscan.running)
         return;
     if (clicked(rescan)) {
         start_scan(app);
@@ -221,9 +221,9 @@ void handle_scan_input(struct app *app) {
     }
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         int arfcn = scan_arfcn_at(app, GetMousePosition());
-        if (arfcn > 0 && app->scan_power[arfcn] > SCAN_SENTINEL_DBFS) {
+        if (arfcn > 0 && app->bandscan.power[arfcn] > SCAN_SENTINEL_DBFS) {
     calibration_select_channel(app, arfcn);
-            app->scan_open = 0;
+            app->bandscan.open = 0;
             start_calibration(app);
         }
     }

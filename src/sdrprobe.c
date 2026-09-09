@@ -1158,7 +1158,7 @@ static struct input_state input_state_now(const struct app *app) {
     state.help_open = app->help.open;
     state.settings_open = app->settings_open;
     state.calibration_open = app->cal.open;
-    state.scan_open = app->scan_open;
+    state.scan_open = app->bandscan.open;
     state.tab = app->tab;
     state.view = (int)app->view;
     state.decode = (int)app->decode;
@@ -1191,7 +1191,7 @@ static struct debug_screen debug_screen_now(const struct app *app) {
     s.decode = (int)app->decode;
     s.settings_open = app->settings_open;
     s.calibration_open = app->cal.open;
-    s.scan_open = app->scan_open;
+    s.scan_open = app->bandscan.open;
     s.help_open = app->help.open;
     s.menu_open = app->survey.site_menu_open || app->survey.antenna_menu_open;
     s.analysis = app->adsb.analysis_mode || app->lte.analysis_mode ||
@@ -1784,7 +1784,7 @@ static int run_gui(struct app *app) {
         if (app->cal.open) {
             /* Calibration is a global full-screen overlay reached by a button,
                independent of the active tab. */
-            if (app->scan_open)
+            if (app->bandscan.open)
                 draw_scan(app);
             else
                 draw_calibration(app);
@@ -3002,7 +3002,7 @@ int main(int argc, char **argv) {
     }
     if (options.arfcn) {
         /* Both the GSM view and a recording's sidecar read this. */
-        app->scan_selected_arfcn = options.arfcn;
+        app->gsm.selected_arfcn = options.arfcn;
         app->gsm.selected_hz = (double)options.frequency + 400000.0;
     }
 
