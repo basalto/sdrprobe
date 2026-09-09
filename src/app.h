@@ -350,8 +350,49 @@ struct calibration {
        ends whichever is running (receiver_lease.h). */
     struct receiver_lease_token lease_token;
     int suggested_ppm;
-    uint32_t gsm_cal_expected_hz;  /* calibrated carrier */
-    uint32_t gsm_cal_tune_hz;      /* receiver center used for the re-check */
+
+    /*
+     * Which overlay is up.
+     *
+     * Nested like `help.open`, which set the precedent: the precedence chain
+     * reads it through `input_state_now()` and does not care where it lives.
+     * `settings_open` and `scan_open` are the two that still do not.
+     */
+    int open;
+    int technology;                /* 0 = 2G, 1 = 4G */
+    uint32_t expected_hz;          /* the carrier being measured against */
+    /*
+     * What the overlay's status line says.
+     *
+     * The overlay's, and only since this ticket: `retune_receiver()` and the
+     * two beside it wrote all their failures here from every screen in the
+     * program, prefixed "Calibration", so the reason a survey step or an FM
+     * retune failed arrived on this line. That is `app->receiver_error` now,
+     * and the two paths here that used to depend on the shared buffer quote
+     * it deliberately.
+     */
+    char status[160];
+
+    /* What each reference last measured, and whether it is worth trusting.
+       Two references measuring one crystal: when they agree the correction is
+       worth trusting, and when they do not that is the most useful thing
+       either of them has said. */
+    int gsm_valid;                 /* an FCCH-backed GSM calibration exists */
+    int gsm_ppm;                   /* PPM applied at calibration */
+    int gsm_arfcn;                 /* channel, for the notice text */
+    uint32_t gsm_expected_hz;      /* calibrated carrier */
+    uint32_t gsm_tune_hz;          /* receiver center used for the re-check */
+    int lte_valid;
+    int lte_earfcn;
+    int lte_ppm;                   /* what the LTE reference suggested */
+    int lte_band;                  /* which band the 4G scan will walk */
+    int lte_scanning;              /* a calibration-driven band scan is up */
+
+    /* The health indicator and the background re-check that feeds it. */
+    int auto_drift;                /* Settings toggle: enable periodic re-check */
+    int drift_health;              /* enum cal_health */
+    int drift_phase;               /* enum drift_phase */
+    char drift_notice[160];
     int drift_health_prev;         /* restored if a re-check is inconclusive */
     double drift_ppm;              /* last measured residual drift */
     double drift_last_check_at;
@@ -865,10 +906,25 @@ struct app {
     int remove_dc;
     char settings_error[160];
 
-    int calibration_open;
-    int calibration_technology;
-    uint32_t calibration_expected_hz;
-    char calibration_status[160];
+    /*
+     * Why the receiver last refused, in words, from `retune_receiver()` and
+     * the two beside it.
+     *
+     * A handoff and not calibration's, which is what it used to be: every
+     * screen retunes through one function, and all five of its failure
+     * messages were written into `calibration_status` and prefixed
+     * "Calibration" -- so a survey step that would not tune, or an FM
+     * station, or a Mode S retune, reported its reason into the calibration
+     * overlay's status line, on a screen nobody was looking at, describing
+     * something that had nothing to do with calibration. `view_lte.c` knew
+     * and quoted it by hand to find out why 1.92 MS/s had been refused, which
+     * is the tell.
+     *
+     * The caller decides whether to show it. What matters is that the reason
+     * exists under an honest name instead of being thrown away.
+     */
+    char receiver_error[160];
+
 
     int scan_open;
     int scan_running;
@@ -882,22 +938,6 @@ struct app {
        restore when the view is left. */
     int gsm_autoselect_pending;     /* pick the best BCCH when the open-scan ends */
 
-    /* Calibration-health indicator and background drift re-check. */
-    int auto_drift_check;          /* Settings toggle: enable periodic re-check */
-    int gsm_cal_valid;             /* an FCCH-backed GSM calibration exists */
-    /* And the same for LTE. Two references measuring one crystal: when they
-       agree the correction is worth trusting, and when they do not that is
-       the most useful thing either of them has said. */
-    int cal_lte_band;              /* which band the 4G scan will walk */
-    int cal_lte_scanning;          /* a calibration-driven band scan is up */
-    int lte_cal_valid;
-    int lte_cal_earfcn;
-    int lte_cal_ppm;               /* what the LTE reference suggested */
-    int gsm_cal_ppm;               /* PPM applied at calibration */
-    int gsm_cal_arfcn;             /* channel, for the notice text */
-    int drift_health;              /* enum cal_health */
-    char drift_notice[160];
-    int drift_phase;               /* enum drift_phase */
 
 };
 

@@ -1051,8 +1051,13 @@ command line. State that belongs to one area lives with it: `struct
 acquisition` in `acquisition.h`, and `struct scope_view`, `struct gsm_view`,
 `struct calibration`, `struct settings_panel` and `struct adsb_view` in
 `app.h`. Reach for `app->cal.*` rather than adding a `calibration_*` field back
-to `struct app`, and if the frame loop needs something from a view, give the
-view an entry point rather than reaching into its fields —
+to `struct app` — advice `struct app` did not follow until sixteen of them
+were counted and moved, which is what the audit in
+`.scratch/deepening/issues/06-*` is for: **85 fields then, 70 now, and the
+survivors are handoffs, per-view containers, the band scan's state (ticket 08)
+and the receiver's own applied state (09).** If the frame loop needs something
+from a view, give the view an entry point rather than reaching into its fields
+—
 `view_scope_resize_if_needed()` is the pattern. **`struct survey_view` is the
 one that has been split rather than merely moved**: what decides lives in
 `struct survey_session` and what draws lives beside it, so everything left in
@@ -1079,6 +1084,17 @@ Its shape:
   `0..76` and looks like dB -- what a step is worth depends on which of three
   band tables is loaded, chosen at 1300 and 4000 MHz -- so the panel writes
   `index 40` rather than a decibel it did not measure.
+- **Why a retune failed has its own name.** `retune_receiver()` is the retune
+  every screen uses, and all five of its failure messages used to be written
+  into `calibration_status` and prefixed "Calibration" -- so a survey step
+  that would not tune reported its reason on the calibration overlay's status
+  line, on a screen nobody was on, about something that was not calibration.
+  `view_lte.c` read that buffer by hand to find out why 1.92 MS/s had been
+  refused, which is the tell. It is `app->receiver_error` now: one writer,
+  and whichever screen asked is the reader. Two calibration paths had been
+  *depending* on the shared buffer -- returning -1 with no status and letting
+  the headless report print whatever the retune had left there -- and quote it
+  deliberately now.
 - **The receiver is behind a seam.** `src/device_backend.h` is a vtable --
   open, close, tune, rate, ppm, gain, flush, stream, stop -- and
   `<rtl-sdr.h>` is included by **exactly one file**, `backend_rtlsdr.c`.

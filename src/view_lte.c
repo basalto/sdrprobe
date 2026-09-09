@@ -116,7 +116,7 @@ void enter_lte(struct app *app) {
                                 app->applied_ppm) < 0) {
         snprintf(app->lte.session.status, sizeof(app->lte.session.status),
                  "The receiver would not move to 1.92 MS/s: %.100s",
-                 app->calibration_status);
+                 app->receiver_error);
         receiver_lease_cancel(&app->lease, &app->lte.lease_token);
         return;
     }

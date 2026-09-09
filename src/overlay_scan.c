@@ -31,13 +31,13 @@ int scan_strongest_bcch(const struct app *app) {
 
 int start_scan(struct app *app) {
     if (!app->receiver_mode) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
-                 "Channel scan requires a live RTL-SDR receiver");
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
+                 "Channel scan requires a live receiver");
         return -1;
     }
     if (scan_plan_make((double)app->applied_sample_rate, &app->bandscan.plan) !=
         SCAN_PLAN_OK) {
-        snprintf(app->calibration_status, sizeof(app->calibration_status),
+        snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Channel scan requires a sample rate of at least 1 MS/s");
         return -1;
     }
@@ -118,7 +118,7 @@ void update_scan(struct app *app) {
         int chosen = scan_choose(app->scan_power, app->scan_bcch_conf);
         if (chosen > 0 && app->gsm_autoselect_pending &&
             app->tab == TAB_DECODE && app->decode == DECODE_GSM &&
-            !app->calibration_open) {
+            !app->cal.open) {
             app->gsm_autoselect_pending = 0;
             app->gsm.analysis_mode = 1;     /* Default to Burst mode after scan */
             gsm_tune_selected(app, chosen); /* show the best channel above */

@@ -555,8 +555,8 @@ void enter_gsm(struct app *app) {
     /* Borrow where the operator had it, before anything below moves it. */
     receiver_borrow(app, &app->gsm.lease_token);
     int arfcn = 0;
-    if (app->gsm_cal_arfcn > 0)
-        arfcn = app->gsm_cal_arfcn;
+    if (app->cal.gsm_arfcn > 0)
+        arfcn = app->cal.gsm_arfcn;
     else if (app->scan_selected_arfcn > 0)
         arfcn = app->scan_selected_arfcn;
     if (arfcn > 0) {

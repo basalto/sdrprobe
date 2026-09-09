@@ -58,7 +58,7 @@ void open_settings(struct app *app) {
     }
     app->settings_error[0] = '\0';
     app->set.remove_dc = app->remove_dc;
-    app->set.auto_drift = app->auto_drift_check;
+    app->set.auto_drift = app->cal.auto_drift;
     app->settings_open = 1;
 }
 
@@ -77,7 +77,7 @@ int apply_settings(struct app *app) {
         return -1;
     }
 
-    app->auto_drift_check = app->set.auto_drift;
+    app->cal.auto_drift = app->set.auto_drift;
     /*
      * The transform size, which needs no receiver and so is applied before
      * anything that can fail: a rejected frequency should not also lose a
@@ -105,11 +105,11 @@ int apply_settings(struct app *app) {
         }
     }
     /* A manual PPM change is no longer FCCH-backed: drop to grey. */
-    if (app->gsm_cal_valid && ppm != app->gsm_cal_ppm) {
-        app->gsm_cal_valid = 0;
-        app->drift_health = CAL_HEALTH_UNKNOWN;
-        app->drift_notice[0] = '\0';
-        app->drift_phase = DRIFT_IDLE;
+    if (app->cal.gsm_valid && ppm != app->cal.gsm_ppm) {
+        app->cal.gsm_valid = 0;
+        app->cal.drift_health = CAL_HEALTH_UNKNOWN;
+        app->cal.drift_notice[0] = '\0';
+        app->cal.drift_phase = DRIFT_IDLE;
     }
 
     if (!app->receiver_mode) {
