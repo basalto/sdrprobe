@@ -24,9 +24,9 @@
  * so record off-centre or pass a guard of 0 and mean it.
  *
  * Prints, per offset: whether a standing carrier is there and how much of the
- * channel stands still, the burst structure, and the envelope against
- * Rayleigh. Not a check and not a decoder: it measures and prints, and every
- * conclusion is the reader's.
+ * channel stands still, **where in the window the line actually was**, the
+ * burst structure, and the envelope against Rayleigh. Not a check and not a
+ * decoder: it measures and prints, and every conclusion is the reader's.
  */
 #include <math.h>
 #include <stdio.h>
@@ -72,7 +72,7 @@ static void report_one(const char *label, double at_hz, size_t pairs,
     struct signal_carrier carrier;
     struct signal_bursts bursts;
     struct signal_envelope envelope;
-    int found;
+    int found, nothing;
 
     found = signal_find_carrier(samples_i, samples_q, pairs, rate,
                                 at_hz - search_hz, at_hz + search_hz,
@@ -85,6 +85,40 @@ static void report_one(const char *label, double at_hz, size_t pairs,
     printf("%-20s %6.1f dB  standing %.3f\n",
            signal_verdict_name(signal_carrier_verdict(&carrier)),
            carrier.carrier_over_noise_db, carrier.carrier_power_fraction);
+    /*
+     * Where the line actually is, which used to be the one thing this tool
+     * measured and did not print: the row was labelled with the offset it was
+     * *asked* for, so `carrier.offset_hz` never left the function.
+     *
+     * Both numbers, because they answer different questions. The delta says
+     * whether the caller aimed at the right place -- `.scratch/am-airband/`
+     * spent a run aiming 24 kHz off, at a carrier group's centre rather than
+     * its peak, and read two controls' worth of nothing with no hint why. The
+     * offset itself is what says whose signal it is: a tone clocked from the
+     * receiver's own reference reads at its exact nominal frequency however
+     * far out the crystal is, where an external one is displaced by the
+     * tuning times the ppm error (`.scratch/device-model/issues/11-*`).
+     *
+     * Printed as an offset and not an absolute, because this tool is given a
+     * rate and never a centre frequency -- that lives in the capture's
+     * sidecar, and adding the sum here would invent one for a caller who
+     * passed neither.
+     *
+     * The caption changes on a `no carrier` verdict, and it has to. Below
+     * SIGNAL_CARRIER_PRESENT_DB there is no line, and what the search
+     * returned is the largest of thousands of noise samples -- the very thing
+     * signal_probe.h measured that threshold against. Calling that "the line"
+     * at a tenth of a hertz gives a noise peak the authority of a
+     * measurement. Where it landed is still worth printing: both controls
+     * here wander to the edge of the search window, 36 and 32 kHz from where
+     * they were asked for, which is what an empty frequency looks like and
+     * the same evidence tetra_burst_find's best lag gives when it wanders.
+     */
+    nothing = signal_carrier_verdict(&carrier) == SIGNAL_NOTHING;
+    printf("  %-14s %10s      %-18s%+.1f Hz  (%+.1f from where it was asked"
+           " for)\n", "", "",
+           nothing ? "strongest bin at:" : "line found at:",
+           carrier.offset_hz, carrier.offset_hz - at_hz);
 
     signal_find_bursts(samples_i, samples_q, pairs, rate,
                        SIGNAL_BURST_GAP_DEFAULT, &bursts);
