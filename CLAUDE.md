@@ -750,11 +750,39 @@ something it knows has gone quiet, and say under the cursor how many sweeps
 ago. Matching uses the coarser of the two sweeps' bin widths; the reason is in
 `site_entry.bin_hz` and it is not optional.
 
-Both the window and the headless report go through `survey_candidates_from()`
-in `src/survey_store.c`, so what a candidate *is* -- where it was found, what
-it measured to, whether it resembles the receiver, which allocation it falls in
--- is decided once. It used to be decided inside a `printf` loop, where the two
-could have disagreed about the same peak with nothing to say so.
+**A finished survey is a record before it is a screen or a file**, in
+`src/survey_record.{c,h}`. Both the window's save and the headless report build
+one from plain facts and then format it, so what a candidate *is* -- where it
+was found, what it measured to, whether it resembles the receiver, which
+allocation it falls in, and what a confirmation pass concluded about it -- is
+decided once. It used to be decided inside `survey_store.c`'s `printf` loop,
+where the two adapters could have disagreed about the same peak with nothing to
+say so, and where the module that spells JSON owned the meaning of a candidate.
+
+The measurement that said so was the store's own check: it allocated a whole
+`struct app` to write one file. It builds a record now, `survey_store.{c,h}`
+has no `struct app` in it at all, and `check-survey-store` links `-lm` alone
+where it used to need raylib and librtlsdr headers. Both outputs are
+byte-identical over the capture survey, the JSON apart from its clock.
+
+**What the record decides, and the adapters only print**: that a candidate
+takes the verdict of the carrier holding it -- a carrier's shoulders are maxima
+of the same signal a few bins away, so asking at each maximum's own frequency
+would leave most of a confirmed station's list unconfirmed -- the suspicious
+and confirmed/intermittent/refuted totals, and the half-bin tolerance every
+match is made with. `survey_tuning_from()` in `view.h` is the one place the
+four facts a candidate needs are read out of `struct app`: where the receiver
+was pointed, how fast it sampled, its reference clock and whether DC was
+removed. Three sites used to assemble those separately.
+
+Two things the modelling turned up and the checks now pin. **The dwell written
+to a file is the session's, not the plan's** -- `struct survey_plan` carries a
+`dwell_seconds` and the writer has always taken
+`app->survey.session.dwell_seconds`; they agree on any sweep this program plans
+for itself, and a record reading the plan's would change the file while every
+other field agreed. And **a source with no clock gets no comb tests**: the
+tuning carries 0 for a capture, and a default of 28.8 MHz there would flag a
+recording's maxima as a receiver's own spurs with no receiver in the room.
 
 **And the sweep itself is one machine now, in `src/survey_session.{c,h}`:**
 idle to sweeping to confirming, with watching as a sweep that goes round again
