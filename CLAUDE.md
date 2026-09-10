@@ -11,7 +11,7 @@ need the detail.
 
 ```sh
 make                  # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
-make check            # everything below, ~55 s, no window and no receiver
+make check            # everything below, ~170 s, no window and no receiver
 make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
 make check-sdr-dsp    # one check in isolation — generic core
@@ -51,9 +51,25 @@ make hooks            # run `make check` on every git push (once, per clone)
 make clean
 ```
 
-**Run the suite that covers the change, not all of them.** One suite is under
-a second and the full set is the better part of a minute, so `make check` after
-every edit turns a fast loop into a slow one. The loop is three sizes:
+**Run the suite that covers the change, not all of them.** Most suites are
+under a second and the full set is **about three minutes**, so `make check`
+after every edit turns a fast loop into a slow one.
+
+**Where those three minutes go, measured.** Serial it was 242 s -- and 242 s
+again with *nothing changed*, because every `check-*` is a phony name, so make
+rebuilds all 56 binaries every run and `sdr_dsp.c` alone is compiled fifteen
+times. The units run `-j$(CHECK_JOBS)` now, which takes it to **171 s**, and
+that is where it stops for one reason: **`check-signal-probe` runs for 105 s**
+against a next-slowest of 6.8 s, so no amount of parallelism goes below it.
+`check-pipelines` is 34 s, every other suite's *run* is under 7 s, and
+compilation is the remaining ~60. The 105 s is not the check being greedy: it
+is `signal_find_carrier()` sweeping a coarse scan at `rate/probe*4` -- 26.7 Hz
+-- with a **300 000-pair probe at every step**, so a full-span search is 75 000
+evaluations of 300 000 pairs. One assertion costs 40 s of it, and the same cost
+is paid on air by every candidate the survey's confirmation pass measures.
+`.scratch/gate-time/` is the ticket; a shortened coarse probe made the suite
+**3 s** and broke five assertions, which is why it is a ticket and not a
+patch. The loop is three sizes:
 `make check-<one>` while iterating, `make check-touched` before committing --
 it reads each check rule's own prerequisites to pick, and prints how many
 suites it skipped -- and `make check` as the gate, which `make hooks` makes git
