@@ -65,23 +65,112 @@ deleting it would spread the transaction and rollback rules back into the
 application and settings/calibration callers, not merely remove forwarding
 functions.
 
-## Implementation order after the dependency clears
+## Implementation plan after the dependency clears
 
-1. Record the observed RTL-SDR and UHD transition semantics, including stop,
-   flush, read-back, failure and stream metadata.
-2. Add a hardware-free runtime check using the existing fake backend and the
-   acquisition worker seam. Prove rollback before moving production callers.
-3. Move the start/stop and retune transaction unchanged behind the runtime.
-4. Move the applied settings into it and make transition success the only
-   writer. Replace direct fields with read-only snapshots/accessors.
-5. Move lease orchestration behind it without changing
-   `receiver_lease.h`'s pure state machine.
-6. Migrate settings, calibration and views one path at a time.
-7. Remove the old receiver helpers from `view.h` and close ticket 09.
+### Phase 1 -- establish the second receiver's facts
+
+Exercise the RTL-SDR and UHD adapters through open, stream, stop, flush,
+frequency/rate/correction/gain changes, read-back and failure. Record which
+facts are common runtime state and which metadata belongs only to one adapter.
+Update this ticket before changing the runtime interface. This is the phase
+that clears `needs-info`.
+
+Files: `.scratch/device-model/issues/07-a-second-backend.md`,
+`src/backend_rtlsdr.c`, `src/backend_uhd.c`, `src/device_backend.h`.
+
+Check: a table of observed semantics for both receivers with no invented UHD
+field left in the proposed common state.
+
+### Phase 2 -- prove the transaction in isolation
+
+Add `receiver_runtime.{c,h}` with only enough state and operations to drive a
+fake backend and acquisition worker. Write `check-receiver-runtime` first for
+the discriminating sequence: rate succeeds, frequency fails, old rate is
+restored, exactly one worker is running, applied state is unchanged, and the
+error names the failed operation. Also pin restart failure and read-back
+failure before moving production callers.
+
+Files: `src/receiver_runtime.{c,h}`, `tests/receiver_runtime_test.c`,
+`Makefile`.
+
+Focused validation: `make check-receiver-runtime`.
+
+### Phase 3 -- move lifecycle and retuning unchanged
+
+Move `start_acquisition()`, `stop_acquisition()`, `retune_receiver()` and
+`retune_receiver_at_rate()` from `sdrprobe.c` behind the runtime interface.
+Preserve call order, rollback, spectrum invalidation and error text in this
+slice. Keep temporary compatibility functions in `view.h` so no view changes
+at the same time as the transaction moves.
+
+Files: `src/sdrprobe.c`, `src/receiver_runtime.{c,h}`, `src/view.h`,
+`src/app.h`.
+
+Focused validation: `make check-receiver-runtime`, `make check-acquisition`,
+`make check-device-backend`, then `make check-pipelines`.
+
+### Phase 4 -- give applied state one writer
+
+Move applied frequency, sample rate, correction, gain and mode/capability
+state behind the runtime. Transition success is the only writer; callers get
+a read-only snapshot. Decide from Phase 1 whether DC filtering is receiver
+state or signal-frame policy rather than moving it by proximity. Delete each
+old `app` field only after its readers use the snapshot.
+
+Files: `src/app.h`, `src/receiver_runtime.{c,h}`, settings/calibration and
+every view currently reading `app->applied_*` or `app->receiver_mode`.
+
+Focused validation: `make check-receiver-runtime`, `make check-input`,
+`make check-calibration`, and `make check-touched`.
+
+### Phase 5 -- absorb lease orchestration and callers
+
+Move the five receiver-borrow helpers behind the runtime without changing the
+pure `receiver_lease.h` state machine. Migrate settings, calibration, survey,
+GSM, LTE and FM one ownership path at a time. After each path, prove that a
+nested owner returns to its immediate parent and then to the original tuning.
+
+Files: `src/receiver_runtime.{c,h}`, `src/receiver_lease.h`, `src/view.h`,
+`src/view_*.c`, `src/overlay_*.c`, `src/survey_report.c`.
+
+Focused validation: `make check-receiver-lease`, affected session/survey
+checks, and `make check-pipelines` after each caller family.
+
+### Phase 6 -- remove the old surface
+
+Delete the compatibility helpers from `view.h`, remove obsolete receiver
+fields and lifecycle code from `sdrprobe.c`, update architecture documents,
+and resolve ticket 09 as absorbed here. Run the deletion test: removing the
+runtime must make transaction, rollback and ownership rules reappear across
+callers rather than merely remove forwarding functions.
 
 Focused checks while iterating: the new runtime check,
 `check-device-backend`, `check-acquisition`, `check-receiver-lease`, then
 `check-pipelines`. Final gate: `make check-touched` and `make check`.
+
+## Tasks
+
+- [ ] Complete the UHD observations required by Phase 1 and change this ticket
+  to `ready-for-agent`.
+- [ ] Write the shared/adapter-specific transition table.
+- [ ] Add `receiver_runtime.{c,h}` and register both files in Makefile
+  prerequisites.
+- [ ] Add `check-receiver-runtime` to `CHECK_UNITS` and clean bookkeeping.
+- [ ] Pin failed frequency-after-rate rollback before moving production code.
+- [ ] Pin restart, stop, flush and read-back failures.
+- [ ] Move acquisition start/stop behind the runtime without changing callers.
+- [ ] Move frequency/rate transactions and preserve their error text.
+- [ ] Move applied settings and make the runtime their only writer.
+- [ ] Decide `receiver_mode` as capability, source kind or deletion from UHD
+  evidence.
+- [ ] Decide `remove_dc` ownership with ticket 11 rather than moving it
+  automatically.
+- [ ] Move lease orchestration behind the runtime.
+- [ ] Migrate settings, calibration and views one owner at a time.
+- [ ] Remove receiver lifecycle helpers from `view.h` and `sdrprobe.c`.
+- [ ] Resolve ticket 09 as absorbed by this module.
+- [ ] Update `AGENTS.md`, `CLAUDE.md` and `docs/ARCHITECTURE.md`.
+- [ ] Run `make check-touched` and `make check`.
 
 ## Acceptance criteria
 

@@ -54,18 +54,65 @@ ADR-0015 requires; the record does not identify a technology from it.
 
 ## Implementation plan
 
-1. Define the plain record and an assembly function using the existing
-   `survey_candidate`, carrier and confirmation types where they fit.
-2. Change `survey_candidates_from()` to take explicit centre frequency,
-   sample rate, reference clock, DC-filter state and scratch storage.
-3. Build the record in the two current adapters and compare their candidate
-   arrays before changing output.
-4. Make `survey_store_write()` accept the record and remove `app.h` from
-   `survey_store.{c,h}` and its check.
-5. Move headless finished-survey formatting to consume the same record while
-   leaving session event/progress lines where they are.
-6. Update `docs/band-surveys.md` only if the explicit model reveals a real
-   schema change; otherwise output must remain byte-identical.
+### Phase 1 -- define and check the record
+
+Add `survey_record.{c,h}` with a plain immutable record and an assembly input.
+Reuse existing candidate, carrier and confirmation types where their meaning
+already matches; copy receiving setup, gain, dwell and recording time into the
+record. Build the current store fixture with no `struct app` and compare every
+field that the JSON writer currently emits.
+
+Files: `src/survey_record.{c,h}`, `tests/survey_record_test.c`, `Makefile`.
+
+Focused validation: `make check-survey-record`.
+
+### Phase 2 -- make candidate materialization explicit
+
+Move `survey_candidates_from()` to the record module or replace it with the
+record assembler. Pass centre frequency, sample rate, reference clock,
+DC-filter state, optional spectrum and scratch storage explicitly. Preserve
+the measured-frequency precedence for receiver-artifact flags and band-plan
+lookup.
+
+Files: `src/survey_record.{c,h}`, `src/survey_store.{c,h}`,
+`src/view_survey.c`, `src/survey_report.c`.
+
+Focused validation: `make check-survey-record`, `make check-suspect`, and
+`make check-band-plan`.
+
+### Phase 3 -- put both adapters on one record
+
+Build a record in the window and headless paths before formatting either one.
+Compare the candidate/carrier counts and confirmation verdicts from both paths
+on the deterministic capture survey. Keep progress/event lines in
+`survey_report.c`; only finished-survey output moves to the record.
+
+Files: `src/view_survey.c`, `src/survey_report.c`,
+`src/survey_record.{c,h}`.
+
+Focused validation: `make check-survey-session` and the deterministic
+headless survey pipeline.
+
+### Phase 4 -- reduce the JSON store to an adapter
+
+Make `survey_store_write()` accept a record. Remove `app.h` from
+`survey_store.c`, `survey_store.h` and `survey_store_test.c`. Keep filename,
+collision avoidance, JSON escaping and filesystem policy in this adapter.
+Assert byte-identical JSON for the current fixture before deleting the old
+entry point.
+
+Files: `src/survey_store.{c,h}`, `tests/survey_store_test.c`.
+
+Focused validation: `make check-survey-store` and
+`make check-survey-record`.
+
+### Phase 5 -- finish and document
+
+Delete the old application-taking candidate/store interfaces, audit that both
+output adapters contain formatting rather than survey decisions, and update
+`docs/band-surveys.md` only if a separately approved schema change occurred.
+Run the deletion test: removing the record should force candidate meaning and
+confirmation matching back into both adapters.
 
 ## Checks
 
@@ -84,6 +131,26 @@ Extend `check-survey-store` or add `check-survey-record` to cover:
 Focused validation: `make check-survey-store`, `make check-survey-session`,
 and the deterministic headless survey pipeline. Final gate:
 `make check-touched` and `make check`.
+
+## Tasks
+
+- [ ] Add `survey_record.{c,h}` and register complete Makefile prerequisites.
+- [ ] Add `check-survey-record` to `CHECK_UNITS` and clean bookkeeping.
+- [ ] Model plan, dwell, setup, gain, candidates, carriers and confirmation.
+- [ ] Copy all record-owned strings/data so the record is immutable.
+- [ ] Assemble the current JSON fixture without allocating `struct app`.
+- [ ] Make candidate materialization take explicit tuning/profile facts.
+- [ ] Pin measured-frequency precedence for flags and allocation lookup.
+- [ ] Build one record in the Survey window adapter.
+- [ ] Build the same record in the headless adapter.
+- [ ] Compare both adapters on the deterministic capture survey.
+- [ ] Make finished headless text consume the record.
+- [ ] Make `survey_store_write()` consume the record.
+- [ ] Remove `app.h` from `survey_store.{c,h}` and its test.
+- [ ] Preserve filename collision handling and JSON escaping checks.
+- [ ] Verify deterministic text and JSON output are unchanged.
+- [ ] Update `AGENTS.md`, `CLAUDE.md` and `docs/ARCHITECTURE.md`.
+- [ ] Run `make check-touched` and `make check`.
 
 ## Acceptance criteria
 
