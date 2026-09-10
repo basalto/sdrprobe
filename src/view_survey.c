@@ -1631,16 +1631,19 @@ void handle_survey_input(struct app *app) {
  * a measurement and only exists where somebody looked. They live in the same
  * field and are read together, because a row wants to show both.
  */
+/*
+ * The session decides this, not the view.
+ *
+ * This was a line-for-line second copy of `survey_session_confirmed_flags_at()`
+ * -- same tolerance fallback, same lookup -- left behind when the machine came
+ * out of this file. Two copies of one decision is the fault that extraction
+ * existed to end, and the four the two copies had already disagreed about are
+ * in `CLAUDE.md`. It is also the difference between a decision a check can
+ * reach and one it cannot (ADR-0012): the session's is covered by
+ * `check-survey-session` and this one never was.
+ */
 static unsigned survey_confirmed_flags_at(const struct app *app, double hz) {
-    const struct survey_session *ss = &app->survey.session;
-    const struct survey_confirm_target *target;
-    double tolerance = ss->plan.bin_hz > 0.0 ? ss->plan.bin_hz : 1e5;
-
-    if (ss->confirm.count <= 0)
-        return 0u;
-    target = survey_confirm_for(ss->confirm.target, ss->confirm.count, hz,
-                               tolerance);
-    return target ? target->suspicion : 0u;
+    return survey_session_confirmed_flags_at(&app->survey.session, hz);
 }
 
 static void draw_peak_list(const struct app *app, Rectangle rect) {

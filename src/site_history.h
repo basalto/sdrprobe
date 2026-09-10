@@ -262,14 +262,23 @@ int site_history_save_path(const char *path,
                            const struct site_history *history);
 
 /*
- * Whether a legacy site-only baseline exists, and how much is in it.
+ * A legacy site-only baseline is **not read at all**, and that is not what
+ * ADR-0022 says.
  *
- * ADR-0022 keeps these rather than renaming them: a file written before the
- * ADR cannot say which receiver and antenna produced it, and inventing that is
- * what it refuses. So one is **found and offered**, never merged
- * automatically. Returns the number of entries it holds, or -1 when there is
- * no such file.
+ * The ADR keeps `surveys/history-<site>.txt` as an unassigned baseline that
+ * the operator may assign to a receiving setup. Neither half is implemented:
+ * the program opens only `installation_history_path()`'s name, so the three
+ * functions above that address a history *by site* --
+ * `site_history_path`/`_load`/`_save` -- have no caller outside `tests/`, and
+ * `site_history_legacy_entries()` had none from the day it was added (0.45.0)
+ * to the day it was deleted. Nothing merges a legacy file because nothing
+ * ever opens one.
+ *
+ * Contrast ADR-0018's calibration twin, which has `installation_legacy_ppm()`,
+ * a **Claim +N PPM** button and a headless `--claim-calibration`. Three
+ * surfaces there, none here. `.scratch/deepening/issues/13-*` carries the
+ * choice: build the assignment, or amend the ADR to say a legacy baseline
+ * ages out by being replaced rather than claimed.
  */
-int site_history_legacy_entries(const char *site);
 
 #endif
