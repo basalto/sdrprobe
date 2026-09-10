@@ -426,8 +426,19 @@ with everywhere.
 The check pins each field against the constant it will replace --
 `SURVEY_TUNER_LOWER_HZ`, `SURVEY_SETTLE_SECONDS`, `RECEIVER_REFERENCE_HZ` --
 by including those headers rather than restating their numbers, so the two
-cannot drift apart while both exist. `acquisition.h` is the one it cannot
-include, since that pulls `<rtl-sdr.h>` and a check here links `-lm` only.
+cannot drift apart while both exist.
+
+**`acquisition.h` used to be the one it could not include, and no longer is.**
+That sentence stood here after ticket 07 put `<rtl-sdr.h>` behind
+`backend_rtlsdr.c`, and by then **no header in `src/` included it at all** --
+`app.h` only records that one used to. A translation unit including
+`acquisition.h` compiles `-Wall -W` clean and links with `-lm` alone, which is
+why `check-acquisition` can drive the worker at all. Left standing it was
+worse than untidy: it is a *stated reason not to attempt something*, and it
+was cited against building a hardware-free check over the receiver's
+transitions -- work that turns out to be reachable today
+(`.scratch/deepening/issues/10-*`, Phase 2). A stale refusal costs more than a
+stale fact.
 
 One thing the profile deliberately cannot say: **librtlsdr's rate range has a
 hole in it** -- 225001-300000 and 900001-3200000 Hz, with nothing between --

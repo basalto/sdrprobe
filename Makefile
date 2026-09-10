@@ -81,7 +81,7 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/debug_log.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h \
@@ -257,6 +257,16 @@ check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
 
 # Naming a saved sweep, and escaping what goes in it. The write itself needs a
 # receiver and a directory; these two do not, and they are where it goes wrong.
+check-survey-record: $(TESTS)/survey_record_test.c $(TESTS)/check.h \
+		$(SRC)/survey_record.c $(SRC)/survey_record.h \
+		$(SRC)/survey_store.h $(SRC)/survey_carrier.h \
+		$(SRC)/survey_confirm.h $(SRC)/survey_suspect.h \
+		$(SRC)/survey_sweep.h $(SRC)/installation.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_record_test \
+		$(TESTS)/survey_record_test.c $(SRC)/survey_record.c -lm
+	$(Q)./$(BUILD)/survey_record_test
+
 check-survey-store: $(TESTS)/survey_store_test.c $(TESTS)/check.h \
 		$(SRC)/survey_store.c $(SRC)/survey_store.h
 	@mkdir -p $(BUILD)
@@ -639,7 +649,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 		$(TESTS)/receiver_lease_test.c -lm
 	$(Q)./$(BUILD)/receiver_lease_test
 
-CHECK_UNITS=check-installation check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
+CHECK_UNITS=check-installation check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-survey-record check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-lte-scan check-band-plan \
 	check-options check-freq-window check-survey-sweep check-survey-session \
 	check-suspect \
