@@ -155,6 +155,15 @@ Three new candidates remain:
 
 The report is `/tmp/architecture-review-20260910-095531.html`.
 
+## Not from either review
+
+13. **A legacy baseline nobody can claim** -- ADR-0022 promises an unassigned
+   legacy site history that the operator may assign to a receiving setup, and
+   neither half is implemented: nothing assigns one, and nothing opens one.
+   Opened 2026-09-10 from a dead-code audit rather than from a review, and
+   numbered 13 because the second review had already claimed 10-12.
+   `needs-triage`, and the honest close may be to amend the ADR.
+
 ## What this is not
 
 - Not a change to any DSP answer. Every capture in `testfiles/` must decode

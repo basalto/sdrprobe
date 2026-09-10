@@ -457,23 +457,6 @@ int site_history_load(const char *site, struct site_history *history) {
     return site_history_load_path(path, site, history);
 }
 
-/*
- * How much a legacy site-only baseline holds, or -1 when there is none.
- *
- * Offered rather than merged: ADR-0022 will not invent which receiver and
- * antenna produced a file that cannot say.
- */
-int site_history_legacy_entries(const char *site) {
-    static struct site_history legacy;   /* it is large; not a stack */
-    char path[256];
-
-    if (site_history_path(site, path, sizeof(path)) < 0)
-        return -1;
-    if (site_history_load_path(path, site, &legacy) != 0)
-        return -1;
-    return legacy.count;
-}
-
 int site_history_save_path(const char *path,
                            const struct site_history *history) {
     char *text;

@@ -631,13 +631,6 @@ void scope_freq_sync(struct app *app) {
 
 /* What the two charts are showing, for the header to say and for anything
    that draws against it. */
-void scope_freq_range(const struct app *app, double *lower, double *upper) {
-    if (lower)
-        *lower = app->sv.window.freq.view_lower_hz;
-    if (upper)
-        *upper = app->sv.window.freq.view_upper_hz;
-}
-
 /*
  * Drag to zoom, Left and Right to pan, 0 to put it back.
  *

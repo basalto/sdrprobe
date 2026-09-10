@@ -157,7 +157,6 @@ int adsb_tuned(const struct app *app);
 Rectangle calculate_plot(void);
 /* The frequency window the Scope's spectrum and waterfall share. */
 void scope_freq_sync(struct app *app);
-void scope_freq_range(const struct app *app, double *lower, double *upper);
 /*
  * The keys every chart shares, read once a frame.
  *
