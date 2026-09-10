@@ -1,6 +1,7 @@
 #include "check.h"
 
 #include "survey_store.h"
+#include "survey_record.h"
 #include "survey_suspect.h"
 
 #include <stdio.h>
@@ -8,7 +9,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "app.h"
 
 /*
  * Whether every container the file opens is closed, ignoring what is inside
@@ -187,24 +187,23 @@ static void test_flag_text(void) {
  * Valid JSON, no warning, and every reader silently saw an unrecorded antenna.
  * Only looking at the keys catches that, so this looks at the keys.
  *
- * It needs a filesystem and a struct app, and neither needs a receiver or a
- * window -- the app is a calloc away and the file goes to a temporary
- * directory, so this still runs with nobody watching (ADR-0012).
+ * It needs a filesystem and nothing else: the record is built from plain
+ * values and the file goes to a temporary directory, so this runs with
+ * nobody watching (ADR-0012).
  */
 static void test_the_file_it_writes(void) {
-    struct app *app = calloc(1, sizeof(*app));
+    static struct survey_record record;
+    struct survey_record_setup setup;
     struct survey_plan plan;
+    struct tm when;
     struct survey_candidate c[2];
     char path[256], text[8192], cwd[512];
     const char *tmp = getenv("TMPDIR");
     FILE *file;
     size_t got;
 
-    if (!app)
-        exit(2);
     if (!getcwd(cwd, sizeof(cwd)) || chdir(tmp && *tmp ? tmp : "/tmp") != 0) {
         printf("  (skipping the write check: no temporary directory)\n");
-        free(app);
         return;
     }
     memset(&plan, 0, sizeof(plan));
@@ -213,17 +212,26 @@ static void test_the_file_it_writes(void) {
     plan.step_count = 13;
     plan.bins = 8192;
     plan.bin_hz = 2441.4;
-    app->survey.session.dwell_seconds = 0.12;
-    app->applied_gain_tenths = 297;
     /*
      * The receiving setup, which is what a sweep records now -- ADR-0018 and
      * ADR-0022 -- rather than the config file's spelling of it. The antenna
      * still carries a quote, because a name a person typed has to survive
      * being written into JSON.
+     *
+     * **And no `struct app`.** This check used to `calloc` a whole one to
+     * write a single file, which was the clearest measurement that the
+     * writer's interface asked its callers to know nearly everything. It
+     * builds a record instead, and the writer takes only that.
      */
-    installation_identify(&app->installation, "77771111153705700", NULL);
-    installation_set_id(app->installation.antenna, "a \"quoted\" whip");
-    installation_set_id(app->installation.site, "home-desk");
+    memset(&setup, 0, sizeof(setup));
+    snprintf(setup.receiver, sizeof(setup.receiver), "77771111153705700");
+    snprintf(setup.antenna, sizeof(setup.antenna), "a \"quoted\" whip");
+    snprintf(setup.site, sizeof(setup.site), "home-desk");
+    setup.gain_tenths = 297;
+    memset(&when, 0, sizeof(when));
+    when.tm_year = 126;
+    when.tm_mon = 8;
+    when.tm_mday = 10;
 
     memset(c, 0, sizeof(c));
     c[0].found_hz = 94492310;
@@ -264,8 +272,10 @@ static void test_the_file_it_writes(void) {
         target.envelope.found = 1;
         target.envelope.variation = 0.195;
         target.bursts.verdict = SIGNAL_BURST_LEVEL;
-        check_int("it writes", survey_store_write(app, &plan, c, 2, &carrier,
-                                                  1, &target, 1, path,
+        check_int("the record forms",
+                  survey_record_form(&record, &plan, 0.12, &setup, &when, c, 2,
+                                     &carrier, 1, &target, 1), 0);
+        check_int("it writes", survey_store_write(&record, path,
                                                   sizeof(path)), 0);
     }
     file = fopen(path, "rb");
@@ -379,7 +389,6 @@ static void test_the_file_it_writes(void) {
     }
     if (chdir(cwd) != 0)
         exit(2);
-    free(app);
 }
 
 int main(void) {

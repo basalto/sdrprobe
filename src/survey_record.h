@@ -6,7 +6,7 @@
 #include "installation.h"
 #include "survey_carrier.h"
 #include "survey_confirm.h"
-#include "survey_store.h"
+#include "sdr_dsp.h"
 #include "survey_sweep.h"
 
 /*
@@ -41,6 +41,42 @@
  * ADR-0015 still holds: the band plan is a lookup and the record does not
  * identify a technology from it.
  */
+
+/*
+ * What one maximum of a sweep turned out to be.
+ *
+ * `struct survey_candidate` exists so that what a candidate *is* -- where it
+ * was found, what it measured to, whether it resembles the receiver, which
+ * allocation it falls in -- is decided in one place and then printed, or
+ * written, or drawn. It used to be decided inside a printf loop, which meant
+ * the window and the headless report could disagree about the same peak
+ * without anybody noticing.
+ */
+
+struct survey_candidate {
+    double found_hz;          /* where the sweep found it */
+    double centre_hz;         /* what measuring refined it to; 0 if unmeasured */
+    double width_hz;          /* occupied bandwidth; 0 if unmeasured */
+    /*
+     * How wide it is in the survey array, from the peak's own -20 dB extent.
+     * Coarser than `width_hz` and always available, which is the point: a
+     * swept survey has no spectrum to measure a candidate out of, and without
+     * this it could say nothing at all about the shape of what it found. Big
+     * and meaningless when the extent walk hit its bound, which happens to a
+     * candidate with no -20 dB point of its own -- that reads as "not narrow",
+     * which is the safe way for it to be wrong.
+     */
+    double extent_hz;
+    float power_dbfs;
+    float prominence_db;
+    int measured;
+    unsigned int suspect;     /* SURVEY_SUSPECT_* */
+    const char *allocation;   /* band plan name, or NULL */
+};
+
+/* The suspicion flags as the text both outputs use: "reference,step-centre",
+   or "-" for none. Returns `buffer`, or a literal for none. */
+const char *survey_flag_text(unsigned int flags, char *buffer, size_t size);
 
 /* As many maxima as a sweep can raise: the peak finder's own bound, so a
    record can hold whatever a survey produced without a second limit to
@@ -127,7 +163,106 @@ struct survey_record {
 };
 
 /*
- * Form the record. Returns 0, or -1 if anything needed is missing.
+ * What the receiver was doing while the sweep ran.
+ *
+ * These four facts are all `survey_candidates_from()` ever wanted out of
+ * `struct app`, and taking them explicitly is what lets a candidate's meaning
+ * be decided without an application: where the receiver was pointed and how
+ * fast it was sampling, so a bin index becomes a frequency; the reference
+ * clock, so `survey_suspect()` can ask whether a maximum looks like the
+ * receiver's own comb -- **0 when the source has no crystal to blame, which is
+ * a capture's case, and then nothing may be attributed to one**; and whether
+ * the spectrum had DC removed, because the bin at zero is the receiver's own
+ * offset when it did not.
+ */
+struct survey_record_tuning {
+    double centre_hz;
+    double sample_rate_hz;
+    double reference_clock_hz;
+    int remove_dc;
+};
+
+/*
+ * Everything one finished survey is made of, as facts rather than as an
+ * application.
+ *
+ * `spectrum` is non-NULL only when the whole survey came from one tuning and
+ * every candidate can be measured out of it; across a swept range it belongs
+ * to whichever step happened to be last, and a bandwidth read from it would be
+ * a number about the wrong signal. That is `survey_session_spectrum()`'s own
+ * refusal and both adapters have always honoured it -- this makes it an
+ * argument rather than a convention.
+ *
+ * `scratch` is `SAMPLE_BLOCK_PAIRS` floats for the carrier measurement to sort
+ * in, or NULL to measure nothing. It is the caller's because it is large and
+ * because the record must not own a block-sized buffer to hold a page of
+ * results.
+ */
+struct survey_record_input {
+    struct survey_record_tuning tuning;
+    const struct survey_plan *plan;
+    double dwell_seconds;
+    struct survey_record_setup setup;
+    struct tm recorded_at;
+    const struct sdr_peak *peaks;
+    int peak_count;
+    const float *spectrum;
+    float *scratch;
+    const struct survey_carrier *carriers;
+    int carrier_count;
+    const struct survey_confirm_target *targets;
+    int target_count;
+};
+
+/*
+ * The receiving setup, out of the installation that knows it.
+ *
+ * Both adapters need the same four values and neither should be spelling
+ * `installation.receiver` into a record field itself: ADR-0018 and ADR-0022
+ * put the identity in one place, and this is the one read of it. A receiver
+ * with no identity leaves `receiver` empty rather than inventing a label.
+ */
+void survey_record_setup_from(struct survey_record_setup *out,
+                              const struct installation *inst,
+                              int gain_tenths);
+
+/*
+ * The local time now, for an adapter to stamp a record with.
+ *
+ * The clock is deliberately the adapter's rather than the record's: a record
+ * formed twice from one sweep would otherwise be two different records, and
+ * the file's `recorded_at` and its filename would each be whenever their own
+ * line ran.
+ */
+struct tm survey_record_now(void);
+
+/*
+ * Work out what each maximum is, and form the whole record from it. Returns 0,
+ * or -1 if anything needed is missing.
+ *
+ * This is the one entry an adapter needs: the window's save and the headless
+ * report both call it, so what a candidate *is* -- where it was found, what it
+ * measured to, whether it resembles the receiver, which allocation it falls in
+ * -- is decided once for both. It used to be decided inside a `printf` loop.
+ */
+int survey_record_build(struct survey_record *out,
+                        const struct survey_record_input *in);
+
+/*
+ * The candidates alone, for a caller that has its own reason to want them.
+ * `survey_record_build()` is this followed by `survey_record_form()`; both
+ * halves are separate so the materialisation can be checked without forming a
+ * record around it. Returns how many were filled in.
+ */
+int survey_record_candidates(const struct survey_record_tuning *tuning,
+                             const struct survey_plan *plan,
+                             const struct sdr_peak *peaks, int count,
+                             const float *spectrum, float *scratch,
+                             struct survey_candidate *out, int max);
+
+/*
+ * Form the record from candidates already worked out. Returns 0, or -1 if
+ * anything needed is missing.
  *
  * Counts above the record's bounds are truncated rather than refused: a
  * survey that found more than the peak finder's own limit has already been

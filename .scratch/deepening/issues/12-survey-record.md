@@ -1,6 +1,6 @@
 # 12 - Form one survey record before rendering or storing it
 
-Status: ready-for-agent
+Status: resolved, 2026-09-10
 
 `survey_session` now owns the sweep, confirmation pass, watch and measurement,
 and both window and headless adapters drive that one machine. The finished
@@ -139,18 +139,19 @@ and the deterministic headless survey pipeline. Final gate:
 - [x] Model plan, dwell, setup, gain, candidates, carriers and confirmation.
 - [x] Copy all record-owned strings/data so the record is immutable.
 - [x] Assemble the current JSON fixture without allocating `struct app`.
-- [ ] Make candidate materialization take explicit tuning/profile facts.
-- [ ] Pin measured-frequency precedence for flags and allocation lookup.
-- [ ] Build one record in the Survey window adapter.
-- [ ] Build the same record in the headless adapter.
-- [ ] Compare both adapters on the deterministic capture survey.
-- [ ] Make finished headless text consume the record.
-- [ ] Make `survey_store_write()` consume the record.
-- [ ] Remove `app.h` from `survey_store.{c,h}` and its test.
-- [ ] Preserve filename collision handling and JSON escaping checks.
-- [ ] Verify deterministic text and JSON output are unchanged.
-- [ ] Update `AGENTS.md`, `CLAUDE.md` and `docs/ARCHITECTURE.md`.
-- [ ] Run `make check-touched` and `make check`.
+- [x] Make candidate materialization take explicit tuning/profile facts.
+- [x] Pin measured-frequency precedence for flags and allocation lookup.
+- [x] Build one record in the Survey window adapter.
+- [x] Build the same record in the headless adapter.
+- [x] Compare both adapters on the deterministic capture survey.
+- [x] Make finished headless text consume the record.
+- [x] Make `survey_store_write()` consume the record.
+- [x] Remove `app.h` from `survey_store.{c,h}` and its test.
+- [x] Preserve filename collision handling and JSON escaping checks.
+- [x] Verify deterministic text and JSON output are unchanged.
+- [x] Update `AGENTS.md` and `CLAUDE.md` (`docs/ARCHITECTURE.md` names
+  neither module, so it needed no change).
+- [x] Run `make check-touched` and `make check`.
 
 ## Acceptance criteria
 
@@ -221,3 +222,43 @@ that throws away stale blocks disabled, because a capture never retunes. What
 caught it was one line on a live sweep. Phase 3 should compare a swept run
 against the old binary as well, and this ticket should say so rather than
 leaving the capture to look sufficient.
+
+**Phases 2 to 5 done, 2026-09-10.** `check-survey-record` is **98 checks** and
+`make check` is 17887 in 56 suites.
+
+- **Phase 2.** `survey_candidates_from()` is `survey_record_candidates()`,
+  taking a `struct survey_record_tuning` -- centre, rate, reference clock,
+  DC-filter state -- instead of `struct app`. Arithmetic unchanged.
+- **Phase 3.** Both adapters build a record before formatting anything, and
+  `survey_tuning_from()` in `view.h` is the single place those four facts are
+  read out of `struct app`; three sites assembled them separately.
+- **Phase 4.** `survey_store_write(record, path, size)`. **`survey_store.{c,h}`
+  has no `struct app` in it at all**, its check builds a record instead of
+  `calloc`-ing an application, and the rule no longer needs raylib or
+  librtlsdr headers -- it links `-lm` like the rest.
+- **Phase 5.** `struct survey_candidate` and `survey_flag_text()` moved down
+  into `survey_record.h`, which is what removed the include cycle and put the
+  candidate type under the module that decides what a candidate means.
+
+**Byte-identical**, which was the requirement: the capture survey's text output
+diffs clean against the pre-change binary, and its JSON differs only in
+`recorded_at`. Both audits clean, and the survey screen was looked at.
+
+**The deletion test passes.** Removing the record would put the confirmation
+matching, the totals and the tuning assembly back into both adapters -- and
+back into a `printf` loop, since that is where they were.
+
+**One claim of mine was wrong before the code was.** The first fixture for "a
+candidate takes its carrier's verdict" put the maximum at bin 2662, which is
+94 500 228 Hz -- **227 Hz past the carrier's upper edge**. No carrier held it,
+the check correctly returned PENDING, and the failure was a false claim beside
+right arithmetic. Bin 2600 sits inside the carrier and 51 kHz from the
+frequency the pass asked about, forty times the half-bin tolerance, so it can
+only come back confirmed *through* the carrier -- which is the decision under
+test. The comment in the check says so, since the wrong fixture is the more
+instructive of the two.
+
+**What is left, and it is this ticket's own gap.** The byte-identical proof is
+over a **one-step** capture survey. `watch_carriers`, per-step folding and the
+`intermittent` verdict are not exercised by it, and a live sweep against the
+previous binary is still owed -- see the note above.

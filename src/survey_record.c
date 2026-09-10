@@ -2,7 +2,28 @@
 
 #include <string.h>
 
+#include "band_plan.h"
 #include "survey_suspect.h"
+
+#define SURVEY_BANDWIDTH_DB 20.0f
+
+const char *survey_flag_text(unsigned int flags, char *buffer, size_t size) {
+    size_t used = 0;
+
+    buffer[0] = '\0';
+    if (flags & SURVEY_SUSPECT_REFERENCE)
+        used += (size_t)snprintf(buffer + used, size - used, "reference");
+    if (flags & SURVEY_SUSPECT_STEP_CENTRE)
+        used += (size_t)snprintf(buffer + used, size - used, "%sstep-centre",
+                                 used ? "," : "");
+    if (flags & SURVEY_SUSPECT_UNRESOLVED)
+        used += (size_t)snprintf(buffer + used, size - used, "%sunresolved",
+                                 used ? "," : "");
+    if (flags & SURVEY_SUSPECT_NO_CARRIER)
+        used += (size_t)snprintf(buffer + used, size - used, "%sno-carrier",
+                                 used ? "," : "");
+    return used ? buffer : "-";
+}
 
 static void copy_id(char *out, size_t size, const char *in) {
     if (!in) {
@@ -10,6 +31,111 @@ static void copy_id(char *out, size_t size, const char *in) {
         return;
     }
     snprintf(out, size, "%s", in);
+}
+
+void survey_record_setup_from(struct survey_record_setup *out,
+                              const struct installation *inst,
+                              int gain_tenths) {
+    if (!out)
+        return;
+    memset(out, 0, sizeof(*out));
+    if (inst) {
+        if (installation_identified(inst))
+            copy_id(out->receiver, sizeof(out->receiver), inst->receiver);
+        copy_id(out->antenna, sizeof(out->antenna), inst->antenna);
+        copy_id(out->site, sizeof(out->site), inst->site);
+    }
+    out->gain_tenths = gain_tenths;
+}
+
+struct tm survey_record_now(void) {
+    time_t now = time(NULL);
+    struct tm when;
+
+    localtime_r(&now, &when);
+    return when;
+}
+
+/*
+ * What each maximum is, from facts rather than from an application.
+ *
+ * Moved here from `survey_store.c` unchanged in arithmetic: this is what a
+ * candidate *means*, and it was living in the module that spells JSON, where
+ * the headless report reached it only by calling into the file writer's
+ * translation unit.
+ */
+int survey_record_candidates(const struct survey_record_tuning *tuning,
+                             const struct survey_plan *plan,
+                             const struct sdr_peak *peaks, int count,
+                             const float *spectrum, float *scratch,
+                             struct survey_candidate *out, int max) {
+    int i, filled = 0;
+
+    if (!tuning || !plan || !peaks || !out)
+        return 0;
+    for (i = 0; i < count && filled < max; i++) {
+        struct survey_candidate *c = &out[filled];
+        struct sdr_carrier_report report;
+        const struct band_plan_entry *entry;
+
+        memset(c, 0, sizeof(*c));
+        c->found_hz = survey_plan_bin_centre(plan, peaks[i].index);
+        c->power_dbfs = peaks[i].power_dbfs;
+        c->prominence_db = peaks[i].prominence_db;
+        c->extent_hz = (double)(peaks[i].upper_index - peaks[i].lower_index +
+                                1) * plan->bin_hz;
+
+        if (spectrum && scratch &&
+            sdr_dsp_characterise_carrier(spectrum, SDR_DSP_FFT_SIZE,
+                                         tuning->centre_hz,
+                                         tuning->sample_rate_hz, c->found_hz,
+                                         200000.0, SURVEY_BANDWIDTH_DB,
+                                         scratch, &report)) {
+            c->measured = 1;
+            c->centre_hz = report.centre_hz;
+            c->width_hz = report.bandwidth_hz;
+        }
+        /*
+         * The measurement is the better frequency, so the comb test is applied
+         * to it -- but the candidate is still reported where the survey found
+         * it. Several peaks inside one wide carrier all measure to the same
+         * centre, and reporting that centre in place of each would hide the
+         * fact that the peak finder returned several.
+         */
+        /*
+         * Measured width where there is one, the survey array's extent where
+         * there is not. It used to pass zero for a swept survey, which made
+         * every narrowness test answer "no" and left the one observation that
+         * tells a bare carrier from a service unavailable in exactly the case
+         * that needs it.
+         */
+        c->suspect = survey_suspect(plan, tuning->reference_clock_hz,
+                                    c->measured ? c->centre_hz : c->found_hz,
+                                    c->measured ? c->width_hz : c->extent_hz,
+                                    tuning->sample_rate_hz, SDR_DSP_FFT_SIZE,
+                                    tuning->remove_dc);
+        entry = band_plan_lookup(c->measured ? c->centre_hz : c->found_hz);
+        c->allocation = entry ? entry->name : NULL;
+        filled++;
+    }
+    return filled;
+}
+
+int survey_record_build(struct survey_record *out,
+                        const struct survey_record_input *in) {
+    static struct survey_candidate candidates[SURVEY_RECORD_CANDIDATE_MAX];
+    int count;
+
+    if (!out || !in)
+        return -1;
+    count = survey_record_candidates(&in->tuning, in->plan, in->peaks,
+                                     in->peak_count, in->spectrum, in->scratch,
+                                     candidates,
+                                     SURVEY_RECORD_CANDIDATE_MAX);
+    return survey_record_form(out, in->plan, in->dwell_seconds, &in->setup,
+                              &in->recorded_at, candidates, count,
+                              in->carriers, in->carrier_count, in->targets,
+                              in->target_count);
 }
 
 int survey_record_form(struct survey_record *out,

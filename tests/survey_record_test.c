@@ -415,6 +415,271 @@ static void test_what_it_refuses(void) {
                survey_record_carrier_kind(NULL, 0) == NULL);
 }
 
+
+/*
+ * What a maximum *is*, worked out from facts rather than from an application.
+ *
+ * This is what `survey_candidates_from()` did inside `survey_store.c`, where
+ * the module that spells JSON decided what a candidate means and the headless
+ * report could reach it only by calling into the file writer. The arithmetic
+ * is unchanged; what moved is who owns it, and that it now takes four numbers
+ * instead of a `struct app`.
+ */
+static void test_a_maximum_becomes_a_candidate(void) {
+    struct survey_record_tuning tuning;
+    struct survey_plan plan = a_plan();
+    struct sdr_peak peaks[2];
+    struct survey_candidate out[2];
+    int found;
+
+    memset(&tuning, 0, sizeof(tuning));
+    tuning.centre_hz = 98e6;
+    tuning.sample_rate_hz = 2000000.0;
+    tuning.reference_clock_hz = 28800000.0;
+
+    memset(peaks, 0, sizeof(peaks));
+    peaks[0].index = 2662;                 /* 88 MHz + 2662.5 * 2441.4 Hz */
+    peaks[0].power_dbfs = -7.7f;
+    peaks[0].prominence_db = 35.9f;
+    peaks[0].lower_index = 2660;
+    peaks[0].upper_index = 2664;
+    peaks[1].index = 8000;                 /* past the band plan's FM entry */
+    peaks[1].power_dbfs = -40.0f;
+    peaks[1].prominence_db = 12.0f;
+    peaks[1].lower_index = 8000;
+    peaks[1].upper_index = 8000;
+
+    found = survey_record_candidates(&tuning, &plan, peaks, 2, NULL, NULL,
+                                     out, 2);
+    check_int("both maxima became candidates", found, 2);
+    check_close("a bin index became a frequency", out[0].found_hz,
+                88e6 + (2662.5 * 2441.4), 1.0);
+    check_close("its extent is the bins it spans", out[0].extent_hz,
+                5.0 * 2441.4, 0.1);
+    check_str("and the band plan named it", out[0].allocation, "FM broadcast");
+    check_int("nothing was measured with no spectrum to measure from",
+              out[0].measured, 0);
+    check_close("so it has no refined centre", out[0].centre_hz, 0.0, 1e-9);
+
+    /* And what it refuses: no tuning is not a candidate at zero hertz. */
+    check_int("no tuning, no candidates",
+              survey_record_candidates(NULL, &plan, peaks, 2, NULL, NULL, out,
+                                       2), 0);
+    check_int("no plan either",
+              survey_record_candidates(&tuning, NULL, peaks, 2, NULL, NULL,
+                                       out, 2), 0);
+    check_int("and it fills no more than it was given room for",
+              survey_record_candidates(&tuning, &plan, peaks, 2, NULL, NULL,
+                                       out, 1), 1);
+}
+
+/*
+ * A source with no clock gets no comb tests, and that is a refusal rather than
+ * an omission.
+ *
+ * Whichever receiver recorded a capture had a crystal; the file does not, so
+ * nothing may attribute a comb to it. The tuning carries 0 for that case and
+ * `survey_suspect()` is handed it -- this pins that the zero travels, because
+ * a default of 28.8 MHz here would flag a capture's maxima as the receiver's
+ * own spurs with no receiver in the room.
+ */
+static void test_a_source_with_no_clock_is_not_blamed(void) {
+    struct survey_record_tuning tuning;
+    struct survey_plan plan;
+    struct sdr_peak peak;
+    struct survey_candidate out;
+    unsigned with_clock, without;
+
+    /* A sweep whose bins are fine enough for the comb test to answer at all,
+       over a maximum sitting exactly on 14.4 MHz x 7. */
+    memset(&plan, 0, sizeof(plan));
+    plan.lower_hz = 100e6;
+    plan.upper_hz = 101e6;
+    plan.bins = 1024;
+    plan.bin_hz = 976.5625;
+    plan.step_count = 1;
+
+    memset(&peak, 0, sizeof(peak));
+    peak.index = (int)((100800000.0 - 100e6) / plan.bin_hz - 0.5);
+    peak.power_dbfs = -20.0f;
+    peak.prominence_db = 30.0f;
+    peak.lower_index = peak.index;
+    peak.upper_index = peak.index;
+
+    memset(&tuning, 0, sizeof(tuning));
+    tuning.centre_hz = 100.5e6;
+    tuning.sample_rate_hz = 2000000.0;
+    tuning.reference_clock_hz = 28800000.0;
+    check_int("it forms", survey_record_candidates(&tuning, &plan, &peak, 1,
+                                                   NULL, NULL, &out, 1), 1);
+    with_clock = out.suspect;
+
+    tuning.reference_clock_hz = 0.0;
+    check_int("and again with nothing to blame",
+              survey_record_candidates(&tuning, &plan, &peak, 1, NULL, NULL,
+                                       &out, 1), 1);
+    without = out.suspect;
+
+    check_true("a receiver with a crystal can be suspected of its own comb",
+               (with_clock & SURVEY_SUSPECT_REFERENCE) != 0);
+    check_true("a source without one cannot",
+               (without & SURVEY_SUSPECT_REFERENCE) == 0);
+}
+
+/* The receiving setup, read out of the installation once for both adapters. */
+static void test_the_setup_comes_from_the_installation(void) {
+    struct installation inst;
+    struct survey_record_setup setup;
+
+    memset(&inst, 0, sizeof(inst));
+    installation_set_id(inst.antenna, "telescopic");
+    installation_set_id(inst.site, "home-sala-estar");
+    survey_record_setup_from(&setup, &inst, 297);
+    check_str("a receiver that cannot name itself is left unnamed",
+              setup.receiver, "");
+    check_str("the antenna is still recorded", setup.antenna, "telescopic");
+    check_str("and the site", setup.site, "home-sala-estar");
+    check_int("with the gain it was heard at", setup.gain_tenths, 297);
+
+    installation_identify(&inst, "77771111153705700", NULL);
+    survey_record_setup_from(&setup, &inst, 0);
+    check_str("and one that can, does", setup.receiver, "77771111153705700");
+    check_int("an unknown gain stays unknown", setup.gain_tenths, 0);
+}
+
+/* The whole thing in one call, which is what both adapters make. */
+static void test_one_call_builds_the_whole_record(void) {
+    static struct survey_record record;
+    struct survey_record_input in;
+    struct survey_plan plan = a_plan();
+    struct sdr_peak peak;
+    struct survey_carrier carrier = the_carrier();
+    struct survey_confirm_target target = the_target();
+
+    /*
+     * Bin 2600 is 94 348 861 Hz: inside the carrier's 94.3-94.5 MHz, and
+     * **51 kHz from the frequency the pass asked about**, which is forty
+     * times the half-bin tolerance. So it can only come back confirmed
+     * through the carrier holding it, which is the decision under test.
+     *
+     * Bin 2662 was the first fixture and it does not work: 94 500 228 Hz is
+     * 227 Hz *past* the carrier's upper edge, so no carrier holds it, and the
+     * check correctly said PENDING. The claim was wrong, not the code.
+     */
+    memset(&peak, 0, sizeof(peak));
+    peak.index = 2600;
+    peak.power_dbfs = -7.7f;
+    peak.prominence_db = 35.9f;
+    peak.lower_index = 2598;
+    peak.upper_index = 2602;
+
+    memset(&in, 0, sizeof(in));
+    in.tuning.centre_hz = 98e6;
+    in.tuning.sample_rate_hz = 2000000.0;
+    in.plan = &plan;
+    in.dwell_seconds = 0.12;
+    in.setup = the_setup();
+    in.recorded_at = a_time();
+    in.peaks = &peak;
+    in.peak_count = 1;
+    in.carriers = &carrier;
+    in.carrier_count = 1;
+    in.targets = &target;
+    in.target_count = 1;
+
+    check_int("one call, from peaks to a finished record",
+              survey_record_build(&record, &in), 0);
+    check_int("the maximum became a candidate", record.candidate_count, 1);
+    check_str("named by the band plan", record.candidates[0].allocation,
+              "FM broadcast");
+    check_int("inside the carrier the pass confirmed",
+              record.candidate_verdict[0], SURVEY_VERDICT_CONFIRMED);
+    check_str("and the setup came with it", record.setup.site, "home-desk");
+    check_int("nothing to build into", survey_record_build(NULL, &in), -1);
+    check_int("nothing to build from", survey_record_build(&record, NULL), -1);
+}
+
+
+/*
+ * The measurement is the better frequency, and everything that asks "what is
+ * this" asks it there -- while the candidate is still *reported* where the
+ * sweep found it.
+ *
+ * Both halves matter and they pull opposite ways. Several maxima inside one
+ * wide carrier all measure to the same centre, so reporting that centre in
+ * place of each would hide the fact that the peak finder returned several; but
+ * the band plan and the comb test want the best frequency available.
+ *
+ * Pinned across a band-plan boundary, which is the only way to see the
+ * difference: the sweep finds a maximum at 107.9497 MHz, which is FM
+ * broadcast, and the spectrum measures the carrier at 108.0503, which is
+ * aeronautical navigation. One of those is 100 kHz from the other and they are
+ * different answers to "what is this frequency for".
+ */
+static void test_the_measurement_is_the_better_frequency(void) {
+    static float spectrum[SDR_DSP_FFT_SIZE];
+    static float scratch[SDR_DSP_FFT_SIZE * 4];
+    struct survey_record_tuning tuning;
+    struct survey_plan plan;
+    struct sdr_peak peak;
+    struct survey_candidate out;
+    int i, found_bin, peak_bin;
+
+    memset(&plan, 0, sizeof(plan));
+    plan.lower_hz = 107.0e6;
+    plan.upper_hz = 109.0e6;
+    plan.bins = SDR_DSP_FFT_SIZE;
+    plan.bin_hz = 976.5625;
+    plan.step_count = 1;
+
+    found_bin = (int)((107.95e6 - plan.lower_hz) / plan.bin_hz - 0.5);
+    memset(&peak, 0, sizeof(peak));
+    peak.index = found_bin;
+    peak.power_dbfs = -20.0f;
+    peak.prominence_db = 30.0f;
+    peak.lower_index = found_bin;
+    peak.upper_index = found_bin;
+
+    /* A flat floor with one line in it, 100 kHz up from where the sweep's
+       coarse bin put the maximum and well inside the 200 kHz the measurement
+       searches. */
+    for (i = 0; i < SDR_DSP_FFT_SIZE; i++)
+        spectrum[i] = -80.0f;
+    peak_bin = (int)((108.05e6 - (108.0e6 - 1.0e6)) / 976.5625);
+    spectrum[peak_bin] = -20.0f;
+    spectrum[peak_bin - 1] = -45.0f;
+    spectrum[peak_bin + 1] = -45.0f;
+
+    memset(&tuning, 0, sizeof(tuning));
+    tuning.centre_hz = 108.0e6;
+    tuning.sample_rate_hz = 2000000.0;
+
+    check_int("the maximum became a candidate",
+              survey_record_candidates(&tuning, &plan, &peak, 1, spectrum,
+                                       scratch, &out, 1), 1);
+    check_int("and this time it was measured", out.measured, 1);
+    check_close("it is still reported where the sweep found it", out.found_hz,
+                107949707.0, 1.0);
+    check_close("and refined to where the line actually is", out.centre_hz,
+                108050293.0, 1.0);
+    check_str("the band plan is asked at the measured frequency",
+              out.allocation, "Aeronautical navigation");
+
+    /* And with nothing to measure from, the found frequency is all there is
+       -- which is the swept-range case, where the held spectrum belongs to
+       whichever step was last and must not be used. */
+    check_int("unmeasured, with no spectrum",
+              survey_record_candidates(&tuning, &plan, &peak, 1, NULL, scratch,
+                                       &out, 1), 1);
+    check_int("nothing was measured", out.measured, 0);
+    check_str("so the band plan is asked where it was found", out.allocation,
+              "FM broadcast");
+    check_int("and a spectrum with nowhere to sort is refused the same way",
+              survey_record_candidates(&tuning, &plan, &peak, 1, spectrum,
+                                       NULL, &out, 1), 1);
+    check_int("still unmeasured", out.measured, 0);
+}
+
 int main(void) {
     test_a_survey_without_an_application();
     test_a_candidate_takes_its_carriers_verdict();
@@ -426,5 +691,10 @@ int main(void) {
     test_nobody_said_is_not_somebody_saying_nothing();
     test_more_than_it_holds();
     test_what_it_refuses();
+    test_a_maximum_becomes_a_candidate();
+    test_a_source_with_no_clock_is_not_blamed();
+    test_the_setup_comes_from_the_installation();
+    test_one_call_builds_the_whole_record();
+    test_the_measurement_is_the_better_frequency();
     return check_report("a finished survey, formed with no application");
 }

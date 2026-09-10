@@ -6,82 +6,8 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "app.h"
 #include "band_plan.h"
 #include "survey_suspect.h"
-
-#define SURVEY_BANDWIDTH_DB 20.0f
-
-const char *survey_flag_text(unsigned int flags, char *buffer, size_t size) {
-    size_t used = 0;
-
-    buffer[0] = '\0';
-    if (flags & SURVEY_SUSPECT_REFERENCE)
-        used += (size_t)snprintf(buffer + used, size - used, "reference");
-    if (flags & SURVEY_SUSPECT_STEP_CENTRE)
-        used += (size_t)snprintf(buffer + used, size - used, "%sstep-centre",
-                                 used ? "," : "");
-    if (flags & SURVEY_SUSPECT_UNRESOLVED)
-        used += (size_t)snprintf(buffer + used, size - used, "%sunresolved",
-                                 used ? "," : "");
-    if (flags & SURVEY_SUSPECT_NO_CARRIER)
-        used += (size_t)snprintf(buffer + used, size - used, "%sno-carrier",
-                                 used ? "," : "");
-    return used ? buffer : "-";
-}
-
-int survey_candidates_from(struct app *app, const struct survey_plan *plan,
-                           const struct sdr_peak *peaks, int count,
-                           const float *spectrum,
-                           struct survey_candidate *out, int max) {
-    int i, filled = 0;
-
-    for (i = 0; i < count && filled < max; i++) {
-        struct survey_candidate *c = &out[filled];
-        struct sdr_carrier_report report;
-        const struct band_plan_entry *entry;
-
-        memset(c, 0, sizeof(*c));
-        c->found_hz = survey_plan_bin_centre(plan, peaks[i].index);
-        c->power_dbfs = peaks[i].power_dbfs;
-        c->prominence_db = peaks[i].prominence_db;
-        c->extent_hz = (double)(peaks[i].upper_index - peaks[i].lower_index +
-                                1) * plan->bin_hz;
-
-        if (spectrum &&
-            sdr_dsp_characterise_carrier(
-                spectrum, SDR_DSP_FFT_SIZE, (double)app->applied_frequency,
-                (double)app->applied_sample_rate, c->found_hz, 200000.0,
-                SURVEY_BANDWIDTH_DB, app->magnitude_sorted, &report)) {
-            c->measured = 1;
-            c->centre_hz = report.centre_hz;
-            c->width_hz = report.bandwidth_hz;
-        }
-        /*
-         * The measurement is the better frequency, so the comb test is applied
-         * to it -- but the candidate is still reported where the survey found
-         * it. Several peaks inside one wide carrier all measure to the same
-         * centre, and reporting that centre in place of each would hide the
-         * fact that the peak finder returned several.
-         */
-        /*
-         * Measured width where there is one, the survey array's extent where
-         * there is not. It used to pass zero for a swept survey, which made
-         * every narrowness test answer "no" and left the one observation that
-         * tells a bare carrier from a service unavailable in exactly the case
-         * that needs it.
-         */
-        c->suspect = survey_suspect(plan, app->device.reference_clock_hz,
-                                    c->measured ? c->centre_hz : c->found_hz,
-                                    c->measured ? c->width_hz : c->extent_hz,
-                                    (double)app->applied_sample_rate,
-                                    SDR_DSP_FFT_SIZE, app->remove_dc);
-        entry = band_plan_lookup(c->measured ? c->centre_hz : c->found_hz);
-        c->allocation = entry ? entry->name : NULL;
-        filled++;
-    }
-    return filled;
-}
 
 /* Megahertz as the ingest script spells it: no trailing zeros, an M after. */
 static int mhz_text(double hz, char *out, size_t size) {
@@ -161,24 +87,28 @@ static void put_string(FILE *file, const char *indent, const char *key,
     fprintf(file, "%s\"%s\": \"%s\"%s\n", indent, key, escaped, tail);
 }
 
-int survey_store_write(const struct app *app, const struct survey_plan *plan,
-                       const struct survey_candidate *candidates, int count,
-                       const struct survey_carrier *carriers,
-                       int carrier_count,
-                       const struct survey_confirm_target *targets,
-                       int target_count, char *path_out, size_t path_size) {
+int survey_store_write(const struct survey_record *record, char *path_out,
+                       size_t path_size) {
     char name[64], path[256];
-    time_t now = time(NULL);
+    const struct survey_plan *plan;
+    const struct survey_candidate *candidates;
+    const struct survey_carrier *carriers;
+    const struct survey_confirm_target *targets;
+    int count, carrier_count, target_count;
     struct tm when;
     FILE *file;
-    int i, suspicious = 0, confirmed = 0, intermittent = 0, refuted = 0;
-    /* How far a reported frequency can sit from the truth: half a bin, which
-       is the quantisation the sweep put on it. */
-    double match_hz = plan ? plan->bin_hz / 2.0 : 0.0;
+    int i;
 
-    if (!app || !plan)
+    if (!record)
         return -1;
-    localtime_r(&now, &when);
+    plan = &record->plan;
+    candidates = record->candidates;
+    count = record->candidate_count;
+    carriers = record->carriers;
+    carrier_count = record->carrier_count;
+    targets = record->targets;
+    target_count = record->target_count;
+    when = record->recorded_at;
     if (survey_store_filename(plan->lower_hz, plan->upper_hz, &when, name,
                               sizeof(name)) < 0)
         return -1;
@@ -213,18 +143,6 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
         fprintf(stderr, "Could not write %s: %s\n", path, strerror(errno));
         return -1;
     }
-    for (i = 0; i < count; i++)
-        if (survey_suspect_warns(candidates[i].suspect))
-            suspicious++;
-    for (i = 0; i < target_count; i++) {
-        if (targets[i].verdict == SURVEY_VERDICT_CONFIRMED)
-            confirmed++;
-        else if (targets[i].verdict == SURVEY_VERDICT_INTERMITTENT)
-            intermittent++;
-        else if (targets[i].verdict == SURVEY_VERDICT_REFUTED)
-            refuted++;
-    }
-
     fprintf(file, "{\n");
     fprintf(file, "  \"schema\": 1,\n");
     fprintf(file, "  \"recorded_at\": \"%04d-%02d-%02dT%02d:%02d:%02d\",\n",
@@ -235,7 +153,7 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
     fprintf(file, "  \"sweep\": {\"steps\": %d, \"bins\": %d, "
                   "\"bin_hz\": %.1f, \"dwell_s\": %.3f},\n",
             plan->step_count, plan->bins, plan->bin_hz,
-            app->survey.session.dwell_seconds);
+            record->dwell_seconds);
     /*
      * The receiving setup that produced this sweep, from the installation
      * rather than from the config file's spelling of it (ADR-0018, ADR-0022).
@@ -245,29 +163,29 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
      * no identity, so a reader can tell "nobody said" from "not recorded".
      */
     fprintf(file, "  \"receiver\": {\n");
-    if (installation_identified(&app->installation))
-        put_string(file, "    ", "id", app->installation.receiver, ",");
+    if (record->setup.receiver[0])
+        put_string(file, "    ", "id", record->setup.receiver, ",");
     else
         fprintf(file, "    \"id\": null,\n");
-    put_string(file, "    ", "antenna", app->installation.antenna, ",");
-    if (app->applied_gain_tenths > 0)
+    put_string(file, "    ", "antenna", record->setup.antenna, ",");
+    if (record->setup.gain_tenths > 0)
         fprintf(file, "    \"gain_db\": %.1f\n",
-                (double)app->applied_gain_tenths / 10.0);
+                (double)record->setup.gain_tenths / 10.0);
     else
         fprintf(file, "    \"gain_db\": null\n");
     fprintf(file, "  },\n");
     /* No site is written as null rather than an empty string: a reader must be
        able to tell "nobody said" from "somebody said nothing", because two
        sweeps with an empty label would compare as the same place. */
-    if (app->installation.site[0]) {
+    if (record->setup.site[0]) {
         fprintf(file, "  \"site\": {\n");
-        put_string(file, "    ", "label", app->installation.site, "");
+        put_string(file, "    ", "label", record->setup.site, "");
         fprintf(file, "  },\n");
     } else {
         fprintf(file, "  \"site\": {},\n");
     }
     fprintf(file, "  \"totals\": {\"candidates\": %d, \"suspicious\": %d},\n",
-            count, suspicious);
+            count, record->suspicious);
     /*
      * Whether anybody asked again, before the lists that answer to it. An
      * empty pass is written as asked 0 rather than left out: a reader has to
@@ -275,7 +193,7 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
      */
     fprintf(file, "  \"confirmation\": {\"asked\": %d, \"confirmed\": %d, "
                   "\"intermittent\": %d, \"refuted\": %d, \"targets\": [",
-            target_count, confirmed, intermittent, refuted);
+            target_count, record->confirmed, record->intermittent, record->refuted);
     /*
      * And what the pass asked and found, one entry each.
      *
@@ -369,24 +287,10 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
                 from = comma ? comma + 1 : from + length;
             }
         }
-        /*
-         * A candidate takes the verdict of the carrier it belongs to. The
-         * pass asks about carriers, and a carrier's shoulders are maxima of
-         * the same signal a few bins away -- reading each of those as "never
-         * asked" would leave most of a confirmed station's own list marked
-         * unconfirmed.
-         */
-        {
-            int holder = survey_carrier_holding(carriers, carrier_count,
-                                                c->found_hz);
-            double asked_at = holder >= 0 ? carriers[holder].centre_hz
-                                          : c->found_hz;
-
-            fprintf(file, "], \"confirmed\": \"%s\", \"allocation\": ",
-                    survey_verdict_name(
-                        survey_confirm_verdict_at(targets, target_count,
-                                                  asked_at, match_hz)));
-        }
+        /* The verdict the record worked out. Why a candidate takes its
+           carrier's is in survey_record.h; this only prints it. */
+        fprintf(file, "], \"confirmed\": \"%s\", \"allocation\": ",
+                survey_verdict_name(record->candidate_verdict[i]));
         if (c->allocation) {
             if (survey_json_escape(c->allocation, escaped, sizeof(escaped)) < 0)
                 escaped[0] = '\0';
@@ -417,9 +321,7 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
                 c->centre_hz, c->power_centre_hz, c->lower_hz, c->upper_hz,
                 c->width_hz, (double)c->peak_dbfs, (double)c->prominence_db,
                 c->peaks,
-                survey_verdict_name(
-                    survey_confirm_verdict_at(targets, target_count,
-                                              c->centre_hz, match_hz)));
+                survey_verdict_name(record->carrier_verdict[i]));
         /*
          * And what kind of thing the pass found here, when it caught one.
          *
@@ -432,8 +334,7 @@ int survey_store_write(const struct app *app, const struct survey_plan *plan,
          */
         {
             const struct survey_confirm_target *kind =
-                survey_confirm_kind_at(targets, target_count, c->centre_hz,
-                                       match_hz);
+                survey_record_carrier_kind(record, i);
             if (kind)
                 fprintf(file,
                         "\"kind\": {\"carrier\": \"%s\", "

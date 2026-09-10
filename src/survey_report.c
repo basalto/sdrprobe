@@ -186,15 +186,45 @@ static int survey_drive(struct app *app, struct slot_snapshot *snapshot,
  * spectrum belongs to whichever step was last, and a bandwidth read from it
  * would be a number about the wrong signal.
  */
-static void report_candidates(struct app *app) {
+/*
+ * What this run is, as the record module's facts.
+ *
+ * One function because both headless paths -- the report and the save -- must
+ * describe the same sweep the same way, and because the window builds the very
+ * same input from its own copies of these fields. Where the two used to differ
+ * is what `survey_session` was extracted to end; this is the last of it.
+ */
+static void survey_report_input(struct app *app,
+                                struct survey_record_input *in) {
     const struct survey_session *ss = &app->survey.session;
-    struct survey_candidate candidates[SURVEY_MAX_PEAKS];
-    int suspicious = 0;
+
+    memset(in, 0, sizeof(*in));
+    survey_tuning_from(&in->tuning, app);
+    in->plan = &ss->plan;
+    in->dwell_seconds = ss->dwell_seconds;
+    survey_record_setup_from(&in->setup, &app->installation,
+                             app->applied_gain_tenths);
+    in->recorded_at = survey_record_now();
+    in->peaks = ss->peaks;
+    in->peak_count = ss->peak_count;
+    in->spectrum = survey_session_spectrum(ss);
+    in->scratch = app->magnitude_sorted;
+    in->carriers = ss->carriers;
+    in->carrier_count = ss->carrier_count;
+    in->targets = ss->confirm.target;
+    in->target_count = ss->confirm.count;
+}
+
+static void report_candidates(struct app *app) {
+    static struct survey_record record;   /* ~38 KB; not a stack object */
+    struct survey_record_input in;
+    const struct survey_candidate *candidates = record.candidates;
     int i, found;
 
-    found = survey_candidates_from(app, &ss->plan, ss->peaks, ss->peak_count,
-                                   survey_session_spectrum(ss), candidates,
-                                   SURVEY_MAX_PEAKS);
+    survey_report_input(app, &in);
+    if (survey_record_build(&record, &in) < 0)
+        return;
+    found = record.candidate_count;
     /*
      * `extent_hz` is the width in the sweep's own bins, and `resolved` says
      * whether that width means anything. A full-tuner sweep puts 212 kHz in a
@@ -210,8 +240,6 @@ static void report_candidates(struct app *app) {
         const struct survey_candidate *c = &candidates[i];
         char flags[64], centre[32], width[32];
 
-        if (survey_suspect_warns(c->suspect))
-            suspicious++;
         if (c->measured) {
             snprintf(centre, sizeof(centre), "%.0f", c->centre_hz);
             snprintf(width, sizeof(width), "%.0f", c->width_hz);
@@ -222,7 +250,7 @@ static void report_candidates(struct app *app) {
         printf("candidate %.0f %.1f %.1f %s %s %.0f %s %s %s\n",
                c->found_hz, (double)c->power_dbfs, (double)c->prominence_db,
                centre, width, c->extent_hz,
-               survey_extent_is_floor(c->extent_hz, ss->plan.bin_hz)
+               survey_extent_is_floor(c->extent_hz, record.plan.bin_hz)
                    ? "floor" : "resolved",
                survey_flag_text(c->suspect, flags, sizeof(flags)),
                c->allocation ? c->allocation : "-");
@@ -238,19 +266,15 @@ static void report_candidates(struct app *app) {
     printf("# carrier <centre_hz> <power_centre_hz> <lower_hz> "
            "<upper_hz> <width_hz> <level_dbfs> <prominence_db> <maxima> "
            "<allocation|->\n");
-    for (i = 0; i < ss->carrier_count; i++) {
-        const struct band_plan_entry *entry =
-            band_plan_lookup(ss->carriers[i].centre_hz);
+    for (i = 0; i < record.carrier_count; i++) {
+        const struct survey_carrier *c = &record.carriers[i];
+        const struct band_plan_entry *entry = band_plan_lookup(c->centre_hz);
         printf("carrier %.0f %.0f %.0f %.0f %.0f %.1f %.1f %d %s\n",
-               ss->carriers[i].centre_hz, ss->carriers[i].power_centre_hz,
-               ss->carriers[i].lower_hz, ss->carriers[i].upper_hz,
-               ss->carriers[i].width_hz,
-               (double)ss->carriers[i].peak_dbfs,
-               (double)ss->carriers[i].prominence_db,
-               ss->carriers[i].peaks,
-               entry ? entry->name : "-");
+               c->centre_hz, c->power_centre_hz, c->lower_hz, c->upper_hz,
+               c->width_hz, (double)c->peak_dbfs, (double)c->prominence_db,
+               c->peaks, entry ? entry->name : "-");
     }
-    printf("survey carriers %d\n", ss->carrier_count);
+    printf("survey carriers %d\n", record.carrier_count);
     /*
      * The old count of distinct measured centres is gone. It answered the same
      * question the `survey carriers` line above answers -- how many signals
@@ -260,8 +284,9 @@ static void report_candidates(struct app *app) {
      * the aggregation split ARFCN 69's single carrier into three while this
      * line went on correctly saying one.
      */
-    printf("survey candidates %d suspicious %d\n", found, suspicious);
-    if (suspicious)
+    printf("survey candidates %d suspicious %d\n", found,
+           record.suspicious);
+    if (record.suspicious)
         printf("# suspicious candidates resemble the receiver rather than the "
                "band; nothing has been removed\n");
 }
@@ -321,7 +346,8 @@ static int survey_confirm_sweep(struct app *app,
  */
 static void survey_save_run(struct app *app) {
     const struct survey_session *ss = &app->survey.session;
-    struct survey_candidate candidates[SURVEY_MAX_PEAKS];
+    static struct survey_record record;   /* ~38 KB; not a stack object */
+    struct survey_record_input in;
     char path[256];
     int found;
 
@@ -331,13 +357,12 @@ static void survey_save_run(struct app *app) {
         fprintf(stderr, "Not saving: no site is set. Use --site.\n");
         return;
     }
-    found = survey_candidates_from(app, &ss->plan, ss->peaks, ss->peak_count,
-                                   survey_session_spectrum(ss), candidates,
-                                   SURVEY_MAX_PEAKS);
-    if (survey_store_write(app, &ss->plan, candidates, found, ss->carriers,
-                           ss->carrier_count, ss->confirm.target,
-                           ss->confirm.count, path, sizeof(path)) < 0)
+    survey_report_input(app, &in);
+    if (survey_record_build(&record, &in) < 0)
         return;
+    if (survey_store_write(&record, path, sizeof(path)) < 0)
+        return;
+    found = record.candidate_count;
     printf("survey-saved %s candidates %d carriers %d\n", path, found,
            ss->carrier_count);
 
