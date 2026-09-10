@@ -58,19 +58,63 @@ consumer.
 
 ## Implementation plan
 
-1. Add a pure `check-signal-frame` around the current processing behavior
-   before moving callers.
-2. Move conversion, magnitude summary, signal statistics, DC-filter copies,
-   spectrum calculation and peak hold into the module without changing their
-   order.
-3. Pass the requested FFT size explicitly from the frame loop. Keep
-   `input_scope_owns_spectrum()` in the input/application module.
-4. Replace loose `app` sample/spectrum fields with one frame container and
-   migrate one consumer family at a time: Scope, technology sessions,
-   calibration/scans, then survey adapters.
-5. Make waterfall invalidation consume a geometry-changed result instead of
-   being mutated from the processing implementation.
-6. Remove `process_block()` from `view.h`; the frame loop calls the module.
+### Phase 1 -- pin the assembled behavior
+
+Create `signal_frame.{c,h}` and `check-signal-frame` around a copy of the
+current `process_block()` sequence before moving any caller. The first check
+must distinguish raw Decoder I/Q from DC-filtered spectrum input and must fail
+if a transform-size change retains the old peak hold. Add the module and check
+to all Makefile prerequisite/gate lists in the same edit.
+
+Files: `src/signal_frame.{c,h}`, `tests/signal_frame_test.c`, `Makefile`.
+
+Focused validation: `make check-signal-frame`.
+
+### Phase 2 -- move processing without redesign
+
+Move conversion, magnitude summary, signal statistics, DC-filter copies,
+spectrum calculation and peak hold in their existing order. The module owns
+its `sdr_dsp` workspace, working buffers, result buffers and ready state. The
+caller supplies the `device_profile`, DC-filter choice, requested FFT size and
+time. Do not change arithmetic or normalize samples in this phase.
+
+Files: `src/sdrprobe.c`, `src/signal_frame.{c,h}`, `src/app.h`.
+
+Focused validation: `make check-signal-frame`, `make check-sdr-dsp`, and
+`make check-sample-format`.
+
+### Phase 3 -- make presentation policy explicit
+
+Compute the requested FFT size in the frame loop from
+`input_scope_owns_spectrum()` and pass it into the module. Return a
+geometry-changed fact when the bin count changes. `view_scope` consumes that
+fact to clear GPU waterfall history; the frame module must not include raylib
+or mutate presentation state.
+
+Files: `src/sdrprobe.c`, `src/input_route.h`, `src/view_scope.c`,
+`src/signal_frame.{c,h}`.
+
+Focused validation: `make check-input`, `make check-signal-frame`, and
+`make check-layout`.
+
+### Phase 4 -- migrate consumers by family
+
+Replace loose `app` sample/spectrum fields with one frame container. Migrate
+Scope first, then technology sessions, calibration and channel scans, and
+finally survey window/headless adapters. After each family, remove only the
+fields with no remaining reader and run that family's focused check.
+
+Files: `src/app.h`, `src/view_scope.c`, `src/view_*.c`,
+`src/overlay_*.c`, `src/survey_report.c`, `src/view_survey.c`.
+
+Focused validation: the affected `check-*-session` or survey suite after each
+family, followed by `make check-pipelines`.
+
+### Phase 5 -- close the old seam
+
+Remove `process_block()` from `view.h` and `sdrprobe.c`, audit that no consumer
+mutates frame outputs, update architecture documentation, and run screenshots
+for Scope views because geometry checks cannot show stale or blank plots.
 
 ## Checks
 
@@ -89,6 +133,26 @@ Focused validation: `make check-signal-frame`, `make check-sdr-dsp`,
 `make check-input`, and `make check-sample-format`. After consumers move, run
 their technology session checks and `make check-pipelines`. Final gate:
 `make check-touched` and `make check`.
+
+## Tasks
+
+- [ ] Add `signal_frame.{c,h}` with no GUI, driver or technology dependency.
+- [ ] Add and gate `check-signal-frame` with complete Makefile prerequisites.
+- [ ] Pin raw I/Q versus DC-filtered spectrum input.
+- [ ] Pin U8/S16-equivalent frame results.
+- [ ] Pin FFT-size geometry change and peak-hold reset.
+- [ ] Pin equal-size peak-hold accumulation and malformed input refusal.
+- [ ] Move the current processing sequence unchanged into the module.
+- [ ] Pass FFT size explicitly from the frame loop.
+- [ ] Return geometry change instead of clearing waterfall rows internally.
+- [ ] Migrate Scope consumers and inspect Scope screenshots.
+- [ ] Migrate GSM, LTE, ADS-B, TETRA and FM sessions.
+- [ ] Migrate calibration and both channel scans.
+- [ ] Migrate Survey window and headless adapters.
+- [ ] Remove obsolete sample/spectrum fields from `struct app`.
+- [ ] Remove `process_block()` from `view.h` and `sdrprobe.c`.
+- [ ] Update `AGENTS.md`, `CLAUDE.md` and `docs/ARCHITECTURE.md`.
+- [ ] Run `make check-touched`, `make screens NAMES="magnitude spectrum scatter waterfall"`, and `make check`.
 
 ## Acceptance criteria
 
