@@ -130,6 +130,31 @@ callers it was earning its keep.
    receiver first: a "what is applied" struct designed against one device is
    the mistake `.scratch/device-model/` exists to avoid.
 
+## Second review, 2026-09-10
+
+The first review's work is now on `master`, so this review applied the deletion
+test to what was built rather than repeating the old candidates. Receiver
+lease, the five technology sessions, installation, survey session, device
+profile and device backend are earning their interfaces and should stay.
+
+Three new candidates remain:
+
+10. **Receiver runtime** -- stop/start, retune rollback, lease ordering,
+   applied state, spectrum invalidation and receiver errors still occupy one
+   application-root path in `sdrprobe.c`. Strong, but `needs-info` until the
+   UHD adapter in `.scratch/device-model/issues/07-a-second-backend.md` gives
+   the interface its second receiver. This absorbs the question in 09 rather
+   than adding another applied-state container beside it.
+11. **Acquired signal frame** -- `process_block()` composes checked DSP
+   primitives into more than twenty loose fields, but that composition has no
+   direct check. Strong and `ready-for-agent`.
+12. **Survey record** -- `survey_store` includes `app.h` and combines record
+   meaning with JSON and filesystem policy. Form one plain record for the
+   window, headless text and JSON adapters. Worth exploring and
+   `ready-for-agent`.
+
+The report is `/tmp/architecture-review-20260910-095531.html`.
+
 ## What this is not
 
 - Not a change to any DSP answer. Every capture in `testfiles/` must decode
