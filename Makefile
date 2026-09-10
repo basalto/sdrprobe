@@ -667,12 +667,37 @@ CHECK_UNITS=check-installation check-config check-survey-carrier check-survey-co
 	check-device-backend check-add-argument
 TALLY=$(BUILD)/check-tally
 
+# How many suites at once.
+#
+# The units share nothing: each compiles its own binary from its own sources
+# and runs it, with no fixture, no port and no temporary path in common. The
+# two things they do share are handled rather than assumed.
+#
+# **The terminal** -- `--output-sync=target` buffers each suite's output and
+# emits it whole, so the report still reads as a report. Without it the lines
+# interleave mid-word and a failure can be sawn in half, which is worse than
+# slow.
+#
+# **The tally** -- each suite appends one short line through `CHECK_TALLY`,
+# with a single `fopen("a")`/`fprintf`/`fclose`, so it reaches the kernel as
+# one `write()` under `O_APPEND` and the kernel serialises those for a regular
+# file. And the failure mode is visible rather than silent: the summary counts
+# suites as **lines** in that file, so a lost or torn line comes out as a
+# wrong suite count in the last line of the report.
+#
+# Serial, this gate was **242 s** on an eight-core machine -- and 242 s again
+# with nothing changed, because every `check-*` is a phony name, so make
+# rebuilds all 56 binaries every run and `sdr_dsp.c` alone is compiled fifteen
+# times. Parallelism does not fix that; it divides it.
+CHECK_JOBS?=$(shell nproc 2>/dev/null || echo 4)
+
 check: sdrprobe
 	@mkdir -p $(BUILD)
 	@rm -f $(TALLY)
 	@printf '\nsdrprobe checks -- no window, no receiver, nobody watching\n'
 	@printf '\nunits\n'
-	@CHECK_TALLY=$(TALLY) $(MAKE) --no-print-directory $(CHECK_UNITS)
+	@CHECK_TALLY=$(TALLY) $(MAKE) --no-print-directory -j$(CHECK_JOBS) \
+		--output-sync=target $(CHECK_UNITS)
 	@printf '\npipelines -- the built program over testfiles/\n'
 	@CHECK_TALLY=$(TALLY) $(MAKE) --no-print-directory check-pipelines
 	@awk '{checks += $$1; bad += $$2} END { printf \
