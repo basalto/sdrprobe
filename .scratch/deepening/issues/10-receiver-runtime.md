@@ -191,3 +191,42 @@ Focused checks while iterating: the new runtime check,
 - Designing UHD timestamps or overflow handling before observing the adapter.
 - A uniform interface across technology DSP modules.
 - Moving view state unrelated to the receiver.
+
+## Comments
+
+**Reviewed 2026-09-10. Phase 2 is startable now; phase 1 is half startable.**
+
+The rewritten phase 2 answers the objection the previous plan could not. It
+does not try to check the existing transaction -- which is unreachable, since
+`retune_receiver()` and the rest live in `sdrprobe.c` taking `struct app *`.
+It builds the checked shape first, against a fake backend, and phase 3 moves
+the real code into it. That is pure addition and needs no hardware.
+
+**Two things that were said to block it do not.** `CLAUDE.md` claimed
+`acquisition.h` could not be included by a check because it pulls
+`<rtl-sdr.h>`. It has not since ticket 07 put that header behind
+`backend_rtlsdr.c`: **no header in `src/` includes it at all**, a translation
+unit including `acquisition.h` compiles `-Wall -W` clean and links with `-lm`
+alone, and `check-acquisition` already drives the worker with `-pthread`. The
+claim is corrected in `CLAUDE.md`; it was cited against attempting exactly
+this phase, which is what a stale refusal costs.
+
+**One thing does need doing first.** The fake backend is `static` inside
+`tests/device_backend_test.c`, so `check-receiver-runtime` would need its own
+-- two definitions of what a device does, drifting apart. Promote it to a
+shared `tests/fake_backend.{h,c}` in the same edit rather than copying it.
+
+**Phase 1 bundles two receivers into one gate.** "Exercise the RTL-SDR and UHD
+adapters" is one phase, and the RTL-SDR half needs only the dongle already on
+the desk -- it is the baseline UHD gets compared against, and reconstructing
+it later, with a second device confusing the picture, is guessing. Worth
+splitting 1a (now) from 1b (on arrival).
+
+**What still waits, and it is not only UHD.** Phase 4 moves applied state, and
+the task list already defers `remove_dc` to ticket 11. So the order 12 -> 11
+-> 10 is not merely "10 is blocked": 11 owes this ticket a decision, and of
+the 13 files that read `app->applied_*`, **12 also read the sample/spectrum
+frame** -- all seven views, all three overlays, `survey_report.c` and
+`sdrprobe.c`. Running phase 5 before ticket 11 means walking those twelve
+files twice, with a live-hardware verification pass each time.
+

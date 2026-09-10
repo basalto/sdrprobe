@@ -134,11 +134,11 @@ and the deterministic headless survey pipeline. Final gate:
 
 ## Tasks
 
-- [ ] Add `survey_record.{c,h}` and register complete Makefile prerequisites.
-- [ ] Add `check-survey-record` to `CHECK_UNITS` and clean bookkeeping.
-- [ ] Model plan, dwell, setup, gain, candidates, carriers and confirmation.
-- [ ] Copy all record-owned strings/data so the record is immutable.
-- [ ] Assemble the current JSON fixture without allocating `struct app`.
+- [x] Add `survey_record.{c,h}` and register complete Makefile prerequisites.
+- [x] Add `check-survey-record` to `CHECK_UNITS` and clean bookkeeping.
+- [x] Model plan, dwell, setup, gain, candidates, carriers and confirmation.
+- [x] Copy all record-owned strings/data so the record is immutable.
+- [x] Assemble the current JSON fixture without allocating `struct app`.
 - [ ] Make candidate materialization take explicit tuning/profile facts.
 - [ ] Pin measured-frequency precedence for flags and allocation lookup.
 - [ ] Build one record in the Survey window adapter.
@@ -169,3 +169,55 @@ and the deterministic headless survey pipeline. Final gate:
 - Moving the live survey state machine out of `survey_session`.
 - Replacing the JSON format or `scripts/survey_tool.py`.
 - Introducing a generic persistence seam with only one file format.
+
+## Comments
+
+**Phase 1 done, 2026-09-10.** `src/survey_record.{c,h}`,
+`tests/survey_record_test.c` and `check-survey-record` -- **62 checks**, and
+the suite links `-lm` alone: no `app.h`, no raylib, no driver. The hypothesis
+holds. The whole store fixture -- two maxima, one carrier holding both, one
+confirmed target carrying the numbers a real pass measured on the 75.000 MHz
+harmonic -- assembles with no `struct app` anywhere. Nothing else was touched,
+so this phase carries no regression risk: `make check` is 17860 in 56 suites.
+
+The fixture is the store check's own, value for value, so phase 4 can assert
+byte-identical JSON against the same numbers rather than against a second
+fixture -- a copy of a fixture is a second fixture, which is the lesson
+`probe-two-cell` cost.
+
+**Three things the modelling turned up.**
+
+**The dwell in the file is the session's, not the plan's.** `struct
+survey_plan` carries a `dwell_seconds` and `survey_store_write()` has always
+written `app->survey.session.dwell_seconds` instead. They agree on any sweep
+this program plans for itself, and the store check's fixture makes them differ
+-- plan 0, session 0.12 -- so a record that read the plan's would change the
+output while every other field agreed. It is a separate field in the record
+and the check pins both, because "these two numbers are always the same" is
+the sort of thing that is true until it is not.
+
+**`survey_confirm_kind_at()` returns a pointer into the array it was handed**,
+which is right for a printf loop and wrong for a record: a record that
+outlives the arrays it was formed from is the point of having one. The record
+stores the *index*, and the check copies a record, wipes the original, and
+asserts the kind still points inside the copy.
+
+**`SURVEY_VERDICT_PENDING` is what prints as `"unconfirmed"`.** Nothing said
+so, and the two names are not obviously the same thing -- nobody asked, versus
+asked and not upheld. The check pins the enum and the string together so a
+rename cannot quietly change the file.
+
+## Phase 3 needs a live sweep, and the ticket does not say so
+
+The plan validates phases 3 and 4 on "the deterministic capture survey", and a
+capture survey is **one step**: one tuning, no retune, no watch, no fold across
+steps. So byte-identical output over a capture cannot cover `watch_carriers`,
+per-step folding, or the `intermittent` verdict that only a multi-look pass
+produces -- and those are exactly the fields the record now carries.
+
+This is the hole the survey-session extraction fell into: 55 suites green,
+both capture surveys byte-identical, the screen byte-identical, and the settle
+that throws away stale blocks disabled, because a capture never retunes. What
+caught it was one line on a live sweep. Phase 3 should compare a swept run
+against the old binary as well, and this ticket should say so rather than
+leaving the capture to look sufficient.
