@@ -407,6 +407,15 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   `while` loop for the sweep, the pass and the measurement, because the
   session makes them one machine; the two shapes it replaced were the same
   loop written twice with different bugs.
+- `src/survey_record.{c,h}` — what a finished survey *is*, before anybody
+  draws it or writes it down: the plan and the dwell, the receiving setup, the
+  candidates and carriers, what a confirmation pass concluded about each, and
+  the totals. Built from plain facts by both adapters, so a candidate's
+  meaning is decided once; it holds no pointer into the application and
+  nothing that can change under a reader. `survey_store.{c,h}` is the JSON
+  adapter over it and no longer sees `struct app` -- its check used to
+  allocate one to write a single file, which was the measurement that the
+  interface asked its callers to know nearly everything.
 - `src/adsb_layout.h` — where the ADS-B decode view puts things, in the shape
   of `gsm_layout.h` and for the same reason: the analysis mode packs three
   charts over a log and a square scatter, and both modes' log rectangles are

@@ -4,6 +4,7 @@
 #include <raylib.h>
 
 #include "app.h"
+#include "survey_record.h"
 
 /*
  * The Decode tab's screens, one file each, plus the few helpers they share
@@ -155,6 +156,18 @@ int adsb_tuned(const struct app *app);
    between frames. render_waterfall and update_scatter are here because the
    frame loop drives them; waterfall_color and view_name stay private. */
 Rectangle calculate_plot(void);
+/*
+ * What the receiver was doing, as the survey record's facts.
+ *
+ * One function because three places need the same six numbers out of `app` --
+ * the chart's live suspicion marks, the window's save, and the headless report
+ * -- and assembling them separately is how two copies of one answer start to
+ * differ. That is what `survey_session` was extracted to end, and the
+ * finished-survey half of it is `.scratch/deepening/issues/12-*`.
+ */
+void survey_tuning_from(struct survey_record_tuning *out,
+                        const struct app *app);
+
 /* The frequency window the Scope's spectrum and waterfall share. */
 void scope_freq_sync(struct app *app);
 /*

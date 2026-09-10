@@ -257,24 +257,38 @@ static void freq_window_put(struct survey_view *s,
  * only known once the candidate has been measured, so it is passed as 0 until
  * then and the two frequency tests carry the warning on their own.
  */
+void survey_tuning_from(struct survey_record_tuning *out,
+                        const struct app *app) {
+    memset(out, 0, sizeof(*out));
+    out->centre_hz = (double)app->applied_frequency;
+    out->sample_rate_hz = (double)app->applied_sample_rate;
+    out->reference_clock_hz = app->device.reference_clock_hz;
+    out->remove_dc = app->remove_dc;
+}
+
 static unsigned survey_suspect_at(const struct app *app, double hz,
                                   double bandwidth_hz) {
-    return survey_suspect(&app->survey.session.plan,
-                          app->device.reference_clock_hz, hz, bandwidth_hz,
-                          (double)app->applied_sample_rate, SDR_DSP_FFT_SIZE,
-                          app->remove_dc);
+    struct survey_record_tuning t;
+
+    survey_tuning_from(&t, app);
+    return survey_suspect(&app->survey.session.plan, t.reference_clock_hz, hz,
+                          bandwidth_hz, t.sample_rate_hz, SDR_DSP_FFT_SIZE,
+                          t.remove_dc);
 }
 
 /* How many of this sweep's candidates resemble the receiver. Recomputed each
    frame rather than stored: it is a few hundred multiplications, and a stored
    count is one more thing that can disagree with the list beside it. */
 static int survey_suspicious_now(const struct app *app) {
+    struct survey_record_tuning t;
+
+    survey_tuning_from(&t, app);
     return survey_suspect_count(&app->survey.session.plan,
-                                app->device.reference_clock_hz,
+                                t.reference_clock_hz,
                                 app->survey.session.peaks,
                                 app->survey.session.peak_count,
-                                (double)app->applied_sample_rate,
-                                SDR_DSP_FFT_SIZE, app->remove_dc);
+                                t.sample_rate_hz, SDR_DSP_FFT_SIZE,
+                                t.remove_dc);
 }
 
 /* The frequency at the middle of a survey bin, through the window the chart
@@ -369,9 +383,9 @@ static struct survey_field survey_field_at(struct survey_view *s, int focus) {
 static void survey_save_sweep(struct app *app) {
     struct survey_view *s = &app->survey;
     struct survey_session *ss = &s->session;
-    struct survey_candidate candidates[SURVEY_MAX_PEAKS];
+    static struct survey_record record;   /* ~38 KB; not a stack object */
+    struct survey_record_input in;
     char path[256];
-    int count;
 
     if (ss->peak_count <= 0) {
         snprintf(ss->status, sizeof(ss->status),
@@ -388,9 +402,32 @@ static void survey_save_sweep(struct app *app) {
         s->focus = 3;
         return;
     }
-    count = survey_candidates_from(app, &ss->plan, ss->peaks, ss->peak_count,
-                                   survey_session_spectrum(ss), candidates,
-                                   SURVEY_MAX_PEAKS);
+    /*
+     * The record first, then the file. Everything the writer needs is decided
+     * here, from facts this view already has, and the headless save builds the
+     * same record from its own -- which is what stops the two describing one
+     * sweep differently.
+     */
+    memset(&in, 0, sizeof(in));
+    survey_tuning_from(&in.tuning, app);
+    in.plan = &ss->plan;
+    in.dwell_seconds = ss->dwell_seconds;
+    survey_record_setup_from(&in.setup, &app->installation,
+                             app->applied_gain_tenths);
+    in.recorded_at = survey_record_now();
+    in.peaks = ss->peaks;
+    in.peak_count = ss->peak_count;
+    in.spectrum = survey_session_spectrum(ss);
+    in.scratch = app->magnitude_sorted;
+    in.carriers = ss->carriers;
+    in.carrier_count = ss->carrier_count;
+    in.targets = ss->confirm.target;
+    in.target_count = ss->confirm.count;
+    if (survey_record_build(&record, &in) < 0) {
+        snprintf(ss->status, sizeof(ss->status),
+                 "Could not form the survey to save.");
+        return;
+    }
     /*
      * The archive and the memory are written together. If they drift apart --
      * a sweep in surveys/ that the history never saw -- the window starts
@@ -418,9 +455,7 @@ static void survey_save_sweep(struct app *app) {
     /* Whatever "Ask again" has already settled about this sweep. Cleared when
        a sweep starts, so a save can never carry the previous sweep's
        verdicts under this one's frequencies. */
-    if (survey_store_write(app, &ss->plan, candidates, count, ss->carriers,
-                           ss->carrier_count, ss->confirm.target,
-                           ss->confirm.count, path, sizeof(path)) < 0) {
+    if (survey_store_write(&record, path, sizeof(path)) < 0) {
         snprintf(ss->status, sizeof(ss->status),
                  "Could not write the survey; see the terminal.");
         return;
@@ -431,7 +466,7 @@ static void survey_save_sweep(struct app *app) {
         const char *slash = strrchr(path, '/');
         snprintf(ss->status, sizeof(ss->status),
                  "Saved %d candidates to surveys/%.64s -- compare sweeps "
-                 "with scripts/survey_tool.py diff", count,
+                 "with scripts/survey_tool.py diff", record.candidate_count,
                  slash ? slash + 1 : path);
     }
     survey_history_refresh(app);

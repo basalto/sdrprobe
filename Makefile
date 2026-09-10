@@ -73,7 +73,7 @@ DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c
 APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/backend_uhd.c \
-	$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
+	$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
 	$(SRC)/view_survey.c \
 	$(SRC)/band_plan.c \
@@ -259,21 +259,24 @@ check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
 # receiver and a directory; these two do not, and they are where it goes wrong.
 check-survey-record: $(TESTS)/survey_record_test.c $(TESTS)/check.h \
 		$(SRC)/survey_record.c $(SRC)/survey_record.h \
-		$(SRC)/survey_store.h $(SRC)/survey_carrier.h \
-		$(SRC)/survey_confirm.h $(SRC)/survey_suspect.h \
-		$(SRC)/survey_sweep.h $(SRC)/installation.h
+		$(SRC)/survey_carrier.h $(SRC)/survey_confirm.h \
+		$(SRC)/survey_suspect.h $(SRC)/survey_sweep.h \
+		$(SRC)/band_plan.c $(SRC)/band_plan.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(SRC)/installation.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_record_test \
-		$(TESTS)/survey_record_test.c $(SRC)/survey_record.c -lm
+		$(TESTS)/survey_record_test.c $(SRC)/survey_record.c \
+		$(SRC)/band_plan.c $(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_record_test
 
 check-survey-store: $(TESTS)/survey_store_test.c $(TESTS)/check.h \
-		$(SRC)/survey_store.c $(SRC)/survey_store.h
+		$(SRC)/survey_store.c $(SRC)/survey_store.h \
+		$(SRC)/survey_record.c $(SRC)/survey_record.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
-		$(shell pkg-config --cflags librtlsdr) \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) \
 		-o $(BUILD)/survey_store_test $(TESTS)/survey_store_test.c \
-		$(SRC)/survey_store.c $(SRC)/sdr_dsp.c $(SRC)/band_plan.c -lm
+		$(SRC)/survey_store.c $(SRC)/survey_record.c $(SRC)/sdr_dsp.c \
+		$(SRC)/band_plan.c -lm
 	$(Q)./$(BUILD)/survey_store_test
 
 # What a site has heard before, and how a sweep is judged against it.
