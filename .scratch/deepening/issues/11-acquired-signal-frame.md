@@ -172,3 +172,32 @@ their technology session checks and `make check-pipelines`. Final gate:
 - Moving GPU textures or waterfall row history out of `view_scope`.
 - Changing the latest-block acquisition seam or its lossless mode.
 - Normalizing samples instead of retaining device counts.
+
+## Comments
+
+**Reviewed 2026-09-10, before starting ticket 12.** The plan is startable as
+written -- phase 1 is pure addition, and building the check around a copy of
+the sequence before moving any caller is the safe foothold ticket 10 does not
+have. Three notes.
+
+**Phase 1's first assertion needs `build/testfiles16/`.** "One U8 block and
+its rescaled S16 equivalent produce bit-identical centred I/Q" is the
+`$(FORMAT16)` prerequisite that `check-sample-format` and
+`check-device-backend` both carry. The Makefile task says "register complete
+prerequisites" without naming it, and on a clean tree the check fails for a
+missing corpus rather than for anything it measures.
+
+**A copy is a second implementation until phase 2 deletes the original.**
+Phase 1's check pins the copy; `process_block()` in `sdrprobe.c` is still the
+one that runs. That is the right order, but it means phase 1 alone is not a
+shippable stopping point -- a green `check-signal-frame` beside an unchanged
+`sdrprobe.c` proves nothing about the program. `probe-two-cell` is the
+standing lesson: a harness that copies a fixture is running a second fixture.
+
+**Ticket 10 is waiting on this ticket for one decision.** Its task list says
+"Decide `remove_dc` ownership with ticket 11 rather than moving it
+automatically" -- receiver state or signal-frame policy. Phase 2 takes the
+DC-filter choice as a caller-supplied argument, which is the right shape for
+either answer, but the answer itself should be written down here when phase 3
+settles what presentation supplies.
+
