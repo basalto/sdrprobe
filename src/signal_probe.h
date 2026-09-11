@@ -185,6 +185,44 @@ int signal_find_carrier(const float *i_samples, const float *q_samples,
  * energy is real and whose standing carrier is not: adsb_cpr_pair.bin reads
  * -2.0 dB and is correctly reported as no carrier rather than as a bare one.
  */
+/*
+ * How much of the capture the coarse scan looks at, and why the grid is tied
+ * to it.
+ *
+ * `signal_find_carrier()` scans coarsely and then refines. **The grid step has
+ * to be no wider than the line it is hunting**, and this is the part that was
+ * wrong: it was `rate/probe * 4`, four times the main lobe of a mix over
+ * `probe` pairs, so a line could sit one or three lobe-widths from both
+ * bracketing probes -- on the sinc nulls -- and read as nothing at either.
+ *
+ * That is not a corner case, it is a comb of blind frequencies every
+ * `rate/probe*4` hertz. Measured on the shipped code: a **noise-free** tone at
+ * 120 000 Hz is found exactly, and the same tone at 120 010 or 120 030 Hz is
+ * lost completely, the search returning a frequency 36-58 kHz away. Every
+ * fixture and every capture had simply landed elsewhere -- the synthetic tests
+ * use 120 000 Hz, which falls exactly on the grid.
+ *
+ * So the grid is `rate/coarse` now: every frequency is within half a lobe of a
+ * probe, which costs at worst 3.9 dB of scalloping and never a null.
+ *
+ * The length is measured where it breaks, not chosen. A shorter coarse probe
+ * is quadratically cheaper -- cost is `window * coarse^2 / rate` -- and buys
+ * that with processing gain, so the question is the shortest probe on which
+ * nothing in the corpus is lost. Over 24 draws of a tone placed anywhere in a
+ * 400 Hz span, under noise 30 times its own amplitude: 8192 loses 2, 16384
+ * loses 1, **32768 and 65536 lose none**. 32768 is not safe, though, for a
+ * reason the noise test cannot see -- a swept carrier has no line to find, and
+ * the one the search settles on reads 16.3 dB against a 15 dB bar, so a
+ * 16.4 ms coarse look lands somewhere marginally worse and reads 11.4 dB,
+ * turning "a modulated carrier" into "no carrier". 65536 reproduces the
+ * shipped answer on that fixture to 0.1 dB.
+ *
+ * What it is worth: `check-signal-probe` goes from 105 s to 30 s, the real
+ * capture's numbers are unchanged to the digit, and the same saving is taken
+ * on air by every candidate the survey's confirmation pass measures.
+ */
+#define SIGNAL_COARSE_PAIRS 65536
+
 #define SIGNAL_CARRIER_PRESENT_DB 15.0
 
 enum signal_verdict {
