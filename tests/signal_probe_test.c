@@ -983,7 +983,12 @@ static void test_a_line_is_found_wherever_it_sits(void) {
             ir[n] = (float)(10.0 * cos(2.0 * M_PI * tone * t));
             qr[n] = (float)(10.0 * sin(2.0 * M_PI * tone * t));
         }
-        if (!signal_find_carrier(ir, qr, N, FS, 60000.0, 180000.0, 2000.0,
+        /* A narrow window on purpose: a null is a local property of the
+           grid, so 20 kHz exercises it exactly as 120 kHz does and costs a
+           sixth as much. A lost line still lands far outside the 5 Hz this
+           asserts -- verified against the pre-fix source, where three of
+           these nine offsets fail. */
+        if (!signal_find_carrier(ir, qr, N, FS, 110000.0, 130000.0, 2000.0,
                                  40000.0, &c)) {
             check_msg(0, "a clean tone at %.1f Hz was not found at all\n",
                       tone);

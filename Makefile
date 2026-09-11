@@ -652,19 +652,36 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 		$(TESTS)/receiver_lease_test.c -lm
 	$(Q)./$(BUILD)/receiver_lease_test
 
-CHECK_UNITS=check-installation check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-survey-record check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
-	check-lte-mib check-lte-scan check-band-plan \
-	check-options check-freq-window check-survey-sweep check-survey-session \
-	check-suspect \
-	check-calibration \
-	check-layout check-acquisition check-scan check-adsb-analysis \
-	check-fm-dsp check-fm-scan check-rds check-debug-log \
-	check-row-list check-survey-bands check-text-wrap \
-	check-gsm-continuity check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session check-gsm-bcch check-geometry check-input \
-	check-lte-turbo check-lte-transport check-lte-confirm check-lte-stats check-lte-findings check-tetra-dsp check-tetra-sync \
-	check-signal-probe check-signal-findings check-receiver-lease \
-	check-sample-format check-device-profile check-capture-sidecar \
-	check-device-backend check-add-argument
+# The order is the schedule, and it is measured.
+#
+# `make -j` starts targets in the order they appear here, so the longest one
+# has to go first or its tail is added to the end of the run instead of
+# overlapping it. Measured serially, the units are 166 s of work of which
+# `check-signal-probe` alone is 54 -- and with it late in the list the units
+# phase took **74 s** against a floor of 54, so twenty of those seconds were
+# the pole starting last. Longest-processing-time-first is the whole of the
+# fix.
+#
+# Re-measure after adding a slow suite:
+#
+#   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
+#
+CHECK_UNITS=check-signal-probe check-tetra-session check-lte-dsp \
+	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
+	check-lte-session check-survey-session check-gsm-dsp check-rds \
+	check-lte-scan check-tetra-dsp check-layout check-adsb-session \
+	check-sdr-dsp check-sample-format check-survey-store check-survey-record \
+	check-lte-transport check-lte-turbo check-options check-tetra-sync \
+	check-gsm-bcch check-adsb-dsp check-suspect check-acquisition check-config \
+	check-signal-findings check-device-backend check-site-history \
+	check-installation check-calibration check-freq-window check-device-profile \
+	check-survey-carrier check-scan check-survey-sweep check-survey-bands \
+	check-lte-confirm check-lte-findings check-text-wrap check-capture-sidecar \
+	check-band-plan check-debug-log check-adsb-analysis check-input \
+	check-geometry check-fm-scan check-row-list check-survey-confirm \
+	check-gsm-continuity check-receiver-lease check-lte-stats \
+	check-add-argument TALLY=$(BUILD)/check-tally
+
 TALLY=$(BUILD)/check-tally
 
 # How many suites at once.
@@ -689,17 +706,42 @@ TALLY=$(BUILD)/check-tally
 # with nothing changed, because every `check-*` is a phony name, so make
 # rebuilds all 56 binaries every run and `sdr_dsp.c` alone is compiled fifteen
 # times. Parallelism does not fix that; it divides it.
-CHECK_JOBS?=$(shell nproc 2>/dev/null || echo 4)
+#
+# **Half the cores, not all of them, and that is measured.** These suites
+# stream large float arrays and saturate memory bandwidth long before they run
+# out of cores, so past a point another job makes every running job slower.
+# The units phase on this eight-core machine, twice each where it mattered:
+#
+#   -j2  88 s     -j4  66 s, 66 s     -j8  72 s, 72 s     -j16  78 s
+#   -j3  71 s     -j5  68 s           -j12 75 s
+#
+# So `nproc` is the wrong default and `nproc/2` is about right. Override it if
+# a machine says otherwise -- `make CHECK_JOBS=8 check` -- and re-measure
+# rather than assuming, because the shape of that curve is a property of the
+# memory subsystem and not of this Makefile.
+CHECK_JOBS?=$(shell echo $$(( $$(nproc 2>/dev/null || echo 4) / 2 )) )
+ifeq ($(CHECK_JOBS),0)
+CHECK_JOBS=1
+endif
 
+# `check-pipelines` is in the pool rather than after it, and first in it.
+#
+# It was a phase of its own, run serially once the units were done, so its
+# 29 s was added to the end of the run: 66 + 29 = 95. As one more job among
+# the units it overlaps them and the pair takes **70 s**. It goes first for
+# the same reason the slowest unit does -- it is the second-longest thing
+# here, and a long job started late is a tail nothing can hide.
+#
+# What that cost is the two section headings. They said which kind of check
+# was which, and with the pool interleaving them they would have been a
+# promise the order does not keep -- which is worse than not having them.
+# Every suite still says what it covers on its own line.
 check: sdrprobe
 	@mkdir -p $(BUILD)
 	@rm -f $(TALLY)
-	@printf '\nsdrprobe checks -- no window, no receiver, nobody watching\n'
-	@printf '\nunits\n'
+	@printf '\nsdrprobe checks -- no window, no receiver, nobody watching\n\n'
 	@CHECK_TALLY=$(TALLY) $(MAKE) --no-print-directory -j$(CHECK_JOBS) \
-		--output-sync=target $(CHECK_UNITS)
-	@printf '\npipelines -- the built program over testfiles/\n'
-	@CHECK_TALLY=$(TALLY) $(MAKE) --no-print-directory check-pipelines
+		--output-sync=target check-pipelines $(CHECK_UNITS)
 	@awk '{checks += $$1; bad += $$2} END { printf \
 		"\n%d checks in %d suites, no failures\n\n", checks, NR}' $(TALLY)
 
