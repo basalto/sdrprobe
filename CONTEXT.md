@@ -256,6 +256,44 @@ The interval between adjacent tones of a reference comb, which is what the
 -- a comb has no single frequency, which is the point of it.
 _Avoid_: Comb frequency, harmonic frequency
 
+**Reading displacement**:
+How far a receiver reports a signal from where it really is: the signal's
+frequency times the reference's residual error. A *displacement* and not an
+uncertainty -- a known amount in a known direction, which is what makes it a
+measurement rather than a blur. The direction is the negation of the residual
+`cal-measure` prints, so a **fast** reference (this one, by 31.84 ppm) reads an
+uncorrected external signal *low*, by about 4.2 kHz at 132 MHz.
+_Avoid_: Frequency uncertainty, tuning error, drift, offset
+
+**Clock coherence**:
+Whether a signal's frequency is derived from the same reference that clocks
+this receiver. A clock-coherent signal reads at its exact nominal frequency
+however far out the crystal is, because the same error is in the tuning, the
+sample rate and the signal alike and cancels; an external one is displaced.
+It is evidence about a **reading**, not about a transmitter -- anything with
+its own crystal reads as external -- and it is unavailable on a receiver whose
+error has never been measured. Applying a correction does not make it
+unavailable: it swaps which of the two reads on the nominal, leaving the gap
+between them the same.
+_Avoid_: Locked, synchronised, phase-locked, internal
+
+**Reading origin**:
+What a reading's distance from an exact nominal says about whose oscillator
+made it: **clocked here**, **not clocked here**, **unexplained**, or no
+verdict. Independent of the **reference comb**, which argues from coincidence
+where this argues from cancellation, so the two corroborate or contradict each
+other rather than repeating one another.
+_Avoid_: Source, provenance, identification
+
+**Channel raster**:
+The grid a service's channels sit on -- a base frequency and a spacing, such
+as band II's 87.5 MHz plus a multiple of 100 kHz. Says where a transmitter
+*could* be, never that one is there. The channel an external signal would have
+to be on is found from its **reading** inverted, not from the reading itself:
+for any raster finer than twice the **reading displacement** those are
+different channels.
+_Avoid_: Channel plan, grid, band plan
+
 **Band plan**:
 A static table mapping frequency ranges to the service allocated there; it says what a frequency is *for*, never what a signal *is*, and a carrier found inside an allocation has not thereby been identified.
 _Avoid_: Identification, classification, detection

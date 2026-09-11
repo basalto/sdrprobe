@@ -8,6 +8,7 @@
 #include "signal_probe.h"
 #include "site_history.h"
 #include "survey_carrier.h"
+#include "reading_origin.h"
 #include "survey_confirm.h"
 #include "survey_suspect.h"
 #include "survey_sweep.h"
@@ -62,6 +63,17 @@ struct survey_block {
     double centre_hz;           /* where the receiver is tuned */
     double sample_rate;
     double reference_clock_hz;
+    /*
+     * This receiver's own reference error and the correction in force. A
+     * crystal error of 0 is a refusal -- nobody has measured it, or the source
+     * is a capture, which does not carry its recorder's crystal.
+     *
+     * It rides here beside the reference clock because the confirmation pass
+     * is where it is worth the most: a pass places a candidate to one FFT bin
+     * where a swept survey places it to tens of kilohertz, and the whole
+     * discriminator is a subtraction against that precision.
+     */
+    struct reading_clock clock;
     int remove_dc;
 };
 

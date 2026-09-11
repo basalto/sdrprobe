@@ -92,6 +92,7 @@ static struct survey_block survey_block_of(struct app *app) {
     b.centre_hz = (double)app->applied.frequency_hz;
     b.sample_rate = (double)app->applied.sample_rate_hz;
     b.reference_clock_hz = app->device.reference_clock_hz;
+    b.clock = survey_reading_clock(app);
     b.remove_dc = app->remove_dc;
     return b;
 }
@@ -105,7 +106,7 @@ static struct survey_block survey_block_of(struct app *app) {
  * spellings -- docs/band-surveys.md is the format.
  */
 void survey_print_confirm_target(const struct survey_confirm_target *target) {
-    char flags[64];
+    char flags[SURVEY_FLAG_TEXT_MAX];
 
     printf("confirm %.0f %s %s %.1f %d/%d %.0f %s\n", target->hz,
            target->claim == SURVEY_CLAIM_MISSING ? "missing" : "new",
@@ -257,6 +258,24 @@ static void freq_window_put(struct survey_view *s,
  * only known once the candidate has been measured, so it is passed as 0 until
  * then and the two frequency tests carry the warning on their own.
  */
+/*
+ * ADR-0018's key is doing the work here: arriving at a site where this
+ * receiver has been calibrated restores that measurement, and a correction
+ * measured with this receiver somewhere else is not evidence about what this
+ * crystal is doing here today.
+ */
+struct reading_clock survey_reading_clock(const struct app *app) {
+    struct reading_clock clock = { 0.0, 0.0 };
+    int calibrated = 0;
+
+    if (!app)
+        return clock;
+    if (installation_ppm(&app->installation, &calibrated))
+        clock.crystal_ppm = (double)calibrated;
+    clock.applied_ppm = (double)app->applied.ppm;
+    return clock;
+}
+
 void survey_tuning_from(struct survey_record_tuning *out,
                         const struct app *app) {
     memset(out, 0, sizeof(*out));
@@ -264,6 +283,7 @@ void survey_tuning_from(struct survey_record_tuning *out,
     out->sample_rate_hz = (double)app->applied.sample_rate_hz;
     out->reference_clock_hz = app->device.reference_clock_hz;
     out->remove_dc = app->remove_dc;
+    out->clock = survey_reading_clock(app);
 }
 
 static unsigned survey_suspect_at(const struct app *app, double hz,

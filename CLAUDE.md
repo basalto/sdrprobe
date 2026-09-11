@@ -23,6 +23,7 @@ make check-survey     # the survey window's zoom, pan and clamp arithmetic
 make check-survey-sweep # the sweep's step plan, fold, and measurement
 make check-survey-session # the survey's machine: sweep, ask again, watch, measure
 make check-suspect    # candidates that look like the receiver, not the band
+make check-reading-origin # whose oscillator a reading belongs to
 make check-calibration # the lock gate, and the machine that fills its buffer
 make check-scan       # the band scan's coverage and the channel it chooses
 make check-adsb-analysis # trace latching, the message log, the funnel
@@ -677,11 +678,70 @@ caption that disagrees with the picture above it is worse than none.
 
 `docs/receiver-artifacts.md` is the reference for those marks: every algorithm
 behind them, every formula, every adjustable parameter and what constrains it,
-with a worked example of each. Two of the parameters are not free -- Rayleigh's
-0.5227 is `sqrt(4/pi - 1)` and changing it means comparing against something
-that is not noise, and `RECEIVER_COMB_MAX_FRACTION` bounds every comb
-tolerance, where loosening it produces flags with no evidence rather than more
-flags.
+with a worked example of each. Three of the parameters are not free --
+Rayleigh's 0.5227 is `sqrt(4/pi - 1)` and changing it means comparing against
+something that is not noise, `READING_SEPARABLE_TOLERANCES` is the condition
+for two intervals to be disjoint rather than a threshold, and
+`RECEIVER_COMB_MAX_FRACTION` bounds every comb tolerance, where loosening it
+produces flags with no evidence rather than more flags.
+
+**Where a candidate reads is the second kind of evidence, and it contradicts
+the comb as often as it corroborates it** (`src/reading_origin.h`). An
+uncalibrated receiver does not report a frequency vaguely, it reports it wrong
+by a known amount: with a crystal error `k` and a correction `c` in force, a
+tone at true frequency `f` comes back at `f/(1 + k - c)` -- the tuning cancels
+out of that exactly, since one crystal clocks both the synthesiser and the ADC.
+A tone generated from the receiver's own reference is at `f_nom*(1 + k)` to
+begin with, so uncorrected it reads at **exactly its nominal** however far out
+the crystal is. The two hypotheses are `f*k` apart -- about 4.1 kHz at 132 MHz
+here -- and **the correction does not narrow that by one hertz**; it only
+swaps which of them reads on the nominal. One subtraction, no second room and
+no second receiver.
+
+**The sign is the negation of the number `cal-measure` prints**, and ticket 11
+had it backwards. `observed_ppm -31.84` is the *residual*,
+`(measured - expected)/expected`; the crystal error is `+31.84`, so this
+reference is **fast** and an uncorrected reading of a real transmitter comes
+back *low*. Every "reads exact, therefore clocked here" verdict survives the
+correction -- being at the nominal cannot care which way the other hypothesis
+lies -- but the airband's one external carrier is on 132.066667 rather than
+the 132.058333 the ticket names.
+
+It settled three things nothing else could. 135.000 MHz was recorded as "a
+real AM carrier" and reads 61 Hz from exact where a transmitter must read
+4.2 kHz off, so **four** of the airband's six strongest signals are the
+receiver rather than three. 150.0009 MHz fits no modelled comb and still reads
+exact, which is `SURVEY_SUSPECT_UNEXPLAINED` -- the flag that stops
+"unremarked" meaning both "asked and answered nothing" and "nobody asked". And
+94.4 MHz, the loudest FM station here, sits on the fine comb by coincidence and
+reads 2.9 kHz **high**, so the coherence test declines to flag what the comb
+flags -- the comb's mark is left standing, because this adds evidence rather
+than silently overruling a mark an operator has learned to read.
+
+**A crystal error of zero is a refusal, and a calibrated receiver is not in
+that case.** It is zero for a receiver nobody has calibrated (the error is
+unknown) and for a capture (a file does not carry its recorder's crystal). The
+first version of this took **one** number, `calibrated - applied`, reasoning
+that a corrected receiver has nothing left to displace anything by -- and that
+made the whole measurement **dead code in the shipping program**, which
+restores and applies a stored calibration at startup, while every unit check
+stayed green because a unit hands the number in. Correcting the ppm *inverts*
+the discriminator rather than removing it, so both numbers are inputs. The
+tolerance is
+**one bin of whatever measured the candidate** and emphatically not
+`RECEIVER_COMB_TOLERANCE_HZ`: 25 kHz is cheap against a 14.4 MHz comb spacing
+and would not loosen this test but abolish it, wanting a carrier at 1.6 GHz
+before any verdict was available, with a green suite throughout.
+
+**It was verified on air rather than by the suite**, which is the only thing
+that could have caught either fault. With `calibration ... 32 ...` in force a
+128-137 MHz sweep read the three known comb families at 131.204163, 129.604553
+and 136.005188 against a model predicting 131.204198, 129.604147 and
+136.004352 -- **35, 406 and 836 Hz**, each having moved four kilohertz from
+where the uncorrected pass found it. The same run is what showed
+`SURVEY_SUSPECT_UNEXPLAINED` firing on five refuted noise maxima: a noise peak
+is narrow, so it carries `UNRESOLVED` like a tone does, and the flag now wants
+a carrier and a verdict that is not `refuted`.
 
 `docs/what-is-on-air.md` is the assessment over all of it: every allocation,
 what this program does about each, and where something was ruled out the

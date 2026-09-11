@@ -7,6 +7,7 @@
 #include "survey_carrier.h"
 #include "survey_confirm.h"
 #include "sdr_dsp.h"
+#include "reading_origin.h"
 #include "survey_sweep.h"
 
 /*
@@ -76,6 +77,18 @@ struct survey_candidate {
 
 /* The suspicion flags as the text both outputs use: "reference,step-centre",
    or "-" for none. Returns `buffer`, or a literal for none. */
+/*
+ * How much room `survey_flag_text()` needs for every flag at once.
+ *
+ * Four call sites each wrote `char flags[64]`, which was ample for four flags
+ * and eight bytes short of six. That is the ordinary way a magic number
+ * expires: nothing referred to the set it was sized for, so adding to the set
+ * did not touch it. The formatter also clamps now -- it accumulated
+ * `snprintf()`'s *would-have-been* length, so one truncation made `size -
+ * used` wrap to an enormous size_t and the next write ran off the end.
+ */
+#define SURVEY_FLAG_TEXT_MAX 96
+
 const char *survey_flag_text(unsigned int flags, char *buffer, size_t size);
 
 /* As many maxima as a sweep can raise: the peak finder's own bound, so a
@@ -165,21 +178,32 @@ struct survey_record {
 /*
  * What the receiver was doing while the sweep ran.
  *
- * These four facts are all `survey_candidates_from()` ever wanted out of
+ * These facts are all `survey_candidates_from()` ever wanted out of
  * `struct app`, and taking them explicitly is what lets a candidate's meaning
  * be decided without an application: where the receiver was pointed and how
  * fast it was sampling, so a bin index becomes a frequency; the reference
  * clock, so `survey_suspect()` can ask whether a maximum looks like the
  * receiver's own comb -- **0 when the source has no crystal to blame, which is
- * a capture's case, and then nothing may be attributed to one**; and whether
- * the spectrum had DC removed, because the bin at zero is the receiver's own
- * offset when it did not.
+ * a capture's case, and then nothing may be attributed to one**; whether the
+ * spectrum had DC removed, because the bin at zero is the receiver's own
+ * offset when it did not; and what the crystal is still doing.
  */
 struct survey_record_tuning {
     double centre_hz;
     double sample_rate_hz;
     double reference_clock_hz;
     int remove_dc;
+    /*
+     * This receiver's own reference error, and the correction in force.
+     *
+     * **A crystal error of 0 is a refusal and not a good receiver**: it is
+     * what an uncalibrated receiver gets, because nobody has measured its
+     * error, and what a capture gets, because a file does not carry its
+     * recorder's crystal. A *calibrated* receiver is emphatically not in that
+     * case -- the two hypotheses simply swap which of them reads on the
+     * nominal (`.scratch/device-model/issues/11-*`).
+     */
+    struct reading_clock clock;
 };
 
 /*

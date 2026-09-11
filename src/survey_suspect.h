@@ -4,6 +4,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "reading_origin.h"
 #include "sdr_dsp.h"
 #include "survey_sweep.h"
 
@@ -176,7 +177,58 @@ enum survey_suspicion {
      * and nothing here can tell those apart -- which is why the words on
      * screen say what was measured rather than what it is (ADR-0015).
      */
-    SURVEY_SUSPECT_NO_CARRIER = 1 << 3
+    SURVEY_SUSPECT_NO_CARRIER = 1 << 3,
+    /*
+     * It reads at its exact nominal frequency, where a signal arriving through
+     * the antenna could not.
+     *
+     * The comb flags above are a coincidence argument -- this frequency is a
+     * multiple of that spacing, and a real signal would land there rarely. This
+     * is a different kind of evidence entirely and shares no arithmetic with
+     * them: an uncalibrated receiver *displaces* everything it hears by
+     * `f * d`, about 4.4 kHz at 132 MHz here, and a tone generated from its own
+     * reference is displaced by nothing at all because the error is in the
+     * tuning, the sample rate and the tone alike. So a reading sitting on its
+     * nominal to within a bin is not coincidence, it is the cancellation.
+     *
+     * Two things follow and both matter. It **corroborates** a comb flag
+     * without sharing its assumptions, which is the only kind of second opinion
+     * worth having. And it **contradicts** one: a real transmitter that happens
+     * to sit on a comb multiple reads displaced, which is the 94.4 MHz case --
+     * the loudest station at this site, on the fine comb by coincidence. The
+     * flag is not set there, and `survey_suspect_origin_at()` says so
+     * positively for a caller that wants to.
+     *
+     * Requires a *measured, non-zero* residual. See
+     * `survey_suspect_origin()`, which refuses without one --
+     * `.scratch/device-model/issues/11-*`.
+     */
+    SURVEY_SUSPECT_CLOCK_COHERENT = 1 << 4,
+    /*
+     * A bare carrier that none of the modelled grids explains, at a frequency
+     * where the question could have been asked.
+     *
+     * It exists because "unremarked" was carrying two meanings: a candidate
+     * nobody could say anything about read identically to one that had been
+     * asked and had answered nothing. 150.0009 MHz is the case -- confirmed 6
+     * of 6 at 37.7 dB, 70% of the channel standing still, on no multiple of
+     * 14.4 or 1.6 MHz, and filed by the band plan under "Mobile-satellite
+     * uplink". It is a finding and it was indexed as clean.
+     *
+     * Deliberately narrow. It wants the candidate to be a bare carrier
+     * (`SURVEY_SUSPECT_UNRESOLVED`), because an ordinary modulated service on
+     * no comb is not a mystery, and it wants separability, because a reading
+     * nobody could interrogate has not answered anything. Without those two it
+     * would fire on nearly every candidate in every sweep and teach the
+     * operator to ignore it.
+     *
+     * **A channel raster would sharpen it further** -- a bare carrier on no
+     * comb *and* no channel is a stronger finding than one on no comb -- and
+     * `reading_external_channel_hz()` is ready for one. The band plan is where
+     * a raster column belongs and transcribing eighty of them is
+     * `.scratch/device-model/issues/10-*`'s to do, not this one's.
+     */
+    SURVEY_SUSPECT_UNEXPLAINED = 1 << 5
 };
 
 /* Which tone of a comb spaced `spacing_hz` the frequency sits on, or 0. */
@@ -419,13 +471,138 @@ static inline unsigned survey_suspect_confirmed(double reference_hz,
 
 
 /*
+ * How far a reading may sit from exact and still count as exact.
+ *
+ * **One bin of whatever measured it**, and deliberately not
+ * `RECEIVER_COMB_TOLERANCE_HZ`. The two look like the same quantity and are
+ * not: a comb multiple is 14.4 MHz from the next one, so 25 kHz of slack there
+ * costs a chance in six hundred and buys margin against a peak pulled off
+ * centre. Here the whole measurement is a subtraction of a few kilohertz, and
+ * 25 kHz of slack does not loosen the test, it **abolishes** it -- the
+ * separability bar becomes 50 kHz of displacement, which at 31 ppm wants a
+ * carrier at 1.6 GHz. Every verdict would be UNKNOWN and the suite would look
+ * fine.
+ *
+ * One bin is what the ticket's own precision figure comes to. The three comb
+ * families read +159, +526 and +793 Hz from exact through a confirmation pass
+ * binning at 2 MS/s over 2048 points, which is 977 Hz: quantisation is half of
+ * that and the rest is the peak being pulled, so one whole bin covers what was
+ * measured with a little margin and nothing like the 4.1 kHz being tested for.
+ *
+ * It follows that a **swept** survey mostly cannot ask this question at all. A
+ * whole-tuner sweep bins at 212 kHz and would need 424 kHz of displacement;
+ * the 128-137 MHz sweep that raised the question bins at about 2 kHz and can.
+ * That is the right behaviour and not a limitation to work around: the flag
+ * appears where the evidence is.
+ */
+#define SURVEY_COHERENT_BINS 1.0
+
+static inline double survey_coherent_tolerance(double bin_hz) {
+    return bin_hz > 0.0 ? bin_hz * SURVEY_COHERENT_BINS : 0.0;
+}
+
+/*
+ * What the receiver's own frequency error says about a candidate, over the
+ * grids this file already models.
+ *
+ * `clock` is the receiver's own reference error and the correction in force.
+ * A **crystal error of 0 means nobody has measured this receiver**, which is a
+ * refusal rather than an assumption -- and a capture is in that case too,
+ * since a file does not carry its recorder's crystal. A receiver whose
+ * correction is right is *not* in that case: it can still answer, with the two
+ * hypotheses the other way round.
+ *
+ * The grids are the two combs, and that is the honest limit of what this can
+ * reach today: a candidate at 150.000000 is on neither, so it comes back
+ * UNEXPLAINED rather than RECEIVER however exactly it reads. That is the right
+ * answer -- naming it the receiver's would need a grid containing it, and
+ * choosing that grid is ticket 10's decision with evidence behind it, not a
+ * default this file may invent.
+ */
+static inline enum reading_origin survey_suspect_origin_at(
+    double reference_hz, double hz, struct reading_clock clock,
+    double tolerance_hz) {
+    double coarse = survey_comb_spacing_hz(reference_hz);
+    double fine = survey_fine_comb_spacing_hz(reference_hz);
+    enum reading_origin origin = READING_ORIGIN_UNKNOWN;
+
+    /*
+     * Each grid is asked twice, once for each hypothesis's own nearest
+     * multiple, because those are not the same multiple when the raster is
+     * finer than the separation -- see `reading_external_multiple_hz()`. The
+     * coarse comb is 14.4 MHz and never has that problem; the fine one is
+     * 1.6 MHz and does not either at these errors, but asking both costs four
+     * multiplications and removes a standing assumption about the ratio.
+     */
+    if (coarse > 0.0) {
+        origin = reading_origin_best(
+            origin, reading_origin_for(
+                        hz, reading_nearest_multiple_hz(hz, coarse), clock,
+                        tolerance_hz));
+        origin = reading_origin_best(
+            origin, reading_origin_for(
+                        hz, reading_external_multiple_hz(hz, coarse, clock),
+                        clock, tolerance_hz));
+    }
+    if (fine > 0.0) {
+        origin = reading_origin_best(
+            origin, reading_origin_for(
+                        hz, reading_nearest_multiple_hz(hz, fine), clock,
+                        tolerance_hz));
+        origin = reading_origin_best(
+            origin, reading_origin_for(
+                        hz, reading_external_multiple_hz(hz, fine, clock),
+                        clock, tolerance_hz));
+    }
+    return origin;
+}
+
+/*
+ * The two flags that adds, given the ones the frequency grids produced.
+ *
+ * Kept apart from `survey_suspect()` rather than threaded through it, because
+ * the two answer different questions from different evidence and only one of
+ * them needs a calibrated receiver. A caller with no residual calls
+ * `survey_suspect()` alone and loses nothing it could have had.
+ */
+static inline unsigned survey_suspect_origin(unsigned flags,
+                                             double reference_hz, double hz,
+                                             struct reading_clock clock,
+                                             double tolerance_hz) {
+    enum reading_origin origin = survey_suspect_origin_at(reference_hz, hz,
+                                                          clock,
+                                                          tolerance_hz);
+
+    if (origin == READING_ORIGIN_RECEIVER)
+        return SURVEY_SUSPECT_CLOCK_COHERENT;
+    /*
+     * A bare carrier the grids do not explain. Not merely "no verdict": the
+     * question has to have been askable, which is what UNEXPLAINED means and
+     * UNKNOWN does not.
+     *
+     * **And there has to be a carrier.** A noise maximum is narrow, so it
+     * carries `UNRESOLVED` like a tone does, and the first live sweep with
+     * this flag turned five refuted noise peaks at 1.9 to 4.4 dB into
+     * "unexplained bare carriers" -- a false warning in the one direction that
+     * costs the operator their trust in the line. `NO_CARRIER` is the
+     * confirmation pass's own answer to exactly that question, and a caller
+     * that has one must pass it in.
+     */
+    if (origin == READING_ORIGIN_UNEXPLAINED &&
+        (flags & SURVEY_SUSPECT_UNRESOLVED) &&
+        !(flags & (SURVEY_SUSPECT_REFERENCE | SURVEY_SUSPECT_NO_CARRIER)))
+        return SURVEY_SUSPECT_UNEXPLAINED;
+    return SURVEY_SUSPECT_NONE;
+}
+
+/*
  * Whether the flags amount to a warning. Narrowness alone does not: a pager, a
  * telemetry link and a beacon are all legitimately narrow, and crying wolf on
  * them would teach the operator to ignore the line.
  */
 static inline int survey_suspect_warns(unsigned flags) {
-    return (flags & (SURVEY_SUSPECT_REFERENCE | SURVEY_SUSPECT_STEP_CENTRE)) !=
-           0;
+    return (flags & (SURVEY_SUSPECT_REFERENCE | SURVEY_SUSPECT_STEP_CENTRE |
+                     SURVEY_SUSPECT_CLOCK_COHERENT)) != 0;
 }
 
 /*
@@ -470,6 +647,15 @@ static inline int survey_suspect_count(const struct survey_plan *plan,
  * to suspect, not what is true.
  */
 static inline const char *survey_suspect_reason(unsigned flags) {
+    /* The coherence reading first when it is there, because it is the stronger
+       evidence: a comb multiple is a coincidence argument and this is a
+       cancellation. Paired with the comb it says so. */
+    if ((flags & SURVEY_SUSPECT_CLOCK_COHERENT) &&
+        (flags & SURVEY_SUSPECT_REFERENCE))
+        return "on the receiver's reference comb, and reads exact: clocked "
+               "here";
+    if (flags & SURVEY_SUSPECT_CLOCK_COHERENT)
+        return "reads at its exact nominal: clocked with this receiver";
     if ((flags & SURVEY_SUSPECT_REFERENCE) &&
         (flags & SURVEY_SUSPECT_STEP_CENTRE))
         return "on the receiver's reference comb, and at a step centre";
@@ -477,6 +663,8 @@ static inline const char *survey_suspect_reason(unsigned flags) {
         return "on the receiver's 14.4 MHz reference comb";
     if (flags & SURVEY_SUSPECT_STEP_CENTRE)
         return "at a step centre, where the DC offset lands (filter is off)";
+    if (flags & SURVEY_SUSPECT_UNEXPLAINED)
+        return "a bare carrier on no modelled comb: unexplained";
     return NULL;
 }
 
