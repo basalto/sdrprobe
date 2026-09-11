@@ -164,19 +164,15 @@ static void test_round_trip(void) {
     check_str("and the site's name", read.site, "home-desk");
 }
 
-static void test_the_filename_is_a_filename(void) {
-    char path[256];
-    check_int("a plain name", site_history_path("home-desk", path,
-                                                sizeof(path)), 0);
-    check_str("becomes a path", path, "surveys/history-home-desk.txt");
-    /* A person types what they like into that field, and a slash in it would
-       write outside surveys/ or fail. */
-    site_history_path("lisbon/office 2", path, sizeof(path));
-    check_str("anything awkward is replaced", path,
-              "surveys/history-lisbon-office-2.txt");
-    check_int("and no site is no path",
-              site_history_path("", path, sizeof(path)), -1);
-}
+/*
+ * Turning a typed site into a filename used to be asserted here, over
+ * `site_history_path()`. That function addressed a history by site alone,
+ * which ADR-0022 stopped keying on and its 2026-09-11 amendment stopped
+ * promising, so it is deleted and this moved: `installation_history_path()`
+ * is the only builder now and `check-installation` asserts the same property
+ * of it -- a site typed with spaces or a slash still names one file, inside
+ * surveys/.
+ */
 
 /*
  * Recording one signal, as the confirmation pass does.
@@ -443,7 +439,6 @@ int main(void) {
     test_one_wide_carrier_counts_once();
     test_recording_one_signal();
     test_round_trip();
-    test_the_filename_is_a_filename();
 
     test_how_it_has_behaved();
     test_one_sweep_proves_nothing();

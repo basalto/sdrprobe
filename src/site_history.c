@@ -405,26 +405,6 @@ int site_history_missing(const struct site_history *history, const double *hz,
     return found;
 }
 
-int site_history_path(const char *site, char *out, size_t size) {
-    char safe[SITE_NAME_MAX];
-    size_t i;
-    int written;
-
-    if (!site || !*site || !out)
-        return -1;
-    for (i = 0; i + 1 < sizeof(safe) && site[i]; i++) {
-        char c = site[i];
-        int ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                 (c >= '0' && c <= '9') || c == '-' || c == '_';
-        safe[i] = ok ? c : '-';
-    }
-    safe[i] = '\0';
-    if (!safe[0])
-        return -1;
-    written = snprintf(out, size, "surveys/history-%s.txt", safe);
-    return (written < 0 || (size_t)written >= size) ? -1 : 0;
-}
-
 int site_history_load_path(const char *path, const char *label,
                            struct site_history *history) {
     char text[65536];
@@ -445,16 +425,6 @@ int site_history_load_path(const char *path, const char *label,
        caller asked about this one; keep the caller's spelling. */
     snprintf(history->site, sizeof(history->site), "%s", label);
     return 0;
-}
-
-int site_history_load(const char *site, struct site_history *history) {
-    char path[256];
-
-    if (site_history_path(site, path, sizeof(path)) < 0) {
-        site_history_init(history, site);
-        return -1;
-    }
-    return site_history_load_path(path, site, history);
 }
 
 int site_history_save_path(const char *path,
@@ -487,12 +457,4 @@ int site_history_save_path(const char *path,
     fclose(file);
     free(text);
     return 0;
-}
-
-int site_history_save(const struct site_history *history) {
-    char path[256];
-
-    if (!history || site_history_path(history->site, path, sizeof(path)) < 0)
-        return -1;
-    return site_history_save_path(path, history);
 }

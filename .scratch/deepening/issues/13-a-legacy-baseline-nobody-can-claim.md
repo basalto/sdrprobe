@@ -1,6 +1,8 @@
-# 10 - ADR-0022's legacy baseline has no way to be claimed
+# 13 - ADR-0022's legacy baseline has no way to be claimed
 
-Status: needs-triage
+Status: **resolved by amending the ADR, 2026-09-11.** Both triage questions
+answered no; the clause is gone, the three dead functions with it, and the
+property is checked. See the comments.
 Opened 2026-09-10, from a dead-code audit after the survey history was cleared.
 
 ADR-0022 says:
@@ -98,3 +100,61 @@ the definitions calling each other -- and by `git log -S` on
 The header comment written when the function was deleted also named a
 `site_history_load_for_site()` that has never existed; corrected in
 `src/site_history.h`.
+
+**2026-09-11 -- amended rather than built.** Both of the two questions that
+decide it came back no: there is no legacy history left on this machine
+(`surveys/history-home-sala-estar.txt` was deleted on 2026-09-10 with every
+sweep), and this is a single-operator repository, so the feature would have
+acted on nothing. The second question -- whether a claimed baseline is worth
+having -- answers itself once the first does: assigning sweeps of unknown
+provenance to a receiver and an antenna asserts exactly what ADR-0022 refuses
+to invent, and an operator who genuinely knows can express it with `mv`.
+
+**What changed.**
+
+- `docs/adr/0022-*`: the legacy-baseline clause now says a site-only history
+  is not read, not offered and not assignable, and ages out by being replaced.
+  A new section says the promise was never implemented and why it is not being
+  implemented now; the status line carries the amendment and its date. The
+  identity decision -- receiver, site, antenna -- is untouched and was always
+  implemented.
+- **Deleted**: `site_history_path()`, `site_history_load()` and
+  `site_history_save()`, the three entry points that addressed a history by
+  site. They had no caller outside `tests/`. This is the same deletion made
+  for `site_history_legacy_entries()` and for the same reason: a function that
+  exists and is never called reads as an implemented feature to everyone
+  after, which was the whole fault.
+- `src/site_history.h` and `src/installation.h` say what is true now and point
+  here. The header's own opening comment said "one file per site" and named
+  `history-<site>.txt` as the format's file; it names the receiving setup's.
+- `CLAUDE.md` and `docs/band-surveys.md` both described the site-only name as
+  the history the program writes. Both were wrong before this ticket, not by
+  it -- the receiver-scoped name landed with ADR-0022 and neither document
+  followed.
+
+**The check, which is the part worth having either way.**
+`test_a_legacy_baseline_is_inert()` in `check-installation`: a legacy file and
+a receiver-scoped file side by side, and `installation_history_load()` returns
+the receiver-scoped entries and nothing else -- then the receiver-scoped file
+is removed and it returns *no history* rather than adopting the legacy one.
+Both directions, because they fail differently: folding one in adds carriers
+that were never transmitted to a known baseline, and adopting one hands a
+fresh setup somebody else's memory so every real signal reads steady rather
+than new. "Not merged" is implemented as "not opened" today; if the reading
+half is ever built, the check keeps meaning what it says.
+
+It writes files, so `check-installation` now links `installation.c` and
+`config.c` and the test runs in a `mkdtemp` directory of its own. The
+operator's `surveys/` is never touched. 69 checks, up from 56.
+
+**One property moved rather than died.** `check-site-history` asserted that a
+site typed with spaces or a slash still names one file inside `surveys/` --
+over `site_history_path()`. That is worth keeping and
+`installation_history_path()` is the only builder left, so the assertion is in
+`check-installation` now, including the `surveys/` prefix the old one checked
+by construction.
+
+**What this costs, recorded rather than hidden.** An existing legacy file is
+now unreadable by any code path. Nothing here has one, so nothing here loses
+anything -- but a future reason to read one has to build the reading half
+first, and that is `site_history_load_path()` plus a name.
