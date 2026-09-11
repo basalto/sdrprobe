@@ -1,6 +1,8 @@
 # 14 - One LTE chain analysis, live or captured
 
-Status: ready-for-agent
+Status: ready-for-agent -- **Phase 1 done 2026-09-11**, and it found a
+disagreement the later phases have to settle first: the two adapters do not
+define a block the same way. See the comments.
 
 ## Summary
 
@@ -343,3 +345,113 @@ more alike than they are. The useful shared implementation is the public
 chain evidence, not the whole probe. Keeping that distinction is the condition
 under which this becomes a deep module rather than a large diagnostic result
 type exposing every internal measurement.
+
+## Comments
+
+### Phase 1, 2026-09-11: the baselines, and one thing that must be decided first
+
+**The two adapters disagree about what a block is, by a factor of two.**
+`scripts/lte_chain_probe.c:41` defines `BLOCK_PAIRS (16 * 16384)` = **262 144
+pairs**; the program's `SAMPLE_BLOCK_PAIRS` is **131 072**
+(`src/acquisition.h:28`). So `probe-lte-chain` reads `lte_b20_pci28.bin` as
+**12 blocks** where the live path would see 24, and every per-block figure
+below is per-*probe*-block.
+
+That is the same confusion `.scratch/device-model/issues/09-*` resolved for
+the program and did not reach the probe: dump1090's block was 262144 **bytes**
+and 131072 **pairs**, and those stopped being one number the day there were
+two containers. `16 * 16384` is the byte count wearing the pairs name.
+
+It is load-bearing here rather than untidy. This ticket's gate is "the same
+public per-block facts", and that sentence has no meaning across adapters that
+mean different things by "block" -- and `CLAUDE.md` already records what block
+size does to this exact decoder: halving it took LTE from 28 Master
+Information Blocks to 55 and cost 55% more processing time, because a MIB
+attempt needs enough samples to reach across a 40 ms period. Doubling it moves
+the other way.
+
+**Phase 2 must not start until this is decided**, and the decision is not
+obviously "make the probe match". A 262144-pair block gives the probe more
+room for the white-box diagnostics it exists for, and its numbers have been
+read and quoted at that size. The three honest options:
+
+1. **The module takes pair count as an argument and neither adapter's choice
+   is baked in** -- which the proposed interface already says ("the caller
+   supplies centred I/Q, pair count, sample rate, full scale and time"), so
+   the module is fine either way and only the *comparison* in Phases 3 and 4
+   needs care. Cheapest, and it means the Phase 4 gate must compare the probe
+   against **its own** Phase 1 numbers, never against the live ones.
+2. **Make the probe use `SAMPLE_BLOCK_PAIRS`** and re-baseline it. Honest, and
+   it changes every number in every transcript that quotes `probe-lte-chain`.
+3. **Leave it and say so in the probe's header**, which is what should happen
+   regardless of 1 or 2.
+
+Recommended: **1 plus 3**. The module is block-size agnostic by construction;
+the probe keeps its block and gains a comment saying why it differs; no gate
+ever compares a live figure with a capture figure.
+
+### The frozen public evidence
+
+**Captures, `make probe-lte-chain`, at the probe's 262144-pair block:**
+
+| | `lte_b20_pci28.bin` | `lte_b8_pci330_4port.bin` |
+| --- | --- | --- |
+| blocks | 12 | 6 |
+| blocks with a cell | 12 | 6 |
+| blocks with a message | 12 | -- |
+| cell-sightings | 13 | 7 |
+| most at once | 2 | 2 |
+| multi-cell silent | 0 | 0 |
+| single-cell refused | 0 | 0 |
+| identity | 28, normal CP | 330 |
+| ports | 2 | 4 |
+| broadcast | 1-port combining, 50 RB (9.00 MHz), PHICH normal 1/6 | -- |
+
+The invariant this ticket's gate names -- *the multi-cell result never loses
+the single-cell one* -- holds on both: silent 0 against refused 0.
+
+**Probe-only diagnostics that must stay out of the shared interface**, present
+in the same run and deliberately not in the table above: per-root PSS score
+landscapes (`N_ID_2 0/1/2` with offsets), CP normal-versus-extended
+competitors, timing shift and sidelobe, parity-bit distance per combining
+hypothesis (1-port best 0 mean 0.0, 4-port best 0 mean 3.8), per-port
+reference coherence (0.729 / 0.901 / 0.411 / 0.326 against a 0.30 chance
+level), and broadcast repetition at +1..+5 in subframes 0 and 7.
+
+**Live, `--lte-chain --lte-chain-seconds 60`, receiver 77771111153705700 at
+home-sala-estar, telescopic, +32 ppm restored, 2026-09-11 20:19-20:21 local:**
+
+| | EARFCN 6200 | EARFCN 3625 |
+| --- | --- | --- |
+| carrier | 796 000 000 Hz | 942 500 000 Hz |
+| rate | 1 920 000 | 1 920 000 |
+| blocks | 878 | 878 |
+| cell-sightings | 232 | 756 |
+| decoded | 96 | 713 |
+| agreed | 95 | 712 |
+| identities reported | 13 | 10 |
+| confirmed | 28 (97 looks, 96 decoded) | 402 (720/715), 190 (9/7) |
+| loudest unread | 146 (97 looks, 0 decoded) | 410 (161/0) |
+
+**What may vary with the air and what may not.** Block counts, sighting
+counts, and which spurious identities appear at one or two looks are air and
+timing and may move freely. These may not, and are regressions until
+independently corroborated:
+
+- the **confirmed** set. 6200 must confirm 28; 3625 must confirm 402, and 190
+  is the second cell this ticket's own history says was being lost;
+- **decoded >= agreed**, always, and by a small margin -- 96/95 and 713/712.
+  Agreement is adjacent-message equality, so it can never exceed decodes;
+- **PCI 146 at 97 looks and 0 decodes stays `unread`**. It is seen exactly as
+  often as the real cell and never decodes, which is the case `lte_confirm`
+  exists for and the one a sightings threshold gets wrong;
+- the primary is chosen by **strongest PSS correlation** and not by reference
+  power -- `CLAUDE.md` records a run of 146 blocks reset to 3 when it was.
+
+**One number to understand rather than freeze.** On 3625 the per-cell decodes
+sum to 722 (715 + 7) against a summary `decoded 713`. That is consistent with
+the summary counting *blocks in which something decoded* while the per-cell
+figure counts *decodes per identity*, so a block decoding for two identities is
+one and two respectively. The refactor must keep both meanings distinct --
+this ticket's task list already says so -- but the relation should be asserted
+rather than assumed, because if it is not that, it is a double-count.

@@ -72,7 +72,13 @@ callers it was earning its keep.
 5. **FM receiver interface** (`05`) -- speculative; analysis mode wants
    internals on screen and they must become readouts, not vanish.
 6. **`struct app` carve-out** (`06`) -- not a project; the measure of whether
-   01-04 worked. **Measured, 2026-09-09**: `app.h` is 898 lines against the
+   01-04 worked. **Closed 2026-09-11 at 37 fields**, down from 85: twenty
+   containers, eight handoffs, ticket 09's three parked for the second
+   receiver, and six that `sdrprobe.c` alone reads and that are its own
+   process lifecycle. The two largest reductions came from `11` and `10`,
+   neither of which was opened to shrink this record -- they asked what owns a
+   field rather than where it should live. The earlier measurement, for the
+   record: **2026-09-09**: `app.h` is 898 lines against the
    1019 the ticket cites, and `struct app` holds **85 fields, 30 of which are
    handoffs or per-view containers**. So 01-04 worked, and the ticket cannot
    close: its premise -- "each straggler belongs to one of 01-04" -- is wrong,
