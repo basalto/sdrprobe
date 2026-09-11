@@ -1,7 +1,9 @@
 # 06 - Finish moving view state out of `struct app`
 
-Status: ready-for-agent, 2026-09-09 -- the audit is below and the answer
-is **not** "only handoffs". Three follow-up tickets, named at the end.
+Status: **resolved 2026-09-11. 37 fields**, down from 85 when this ticket was
+opened. What is left is containers, handoffs, ticket 09's three, and six that
+belong to `sdrprobe.c` alone -- which is a new straggler this audit found and
+is recorded below rather than left implicit.
 
 `app.h` is 1 019 lines. Its own header comment says the carve-out into
 `struct scope_view`, `struct gsm_view` and the rest is "an organisation of the
@@ -180,3 +182,76 @@ What is left of the four clusters is one: **the receiver's applied state**,
 ticket 09, which is `needs-triage` and should wait for the second receiver.
 The spectrum display cluster stands as it was -- `sdrprobe.c` computing for
 `view_scope.c` is a handoff. All four overlay flags are nested.
+
+## Closed, 2026-09-11: 37 fields
+
+`struct app` holds **37 fields**, against 85 when this ticket was opened, 62
+after 07 and 08, and 60 after 08's follow-up. The twenty-three since then came
+from two tickets that were not carve-outs at all:
+
+- **`11-acquired-signal-frame`** took about twenty loose arrays, counters and
+  ready flags into `struct signal_frame` -- centred I/Q, magnitudes, their
+  statistics, the DC-filtered copy, the transform and its peak hold. They were
+  never a cluster anybody had named; `process_block()` left them on
+  `struct app` for every view, overlay, session and headless path to read.
+- **`10-receiver-runtime`** folded the three applied fields into
+  `struct receiver_applied`, because a rollback over three separately owned
+  fields is three chances to restore two of them.
+
+Neither was opened to shrink this record, which is worth noticing: the two
+largest reductions came from asking *what owns this* rather than *where should
+this live*.
+
+### What the 37 are
+
+| group | n | verdict |
+| --- | --- | --- |
+| per-view and subsystem containers | 20 | correct -- `sv`, `survey`, `gsm`, `adsb`, `tetra`, `lte`, `fm`, `set`, `help`, `cal`, `bandscan`, `acq`, `options`, `config`, `installation`, `frame`, `applied`, `device`, `lease`, `source` |
+| handoffs between screens | 8 | correct -- `tab` (6 files), `plot` (10), `view` (5), `remove_dc` (5), `receiver_error` (5), `decode` (3), `source_label` (2), `waterfall_lower_dbfs` (2) |
+| the receiver's applied state | 3 | **ticket 09** -- `receiver_mode` (14 files), `applied_gain_tenths` (5), `applied_manual_gain` (3) |
+| `sdrprobe.c`'s own process lifecycle | 6 | **new, see below** |
+
+The deletion test passes for the first two groups: delete any of them and two
+or more files break. The ticket's closing condition was "when the list is only
+handoffs", and it is, apart from two groups that each have an owner.
+
+### Ticket 09's three are correctly parked
+
+`receiver_mode` is read in **fourteen files**, more widely than the sample
+buffers ever were, and ticket 09's own triage says the interesting question is
+whether it belongs with the other two at all -- it is which *kind* of source is
+open, which `device_backend.h` and `device_profile.h` already know, so it may
+be deleted rather than moved. That, and where gain belongs, are exactly what
+one device cannot answer. Parked for the second receiver, correctly.
+
+### The new straggler: six fields only `main` reads
+
+`window_ready`, `signals_ready`, `capture`, `tuner_label`, `old_sigint` and
+`old_sigterm` are read by **`src/sdrprobe.c` and nothing else**. By this
+ticket's own rule -- "a field that survives that only one file reads is the
+next straggler" -- they are stragglers.
+
+But the rule needs one qualification this audit is the first to need, because
+until now every single-reader field was read by a file that did **not** own it.
+These are read by the file that *does*: `sdrprobe.c` owns `main`, the frame
+loop, the worker thread and the signal mask, and these six are that file's
+process lifecycle. A field read once by its owner is untidy; a field read once
+by somebody else is misplaced. Only the second was ever the fault this ticket
+was chasing.
+
+So the finding is smaller than it looks and is recorded rather than actioned:
+they belong in a `struct` beside the frame loop or as file statics, which is
+tidying rather than decoupling, and neither would make a view any less coupled
+to `app.h`. **Whoever next opens `sdrprobe.c` for another reason should take
+them**; opening a ticket to move six fields inside one file would be
+speculative generality of the kind this repository's deletion test exists to
+refuse.
+
+### What this does not claim
+
+`app.h`'s own header comment still stands and is the thing to read next: every
+view still includes it and reads one big record, so this is an organisation of
+the same coupling, not a set of modules. **37 fields is a smaller record, not a
+decoupled one.** The change that would make views into modules -- state with
+code, no `app.h` include, the way `acquisition.c` is -- is this ticket's own
+"not in scope" and wants its own spec.

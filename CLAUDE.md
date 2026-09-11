@@ -1280,9 +1280,17 @@ acquisition` in `acquisition.h`, and `struct scope_view`, `struct gsm_view`,
 `app.h`. Reach for `app->cal.*` rather than adding a `calibration_*` field back
 to `struct app` — advice `struct app` did not follow until sixteen of them
 were counted and moved, which is what the audit in
-`.scratch/deepening/issues/06-*` is for: **85 fields when it was counted, 60
-now, and the survivors are handoffs, per-view containers and the receiver's
-own applied state (ticket 09).** Three of those moves corrected the field's
+`.scratch/deepening/issues/06-*` was for: **85 fields when it was counted, 37
+now, and the ticket is closed on that number.** Twenty are containers, eight
+are genuine handoffs, three are the receiver's applied state (ticket 09,
+parked for the second receiver), and six are `sdrprobe.c`'s own process
+lifecycle -- read by that one file, which is the deletion test failing in the
+harmless direction: a field read once by its *owner* is untidy where one read
+once by somebody else is misplaced, and only the second was ever the fault.
+**The two largest reductions came from tickets that were not carve-outs at
+all** -- `struct signal_frame` took about twenty loose arrays and counters,
+`struct receiver_applied` took three -- because they asked what *owns* a field
+rather than where it should live. Three earlier moves corrected the field's
 *owner* rather than its address, and **the question that found all three is
 worth asking of every field before moving it**: `scan_selected_arfcn` was the
 GSM view's inspected channel and not the scan's, set by `--arfcn` with no scan
