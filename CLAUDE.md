@@ -1563,7 +1563,10 @@ share the header -- which is exactly what makes it hard to notice.
   since TETRA channels are 25 kHz apart, a search wide enough to cover that is
   wide enough to select the neighbour.
   `carrier_75000_bare.bin` is not a technology and that is the point: 2 s of
-  the 75.0005 MHz clock harmonic -- 25 MHz x 3 -- which the band plan calls an
+  the 75.0005 MHz clock artifact -- the first member of a 75 MHz x 2^n family
+  clocked with this receiver, recorded here as 25 MHz x 3 until 175 and 225
+  were measured absent (`.scratch/device-model/issues/10-*`) -- which the band
+  plan calls an
   ILS marker beacon and which carries nothing. Recorded **300 kHz below it**,
   so the carrier lands at +300 kHz and clear of the receiver's own DC offset;
   `signal_find_carrier()` guards a band around zero and would otherwise find
