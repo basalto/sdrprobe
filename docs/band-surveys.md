@@ -261,8 +261,10 @@ tuned below.
 
 ## What the site remembers
 
-Saving a sweep also folds it into `surveys/history-<site>.txt`, a small
-line-oriented summary of everything that site has ever heard: each frequency,
+Saving a sweep also folds it into
+`surveys/history-<receiver>-<site>-<antenna>.txt` -- the whole receiving setup,
+ADR-0022, because a change of antenna is not a change on air -- a small
+line-oriented summary of everything that setup has ever heard: each frequency,
 the level it was last heard at, how many sweeps it has appeared in, and which
 sweep it last appeared in. The JSON files are the archive; this is what the
 window reads, and it is deliberately simple enough to edit or delete by hand --
