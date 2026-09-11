@@ -99,10 +99,10 @@ static void adsb_format(const struct adsb_message *msg,
 void update_adsb(struct app *app, double now) {
     int count, i;
 
-    if (!app->have_samples || app->pair_count == 0)
+    if (!app->frame.have_samples || app->frame.pair_count == 0)
         return;
-    count = adsb_session_feed(&app->adsb.session, app->magnitudes,
-                              app->pair_count, now);
+    count = adsb_session_feed(&app->adsb.session, app->frame.magnitudes,
+                              app->frame.pair_count, now);
 
     /* Fade the previous rows' highlight before adding new ones. */
     adsb_log_fade(app->adsb.log, app->adsb.log_count);
@@ -337,7 +337,7 @@ void draw_adsb(struct app *app) {
     struct sdrgui_message_log_params params = {
         analysis ? l.log_split : l.log_full, rows, app->adsb.log_count,
         log_caption,
-        app->have_samples ? "Listening for Mode S frames..."
+        app->frame.have_samples ? "Listening for Mode S frames..."
                           : "Waiting for samples..."
     };
     sdrgui_message_log(&params);

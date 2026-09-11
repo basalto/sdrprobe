@@ -966,6 +966,22 @@ Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
   built**: an empty 25 kHz channel spreads 8.7 kHz against TETRA's 5.0 in the
   same channel, so the noise is wider than the signal and its modes would be
   the noise's.
+- `src/signal_frame.{c,h}` (`signal_frame_`) — one sample block, converted
+  and measured, and the only owner of what comes out of it: centred I/Q and
+  magnitudes, their min/mean/max, the signal statistics, the DC-filtered copy
+  the **spectrum** is taken from -- never the samples a decoder reads -- the
+  transform, its peak hold, and whether any of it is ready. This was
+  `process_block()` in `sdrprobe.c` leaving twenty-odd loose arrays, counters
+  and ready flags on `struct app` for every view, overlay, session and
+  headless path to read directly; `check-sdr-dsp` proved each primitive and
+  **nothing proved their composition**, which is where a peak hold survives a
+  change of transform size or a decoder is handed filtered samples. It knows
+  nothing about what is on screen: the transform size is an argument, because
+  `input_scope_owns_spectrum()` is a question about presentation, and a change
+  of geometry is *reported* rather than acted on -- the frame drops its own
+  peak hold and the Scope drops the waterfall's rows, because those rows are
+  not the frame's to clear. `process_block()` survives as the thirty lines of
+  application policy that decide the size and act on that report.
 - `src/signal_findings.h` — one layer over that, and the same relation to it
   that `lte_findings.h` has to the LTE measurements: sentences with their
   numbers attached, and refusals where the measurement cannot reach. It is
