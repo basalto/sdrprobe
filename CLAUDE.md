@@ -1248,6 +1248,21 @@ Its shape:
   `0..76` and looks like dB -- what a step is worth depends on which of three
   band tables is loaded, chosen at 1300 and 4000 MHz -- so the panel writes
   `index 40` rather than a decibel it did not measure.
+- **A retune is a transaction, and it is checked.**
+  `src/receiver_runtime.{c,h}` owns the sequence every screen's retune goes
+  through -- stop, apply, flush, read back, restart -- and the rollback at
+  each step, and `check-receiver-runtime` drives all of it against a fake
+  device and a fake worker. **Not one of those branches had ever executed
+  under a check**: they took `struct app`, they lived beside `main()`, and the
+  receiver path is the half no check reaches (ADR-0012). The case that matters
+  is the rate taking and the tuning then refusing, where a refusal has to put
+  the *rate* back too or the receiver is left sampling at a rate nothing asked
+  for. Phase 1a of that ticket also measured something worth knowing: **the
+  RTL-SDR backend does not refuse an unreachable setting** -- 10 Hz and a rate
+  inside librtlsdr's own hole both return success and read back -- so
+  "Receiver rejected ..." is a message for a failure this device does not
+  produce from an out-of-range value, and nothing notices a tuning the tuner
+  could not honour.
 - **Why a retune failed has its own name.** `retune_receiver()` is the retune
   every screen uses, and all five of its failure messages used to be written
   into `calibration_status` and prefixed "Calibration" -- so a survey step

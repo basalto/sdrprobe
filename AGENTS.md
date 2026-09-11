@@ -407,6 +407,14 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   `while` loop for the sweep, the pass and the measurement, because the
   session makes them one machine; the two shapes it replaced were the same
   loop written twice with different bugs.
+- `src/receiver_runtime.{c,h}` — changing what the receiver is doing, as a
+  transaction that either takes or leaves it where it was found: stop, apply,
+  flush, read back, restart, with a rollback at every step. It was
+  `retune_receiver*()` in `sdrprobe.c`, where no check could reach a single
+  rollback branch. It **borrows** rather than owns -- the applied state stays
+  the application's and the worker's lifecycle stays with the thread -- because
+  which fields a receiver's applied state should hold is a question for the
+  second receiver (`.scratch/deepening/issues/10-*`).
 - `src/signal_frame.{c,h}` — one sample block, converted and measured:
   centred I/Q, magnitudes and their summary, the signal statistics, the
   DC-filtered copy the spectrum is taken from, the transform, its peak hold

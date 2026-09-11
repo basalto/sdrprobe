@@ -41,7 +41,7 @@ static struct lte_layout lte_layout_now(void) {
 }
 
 int lte_on_grid(const struct app *app) {
-    return app->applied_sample_rate == (uint32_t)LTE_SAMPLE_RATE_HZ;
+    return app->applied.sample_rate_hz == (uint32_t)LTE_SAMPLE_RATE_HZ;
 }
 
 /* lte_band_for_number() lives with the table now, so the calibration picker
@@ -93,10 +93,10 @@ static void park_in_band(struct app *app) {
     if (!lte_earfcn_downlink_hz(band->earfcn_low, &low) ||
         !lte_earfcn_downlink_hz(band->earfcn_high, &high))
         return;
-    if (app->applied_frequency >= low && app->applied_frequency <= high)
+    if (app->applied.frequency_hz >= low && app->applied.frequency_hz <= high)
         return;
     if (lte_earfcn_downlink_hz(lte_scan_candidate(band, 0), &first))
-        retune_receiver(app, first, app->applied_ppm);
+        retune_receiver(app, first, app->applied.ppm);
 }
 
 void enter_lte(struct app *app) {
@@ -111,9 +111,9 @@ void enter_lte(struct app *app) {
      * halves back, so there is nothing left to return.
      */
     if (!lte_on_grid(app) &&
-        retune_receiver_at_rate(app, app->applied_frequency,
+        retune_receiver_at_rate(app, app->applied.frequency_hz,
                                 (uint32_t)LTE_SAMPLE_RATE_HZ,
-                                app->applied_ppm) < 0) {
+                                app->applied.ppm) < 0) {
         snprintf(app->lte.session.status, sizeof(app->lte.session.status),
                  "The receiver would not move to 1.92 MS/s: %.100s",
                  app->receiver_error);
@@ -140,7 +140,7 @@ static int scan_tune(struct app *app, unsigned int earfcn, double now) {
     uint32_t hz = 0;
     if (!lte_earfcn_downlink_hz(earfcn, &hz))
         return -1;
-    if (retune_receiver(app, hz, app->applied_ppm) < 0)
+    if (retune_receiver(app, hz, app->applied.ppm) < 0)
         return -1;
     app->lte.scan.step_started = now;
     app->lte.scan.settled = 0;
@@ -268,7 +268,7 @@ static void scan_select(struct app *app, int row) {
     app->lte.session.cell_valid = 0;
     app->lte.session.mib_valid = 0;
     app->lte.announced_pci = -1;
-    retune_receiver(app, scan->found[row].frequency_hz, app->applied_ppm);
+    retune_receiver(app, scan->found[row].frequency_hz, app->applied.ppm);
 }
 
 /*
@@ -301,7 +301,7 @@ static void scan_confirm_step(struct app *app, double now, int have_block) {
         app->frame.pair_count >= LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE) {
         scan->looks++;
         if (lte_cell_search(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
-                            (double)app->applied_sample_rate, &cell,
+                            (double)app->applied.sample_rate_hz, &cell,
                             NULL) == 1 &&
             cell.pci == scan->found[scan->confirm_index].pci)
             scan->pending_hits++;
@@ -373,7 +373,7 @@ void update_lte_scan(struct app *app, double now, int have_block) {
         app->frame.pair_count >= LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE) {
         scan->looks++;
         if (lte_cell_search(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
-                            (double)app->applied_sample_rate, &cell,
+                            (double)app->applied.sample_rate_hz, &cell,
                             NULL) == 1) {
             if (cell.pci == scan->pending_pci) {
                 scan->pending_hits++;
@@ -440,9 +440,9 @@ void update_lte(struct app *app, double now) {
        drawing them. */
     struct lte_trace *trace = app->lte.analysis_mode ? &app->lte.trace : NULL;
 
-    app->lte.earfcn = lte_earfcn_for_hz((double)app->applied_frequency);
+    app->lte.earfcn = lte_earfcn_for_hz((double)app->applied.frequency_hz);
     lte_session_feed(&app->lte.session, app->frame.i_samples, app->frame.q_samples,
-                     app->frame.pair_count, (double)app->applied_sample_rate,
+                     app->frame.pair_count, (double)app->applied.sample_rate_hz,
                      app->device.full_scale, now, trace, &event);
 }
 
@@ -686,9 +686,9 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
      * measured on a different band.
      */
     snprintf(text, sizeof(text), "%+.1f ppm  (%+d sc)",
-             app->applied_frequency > 0
+             app->applied.frequency_hz > 0
                  ? cell->frequency_offset_hz * 1e6 /
-                       (double)app->applied_frequency
+                       (double)app->applied.frequency_hz
                  : 0.0,
              cell->integer_offset);
     draw_row_at(&rows, r++, "Crystal error", text, row_value);
@@ -802,7 +802,7 @@ static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
         int i;
 
         if (!lte_findings_from(&app->lte.session.stats,
-                               (double)app->applied_frequency, &findings))
+                               (double)app->applied.frequency_hz, &findings))
             return;
         sdrgui_text_fit("What that adds up to", (int)rect.x + 12, (int)top, 15,
                         rect.width - 24.0f, panel_caption);
@@ -954,13 +954,13 @@ void draw_lte(struct app *app) {
         const struct lte_band *tuned = lte_band_for_earfcn(app->lte.earfcn);
         snprintf(text, sizeof(text),
                  "LTE downlink   EARFCN %d   %.3f MHz   band %d (%s)",
-                 app->lte.earfcn, app->applied_frequency / 1e6,
+                 app->lte.earfcn, app->applied.frequency_hz / 1e6,
                  tuned ? tuned->band : 0, tuned ? tuned->name : "unknown");
     }
     else
         snprintf(text, sizeof(text),
                  "LTE downlink   %.3f MHz   outside band %d -- pick a band, "
-                 "or scan one", app->applied_frequency / 1e6,
+                 "or scan one", app->applied.frequency_hz / 1e6,
                  band ? band->band : 0);
     sdrgui_text_fit(text, header_x, 88, 17, l.header_right - l.header_left,
                     panel_caption);
