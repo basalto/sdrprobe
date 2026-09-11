@@ -145,3 +145,12 @@ has ever been pointed at in that range.** Whatever else the comb model needs,
 it is not a small effect: in the aeronautical bands the receiver's own spurs
 are 20 dB above anything external, which is why
 `.scratch/am-airband/issues/01-*` failed its gate today.
+
+**What 130 and 135 MHz actually are, 2026-09-11:** bare carriers, not the
+"modulated carriers" the survey called them. Measured at five channel widths,
+130.000000's standing fraction tracks `P/(P + n*W)` -- a pure line in noise --
+to within 0.03 at every one, reading "a bare carrier" once the channel is
+1 kHz. The modulated verdict was the channel, not the signal: a narrow line in
+a wide channel reads modulated however pure it is, and the confirmation pass's
+channel is the candidate's measured bandwidth, which on a coarse sweep is
+about a bin. `docs/aeronautical-vhf-at-this-site.md` section 4 has the table.
