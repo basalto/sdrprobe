@@ -1,8 +1,9 @@
 # 10 - There is a second clock here, and the comb test cannot see it
 
-Status: needs-triage -- **the first of the three gates is answered**
-(2026-09-11) and the third is retired, by `11-what-a-frequency-offset-says.md`.
-What remains is the second, which is the representation. See the comments.
+Status: **ready-for-agent, 2026-09-11.** All three gates are answered and the
+family is measured: **75, 150 and 300 MHz, clock-coherent; 37.5, 175, 225 and
+600 absent.** What remains is the representation, and the measurement now
+constrains it. See the comments.
 Opened 2026-09-10, from the sweep `surveys/2026-09-10-002420-24M-1766M.json`
 and three narrow confirmation passes over it.
 
@@ -191,6 +192,88 @@ to invent one, for the reason this ticket gives about the rate-range hole.
 applied, a 128-137 MHz sweep reads 131.204163, 129.604553 and 136.005188
 against a coherent model predicting 131.204198, 129.604147 and 136.004352 --
 35, 406 and 836 Hz. Three modelled families, each moved four kilohertz by
-turning the correction on. If the 25 MHz family is real, the same sweep run at
-75, 150 and 175 MHz should show it moving with them and by the same fraction,
-which is a sharper test than a different room and costs a minute.
+turning the correction on.
+
+**2026-09-11, later: the family is measured, and the test proposed in the
+paragraph above does not work.**
+
+*The bad test first, because it is the instructive half.* "Sweep 75, 150 and
+175 with the correction on and off and see whether the family moves with it"
+discriminates **nothing**. Turning the correction on rescales the whole
+frequency axis, so every reading moves by `f*k` -- coherent and external
+alike. Measured, over a 976.6 Hz bin:
+
+| reading | uncorrected | corrected | shift | `f*k` |
+| --- | --- | --- | --- | --- |
+| 75 MHz family | 75 000 488 | 75 002 441 | +1953 | 2388 |
+| 150 MHz family | 150 000 488 | 150 005 371 | +4883 | 4776 |
+| 174.718 (a real band III signal) | 174 713 379 | 174 718 262 | +4883 | 5562 |
+| 74.877 (external) | 74 877 441 | 74 879 395 | +1954 | 2384 |
+
+The external signal at 74.877 moved by the same relative amount as the family
+member 123 kHz away from it. A shift that happens to everything is a property
+of the axis, not of the source.
+
+*What does discriminate is what ticket 11 already said*: the **absolute**
+reading in an **uncorrected** sweep. A coherent tone reads its exact nominal;
+an external one reads `f*k` low. Sweeping 2 MHz windows at `--ppm 0`, a
+976.6 Hz bin, an 8 dB bar:
+
+| tested | found | offset from exact | prominence | verdict |
+| --- | --- | --- | --- | --- |
+| 37.500000 | nearest 37.438965 | 61 kHz | 13.4 | **absent** |
+| **75.000000** | 75.000488 | **+488 Hz** | 17.0 | **coherent** |
+| **150.000000** | 150.000488 | **+488 Hz** | 11.2 | **coherent** |
+| 175.000000 | nearest 174.718262 | 282 kHz | 12.3 | **absent** |
+| 225.000000 | nearest 224.631348 | 369 kHz | 9.0 | **absent** |
+| **300.000000** | 300.000488 | **+488 Hz** | 17.0 | **coherent** |
+| 600.000000 | nothing over the bar | -- | -- | **absent** |
+
+External would have read 2.4, 4.8 and 9.6 kHz low at the three that are there.
+All three read **+488 Hz, which is exactly half a bin** (976.6/2 = 488.3) --
+the quantisation of a tone reported at its bin's centre, and the same figure
+at all three, so it is the grid and not the sources.
+
+## What that settles, and what it does not
+
+**It is not 25 MHz x n**, which is what this ticket and
+`docs/what-is-on-air.md` assumed from 75.0005 being 25 x 3. 175 is 25 x 7 and
+is absent at a 12 dB-prominence bar; 225 is 25 x 9 and absent.
+
+**It is 75 MHz x 2^n** -- present at x1, x2, x4 and absent at the odd multiple
+x3. That asymmetry is the finding: harmonic distortion of a 75 MHz oscillator
+produces 150 **and** 225, and a chain of frequency doublers or dividers
+produces octaves and never the third. So the shape to model is a **binary
+chain**, not a harmonic comb, and `survey_comb_spacing_hz()`'s "a tone every
+reference/n" cannot express it -- which is gate two, answered in the negative
+for the representation that exists.
+
+**It still does not say which oscillator.** 75 MHz is not 28.8/n and not
+28.8*n; 28.8 x 125/48 is 75 exactly, which a fractional-N synthesiser would do
+and which is a hypothesis rather than a measurement. "Coherent with this
+receiver's reference" is what has been established and is all that has been.
+
+**Nor whether it is inside the dongle.** Everything above says the source
+shares this receiver's reference. `docs/receiver-artifacts.md` already records
+that the comb sorts into two kinds -- tones made and heard entirely inside the
+receiver, and tones the dongle radiates and hears back -- and nothing here
+separates them. The unplug test still does that and nothing else does.
+
+## What is left to do
+
+A representation for a binary chain beside `survey_comb_spacing_hz()`'s
+harmonic comb, and the evidence to justify it is above rather than assumed.
+Two things to be careful of, both of which this ticket already argued:
+
+- **Do not add a `device_profile` field for one unconfirmed source.** What is
+  confirmed is a family on *this* receiver at *this* site. A second receiver
+  is what turns "this chip does this" into a fact about a part, and
+  `.scratch/calibrating-the-flags/` was opened to record exactly that
+  distinction.
+- **Whatever is added must keep a source with no clock silent.** A capture has
+  no crystal to blame and must get no chain tests, for the reason it gets no
+  comb tests.
+
+600 MHz is worth one more look at a lower bar before the chain is called
+three-deep; it was swept at the default 8 dB and found nothing, which is a
+weaker statement than the four absences above.

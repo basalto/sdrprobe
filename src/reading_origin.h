@@ -173,11 +173,13 @@ enum reading_origin {
      * reference.
      *
      * It says *coherent with this reference*, and deliberately not which
-     * oscillator or which divider: 75.000000 and 150.000000 MHz read exact
-     * here and 25 MHz is not 28.8/n, so how a 28.8 MHz reference comes to
-     * produce them is unexplained. A fractional-N synthesiser would do it, and
-     * so would the family being something other than 25 MHz x n that happens
-     * to hit both. "Belongs to the receiver" can only mean this operationally.
+     * oscillator or which divider. 75.000000, 150.000000 and 300.000000 MHz
+     * read exact here while 37.5, 175 and 225 are absent -- a 75 MHz x 2^n
+     * family, so a doubler or divider chain rather than a harmonic comb -- and
+     * 75 MHz is neither 28.8*n nor 28.8/n. A fractional-N synthesiser would
+     * produce it and that is a hypothesis, not a measurement. "Belongs to the
+     * receiver" can only mean this operationally
+     * (`.scratch/device-model/issues/10-*`).
      */
     READING_ORIGIN_RECEIVER,
     /*
