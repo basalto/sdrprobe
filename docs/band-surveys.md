@@ -149,10 +149,10 @@ From a script, `--survey-confirm` runs it as soon as a sweep finishes, and
 prints the verdicts:
 
 ```
-# confirm <frequency_hz> <claim> <verdict> <prominence_db> <hits>/<looks> <bandwidth_hz> <flags|->
-confirm 94728027 new refuted 2.9 0/6 1953 unresolved
-confirm 95706500 missing refuted 47.8 6/6 33203 -
-confirm 1617030029 new intermittent 6.0 1/6 26367 -
+# confirm <frequency_hz> <claim> <verdict> <prominence_db> <hits>/<looks> <bandwidth_hz> <flags|-> <measured_hz|0>
+confirm 94728027 new refuted 2.9 0/6 1953 unresolved 94563477
+confirm 95706500 missing refuted 47.8 6/6 33203 - 95706812
+confirm 129605469 new confirmed 23.1 6/6 6836 reference,clocked-here 129604689
 confirm-summary asked 11 confirmed 8 intermittent 1 refuted 2
 ```
 
@@ -160,6 +160,25 @@ The count is how many of the looks it was up in and how many there were; the
 width and the flags after it are what the closer look measured, which the
 sweep could not supply -- at 212 kHz a bin cannot resolve a 25 kHz carrier,
 and the comb test refuses to run at all when the bin is that wide.
+
+**Two frequencies, and they are not the same number.** The first keys the row
+and matches the `candidate` rows above it: it is what the sweep asked about.
+The last is where the pass actually found the carrier, and it is **the
+frequency the flags are about** -- the pass retunes to the target, searches
+around it, and reports where the energy was. One live row read
+`confirm 135833252 ... reference,unresolved,clocked-here 136005118`: three
+flags true of 136.005 printed beside 135.833, 172 kHz away. Only the first was
+printed until 2026-09-11, so that row asserted three things of a frequency
+none of them could be true of
+(`.scratch/reading-origin/issues/03-*`).
+
+The gap is worth reading on its own. On a **refuted** row it runs to 150-200
+kHz, which is the carrier search wandering to the edge of its window with
+nothing to lock to -- the same signature `testfiles/carrier_75000_bare.json`
+describes for an empty frequency. On a confirmed row it should be small, and a
+large one means either a lopsided carrier or the search finding a stronger
+neighbour; nothing here tells those apart yet, and printing both is what makes
+the question askable.
 
 **Both callers print that record through one function.** The window's pass and
 the headless sweep's each had their own `printf` loop, and the two had already

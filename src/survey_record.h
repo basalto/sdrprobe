@@ -8,6 +8,7 @@
 #include "survey_confirm.h"
 #include "sdr_dsp.h"
 #include "reading_origin.h"
+#include "survey_suspect.h"
 #include "survey_sweep.h"
 
 /*
@@ -87,7 +88,7 @@ struct survey_candidate {
  * `snprintf()`'s *would-have-been* length, so one truncation made `size -
  * used` wrap to an enormous size_t and the next write ran off the end.
  */
-#define SURVEY_FLAG_TEXT_MAX 96
+#define SURVEY_FLAG_TEXT_MAX 112
 
 const char *survey_flag_text(unsigned int flags, char *buffer, size_t size);
 

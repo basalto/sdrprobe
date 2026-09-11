@@ -81,11 +81,11 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/debug_log.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h \
-	$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/chrome_layout.h \
+	$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
 	$(SRC)/receiver_lease.h $(SRC)/device_profile.h \
@@ -202,7 +202,7 @@ check-survey-bands: $(TESTS)/survey_bands_test.c $(TESTS)/check.h \
 check-band-plan: $(TESTS)/band_plan_test.c $(TESTS)/check.h $(SRC)/band_plan.c $(SRC)/band_plan.h $(SRC)/band_plan_view.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/band_plan_test \
-		$(TESTS)/band_plan_test.c $(SRC)/band_plan.c
+		$(TESTS)/band_plan_test.c $(SRC)/band_plan.c -lm
 	$(Q)./$(BUILD)/band_plan_test
 
 check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(TESTS)/check.h $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
@@ -285,7 +285,7 @@ check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
 check-survey-record: $(TESTS)/survey_record_test.c $(TESTS)/check.h \
 		$(SRC)/survey_record.c $(SRC)/survey_record.h \
 		$(SRC)/survey_carrier.h $(SRC)/survey_confirm.h \
-		$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/survey_sweep.h \
+		$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/survey_sweep.h \
 		$(SRC)/band_plan.c $(SRC)/band_plan.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(SRC)/installation.h
 	@mkdir -p $(BUILD)
@@ -318,6 +318,14 @@ check-lte-chain-analysis: $(TESTS)/lte_chain_analysis_test.c $(TESTS)/check.h \
 		$(SRC)/lte_session.c $(SRC)/lte_dsp.c $(SRC)/lte_mib.c \
 		$(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/lte_chain_analysis_test
+
+# A clock family in octaves rather than harmonics: f, 2f, 4f and never 3f.
+check-clock-chain: $(TESTS)/clock_chain_test.c $(TESTS)/check.h \
+		$(SRC)/clock_chain.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/clock_chain_test \
+		$(TESTS)/clock_chain_test.c -lm
+	$(Q)./$(BUILD)/clock_chain_test
 
 # Whose oscillator a reading belongs to: three numbers, no receiver.
 check-reading-origin: $(TESTS)/reading_origin_test.c $(TESTS)/check.h \
@@ -413,7 +421,7 @@ check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h \
 # Chart geometry: where the plot sits inside a chart, and which bar the
 # pointer is over. Needs raylib's headers for Rectangle but not the library.
 check-geometry: $(TESTS)/sdrgui_geometry_test.c $(TESTS)/check.h \
-		$(SRC)/sdrgui_geometry.h $(SRC)/sdrgui.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h
+		$(SRC)/sdrgui_geometry.h $(SRC)/sdrgui.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/sdrgui_geometry_test \
@@ -590,7 +598,7 @@ check-capture-sidecar: $(TESTS)/capture_sidecar_test.c $(TESTS)/check.h \
 
 check-device-profile: $(TESTS)/device_profile_test.c $(TESTS)/check.h \
 		$(SRC)/device_profile.h $(SRC)/survey_bands.h \
-		$(SRC)/survey_sweep.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/band_plan.h \
+		$(SRC)/survey_sweep.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/band_plan.h \
 		$(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/device_profile_test \
@@ -635,11 +643,12 @@ check-lte-confirm: $(TESTS)/lte_confirm_test.c $(TESTS)/check.h \
 	$(Q)./$(BUILD)/lte_confirm_test
 
 check-suspect: $(TESTS)/survey_suspect_test.c $(TESTS)/check.h \
-		$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/survey_sweep.h $(SRC)/sdr_dsp.h \
+		$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/survey_sweep.h $(SRC)/sdr_dsp.h \
+		$(SRC)/band_plan.c $(SRC)/band_plan.h \
 		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_suspect_test \
-		$(TESTS)/survey_suspect_test.c -lm
+		$(TESTS)/survey_suspect_test.c $(SRC)/band_plan.c -lm
 	$(Q)./$(BUILD)/survey_suspect_test
 
 # The sweep itself: the step plan, the fold, and what measuring a candidate
@@ -660,14 +669,16 @@ check-survey-sweep: $(TESTS)/survey_sweep_test.c $(TESTS)/check.h \
 check-survey-session: $(TESTS)/survey_session_test.c $(TESTS)/check.h \
 		$(SRC)/survey_session.c $(SRC)/survey_session.h \
 		$(SRC)/survey_sweep.h $(SRC)/survey_carrier.h \
-		$(SRC)/survey_confirm.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h \
+		$(SRC)/survey_confirm.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h \
 		$(SRC)/site_history.c $(SRC)/site_history.h \
+		$(SRC)/band_plan.c $(SRC)/band_plan.h \
 		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c \
 		testfiles/gsm_arfcn_69.bin testfiles/adsb_cpr_pair.bin
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_session_test \
 		$(TESTS)/survey_session_test.c $(SRC)/survey_session.c \
-		$(SRC)/site_history.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
+		$(SRC)/site_history.c $(SRC)/band_plan.c $(SRC)/signal_probe.c \
+		$(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_session_test
 
 # The band survey's window arithmetic: zoom, pan, and what Sweep would sweep.
@@ -728,7 +739,8 @@ CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-t
 	check-band-plan check-debug-log check-adsb-analysis check-input \
 	check-geometry check-fm-scan check-row-list check-survey-confirm \
 	check-gsm-continuity check-receiver-lease check-lte-stats \
-	check-reading-origin check-lte-chain-analysis check-add-argument TALLY=$(BUILD)/check-tally
+	check-reading-origin check-clock-chain check-lte-chain-analysis \
+	check-add-argument TALLY=$(BUILD)/check-tally
 
 TALLY=$(BUILD)/check-tally
 

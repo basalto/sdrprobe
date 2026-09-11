@@ -793,6 +793,14 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
                else. Hollow because there is nothing in it. */
             DrawCircleLines((int)x, (int)y - 14, 4.0f, color);
             break;
+        case SDRGUI_PEAK_CONTESTED:
+            /* The cross, with a dot in it: on the comb, and yet something
+               real is here. Both facts in one shape, because the chart has
+               one mark per peak to say them with. */
+            DrawLine((int)x - 4, (int)y - 18, (int)x + 4, (int)y - 10, color);
+            DrawLine((int)x - 4, (int)y - 10, (int)x + 4, (int)y - 18, color);
+            DrawCircle((int)x, (int)y - 14, 2.0f, color);
+            break;
         default:
             DrawCircle((int)x, (int)y - 14, 3.0f, color);
             break;
@@ -856,7 +864,7 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
         DrawText(text, at, (int)(plot.y + plot.height + 8), 16,
                  (Color){ 151, 174, 188, 255 });
     }
-    int crossed = 0, hollow = 0;
+    int crossed = 0, hollow = 0, contested = 0;
     /* What was actually marked, so the caption and the picture cannot
        disagree. */
     {
@@ -864,8 +872,9 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
         for (i = 0; i < params->peak_count; i++) {
             unsigned f = params->peak_flags ? params->peak_flags[i] : 0u;
             switch (sdrgui_survey_peak_mark(f)) {
-            case SDRGUI_PEAK_RECEIVER: crossed++; break;
-            case SDRGUI_PEAK_EMPTY:    hollow++; break;
+            case SDRGUI_PEAK_RECEIVER:  crossed++; break;
+            case SDRGUI_PEAK_EMPTY:     hollow++; break;
+            case SDRGUI_PEAK_CONTESTED: contested++; break;
             default: break;
             }
         }
@@ -878,7 +887,7 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
                  params->peak_count, params->lower_hz / 1e6,
                  params->upper_hz / 1e6, params->data_lower_hz / 1e6,
                  params->data_upper_hz / 1e6);
-    else if (crossed > 0 || hollow > 0)
+    else if (crossed > 0 || hollow > 0 || contested > 0)
         /*
          * The zoom hint gives way to the warning, which is the more urgent of
          * the two and only appears when there is something to warn about.
@@ -892,11 +901,28 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
          * the sweep could not see. A caption that disagrees with the picture
          * above it is worse than no caption.
          */
-        snprintf(text, sizeof(text),
-                 "frequency (MHz)   %d candidates   %d crossed %s the "
-                 "receiver   %d hollow %s empty",
-                 params->peak_count, crossed, crossed == 1 ? "is" : "are",
-                 hollow, hollow == 1 ? "is" : "are");
+        /*
+         * The contested count is printed **separately** rather than folded
+         * into either of the other two, which is the caption half of
+         * `.scratch/reading-origin/issues/01-*`'s decision: those candidates
+         * are on the comb *and* carry evidence that something real is there,
+         * and a caption that put them in with the crosses would say "the
+         * receiver" about the thing it has evidence against.
+         */
+        if (contested > 0)
+            snprintf(text, sizeof(text),
+                     "frequency (MHz)   %d candidates   %d crossed %s the "
+                     "receiver   %d hollow %s empty   %d on the comb %s "
+                     "displaced",
+                     params->peak_count, crossed, crossed == 1 ? "is" : "are",
+                     hollow, hollow == 1 ? "is" : "are", contested,
+                     contested == 1 ? "reads" : "read");
+        else
+            snprintf(text, sizeof(text),
+                     "frequency (MHz)   %d candidates   %d crossed %s the "
+                     "receiver   %d hollow %s empty",
+                     params->peak_count, crossed, crossed == 1 ? "is" : "are",
+                     hollow, hollow == 1 ? "is" : "are");
     else
         snprintf(text, sizeof(text),
                  "frequency (MHz)   %d candidates above the local floor"

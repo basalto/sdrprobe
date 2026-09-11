@@ -287,12 +287,20 @@ _Avoid_: Source, provenance, identification
 
 **Channel raster**:
 The grid a service's channels sit on -- a base frequency and a spacing, such
-as band II's 87.5 MHz plus a multiple of 100 kHz. Says where a transmitter
-*could* be, never that one is there. The channel an external signal would have
-to be on is found from its **reading** inverted, not from the reading itself:
-for any raster finer than twice the **reading displacement** those are
-different channels.
+as the airband's 118 MHz plus a multiple of 25/3 kHz. Says where a transmitter
+*could* be, never that one is there, so it can support a claim that a signal
+is **external** and never that one is clocked by this receiver. The channel an
+external signal would have to be on is found from its **reading** inverted,
+not from the reading itself: for any raster finer than twice the **reading
+displacement** those are different channels.
 _Avoid_: Channel plan, grid, band plan
+
+**Clock chain**:
+A family of tones at octaves of one fundamental -- f, 2f, 4f and never 3f --
+which is what a doubler or divider chain leaves across the band, as against
+the **reference comb**'s evenly spaced tones. The absence of the odd multiple
+is what distinguishes the two, and it is measured rather than assumed.
+_Avoid_: Harmonics, comb, spur series
 
 **Band plan**:
 A static table mapping frequency ranges to the service allocated there; it says what a frequency is *for*, never what a signal *is*, and a carrier found inside an allocation has not thereby been identified.
