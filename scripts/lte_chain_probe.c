@@ -31,6 +31,7 @@
 #define PBCH_LAGS 5
 
 #include "lte_dsp.c"
+#include "lte_chain_analysis.h"
 #include "lte_mib.h"
 
 /* These captures are the house 8-bit container. The multi-cell search
@@ -365,6 +366,12 @@ int main(int argc, char **argv) {
     int block = 0, cells = 0, messages = 0;
     /* What the multi-cell path saw, beside what the single-cell one did. */
     int multi_total = 0, multi_silent = 0, multi_most = 0;
+    /* The shared walk's run state and this block's result. Its tallies and
+       statistics are not printed here -- this probe's output is per block and
+       its own -- but they accumulate, so a future line can have them without
+       a second implementation. */
+    struct lte_chain_run chain;
+    struct lte_chain_result chain_result;
     int swept = 0;
     int dist_sum[3] = { 0, 0, 0 }, dist_min[3] = { 0, 0, 0 };
     int dist_n[3] = { 0, 0, 0 };
@@ -375,6 +382,7 @@ int main(int argc, char **argv) {
     memset(on_pbch, 0, sizeof(on_pbch));
     memset(off_pbch, 0, sizeof(off_pbch));
 
+    lte_chain_run_reset(&chain);
     if (!path) {
         fprintf(stderr, "usage: %s <capture.bin>\n", argv[0]);
         return 1;
@@ -432,22 +440,44 @@ int main(int argc, char **argv) {
          * sit together on purpose: this one may never be shorter than the
          * one below it.
          */
+        /*
+         * The public walk is `src/lte_chain_analysis.{c,h}` and is the same
+         * one `--lte-chain` uses (`.scratch/deepening/issues/14-*`). It used
+         * to be written out here as well, which is how it came to be reachable
+         * only with a receiver attached.
+         *
+         * **The cell this probe walks below is still its own**, from
+         * `lte_cell_search`, and that is deliberate rather than an oversight:
+         * every white-box diagnostic after this point -- the timing sweeps,
+         * the cyclic-prefix competitors, the parity distance, the every-
+         * identity descrambling -- is measured against that cell, and swapping
+         * it for the module's primary would silently change all of them. The
+         * two can differ: the live adapter takes the strongest correlation on
+         * the carrier and the single-cell search has its own gate. They agree
+         * on both committed captures, and where they would not, the line
+         * above is the public fact and the lines below are this probe's.
+         */
         {
-            struct lte_cell many[LTE_MAX_CELLS_PER_CARRIER];
-            int found = lte_cell_search_all(i_samples, q_samples, pairs,
-                                            LTE_SAMPLE_RATE_HZ,
-                                            DEVICE_FULL_SCALE_U8, many,
-                                            LTE_MAX_CELLS_PER_CARRIER, NULL);
+            struct lte_chain_block input;
             int m;
-            printf("          on this carrier: %d cell(s)", found);
-            for (m = 0; m < found; m++)
-                printf("  %d", many[m].pci);
-            printf("\n");
-            multi_total += found > 0 ? found : 0;
-            if (found <= 0)
-                multi_silent++;
-            if (found > multi_most)
-                multi_most = found;
+
+            input.i_samples = i_samples;
+            input.q_samples = q_samples;
+            input.pair_count = pairs;
+            input.sample_rate_hz = LTE_SAMPLE_RATE_HZ;
+            input.full_scale = DEVICE_FULL_SCALE_U8;
+            if (lte_chain_analyse(&chain, &input, &chain_result) >= 0) {
+                printf("          on this carrier: %d cell(s)",
+                       chain_result.cell_count);
+                for (m = 0; m < chain_result.cell_count; m++)
+                    printf("  %d", chain_result.on_carrier[m].pci);
+                printf("\n");
+                multi_total += chain_result.cell_count;
+                if (chain_result.cell_count <= 0)
+                    multi_silent++;
+                if (chain_result.cell_count > multi_most)
+                    multi_most = chain_result.cell_count;
+            }
         }
 
         if (lte_cell_search(i_samples, q_samples, pairs, LTE_SAMPLE_RATE_HZ,

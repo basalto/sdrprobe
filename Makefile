@@ -73,7 +73,7 @@ DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c
 APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/backend_uhd.c \
-	$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
+	$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
 	$(SRC)/view_survey.c \
 	$(SRC)/band_plan.c \
@@ -81,7 +81,7 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/debug_log.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h \
@@ -303,6 +303,21 @@ check-survey-store: $(TESTS)/survey_store_test.c $(TESTS)/check.h \
 		$(SRC)/survey_store.c $(SRC)/survey_record.c $(SRC)/sdr_dsp.c \
 		$(SRC)/band_plan.c -lm
 	$(Q)./$(BUILD)/survey_store_test
+
+# One LTE chain walk, over both committed captures. No window, no receiver.
+check-lte-chain-analysis: $(TESTS)/lte_chain_analysis_test.c $(TESTS)/check.h \
+		$(SRC)/lte_chain_analysis.c $(SRC)/lte_chain_analysis.h \
+		$(SRC)/lte_confirm.h $(SRC)/lte_stats.h $(SRC)/lte_session.c \
+		$(SRC)/lte_session.h $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
+		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/sdr_dsp.c \
+		$(SRC)/device_profile.h testfiles/lte_b20_pci28.bin \
+		testfiles/lte_b8_pci330_4port.bin
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_chain_analysis_test \
+		$(TESTS)/lte_chain_analysis_test.c $(SRC)/lte_chain_analysis.c \
+		$(SRC)/lte_session.c $(SRC)/lte_dsp.c $(SRC)/lte_mib.c \
+		$(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/lte_chain_analysis_test
 
 # Whose oscillator a reading belongs to: three numbers, no receiver.
 check-reading-origin: $(TESTS)/reading_origin_test.c $(TESTS)/check.h \
@@ -713,7 +728,7 @@ CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-t
 	check-band-plan check-debug-log check-adsb-analysis check-input \
 	check-geometry check-fm-scan check-row-list check-survey-confirm \
 	check-gsm-continuity check-receiver-lease check-lte-stats \
-	check-reading-origin check-add-argument TALLY=$(BUILD)/check-tally
+	check-reading-origin check-lte-chain-analysis check-add-argument TALLY=$(BUILD)/check-tally
 
 TALLY=$(BUILD)/check-tally
 
@@ -862,10 +877,13 @@ probe-nbiot: scripts/nbiot_gate.c $(SRC)/lte_dsp.h
 	$(Q)./$(BUILD)/nbiot_gate $(FILE_NBIOT)
 
 probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
-		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h
+		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h \
+		$(SRC)/lte_chain_analysis.c $(SRC)/lte_chain_analysis.h \
+		$(SRC)/lte_session.c $(SRC)/lte_session.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_chain_probe \
-		scripts/lte_chain_probe.c $(SRC)/lte_mib.c -lm
+		scripts/lte_chain_probe.c $(SRC)/lte_chain_analysis.c \
+		$(SRC)/lte_session.c $(SRC)/lte_mib.c -lm
 	$(Q)./$(BUILD)/lte_chain_probe $(FILE_LTE)
 
 # Where the two-cell fixture stops separating two cells, and whether that is a

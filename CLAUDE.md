@@ -24,6 +24,7 @@ make check-survey-sweep # the sweep's step plan, fold, and measurement
 make check-survey-session # the survey's machine: sweep, ask again, watch, measure
 make check-suspect    # candidates that look like the receiver, not the band
 make check-reading-origin # whose oscillator a reading belongs to
+make check-lte-chain-analysis # one LTE chain walk, over both LTE captures
 make check-calibration # the lock gate, and the machine that fills its buffer
 make check-scan       # the band scan's coverage and the channel it chooses
 make check-adsb-analysis # trace latching, the message log, the funnel
@@ -1132,6 +1133,26 @@ Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
   live one. Eleven differences per port put chance at 0.30. It is what
   identified the band 8 cell as four-port, and it corroborates the count in
   the broadcast's parity mask while sharing no code with it.
+- `src/lte_chain_analysis.{c,h}` — the public LTE chain walk, once, for a live
+  receiver and for a capture. `lte_cell_search_all`, the primary chosen by
+  strongest **correlation**, every other identity's own broadcast channel, the
+  primary's channel shape, port coherence and reference power, its Master
+  Information Block under the three combining hypotheses, and the run's
+  tallies (`lte_confirm`), statistics (`lte_stats`) and repeat rule
+  (`lte_mib_repeat_observe`). No `struct app`, no acquisition, no file, no
+  stdout, no private `lte_dsp.c` symbol.
+  It exists because `--lte-chain` and `probe-lte-chain` implemented the same
+  walk twice and drifted twice — the repeated-message rule was written out in
+  both, and `lte_cell_search_all` reached a committed capture only after the
+  live-only path had become able to return **fewer** cells than the
+  single-cell search it generalises. **`probe-lte-chain` still walks its own
+  cell from `lte_cell_search`**, deliberately: every white-box diagnostic it
+  exists for is measured against that cell, and the two agree on both
+  committed captures. `lte_session` is **not** a third adapter and Phase 5 of
+  the ticket says why — it latches one cell for a view at 68.3 ms a block,
+  where this pays for a multi-cell search and up to three broadcast attempts
+  per identity, so sharing would need a mode flag and would put the
+  multi-cell cost in the interactive path.
 - `src/lte_mib.{c,h}` — one layer further, Decoder side: 480 soft bits →
   descramble (four offsets, since one transmission does not say which quarter
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →

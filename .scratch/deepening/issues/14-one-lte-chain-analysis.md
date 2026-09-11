@@ -1,8 +1,10 @@
 # 14 - One LTE chain analysis, live or captured
 
-Status: ready-for-agent -- **Phase 1 done 2026-09-11**, and it found a
-disagreement the later phases have to settle first: the two adapters do not
-define a block the same way. See the comments.
+Status: **resolved 2026-09-11.** Phases 1-6 done; Phase 5 decided **against**
+reuse by `lte_session`, on the deletion test as the ticket asks. Both captures
+byte-identical, the live pair indistinguishable under alternating runs, and
+the overlap turned out narrower than the problem statement supposed. See the
+comments.
 
 ## Summary
 
@@ -455,3 +457,107 @@ figure counts *decodes per identity*, so a block decoding for two identities is
 one and two respectively. The refactor must keep both meanings distinct --
 this ticket's task list already says so -- but the relation should be asserted
 rather than assumed, because if it is not that, it is a double-count.
+
+### Phases 2-6, 2026-09-11
+
+**Phase 2.** `src/lte_chain_analysis.{c,h}` and `check-lte-chain-analysis`, 54
+checks over both committed captures, linking `-lm` and the existing LTE
+modules. `struct lte_chain_run` accumulates and `struct lte_chain_result`
+carries one block's facts; the block is `struct lte_chain_block`, so **pair
+count is an argument** and the disagreement above costs nothing -- option 1 of
+the three, as recommended.
+
+The check reproduced a number it was not fitted to, which is the useful kind of
+agreement: **29 of 30 blocks** on `lte_b20_pci28.bin`, the same figure
+`check-lte-session` pins through a different interface, with the one refusal
+being the "primary sequence without a secondary" block `CLAUDE.md` already
+records. Two suites reaching it through different code is corroboration.
+
+Two of this suite's first assertions were wrong and the captures were right:
+
+- **"every block holds a cell"** -- it is 29 of 30, as above. Written from
+  optimism rather than from the file.
+- **"two antenna ports"** asserted against `lte_port_coherence()`'s estimate,
+  which reads **3** in at least one block of the band 20 capture. The
+  CRC-masked count in the message says 2 throughout and is the thing to
+  assert; the coherence estimate corroborates it from the reference phases and
+  shares no code with it, but it is a per-block draw and pinning it is pinning
+  noise. Both captures now assert the message's count, the resource blocks and
+  **which combining hypothesis read it** -- 1-port on band 20 and 4-port on
+  band 8, so a module with a favourite fails one of them.
+
+**Phase 3, and the measurement that matters.** The live adapter formats the
+module's result and keeps acquisition, duration, the stopping policy and every
+line's spelling. The first comparison against the Phase 1 baseline looked
+alarming -- EARFCN 6200 went from 232 cells and 96 decodes to 506 and 423 --
+and **it was the air, not the change.**
+
+Six alternating 20-second pairs of the old and new binaries on the same
+carrier, which is the only way to tell those apart:
+
+| run | old cells/decoded | new cells/decoded |
+| --- | --- | --- |
+| 1 | 139 / 115 | 123 / 101 |
+| 2 | **83 / 30** | 131 / 98 |
+| 3 | 144 / 109 | 108 / 61 |
+| 4 | 243 / 234 | **286 / 286** |
+| 5 | 182 / 162 | 193 / 167 |
+| 6 | 206 / 192 | 97 / 82 |
+
+The **old** binary alone spans 83 to 243 cells and 30 to 234 decodes. The
+means differ by 6% (166 against 156 cells, 140 against 133 decodes) against a
+per-run spread of about +/-100%. The two are indistinguishable, and a
+single-run comparison would have "shown" either a large improvement or a large
+regression depending on which minute it was taken in.
+
+What is exact in all twelve runs: **292 blocks** every time, and
+**agreed = decoded - 1** every time, in both binaries. Agreement is
+adjacent-message equality, so the first decode has nothing to agree with; that
+relation is the one the ticket names and it held throughout. PCI 28 confirmed
+in every run.
+
+**Phase 4, which is the deterministic proof.** Both committed captures produce
+**byte-identical output** before and after -- every public line and every
+white-box line, `diff` clean. The probe keeps its direct `#include "lte_dsp.c"`
+and every private diagnostic.
+
+One thing was deliberately not changed and is worth recording: **the probe
+still walks its own cell from `lte_cell_search`**, not the module's primary.
+Every diagnostic after that point -- timing sweeps, cyclic-prefix competitors,
+parity distance, every-identity descrambling -- is measured against that cell,
+and swapping it would silently change all of them. The two selections can
+differ in principle (the live adapter takes the strongest correlation on the
+carrier), and they agree on both captures.
+
+**The overlap was narrower than the problem statement supposed**, which the
+exploration comment had already half-said. The probe does not use
+`lte_confirm`, `lte_stats`, `lte_mib_repeat`, `lte_reference_power`,
+`lte_channel_shape` or `lte_port_coherence` **at all** -- it has its own
+per-run totals and reaches coherence through `lte_dsp.c`'s statics. The real
+duplication was the multi-cell walk and its accumulation, and that is what
+moved. The module's tallies and statistics accumulate in the probe and are not
+printed, so a future line can have them without a second implementation.
+
+**Phase 5: do not reuse by `lte_session`, on the deletion test.**
+`lte_session.c` is 172 lines against the module's 211 and never calls
+`lte_cell_search_all`. To share, the session would need the module to accept a
+`struct lte_trace` it does not have, to *skip* the multi-cell walk, and to
+keep producing the status strings and the `off_grid` / `block_too_short`
+events that are the whole of what a view needs. That is two mode flags and a
+widened result for no removed implementation -- the "mode-filled interface"
+this ticket refuses -- and it would put the multi-cell cost in the interactive
+path, where the budget is 68.3 ms and `CLAUDE.md` already prices the cell
+search at about 14 ms and each broadcast attempt at about 9. Distinct jobs,
+documented in `CLAUDE.md`, session left alone.
+
+**Phase 6.** `lte_chain_analysis.h` is in `APP_HDR`, `lte_chain_analysis.c` in
+`APP_SRC`, `check-lte-chain-analysis` in `CHECK_UNITS`, and both the check and
+`probe-lte-chain` list every prerequisite. Both Makefile audits are clean.
+`make check` is **19137 in 60 suites**.
+
+### What this did not do
+
+The `lte-chain` text contract is untouched, no LTE threshold, sequence, sign,
+bit order or field layout moved, and no ADR was needed. `run_headless()` keeps
+acquisition, retuning and duration. No generic chain interface exists for any
+other technology, and ADR-0023 is the reason.
