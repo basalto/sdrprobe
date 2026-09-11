@@ -1083,6 +1083,31 @@ static void test_without_a_measured_crystal_it_says_nothing(void) {
                   (int)READING_ORIGIN_RECEIVER);
     }
 
+    /*
+     * **And a raster does not answer either**, which the first version of the
+     * raster branch got wrong: it wrote out the comparison without the
+     * refusal, so with no displacement every reading within a tolerance of a
+     * channel came back EXTERNAL -- 23% of them by chance on an 8333 Hz grid,
+     * on every capture and every uncalibrated receiver.
+     *
+     * Caught on air: a sweep run under a scratch site with no calibration
+     * flagged `candidate 135000488 ... displaced`, a reading that matches a
+     * *coherent* tone on 135.000000 and no external one anywhere.
+     */
+    check_int("nor does a channel raster answer without a crystal",
+              survey_suspect_origin(bare, RTL_REFERENCE_HZ, 135000488.0,
+                                    unmeasured,
+                                    survey_coherent_tolerance(AIRBAND_BIN_HZ),
+                                    airband_raster, 0.0),
+              0u);
+    check_int("and the verdict underneath is a refusal, not a guess",
+              (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 135000488.0,
+                                            unmeasured,
+                                            survey_coherent_tolerance(
+                                                AIRBAND_BIN_HZ),
+                                            airband_raster, 0.0),
+              (int)READING_ORIGIN_UNKNOWN);
+
     /* A coarse sweep cannot separate the hypotheses however good the ppm is:
        the whole tuner in 8192 bins is 212 kHz, wanting 424 kHz of
        separation. */

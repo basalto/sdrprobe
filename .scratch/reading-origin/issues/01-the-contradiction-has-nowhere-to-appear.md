@@ -135,3 +135,23 @@ real with its own oscillator is here" about a frequency found in none of six
 looks at 2.2 dB. It is a positive claim and needs something to be positive
 about. Cleared on a refuted verdict now; `clocked-here` still is not, because
 that is a statement about where a frequency read.
+
+### What has not been looked at, 2026-09-11
+
+**The contested shape has never been seen on a screen.** The flag, the list
+marker `*!` and the caption's separate count are verified -- on air, at 94.4
+MHz -- and `check-geometry` pins the mark's precedence. The three lines that
+*draw* it have not been photographed, and `CLAUDE.md`'s rule is that a change
+which draws is not finished until somebody has looked at it.
+
+Two attempts failed for one reason, and it is worth writing down because it is
+not a fault: **a sweep does not comb-flag 94.4 MHz.** The fine comb requires
+narrowness and an FM broadcast station is 120 kHz wide, so the sweep correctly
+declines; only a confirmation pass, measuring the carrier alone at 2930 Hz,
+sees it as narrow enough to flag. And the window's pass asks only about what
+*changed* against the site history, so a 88-108 MHz run asked about 24 of 58
+candidates and 94.4 was not among them.
+
+So the shape needs either a windowed **Ask again** driven onto that candidate
+by hand, or a site history that makes 94.4 a change. Neither is hard and
+neither was reached in the attempts made.
