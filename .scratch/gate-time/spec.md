@@ -10,6 +10,9 @@ An eight-core machine, `-O3`, gcc, warm `build/`:
 | the same again, nothing changed | **242 s** |
 | `make -j8 check` | **172 s** |
 | `make check` with `CHECK_JOBS` (now the default) | **171 s** |
+| after fixing `signal_find_carrier` (ticket 01) | **115 s** |
+| after ordering `CHECK_UNITS` longest-first | **95 s** |
+| with `CHECK_JOBS` = nproc/2 and pipelines in the pool | **72 s** |
 
 The second row is the first finding: **nothing is cached between runs.** Every
 `check-*` is a phony name, so make can never consider one up to date and
@@ -67,5 +70,23 @@ candidate on air.
    lobe it was probing with, so it had a comb of blind frequencies at which a
    noise-free carrier was lost outright. The gate is **115 s** now and
    `probe-signal` went from 13.0 s to 3.0 s over one capture.
-2. `02` -- stop recompiling what has not changed. Now the largest remaining
-   item: of the 115 s, ~60 is compilation that nothing changed.
+2. `02` -- stop recompiling what has not changed. **Re-read its comments
+   before starting**: at 72 s the compilation is mostly off the critical path
+   and removing all of it would buy about fifteen seconds.
+
+## What the scheduling turned out to be worth
+
+Two of the four wins were scheduling rather than work, and both were invisible
+until the phases were timed separately:
+
+- **`make -j` starts targets in list order**, so the 54 s suite sitting late
+  in `CHECK_UNITS` added its tail to the end of the run. The units phase took
+  74 s against a floor of 54; ordering longest-first closed most of that.
+- **`check-pipelines` was a serial phase after the units**, so its 29 s was
+  pure addition: 66 + 29 = 95. As one more job in the same pool, started
+  first, the pair takes 70.
+
+And one measurement contradicted the obvious default: **more jobs is not
+faster past four.** The units read -j2 88 s, -j3 71, -j4 66, -j5 68, -j8 72,
+-j12 75, -j16 78, repeatably. These suites stream large float arrays; they run
+out of memory bandwidth long before they run out of cores.
