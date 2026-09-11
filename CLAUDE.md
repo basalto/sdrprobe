@@ -896,6 +896,17 @@ Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
   `signal_probe` when it needs no sequence.** Oerder-Meyr symbol timing needs
   none, a cyclic-prefix autocorrelation needs none, a Zadoff-Chu correlation
   needs the sequence and stays in `lte_dsp`.
+  **`signal_find_carrier()` had a comb of blind frequencies until 2026-09-11**,
+  and it is the shape of fault this file keeps warning about: its coarse grid
+  stepped `rate/probe * 4`, four times the main lobe of the mix it was
+  probing with, so a line one or three lobes off a grid point fell in a null
+  at *both* bracketing probes. A **noise-free** tone at 120 010 Hz was lost
+  outright, answered 58 kHz away, while the same tone at 120 000 Hz was found
+  exactly -- and nothing caught it because every synthetic fixture used
+  120 000 Hz, which lands on the grid, and the real captures landed elsewhere.
+  The grid is `rate/coarse` now over a `SIGNAL_COARSE_PAIRS` prefix, which is
+  both correct and 3.5 times faster; the constant is measured where it breaks
+  and the header says how.
   Today: where a carrier is and whether anything rides it
   (`signal_find_carrier`, and the two names are careful -- neither
   `carrier_over_noise_db` nor `carrier_power_fraction` is a term of art, and
@@ -1443,9 +1454,12 @@ share the header -- which is exactly what makes it hard to notice.
   floor with about 0.92 of the channel standing still, and no burst structure.
   It is the only real-signal check `signal_probe` has -- everything else there
   is synthetic, and a synthetic signal agrees with whatever assumption built
-  it. Searched across the whole span instead of its own window it returns a
-  real neighbour at +176 kHz at 38 dB, which is what makes the search window
-  the caller's responsibility rather than a default.
+  it. Windowed on 140-210 kHz it returns a real neighbour at +176 kHz at
+  38 dB, which is what makes the search window the caller's responsibility
+  rather than a default. **Searched across the whole span it returns the
+  target**, because that is the strongest line there; it used to return the
+  neighbour, and that was the coarse scan's blind comb rather than a fact
+  about the capture -- see `SIGNAL_COARSE_PAIRS`.
   `fm_rds_tsf.bin` is at **2.048 MS/s**, tuned to 89.5 where TSF is, and
   three seconds long. It must keep reading identification 0x8343 and the name
   `TSF`; the name alone would pass with the differential sense backwards, so

@@ -158,21 +158,45 @@ int signal_find_carrier(const float *i_samples, const float *q_samples,
     if (guard_hz < 0.0)
         guard_hz = 0.0;
 
-    /* A bin of the coarse scan: fine enough that a line cannot hide between
-       two of them, coarse enough to finish. */
+    /* The resolution the refinement stops at, unchanged: what follows only
+       changes how the coarse stage gets into its neighbourhood. */
     spacing = sample_rate / (double)probe * 4.0;
     if (spacing < 1.0)
         spacing = 1.0;
 
-    for (hz = low_hz; hz <= high_hz; hz += spacing) {
+    {
+    /*
+     * A short look, on a grid no coarser than the line that look can see.
+     * `SIGNAL_COARSE_PAIRS` says why both halves of that are load-bearing;
+     * the short version is that the grid used to be four times the main lobe
+     * and had nulls between its probes.
+     */
+    size_t coarse = probe < SIGNAL_COARSE_PAIRS ? probe : SIGNAL_COARSE_PAIRS;
+    double coarse_spacing = sample_rate / (double)coarse;
+
+    if (coarse_spacing < 1.0)
+        coarse_spacing = 1.0;
+    for (hz = low_hz; hz <= high_hz; hz += coarse_spacing) {
         if (fabs(hz) < guard_hz)
             continue;
-        line = line_magnitude(i_samples, q_samples, probe, hz, sample_rate);
+        line = line_magnitude(i_samples, q_samples, coarse, hz, sample_rate);
         if (line > best) { best = line; carrier = hz; }
     }
     if (best <= 0.0)
         return 0;
-    for (step = spacing / 4.0; step >= spacing / 256.0; step /= 4.0) {
+    /*
+     * Start again for the refinement: the coarse magnitudes were measured
+     * over `coarse` pairs and these are measured over `probe`, so the two are
+     * not comparable and carrying `best` across would let a coarse reading
+     * veto every refined one.
+     *
+     * The first step is a quarter of a coarse step, so the window it walks is
+     * one coarse step either side -- which is exactly the error the coarse
+     * stage can have made, and the reason this is the first step rather than
+     * a finer one.
+     */
+    best = -1.0;
+    for (step = coarse_spacing / 4.0; step >= spacing / 256.0; step /= 4.0) {
         double centre = carrier;
         for (hz = centre - 4.0 * step; hz <= centre + 4.0 * step; hz += step) {
             if (fabs(hz) < guard_hz)
@@ -181,6 +205,7 @@ int signal_find_carrier(const float *i_samples, const float *q_samples,
                                   sample_rate);
             if (line > best) { best = line; carrier = hz; }
         }
+    }
     }
 
     /* The line itself, at full length now that its frequency is known. */

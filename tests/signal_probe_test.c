@@ -756,27 +756,49 @@ static void test_a_real_bare_carrier(void) {
 
     /*
      * And the window is the caller's, which this capture shows better than a
-     * DC spike would. Searched across the whole span it finds something else
-     * entirely -- a real neighbour at +176 kHz, which is 74.877 MHz, a
+     * DC spike would: there is a real neighbour at +176 kHz -- 74.877 MHz, a
      * frequency the survey also raises as a candidate in this band -- at
      * 38 dB against the target's 47.
      *
-     * So a search told to look in the wrong place returns a confident answer
-     * about a different signal, and nothing in the result says so. The DC
-     * offset is the other way this goes wrong and is not what happens here:
-     * this receiver's offset is small enough that it does not win, which is
-     * exactly why the guard has to be a parameter rather than a threshold
-     * somebody tuned once.
+     * **This assertion used to say the opposite, and it was pinning a bug.**
+     * It read that a whole-span search "finds something else entirely" and "a
+     * weaker one, so nothing flags the mistake" -- the search returned the
+     * +176 kHz neighbour rather than the stronger carrier it was sitting
+     * beside. That was the coarse grid's blind comb (see
+     * `SIGNAL_COARSE_PAIRS`): the grid stepped four main lobes at a time, and
+     * the target fell in a null of both probes bracketing it. A whole-span
+     * search returns the **strongest** line in the span, which is what it
+     * should always have done.
+     *
+     * The lesson the old assertion was reaching for survives, and is asserted
+     * below on its own terms: a search told to look in the *wrong window*
+     * answers confidently about whatever is in that window, and nothing in
+     * the result says so. The DC offset is the other way this goes wrong and
+     * is not what happens here: this receiver's offset is small enough that
+     * it does not win, which is exactly why the guard has to be a parameter
+     * rather than a threshold somebody tuned once.
      */
     {
-        struct signal_carrier wide;
-        check_int("a search across the whole span still finds something",
+        struct signal_carrier wide, elsewhere;
+        check_int("a search across the whole span finds something",
                   signal_find_carrier(ci, cq, n, 2000000.0, -340000.0,
                                       340000.0, 0.0, 20000.0, &wide), 1);
-        check_true("but it is a different signal",
-                   fabs(wide.offset_hz - c.offset_hz) > 100000.0);
-        check_true("and a weaker one, so nothing flags the mistake",
-                   wide.carrier_over_noise_db <
+        check_close("and it is the strongest line, which is the target",
+                    wide.offset_hz, c.offset_hz, 200.0);
+        check_true("at the same strength",
+                   fabs(wide.carrier_over_noise_db -
+                        c.carrier_over_noise_db) < 1.0);
+
+        /* Windowed on the wrong place, though, it answers about the wrong
+           signal with no less confidence -- which is the whole argument for
+           the window being a parameter. */
+        check_int("a window around the neighbour finds the neighbour",
+                  signal_find_carrier(ci, cq, n, 2000000.0, 140000.0,
+                                      210000.0, 0.0, 20000.0, &elsewhere), 1);
+        check_true("which is a different signal",
+                   fabs(elsewhere.offset_hz - c.offset_hz) > 100000.0);
+        check_true("and a weaker one, with nothing in the result to say so",
+                   elsewhere.carrier_over_noise_db <
                        c.carrier_over_noise_db);
     }
 
@@ -923,12 +945,63 @@ static void test_a_wider_channel_admits_more_of_the_noise(void) {
               "against %.3f at 40 kHz\n", wide, narrow);
 }
 
+
+/*
+ * A line is found wherever it sits, and this is the check the old coarse grid
+ * could not pass.
+ *
+ * The scan steps a grid and takes the best probe. A mix over C pairs has a
+ * main lobe `rate/C` wide with **nulls at every multiple of it**, so if the
+ * grid is wider than that lobe there are frequencies where both bracketing
+ * probes land in a null and the line reads as nothing at either. The grid was
+ * `rate/probe * 4`, four lobes, so the blind frequencies were a comb every
+ * 40 Hz at this rate and look length.
+ *
+ * Measured on the shipped code before the fix, with **no noise at all**: a
+ * tone at 120 000 Hz was found exactly; the same tone at 120 010 Hz and at
+ * 120 030 Hz -- one and three lobes off a grid point -- was lost outright,
+ * the search answering 36 kHz and 58 kHz away. Nothing caught it because
+ * every fixture in this file uses 120 000 Hz, which falls exactly on the
+ * grid, and the real captures happened to land elsewhere.
+ *
+ * So this walks a clean tone across a whole grid step. It is deliberately
+ * noise-free: a null is a property of the grid, not of the signal-to-noise,
+ * and mixing the two would let a future regression hide behind "it is weak".
+ */
+static void test_a_line_is_found_wherever_it_sits(void) {
+    struct signal_carrier c;
+    double step = FS / (double)N * 4.0;   /* the old grid, the blind one */
+    int k;
+
+    for (k = 0; k <= 8; k++) {
+        double tone = 120000.0 + (double)k * step / 8.0;
+        int n;
+
+        clear();
+        for (n = 0; n < N; n++) {
+            double t = (double)n / FS;
+            ir[n] = (float)(10.0 * cos(2.0 * M_PI * tone * t));
+            qr[n] = (float)(10.0 * sin(2.0 * M_PI * tone * t));
+        }
+        if (!signal_find_carrier(ir, qr, N, FS, 60000.0, 180000.0, 2000.0,
+                                 40000.0, &c)) {
+            check_msg(0, "a clean tone at %.1f Hz was not found at all\n",
+                      tone);
+            continue;
+        }
+        check_msg(fabs(c.offset_hz - tone) < 5.0,
+                  "a clean tone at %.1f Hz came back as %.1f Hz, %.0f Hz "
+                  "out\n", tone, c.offset_hz, fabs(c.offset_hz - tone));
+    }
+}
+
 int main(void) {
     test_a_pure_tone_is_all_line();
     test_only_in_channel_energy_counts();
     test_dc_is_not_a_carrier();
     test_the_guard_is_the_callers();
     test_empty_is_not_modulated();
+    test_a_line_is_found_wherever_it_sits();
     test_refusals();
     test_the_symbol_line_is_not_tetras();
     test_repeat_finds_a_grid_that_is_not_tetras();
