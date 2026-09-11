@@ -31,15 +31,17 @@ dwell with `--survey-confirm`. Nine candidates, six confirmed:
 | 129.600159 MHz | confirmed 6/6 | bare carrier, 48.0 dB, 98% standing | **14.4 x 9** -- the receiver's comb, flagged |
 | 136.000793 MHz | confirmed 6/6 | bare carrier, 47.6 dB, 98% standing | **1.6 x 85** -- the comb, flagged |
 | 131.200526 MHz | confirmed 6/6 | modulated carrier, 22.2 dB, 5% standing | **1.6 x 82** -- the comb, flagged |
-| 135.023560 (peak at **134.999939**) | confirmed 4/4 | modulated carrier, 38.2 dB, 78% standing | a real AM carrier |
+| 135.023560 (peak at **134.999939**) | confirmed 4/4 | modulated carrier, 38.2 dB, 78% standing | ~~a real AM carrier~~ **the receiver: 61 Hz from exact, see below** |
 | 132.062744 MHz | confirmed 6/6 | modulated carrier, 33.6 dB, 57% standing | a real AM carrier |
 | 133.109741 MHz | confirmed 6/6 | no carrier, 12.6 dB | 1.34 MHz wide; not a channel |
 | 135.359741, 133.896912 | intermittent 2/6 | no carrier | below the bar |
 
-**Three of the six strongest things in the airband are the receiver.** That is
-the first fact any channel scanner here has to survive, and the existing comb
-flags already catch all three. A scanner that skipped `survey_suspect.h` would
-report 129.600 MHz as a busy channel for ever.
+**Four of the six strongest things in the airband are the receiver.** This
+said three until the row above was re-read; the arithmetic is in the comments
+and in `.scratch/device-model/issues/11-*`. That is the first fact any channel
+scanner here has to survive -- and the comb flags catch only three of the
+four, which is what ticket 11 closes. A scanner that skipped
+`survey_suspect.h` would report 129.600 MHz as a busy channel for ever.
 
 ## The measurement that shaped the design
 
@@ -128,3 +130,28 @@ of that ticket.
 Neither correction touches ticket 01, which is still the right first move --
 but record at **132.9 MHz**, where the one real carrier is, rather than
 134.8 MHz, where the spur is.
+
+## Status, 2026-09-11
+
+**Closed wontfix**, all three tickets. An hour on air found nothing external
+across 108-137 MHz, including a control sweep of the VOR band where beacons
+transmit continuously. The blocker is the installation -- an indoor telescopic
+whip at 120 MHz with no ground plane, against a receiver whose own spurs run
+to 70 dB there -- not the hour and not the design in this document, which
+stands as written. Reopen with an outdoor antenna or a site near an airfield.
+
+The one external carrier that ever survived analysis here, 132.062744, did not
+reappear on 2026-09-11. Whoever reopens this should start from it and from the
+8.33 kHz raster it needs -- see the comments below, which are the reason
+ticket 02's "8.33 kHz is out of scope" would have refused the only traffic
+this site has measured.
+
+**2026-09-11, correcting the correction.** Ticket 11's sign was backwards: the
+crystal here is **fast** by 31.84 ppm, so an uncorrected reading of a real
+transmitter comes back *low*, not high. The survivor is therefore on
+**132.066667**, which predicts 132.062462 against 132.062744 observed -- 282 Hz
+-- and not the 132.058333 named above, which the corrected sign puts 8.6 kHz
+away. Still only the 8.33 kHz raster: 132.066667 is not a 25 kHz channel
+either, so the conclusion about `issues/02-*` stands unchanged. Every "this is
+the receiver" verdict above is unaffected, being about a reading sitting *at*
+its nominal.

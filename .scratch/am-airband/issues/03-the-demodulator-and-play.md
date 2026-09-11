@@ -1,6 +1,8 @@
 # 03 - The demodulator, and Play
 
-Status: needs-triage
+Status: **wontfix, 2026-09-11** -- blocked by 01 and 02, and its own honest note
+applies: without 02's occupancy record this is a demodulator on its own. Reopen
+with an outdoor antenna or a site near an airfield. See the comments.
 Blocked by: 01, 02
 
 The audio, which is the confirmation rather than the product -- the same
@@ -53,3 +55,33 @@ known depth -- must come back with that depth within a tolerance, and the tone
 at that frequency in the demodulated audio. Then the real capture from 01
 corroborates it, because a synthetic AM signal agrees with whatever assumption
 built it.
+
+## Comments
+
+**wontfix, 2026-09-11.** Closed with 01, whose gate this is blocked on and
+which cannot be passed at this installation. An hour on air that Friday --
+two swept surveys of 118-137 MHz, three 90-second captures, the AM prototype
+over five channels, and a control sweep of the VOR band where beacons transmit
+*continuously* and cannot be missed for being intermittent -- found **nothing
+external across 108 to 137 MHz**. Every candidate is either one of the
+receiver's own comb lines or a noise maximum with no carrier, and the loudest
+thing in the band is the receiver by 20 dB.
+
+The blocker is the installation, not the hour and not the code: an indoor
+telescopic whip at 120 MHz with no ground plane. The same antenna hears ten FM
+broadcast carriers at up to 55.9 dB twenty megahertz lower, so it is not
+broken; it is deaf up there.
+
+**Reopen when the installation changes** -- an outdoor antenna, or a site
+within useful range of an airfield. Nothing in these tickets is wrong and the
+design work in `spec.md` stands; what is missing is a signal to point it at,
+and building an occupancy record whose only possible output is "the receiver's
+comb is busy" would be a screen asserting something false.
+
+**One correction carried out of 01 and into `spec.md` rather than lost**:
+`.scratch/device-model/issues/11-*` shows 135.024 (peak 134.999939) reads
+61 Hz from exact where an external transmitter at that tuning must read about
+4.2 kHz off. It is the receiver too. **Four** of the airband's six strongest
+signals are the receiver, not three, and one external carrier survived the
+earlier analysis rather than two -- 132.062744, which did not reappear on
+2026-09-11.
