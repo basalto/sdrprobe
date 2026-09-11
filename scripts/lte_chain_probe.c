@@ -31,6 +31,10 @@
 #define PBCH_LAGS 5
 
 #include "lte_dsp.c"
+/* For SAMPLE_BLOCK_PAIRS alone, so the line below cannot drift from the
+   program's actual block. `acquisition.h` compiles -Wall -W clean and links
+   with -lm since <rtl-sdr.h> went behind backend_rtlsdr.c. */
+#include "acquisition.h"
 #include "lte_chain_analysis.h"
 #include "lte_mib.h"
 
@@ -39,11 +43,40 @@
    nothing here depends on it beyond the order of a tie. */
 #define DEVICE_FULL_SCALE_U8 127.5f
 
-#define BLOCK_PAIRS (16 * 16384)
+/*
+ * **This probe's block, and it is deliberately not the program's.**
+ *
+ * `SAMPLE_BLOCK_PAIRS` is 131072 pairs, 68.3 ms at this rate; this is 262144,
+ * 136.5 ms. The name says `PROBE_` so nobody reads it as the program's, and
+ * the number is written out rather than as `16 * 16384` so nobody reads it as
+ * dump1090's buffer -- which was 262144 **bytes** and 131072 **pairs**, one
+ * buffer with two true numbers until a second sample container made them
+ * different things (`.scratch/device-model/issues/09-*`).
+ *
+ * **Why it stays twice the program's.** The white-box work here reaches
+ * furthest in `repetition_observe()`: subframe 0 lands up to 19200 samples in,
+ * `PBCH_LAGS` is 5 frames of 19200, and one subframe is read at the end --
+ * 117120 samples worst case. That is 45% of this block and would be 89% of the
+ * program's. Raising `PBCH_LAGS` to 6 needs 136320 and would overrun a 131072
+ * block whenever subframe 0 landed late, and the overrun is **silent**:
+ * `lte_pbch_soft_bits` returns short, `have[lag]` goes false, the sample is
+ * skipped, and `acc->count[lag]` is never printed. The headroom is the point.
+ *
+ * **So no figure from this probe may be compared with one from the program or
+ * from a check.** `check-lte-chain-analysis` reads `lte_b20_pci28.bin` as 30
+ * blocks and this reads it as 12 -- capped at `PROBE_MAX_BLOCKS` rather than
+ * by the file, which holds 15. The header line below prints the block so the
+ * numbers carry their units.
+ */
+#define PROBE_BLOCK_PAIRS 262144
+/* How many blocks to walk. Twelve is about a second of signal at this block
+   size, which is enough for every accumulated mean below to settle and short
+   enough to read the output. */
+#define PROBE_MAX_BLOCKS 12
 
-static float i_samples[BLOCK_PAIRS];
-static float q_samples[BLOCK_PAIRS];
-static uint8_t raw[2 * BLOCK_PAIRS];
+static float i_samples[PROBE_BLOCK_PAIRS];
+static float q_samples[PROBE_BLOCK_PAIRS];
+static uint8_t raw[2 * PROBE_BLOCK_PAIRS];
 
 /* The best each Zadoff-Chu root manages anywhere in the search window, which
    the public result only summarises. */
@@ -392,9 +425,21 @@ int main(int argc, char **argv) {
         fprintf(stderr, "cannot open %s\n", path);
         return 1;
     }
-    printf("LTE chain over %s, 1.92 MS/s assumed\n\n", path);
+    printf("LTE chain over %s, 1.92 MS/s assumed\n", path);
+    /*
+     * The block, in its own output, because every per-block figure below is
+     * per block of *this* size and it is twice the program's. Without this
+     * line "12 blocks, 12 with a cell" sits beside `check-lte-chain-analysis`'s
+     * "29 of 30" on the same capture and reads as a disagreement rather than
+     * as two different units (`.scratch/deepening/issues/14-*`).
+     */
+    printf("blocks of %d pairs (%.1f ms), at most %d -- twice the program's "
+           "%d-pair block, so no figure here compares with one from the "
+           "program or a check\n\n",
+           PROBE_BLOCK_PAIRS, PROBE_BLOCK_PAIRS / (LTE_SAMPLE_RATE_HZ / 1000.0),
+           PROBE_MAX_BLOCKS, SAMPLE_BLOCK_PAIRS);
 
-    while (block < 12) {
+    while (block < PROBE_MAX_BLOCKS) {
         size_t read = fread(raw, 1, sizeof(raw), f);
         size_t pairs = read / 2, n;
         double mean_i = 0.0, mean_q = 0.0, power = 0.0;

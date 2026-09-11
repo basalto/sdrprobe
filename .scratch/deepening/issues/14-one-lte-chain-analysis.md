@@ -561,3 +561,57 @@ The `lte-chain` text contract is untouched, no LTE threshold, sequence, sign,
 bit order or field layout moved, and no ADR was needed. `run_headless()` keeps
 acquisition, retuning and duration. No generic chain interface exists for any
 other technology, and ADR-0023 is the reason.
+
+### The block-size disagreement, settled 2026-09-11: labelled, not changed
+
+Phase 1 recommended option 1 (the module takes pair count, so the
+disagreement costs nothing) plus option 3 (say so in the probe's header).
+Option 2 -- make the probe match -- was weighed and **refused**, on a danger
+that is not the obvious one.
+
+The obvious danger is not real. The probe's furthest reach is
+`repetition_observe()`: subframe 0 lands up to 19200 samples in (it recurs
+every 10 ms, so the first is always inside one frame), `PBCH_LAGS` is 5 frames
+of 19200, and one subframe is read at the end -- **117120 samples worst
+case**, which fits a 131072-pair block. Measured subframe-0 positions across
+`lte_b20_pci28.bin` run 2754 to 16085, comfortably inside. So halving the
+block would not break the repetition finding today.
+
+**What it would do is spend the headroom, and the overrun is silent.** 117120
+is 45% of the probe's block and would be 89% of the program's. Raise
+`PBCH_LAGS` from 5 to 6 -- an obvious move, since the whole point is telling a
++4 repeat from its neighbours -- and the worst case becomes 136320, overrunning
+a 131072-pair block whenever subframe 0 lands late. Then
+`lte_pbch_soft_bits()` returns short, `have[lag]` goes false, `continue`, and
+the mean is taken over fewer blocks -- and `acc->count[lag]` is **never
+printed**, only `n/a` when it is zero. A partial loss is invisible.
+
+Three more, briefly. **The probe has no check**: it is in neither
+`CHECK_UNITS` nor `tests/pipelines.sh`, so its own output is the only evidence
+it works and a change verified by "the numbers moved a bit" has nothing
+underneath it. **It is two variables**: keeping the cap at 12 would drop file
+coverage from 80% to 40%, and raising it to 24 keeps coverage but changes
+every accumulated mean's sample count, so a moved number cannot be attributed.
+And **the re-verification is the kind that hides** -- four tickets quote probe
+figures, and for each moved number somebody has to judge "same finding,
+different sample" against "the finding was an artifact of the block length",
+with no capture-independent ground truth for most of them.
+
+So: `BLOCK_PAIRS (16 * 16384)` is now `PROBE_BLOCK_PAIRS 262144` -- written
+out, so it cannot be read as dump1090's byte count -- with `PROBE_MAX_BLOCKS`
+naming the cap that was a bare `12`, and the probe prints its own block in its
+header:
+
+```
+blocks of 262144 pairs (136.5 ms), at most 12 -- twice the program's
+131072-pair block, so no figure here compares with one from the program or a check
+```
+
+`SAMPLE_BLOCK_PAIRS` comes from `acquisition.h` rather than being retyped, so
+the two cannot drift apart. Both captures are otherwise **byte-identical**:
+the only diff is that line.
+
+**If anyone does want the probe on the program's block**, the safe order is to
+give it a check first -- even a thin one over the two captures -- so there is
+something to fail, and to move the cap with the size so coverage is held
+constant.
