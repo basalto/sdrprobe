@@ -11,7 +11,7 @@ need the detail.
 
 ```sh
 make                  # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
-make check            # everything below, ~72 s, no window and no receiver
+make check            # everything below, ~57 s, no window and no receiver
 make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
 make check-sdr-dsp    # one check in isolation — generic core
@@ -55,35 +55,37 @@ make clean
 under a second and the full set is **about three minutes**, so `make check`
 after every edit turns a fast loop into a slow one.
 
-**Where that time goes, and what took it from 242 s to 72.** Four things,
+**Where that time goes, and what took it from 242 s to 57.** Four things,
 each measured, none of them a guess:
 
 1. **The units run in parallel** -- `-j$(CHECK_JOBS)` with
    `--output-sync=target`, which buffers each suite's output so the report
    still reads as a report. 242 to 171.
 2. **`signal_find_carrier()` was fixed**, which is where 54 s of one suite
-   went. The coarse grid was four times the main lobe it probed with and had
+   went. Its coarse grid was four times the main lobe it probed with and had
    blind frequencies; correcting it made the scan both right and 3.5 times
    faster. 171 to 115. See `SIGNAL_COARSE_PAIRS`.
 3. **`CHECK_UNITS` is ordered longest-first.** `make -j` starts targets in
-   list order, so a 54 s suite late in the list adds its tail to the end of
+   list order, so a long suite late in the list adds its tail to the end of
    the run instead of overlapping it. 115 to 95.
 4. **`check-pipelines` is one more job in the pool**, started first, rather
-   than a serial phase after the units. 95 to 72.
+   than a serial phase after the units. 95 to 72, and the work since has
+   taken it to 57.
 
 **`CHECK_JOBS` is half the cores, not all of them, and that is measured** --
 these suites stream large float arrays and saturate memory bandwidth before
-they run out of cores, so on this eight-core machine the units phase reads
+they run out of cores, so on this eight-core machine the units phase read
 -j2 88 s, -j3 71, **-j4 66**, -j5 68, -j8 72, -j16 78. Past four, another job
 makes every running job slower.
 
-What is left is mostly a floor rather than waste: `check-signal-probe` is
-still ~37 s on its own, and nothing divides one process. **Compilation is
-~60 s of CPU that nothing caches** -- every `check-*` is a phony name, so make
-rebuilds all 56 binaries every run and `sdr_dsp.c` alone is compiled fifteen
-times -- but it is now mostly *off* the critical path, so fixing it would buy
-perhaps fifteen seconds of the seventy-two. `.scratch/gate-time/` has both,
-with the measurements and with why ticket 02 is worth less than it looks.
+**What is left is a floor, not waste, and that is also measured.** The units
+phase is 49 s and `check-signal-probe` alone is **45** -- so the other 57
+suites and all ~200 translation units fit in four seconds of slack behind it.
+`check-pipelines` is 35 s and entirely overlapped. Which is why
+`.scratch/gate-time/` ticket 02 -- caching the compilation nothing caches --
+is **wontfix**: a 58-rule Makefile rewrite to buy four seconds of
+fifty-seven. It would be worth its day the moment the pole stops being one
+process, and the ticket says what would do that.
 
 The loop is three sizes:
 `make check-<one>` while iterating, `make check-touched` before committing --
