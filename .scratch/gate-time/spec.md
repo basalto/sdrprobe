@@ -70,9 +70,17 @@ candidate on air.
    lobe it was probing with, so it had a comb of blind frequencies at which a
    noise-free carrier was lost outright. The gate is **115 s** now and
    `probe-signal` went from 13.0 s to 3.0 s over one capture.
-2. `02` -- stop recompiling what has not changed. **Re-read its comments
-   before starting**: at 72 s the compilation is mostly off the critical path
-   and removing all of it would buy about fifteen seconds.
+2. `02` -- stop recompiling what has not changed. **wontfix, 2026-09-11**:
+   measured at four seconds of a fifty-six second gate, because the units
+   phase (49 s) and its longest single suite (45 s) are almost the same
+   number, so every compile in the gate fits in the slack behind the pole.
+   The ticket says what would reopen it.
+
+## Where it ended up
+
+**56 s**, from 242. The gate's floor is now one suite's arithmetic rather than
+anything structural: `check-signal-probe` runs for 45 s, spread flat across
+eight tests, and nothing divides one process.
 
 ## What the scheduling turned out to be worth
 

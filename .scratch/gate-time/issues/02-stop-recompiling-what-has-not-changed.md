@@ -1,6 +1,6 @@
 # 02 - The gate recompiles all 56 binaries every run
 
-Status: needs-triage -- and worth less than it looked, see below
+Status: **wontfix, 2026-09-11** -- measured at four seconds of a fifty-six second gate. Reopen if the note at the end comes true.
 
 `make check` with nothing changed takes exactly as long as with everything
 changed -- 242 s both, measured. Every `check-*` is a phony target, so make
@@ -80,3 +80,51 @@ real object files, one `.c` to one `.o` to one `.d`. Also verified: **no check
 rule compiles a shared source with different flags** (the only `-D` anywhere
 in the set belongs to `probe-two-cell`, a probe), so the objects can be shared
 between suites. That removes the duplicate compilation as well as the repeat.
+
+## Closed on the measurement, 2026-09-11
+
+The gate is **56 s** now, and the units phase and its longest single suite are
+almost the same number:
+
+| | |
+| --- | --- |
+| `make check` | 56 s |
+| the units phase at `-j4` | 49 s |
+| `check-signal-probe`, run alone | **45 s** |
+| `check-pipelines` | 35 s, entirely overlapped |
+
+**Compilation is already hidden behind the pole.** The units take 49 s and one
+process in them takes 45, so the other 57 suites *and* all ~200 translation
+units fit in the four seconds of slack. Removing every compile in the gate --
+a 58-rule Makefile rewrite, real object files, generated dependencies, and the
+stale-binary failure mode to think about -- would buy **about four seconds of
+fifty-six**.
+
+That is not worth a day, and saying so needs the number rather than the
+instinct. It cost three measurements to find out, and the estimate it replaces
+was ~15 s, made when the gate was 171 s and the pole was 54.
+
+For the record, since the next person will ask: the pole is not one greedy
+test any more. `check-signal-probe` profiles flat -- 10.7 s, 9.0, 4.7, 4.6,
+3.1, 3.1, 2.9, 2.2 -- about forty seconds of genuine carrier searches over
+200 000- and 400 000-pair buffers, after the coarse-grid fix in ticket 01 took
+it from 105 s. There is no 10x left in it, and trimming buffer lengths would
+be trimming claims: several of those tests exist *because* the answer depends
+on the length of the look.
+
+## What would reopen this
+
+Compilation becomes the floor the moment the pole stops being one. Either:
+
+- **`check-signal-probe` gets faster or is split.** Splitting it into two
+  suites would halve the pole for free -- no claim changes, only which binary
+  runs which tests -- at the cost of one subject having two names, which this
+  repository's suites do not otherwise do. That trade is worth reconsidering
+  if the gate ever needs to be under thirty seconds.
+- **Another long suite appears.** `CHECK_UNITS` is ordered longest-first and
+  the Makefile carries the one-liner that re-measures it; a new 45 s suite
+  makes the slack disappear and this ticket worth its day.
+
+Everything verified while investigating is still in the notes above and still
+true: a single compile-and-link command cannot produce a correct dependency
+file, and no check rule compiles a shared source with different flags.
