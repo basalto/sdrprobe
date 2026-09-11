@@ -1,6 +1,8 @@
 # 11 - What a candidate's offset from exact says about whose signal it is
 
-Status: needs-triage
+Status: **resolved 2026-09-11**, and **two of this ticket's own claims were
+wrong**: the displacement's sign, and which receivers can answer at all. Both
+were found by measurement rather than by the suite. See the comments.
 Opened 2026-09-10, from a review of `10-a-second-clock-nothing-models.md` and
 `.scratch/am-airband/spec.md`. Blocks the useful half of both.
 
@@ -166,3 +168,131 @@ is arithmetic over three numbers:
 
 Then `carrier_75000_bare.bin` corroborates it on a real signal at 21.8 Hz,
 which is what makes the synthetic cases worth anything.
+
+## Comments
+
+**Implemented 2026-09-11.** `src/reading_origin.h` is the arithmetic,
+`check-reading-origin` is the whole of it against no receiver and no window
+(97 checks), `survey_suspect.h` is the consumer with two new flags, and it is
+**verified on air** -- which is what found both of the faults below, neither of
+which any check could have.
+
+### What was built
+
+- `src/reading_origin.h`. `struct reading_clock`, the forward and inverse
+  models, `reading_coherent_hz` / `reading_external_hz` /
+  `reading_separation_hz`, the separability refusal, the three-way verdict, and
+  the grid helpers. Pure, header-only, `-lm` alone.
+- `SURVEY_SUSPECT_CLOCK_COHERENT` and `SURVEY_SUSPECT_UNEXPLAINED` in
+  `survey_suspect.h`, set by `survey_suspect_origin()` over the two comb grids,
+  printed as `clocked-here` and `unexplained`.
+- `struct reading_clock` threaded through `struct survey_block` and
+  `struct survey_record_tuning`, filled in one place --
+  `survey_reading_clock()` in `view_survey.c` -- for both adapters and the
+  record, since this repository has just spent a ticket on what happens when
+  two copies of a survey fact drift apart.
+- `docs/receiver-artifacts.md` section 5, the vocabulary in `CONTEXT.md`, and
+  the parameter table.
+
+`scripts/signal_report.c` already prints `carrier.offset_hz` beside the offset
+it was asked for; that half was done before this ticket was picked up.
+
+### The first wrong claim: the sign
+
+This ticket says an external transmitter reads **above** its channel -- the
+airband survivor at "+4411 Hz from 132.058333" -- from `d ~= -31 ppm`.
+
+`--calibrate gsm --arfcn 113` on 2026-09-11 locked at `observed_ppm -31.84`,
+`sem 0.22` over 874 measurements, `suggested_ppm 32`. **`observed_ppm` is the
+residual, `(measured - expected)/expected`, and the crystal error is its
+negation.** Reported frequency is `f/(1 + k)`, so `k = +31.84`: this reference
+is **fast**, and an uncorrected reading of a real transmitter comes back about
+4.2 kHz **low**.
+
+Nothing in the ticket's conclusions moves. Every "reads exact, therefore
+clocked here" verdict is about being *at* the nominal and cannot care which way
+the other hypothesis lies, so 129.600159, 131.200526, 136.000793, 150.000900
+and 134.999939 are all still the receiver, and the correction to
+`.scratch/am-airband/spec.md` stands. What moves is one channel number: the
+survivor is on **132.066667**, which predicts 132.062462 against 132.062744
+observed -- **282 Hz** -- where 132.058333 predicts 132.054129 and is 8.6 kHz
+out. It is still explicable only on the 8.33 kHz raster (132.066667 is not a
+25 kHz channel), so `issues/02-*`'s plan to refuse 8.33 kHz would still have
+refused the only traffic measured here.
+
+### The second, and it made the feature dead code
+
+The ticket says "the test needs a known and **non-zero** `d`" and that a
+corrected receiver has no discriminator. The first implementation took it
+literally, at one number, `crystal - applied`.
+
+**The program restores a stored calibration at startup and applies it**
+(`sdrprobe.c`, `installation_ppm()` -> `app->applied.ppm`). So that difference
+is zero on every calibrated receiver and zero again on every uncalibrated one:
+**the flag could never be set in the shipping program**, and `make check` was
+green throughout, because a unit hands the number in.
+
+The arithmetic says why. The two readings are `N*(1 + k)/(1 + e)` and
+`N/(1 + e)`, so they are `N*k/(1 + e)` apart -- **`N*k`, and the correction
+does not enter it.** Correcting the ppm *inverts* the discriminator rather than
+removing it: uncorrected the coherent tone reads exactly `N`, corrected the
+external one does. Both numbers are inputs now.
+
+### The third: a noise maximum is narrow
+
+The first live sweep with `unexplained` in it flagged **five refuted noise
+peaks** at 1.9 to 4.4 dB as "unexplained bare carriers" -- a false warning in
+the one direction `docs/receiver-artifacts.md` says never to take. A noise
+maximum carries `UNRESOLVED` exactly as a tone does. The flag now wants
+`NO_CARRIER` absent, and a target the pass **refuted** has it cleared: found in
+none of six looks is absent, not unexplained. `clocked-here` is kept whatever
+the verdict, because it says where a frequency read.
+
+### On air, which is the only thing that could have caught any of it
+
+A 128-137 MHz sweep with `calibration 77771111153705700 32 home-sala-estar` in
+force, binning at 1098.6 Hz. The model says every coherent tone must move up by
+`f*k`, about 4.2 kHz, from where the uncorrected pass found it, while nothing
+on air changes:
+
+| read | nominal | predicted | error | flags |
+| --- | --- | --- | --- | --- |
+| 131.204163 | 1.6 x 82 | 131.204198 | **-35 Hz** | `clocked-here` |
+| 129.604553 | 14.4 x 9 | 129.604147 | +406 Hz | `reference,clocked-here` |
+| 136.005188 | 1.6 x 85 | 136.004352 | +836 Hz | `clocked-here` |
+| 128.006042 | 1.6 x 80 | 128.004096 | +1946 Hz | none -- outside one bin |
+| 135.005432 | no comb | -- | -- | none |
+
+Three of three known families inside a bin, each having moved four kilohertz
+because the correction was turned on. The fourth is honestly missed rather than
+quietly admitted, which is what a one-bin tolerance buys.
+
+### What was deliberately not built
+
+**A round-number grid.** 150.000000 comes back `unexplained` rather than
+`clocked-here`, because it is on neither modelled comb and naming it the
+receiver's needs a grid that contains it. Choosing that grid is ticket 10's
+decision with evidence behind it, not a default this header may invent -- so
+ticket 10 keeps its question and now has the arithmetic and one more piece of
+evidence for it.
+
+**A channel raster in the band plan.** `reading_external_channel_hz()` is ready
+for one and nothing supplies it; `survey_suspect_origin()` asks over the combs
+only. Eighty allocations' rasters is a transcription job of its own and the
+"and no channel raster" half of this ticket's property 3 is therefore
+unimplemented. Said plainly rather than quietly approximated.
+
+### Two smaller things found on the way
+
+**`survey_flag_text()` could run off the end of its buffer.** It accumulated
+`snprintf()`'s *would-have-been* length, so the first truncation made
+`size - used` wrap to an enormous `size_t`. Unreachable with four flags and the
+`char flags[64]` all four call sites wrote; reachable the moment either
+changed, and six flags need 68 bytes. It clamps now and `SURVEY_FLAG_TEXT_MAX`
+is in the header so the four sites cannot disagree again.
+
+**A confirm row prints the target's frequency and the flags of the measured
+centre**, which can differ by tens of kilohertz -- one row above reads
+`confirm 136079346 ... reference,unresolved,clocked-here` for a measurement
+near 136.004. Pre-existing and true of `reference` long before this, but the
+new flags make it easier to notice. Not fixed here; worth its own ticket.

@@ -1,6 +1,8 @@
 # 10 - There is a second clock here, and the comb test cannot see it
 
-Status: needs-triage
+Status: needs-triage -- **the first of the three gates is answered**
+(2026-09-11) and the third is retired, by `11-what-a-frequency-offset-says.md`.
+What remains is the second, which is the representation. See the comments.
 Opened 2026-09-10, from the sweep `surveys/2026-09-10-002420-24M-1766M.json`
 and three narrow confirmation passes over it.
 
@@ -154,3 +156,41 @@ to within 0.03 at every one, reading "a bare carrier" once the channel is
 a wide channel reads modulated however pure it is, and the confirmation pass's
 channel is the candidate's measured bandwidth, which on a coarse sweep is
 about a bin. `docs/aeronautical-vhf-at-this-site.md` section 4 has the table.
+
+## Comments
+
+**2026-09-11, from ticket 11 landing.**
+
+**Gate one -- "whose 25 MHz is it" -- is answered: this receiver's.** Not by
+the different-room experiment this ticket proposes, which is corroboration
+rather than a prerequisite. `testfiles/carrier_75000_bare.bin` reads
+74 999 978.2 Hz, **21.8 Hz** from 25 MHz x 3, where an external source at that
+tuning must read kilohertz out. Whatever generates the family is clocked
+coherently with this receiver's reference, which is what "belongs to the
+receiver" can mean operationally. It says nothing about *which* oscillator or
+which divider, and 25 MHz is still not 28.8/n.
+
+**Gate three -- "whether the frequencies are even exact" -- is retired**, and
+it was the wrong question. An uncalibrated receiver does not blur a reading, it
+displaces it by a known amount, so the +877 Hz and +500 Hz this ticket calls
+"well inside" the uncertainty are nothing of the kind: they are inside the
+*precision*, about one 977 Hz bin, against 2.3 to 4.6 kHz of displacement. The
+ticket had the sign backwards as well -- see 11's comments -- but not in a way
+that changes this.
+
+**Gate two -- whether one number can express it -- is untouched and is now the
+whole ticket.** 150.0009 MHz comes back `unexplained` from the survey today
+rather than silently clean, which is `SURVEY_SUSPECT_UNEXPLAINED` doing exactly
+what this ticket asked for: the "unremarked" gap is closed as a *finding*.
+Naming it the receiver's needs a grid containing 150.000000, and
+`reading_origin_for()` will answer over any grid a caller proposes -- so the
+arithmetic is waiting and the decision is not made. `reading_origin.h` refuses
+to invent one, for the reason this ticket gives about the rate-range hole.
+
+**One more piece of evidence for whoever takes it.** With the correction
+applied, a 128-137 MHz sweep reads 131.204163, 129.604553 and 136.005188
+against a coherent model predicting 131.204198, 129.604147 and 136.004352 --
+35, 406 and 836 Hz. Three modelled families, each moved four kilohertz by
+turning the correction on. If the 25 MHz family is real, the same sweep run at
+75, 150 and 175 MHz should show it moving with them and by the same fraction,
+which is a sharper test than a different room and costs a minute.

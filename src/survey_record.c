@@ -7,21 +7,47 @@
 
 #define SURVEY_BANDWIDTH_DB 20.0f
 
+/* snprintf() returns what it *would* have written, so accumulating it blindly
+   makes `size - used` wrap on the first truncation. */
+static void flag_append(char *buffer, size_t size, size_t *used,
+                        const char *text) {
+    int wrote;
+
+    if (*used + 1 >= size)
+        return;
+    wrote = snprintf(buffer + *used, size - *used, "%s%s", *used ? "," : "",
+                     text);
+    if (wrote < 0)
+        return;
+    *used += (size_t)wrote;
+    if (*used >= size)
+        *used = size - 1;
+}
+
 const char *survey_flag_text(unsigned int flags, char *buffer, size_t size) {
     size_t used = 0;
 
+    if (!buffer || size == 0)
+        return "-";
     buffer[0] = '\0';
     if (flags & SURVEY_SUSPECT_REFERENCE)
-        used += (size_t)snprintf(buffer + used, size - used, "reference");
+        flag_append(buffer, size, &used, "reference");
     if (flags & SURVEY_SUSPECT_STEP_CENTRE)
-        used += (size_t)snprintf(buffer + used, size - used, "%sstep-centre",
-                                 used ? "," : "");
+        flag_append(buffer, size, &used, "step-centre");
     if (flags & SURVEY_SUSPECT_UNRESOLVED)
-        used += (size_t)snprintf(buffer + used, size - used, "%sunresolved",
-                                 used ? "," : "");
+        flag_append(buffer, size, &used, "unresolved");
     if (flags & SURVEY_SUSPECT_NO_CARRIER)
-        used += (size_t)snprintf(buffer + used, size - used, "%sno-carrier",
-                                 used ? "," : "");
+        flag_append(buffer, size, &used, "no-carrier");
+    /*
+     * These two are named as *readings* rather than as conclusions, which is
+     * ADR-0015's rule and matters more here than on the band plan: "clocked
+     * here" is the kind of phrase that stops somebody looking, so it says what
+     * the frequency did and not what the signal is.
+     */
+    if (flags & SURVEY_SUSPECT_CLOCK_COHERENT)
+        flag_append(buffer, size, &used, "clocked-here");
+    if (flags & SURVEY_SUSPECT_UNEXPLAINED)
+        flag_append(buffer, size, &used, "unexplained");
     return used ? buffer : "-";
 }
 
@@ -109,11 +135,27 @@ int survey_record_candidates(const struct survey_record_tuning *tuning,
          * tells a bare carrier from a service unavailable in exactly the case
          * that needs it.
          */
-        c->suspect = survey_suspect(plan, tuning->reference_clock_hz,
-                                    c->measured ? c->centre_hz : c->found_hz,
+        double at = c->measured ? c->centre_hz : c->found_hz;
+
+        c->suspect = survey_suspect(plan, tuning->reference_clock_hz, at,
                                     c->measured ? c->width_hz : c->extent_hz,
                                     tuning->sample_rate_hz, SDR_DSP_FFT_SIZE,
                                     tuning->remove_dc);
+        /*
+         * And what the receiver's own frequency error says, which is evidence
+         * of a different kind and needs a measured crystal.
+         *
+         * The tolerance is one bin of whatever placed this candidate -- the
+         * measurement's when there is one, the sweep's array otherwise -- and
+         * not `survey_comb_tolerance()`, which is generous on purpose and
+         * would abolish this test rather than loosen it. Most swept surveys
+         * are too coarse to answer, and say UNKNOWN rather than guessing.
+         */
+        c->suspect |= survey_suspect_origin(
+            c->suspect, tuning->reference_clock_hz, at, tuning->clock,
+            survey_coherent_tolerance(
+                c->measured ? tuning->sample_rate_hz / SDR_DSP_FFT_SIZE
+                            : plan->bin_hz));
         entry = band_plan_lookup(c->measured ? c->centre_hz : c->found_hz);
         c->allocation = entry ? entry->name : NULL;
         filled++;

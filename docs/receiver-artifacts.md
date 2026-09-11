@@ -26,7 +26,7 @@ editing ADR-0015 refuses. The headless report says so in as many words:
 `# suspicious candidates resemble the receiver rather than the band; nothing
 has been removed`.
 
-## The four flags
+## The six flags
 
 `enum survey_suspicion` in `src/survey_suspect.h`:
 
@@ -36,13 +36,19 @@ has been removed`.
 | `SURVEY_SUSPECT_STEP_CENTRE` | 2 | where a sweep step was tuned, so the receiver's DC offset lands there | the sweep only |
 | `SURVEY_SUSPECT_UNRESOLVED` | 4 | narrower than this sweep can resolve: an observation, not a suspicion | either |
 | `SURVEY_SUSPECT_NO_CARRIER` | 8 | a closer look found a prominence and nothing else | the confirmation pass only |
+| `SURVEY_SUSPECT_CLOCK_COHERENT` | 16 | reads at its exact nominal, where an external signal could not | either, given a **measured** crystal |
+| `SURVEY_SUSPECT_UNEXPLAINED` | 32 | a bare carrier on no modelled comb, at a frequency where the question could be asked | either, given a measured crystal |
+
+The last two are section 5 below, and they are a different kind of evidence
+from everything above them: the comb argues from coincidence, they argue from
+cancellation.
 
 Two predicates read them, and they are deliberately separate because a reader
 acts differently on each:
 
-- `survey_suspect_warns()` — REFERENCE or STEP_CENTRE. *Unplug the antenna and
-  sweep again.* Marked `*` in the candidate list and drawn as a **cross** on
-  the chart.
+- `survey_suspect_warns()` — REFERENCE, STEP_CENTRE or CLOCK_COHERENT. *Unplug
+  the antenna and sweep again.* Marked `*` in the candidate list and drawn as a
+  **cross** on the chart.
 - `survey_suspect_empty()` — NO_CARRIER. *The frequency is empty however often
   it was seen.* Marked `~` and drawn as a **hollow dot**.
 
@@ -424,6 +430,177 @@ silent. The threshold was measured; the two flagged in the same sweep read 9.5
 and 10.9 dB. Loosening it to catch one case is tuning a constant until it
 agrees.
 
+## 5. Where it reads, which is the other kind of evidence
+
+### What it is
+
+Everything above argues from coincidence: this frequency is a multiple of that
+spacing, and a real signal would land there rarely. This argues from
+cancellation, shares no arithmetic with any of it, and therefore corroborates
+or **contradicts** it.
+
+An uncalibrated receiver does not report a frequency vaguely, it reports it
+*wrongly by a known amount*. Write `k` for the reference's own fractional error
+and `c` for the correction in force, so the residual is `e = k − c`. A tone at
+true frequency `f` is reported at `f / (1 + e)` — the tuning cancels out of
+that exactly, because one crystal clocks both the synthesiser and the ADC.
+
+Now put a tone through it that is *generated from the same reference*. Its true
+frequency is `f_nom · (1 + k)`, so it is reported at `f_nom · (1 + k) / (1 + e)`.
+Uncorrected (`c = 0`) that is **exactly its nominal, however far out the
+crystal is.** That is the whole discriminator, and it is one subtraction.
+
+The two readings are `f · k / (1 + e)` apart — **`f · k`, the crystal's own
+error, and the correction does not enter it at all.** This dongle measures
+31.84 ppm, so the hypotheses sit **4.1 kHz apart at 132 MHz and 4.8 at 150**.
+
+### The sign, which ticket 11 had backwards
+
+`cal-measure` prints `observed_ppm`, the *residual* `(measured − expected) /
+expected`, and it reads **−31.84** here (`--calibrate gsm --arfcn 113`, 874
+measurements, sem 0.22, `suggested_ppm 32`). That is not `k`, it is its
+negation, because reported frequency is `f / (1 + e)`. **This crystal is
+fast**, so an uncorrected reading of a real transmitter comes back about
+4.2 kHz **low** at 132 MHz, not high.
+
+Every "reads exact, therefore clocked here" verdict survives untouched — being
+*at* the nominal cannot care which way the other hypothesis lies — so the table
+below keeps its verdicts. What moves is the one external attribution: the
+airband survivor is on **132.066667** and not the 132.058333 the ticket names,
+which the corrected sign puts 8.6 kHz away instead of 282 Hz.
+
+### What it settled
+
+| measured | nearest exact | offset | verdict |
+| --- | --- | --- | --- |
+| 129.600159 | 14.4 × 9 | +159 Hz | the receiver — and this *is* the precision figure |
+| 131.200526 | 1.6 × 82 | +526 Hz | the receiver |
+| 136.000793 | 1.6 × 85 | +793 Hz | the receiver |
+| 150.000900 | 150.000000 | +900 Hz | the receiver's reference, **on no modelled comb** |
+| 134.999939 | 135.000000 | −61 Hz | the receiver, not the AM carrier it was recorded as |
+| 132.062744 | 132.066667 (8.33 kHz raster) | −3923 Hz | external, against −4204 predicted: 282 Hz |
+
+The first three are internal by construction, so what they read from exact *is*
+the measurement's precision: about one 977 Hz bin. That is four times smaller
+than the separation being tested for, which is the only reason the test works
+at the resolution available.
+
+### On air, with the correction applied
+
+The table above is an *uncorrected* receiver, where a coherent tone reads on
+its exact multiple. Turn the correction on and the model says every one of them
+must move up by `f · k` — about 4.2 kHz — while nothing on air changes. A
+128–137 MHz sweep on 2026-09-11 with `calibration … 32 …` in force, binning at
+1098.6 Hz:
+
+| read | nominal | coherent predicts | error | flagged |
+| --- | --- | --- | --- | --- |
+| 131.204163 | 1.6 × 82 | 131.204198 | **−35 Hz** | `clocked-here` |
+| 129.604553 | 14.4 × 9 | 129.604147 | +406 Hz | `reference,clocked-here` |
+| 136.005188 | 1.6 × 85 | 136.004352 | +836 Hz | `clocked-here` |
+| 128.006042 | 1.6 × 80 | 128.004096 | +1946 Hz | — (outside one bin) |
+| 135.005432 | no comb | — | — | — |
+
+Three of three known families predicted to within a bin, having each moved
+four kilohertz from where the uncorrected pass found them. The fourth is
+honestly missed rather than quietly admitted, which is what a tolerance of one
+bin buys.
+
+### The algorithm
+
+`src/reading_origin.h`, and it is pure arithmetic over three numbers.
+
+1. **Refuse unless separable.** The coherent answer sits at `nominal ±
+   tolerance` and the external one at `nominal + displacement ± tolerance`.
+   Those windows are disjoint exactly when the displacement exceeds **twice**
+   the tolerance, so that is the bar — the honest minimum, not a chosen one.
+2. **Ask against a nominal the caller proposes** — a comb multiple, a channel
+   on a raster. Within tolerance of it: `RECEIVER`. Within tolerance of the
+   displaced position: `EXTERNAL`. Neither: `UNEXPLAINED`.
+3. `survey_suspect_origin()` asks over the two combs and maps the answer onto
+   the two flags.
+
+### The three refusals, and one of them is backwards
+
+`struct reading_clock` carries **two** numbers, `crystal_ppm` and
+`applied_ppm`, and a crystal error of zero is a refusal rather than a good
+receiver. Two situations produce it:
+
+- a receiver nobody has ever calibrated — the error is unknown, so nothing can
+  be concluded from where anything reads;
+- a capture — a file does not carry its recorder's crystal, the same reason a
+  capture gets no comb tests at all.
+
+**A calibrated receiver is not one of them**, and the first version of this
+took it to be. It took one number, `calibrated − applied`, on the reasoning
+that a corrected receiver has nothing left to displace anything by. But the
+program restores a stored calibration at startup and applies it, so that
+difference is zero on every calibrated receiver and zero again on every
+uncalibrated one: **the flag could never be set in the shipping program**,
+while the whole unit suite stayed green because a unit hands the number in.
+
+What correcting the ppm actually does is **invert** the discriminator, not
+remove it. The separation stays `f · k`. What changes is which hypothesis sits
+on the nominal: uncorrected the coherent tone reads exactly `N` and the
+external one is displaced; corrected the external one reads exactly `N` and
+the coherent one is displaced by `f_nom · k` — 4.8 kHz at 150 MHz, looking
+exactly like the external signal it is not. That is why the correction is an
+input rather than an assumption.
+
+### The tolerance is one bin, and not the comb's
+
+`SURVEY_COHERENT_BINS` is 1.0 — one bin of whatever measured the candidate.
+Borrowing `RECEIVER_COMB_TOLERANCE_HZ`'s 25 kHz looks like tidying and is not:
+it would not loosen this test, it would **abolish** it. Twice 25 kHz of
+required displacement wants a carrier at 1.6 GHz, every verdict would be
+"cannot say", and the suite would look perfectly healthy. 25 kHz is cheap
+against a 14.4 MHz comb spacing and ruinous against a 4 kHz subtraction.
+
+It follows that most swept surveys cannot ask this at all — a whole-tuner
+sweep bins at 212 kHz and would need 424 kHz of displacement — while a
+confirmation pass, tuned to the candidate at the receiver's own rate, bins at
+977 Hz and can. The flag appears where the evidence is.
+
+### What must be a carrier before it can be unexplained
+
+A noise maximum is narrow, so it carries `UNRESOLVED` exactly as a tone does.
+The first live sweep with `SURVEY_SUSPECT_UNEXPLAINED` in it turned five
+refuted peaks at 1.9–4.4 dB into "unexplained bare carriers" — a false warning
+in the one direction this whole file says not to take, and one no unit check
+was asking about. Two gates were added from it: the flag wants the
+confirmation pass's own `NO_CARRIER` to be *absent*, and a target the pass
+**refuted** has the flag cleared outright, because a frequency found in none of
+six looks is absent rather than unexplained. `clocked-here` is kept whatever
+the verdict — it says where a frequency read, and something seen once still
+read somewhere.
+
+### What it must not claim
+
+**Which oscillator.** 25 MHz is not 28.8/n, so how a 28.8 MHz reference comes
+to produce a coherent family at 75.000000 and 150.000000 is unexplained. The
+measurement says *coherent with this receiver's reference*, which is what
+"belongs to the receiver" can mean operationally, and nothing about which
+divider.
+
+**That "displaced" means a transmitter.** It means an oscillator that is not
+this one. A second receiver on the desk, a powered hub, a monitor — anything
+with its own crystal reads the same way.
+
+### The contradiction, which is what makes it worth having
+
+94.4 MHz is 1.6 × 59 and is also the loudest FM station at this site, confirmed
+at 46 dB. The fine comb flags it, correctly by its own lights and wrongly about
+the world. A real transmitter there reads 2.9 kHz high, so `CLOCK_COHERENT` is
+not set and `survey_suspect_origin_at()` returns `EXTERNAL` for a caller that
+asks. The comb flag itself is left standing: this adds evidence rather than
+silently overruling a mark the operator has learned to read.
+
+That separation needs a confirmation pass's 977 Hz bin. A band II sweep binning
+at 2 kHz cannot separate the two at 94 MHz and says so, which is the refusal
+working — the displacement grows with frequency and a bin does not, so the
+airband candidates forty megahertz higher are reachable from a sweep where this
+one is not.
+
 ## Every adjustable parameter
 
 Compiled in today. `.scratch/calibrating-the-flags/` is the open effort to
@@ -446,12 +623,20 @@ measure them per device and reach them from Settings.
 | `SURVEY_MIN_PROMINENCE_DB` | 8 dB | `survey_sweep.h` | ADR-0017; three replacements built, measured on air, put back |
 | `SURVEY_CONFIRM_PROMINENCE_DB` | 6 dB | `survey_confirm.h` | under the sweep's own bar, because refuting a real signal is the expensive error |
 | `SURVEY_CONFIRM_LOOKS` | 6 | `survey_confirm.h` | enough that one burst in six is distinguishable from five |
+| `SURVEY_COHERENT_BINS` | 1.0 | `survey_suspect.h` | the pass's measured precision: three comb tones at +159, +526, +793 Hz through a 977 Hz bin |
+| `READING_SEPARABLE_TOLERANCES` | 2.0 | `reading_origin.h` | not adjustable: two windows of half-width `t` are disjoint exactly past `2t` |
 
-**Two of them are not free parameters.** `SIGNAL_ENVELOPE_RAYLEIGH` is
+**Three of them are not free parameters.** `SIGNAL_ENVELOPE_RAYLEIGH` is
 `sqrt(4/π − 1)` and changing it means comparing against something that is not
-noise. `RECEIVER_COMB_MAX_FRACTION` bounds every comb tolerance, and loosening
-it does not produce more flags — it produces flags with no evidence behind
-them.
+noise. `READING_SEPARABLE_TOLERANCES` is the condition for two intervals to be
+disjoint and is arithmetic, not a threshold. `RECEIVER_COMB_MAX_FRACTION`
+bounds every comb tolerance, and loosening it does not produce more flags — it
+produces flags with no evidence behind them.
+
+And `SURVEY_COHERENT_BINS` is adjustable but must not be raised to the comb's
+tolerance, for the reason section 5 gives: past about twice its present value
+the test stops answering rather than starting to over-answer, which is the
+failure mode a green suite cannot show.
 
 ## What is not established
 

@@ -167,7 +167,7 @@ static void test_escaping(void) {
 }
 
 static void test_flag_text(void) {
-    char buffer[64];
+    char buffer[SURVEY_FLAG_TEXT_MAX];
 
     check_str("no flags", survey_flag_text(0, buffer, sizeof(buffer)), "-");
     check_str("one", survey_flag_text(SURVEY_SUSPECT_REFERENCE, buffer,
@@ -177,6 +177,67 @@ static void test_flag_text(void) {
                                SURVEY_SUSPECT_STEP_CENTRE,
                                buffer, sizeof(buffer)),
               "reference,step-centre");
+    /*
+     * The two that come from where a candidate *reads* rather than from which
+     * multiple it is near. They have names here because they had none at
+     * first, which is how a live sweep came back with the flag set and no
+     * sign of it in the report -- a feature that works and says nothing is
+     * indistinguishable from one that does not work.
+     */
+    check_str("clock coherence has a name",
+              survey_flag_text(SURVEY_SUSPECT_CLOCK_COHERENT, buffer,
+                               sizeof(buffer)),
+              "clocked-here");
+    check_str("and so does unexplained",
+              survey_flag_text(SURVEY_SUSPECT_UNEXPLAINED, buffer,
+                               sizeof(buffer)),
+              "unexplained");
+    check_str("beside the comb, which it corroborates",
+              survey_flag_text(SURVEY_SUSPECT_REFERENCE |
+                                   SURVEY_SUSPECT_UNRESOLVED |
+                                   SURVEY_SUSPECT_CLOCK_COHERENT,
+                               buffer, sizeof(buffer)),
+              "reference,unresolved,clocked-here");
+    /*
+     * Every flag at once fits the size the header names, and this is why the
+     * header names one: four call sites each wrote `char flags[64]`, which was
+     * ample for four flags and eight bytes short of six.
+     */
+    {
+        unsigned all = SURVEY_SUSPECT_REFERENCE | SURVEY_SUSPECT_STEP_CENTRE |
+                       SURVEY_SUSPECT_UNRESOLVED | SURVEY_SUSPECT_NO_CARRIER |
+                       SURVEY_SUSPECT_CLOCK_COHERENT |
+                       SURVEY_SUSPECT_UNEXPLAINED;
+
+        check_str("all six, in a fixed order",
+                  survey_flag_text(all, buffer, sizeof(buffer)),
+                  "reference,step-centre,unresolved,no-carrier,clocked-here,"
+                  "unexplained");
+        check_true("which does not fit the 64 they used to be given",
+                   strlen(buffer) >= 64);
+        check_true("and does fit the size the header names",
+                   strlen(buffer) < SURVEY_FLAG_TEXT_MAX);
+    }
+
+    /*
+     * And a buffer too small truncates cleanly instead of running off the end.
+     * It used to accumulate snprintf()'s *would-have-been* length, so the
+     * first truncation made `size - used` wrap to an enormous size_t and the
+     * next write was unbounded. Unreachable with four flags and a 64-byte
+     * buffer; reachable the moment either changed.
+     */
+    {
+        char small[12];
+        const char *text = survey_flag_text(
+            SURVEY_SUSPECT_REFERENCE | SURVEY_SUSPECT_STEP_CENTRE |
+                SURVEY_SUSPECT_CLOCK_COHERENT,
+            small, sizeof(small));
+
+        check_true("a short buffer stays inside itself",
+                   strlen(text) < sizeof(small));
+        check_str("with what did fit, cut at the buffer", text,
+                  "reference,s");
+    }
 }
 
 /*
