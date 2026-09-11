@@ -13,6 +13,20 @@ recorded here so the third time is cheap.
 `.scratch/what-is-on-air/` is the working effort behind this; this file is the
 answer as it stands.
 
+**Aeronautical VHF has its own document**, because it took an hour of
+measurement and produced a null with a control behind it:
+`docs/aeronautical-vhf-at-this-site.md`. The short version is that across
+108-137 MHz this setup hears **nothing external** -- every candidate is either
+a carrier clocked with the receiver's own crystal or a noise maximum with no
+carrier -- while the same antenna hears ten FM broadcast carriers twenty
+megahertz lower. The receiver's own comb reaches **70 dB** over the floor in
+that band, about 20 dB above anything outside it.
+
+**And the reference sweep below is gone from disk.** `surveys/` was cleared on
+2026-09-10; the numbers in the next table are what it said and can no longer
+be re-derived from the file. The newest sweep is
+`surveys/2026-09-10-002420-24M-1766M.json`.
+
 ## The site, and the sweep this rests on
 
 `home-sala-estar`, a telescopic whip indoors, 29.7 dB of gain, an R820T behind
