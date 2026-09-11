@@ -858,13 +858,46 @@ static int survey_session_confirm_decide(struct survey_session *s,
     if (survey_confirm_is_empty(s->confirm.kind_measured, &s->confirm.carrier,
                                 &s->confirm.envelope))
         target->suspicion |= SURVEY_SUSPECT_NO_CARRIER;
-    if (s->confirm.measured && block)
-        target->suspicion |= survey_suspect_confirmed(
-            block->reference_clock_hz, s->confirm.best.centre_hz,
-            s->confirm.best.bandwidth_hz, block->sample_rate,
-            SDR_DSP_FFT_SIZE);
     target->verdict = (signed char)survey_confirm_verdict_from(
         target->claim, s->confirm.hits, s->confirm.looks);
+    if (s->confirm.measured && block) {
+        unsigned flags = target->suspicion |
+                         survey_suspect_confirmed(
+                             block->reference_clock_hz,
+                             s->confirm.best.centre_hz,
+                             s->confirm.best.bandwidth_hz, block->sample_rate,
+                             SDR_DSP_FFT_SIZE);
+
+        /*
+         * And what the receiver's own error says about where this reads, which
+         * is the measurement a pass is uniquely placed to make: it is tuned to
+         * the candidate at the receiver's own rate, so its bin is
+         * `sample_rate / fft_size` -- 977 Hz at 2 MS/s over 2048 points --
+         * against the tens or hundreds of kilohertz a swept survey has. The
+         * tolerance is that bin and emphatically not the comb's 25 kHz; see
+         * SURVEY_COHERENT_BINS for what borrowing it would have cost.
+         */
+        unsigned origin = survey_suspect_origin(
+            flags, block->reference_clock_hz, s->confirm.best.centre_hz,
+            block->clock,
+            survey_coherent_tolerance(block->sample_rate /
+                                      (double)SDR_DSP_FFT_SIZE));
+
+        /*
+         * A refuted target is not unexplained, it is absent. The pass looked
+         * six times and found it in none of them, so there is nothing left for
+         * a grid to fail to explain -- and the verdict is computed above
+         * rather than below for exactly this, since a flag that contradicts
+         * the verdict beside it is worse than no flag.
+         *
+         * `clocked-here` is kept whatever the verdict: it is a statement about
+         * where a frequency read, and a target seen in one look out of six
+         * still read somewhere.
+         */
+        if (target->verdict == SURVEY_VERDICT_REFUTED)
+            origin &= ~(unsigned)SURVEY_SUSPECT_UNEXPLAINED;
+        target->suspicion |= flags | origin;
+    }
     return s->confirm.measured;
 }
 

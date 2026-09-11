@@ -210,7 +210,7 @@ int survey_store_write(const struct survey_record *record, char *path_out,
      */
     for (i = 0; i < target_count; i++) {
         const struct survey_confirm_target *t = &targets[i];
-        char flags[64];
+        char flags[SURVEY_FLAG_TEXT_MAX];
         const char *text = survey_flag_text(t->suspicion, flags,
                                             sizeof(flags));
 
@@ -248,7 +248,7 @@ int survey_store_write(const struct survey_record *record, char *path_out,
     fprintf(file, "  \"candidates\": [\n");
     for (i = 0; i < count; i++) {
         const struct survey_candidate *c = &candidates[i];
-        char flags[64], escaped[256];
+        char flags[SURVEY_FLAG_TEXT_MAX], escaped[256];
         const char *text = survey_flag_text(c->suspect, flags, sizeof(flags));
 
         fprintf(file, "   {\"hz\": %.0f, \"dbfs\": %.1f, "

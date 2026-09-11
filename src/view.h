@@ -168,6 +168,24 @@ Rectangle calculate_plot(void);
 void survey_tuning_from(struct survey_record_tuning *out,
                         const struct app *app);
 
+/*
+ * This receiver's own reference error and the correction in force -- the two
+ * numbers `reading_origin.h` needs, and it needs two.
+ *
+ * One function because both survey adapters build a `struct survey_block` and
+ * the record needs the same pair, and this repository has just spent a ticket
+ * on what happens when two copies of a survey fact drift apart.
+ *
+ * The crystal error is 0 when this receiving setup has never been calibrated,
+ * which is a refusal downstream rather than a claim that the receiver is
+ * perfect. It is **not** 0 merely because the correction is applied: that was
+ * the first version of this and it made the whole measurement unreachable in
+ * the shipping program while every unit check stayed green, since the program
+ * restores and applies a stored calibration at startup and `calibrated -
+ * applied` is then always zero.
+ */
+struct reading_clock survey_reading_clock(const struct app *app);
+
 /* The frequency window the Scope's spectrum and waterfall share. */
 void scope_freq_sync(struct app *app);
 /*

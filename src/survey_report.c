@@ -72,6 +72,7 @@ static struct survey_block survey_block_now(struct app *app) {
     block.centre_hz = (double)app->applied.frequency_hz;
     block.sample_rate = (double)app->applied.sample_rate_hz;
     block.reference_clock_hz = app->device.reference_clock_hz;
+    block.clock = survey_reading_clock(app);
     block.remove_dc = app->remove_dc;
     return block;
 }
@@ -238,7 +239,7 @@ static void report_candidates(struct app *app) {
            "<flags|-> <allocation|->\n");
     for (i = 0; i < found; i++) {
         const struct survey_candidate *c = &candidates[i];
-        char flags[64], centre[32], width[32];
+        char flags[SURVEY_FLAG_TEXT_MAX], centre[32], width[32];
 
         if (c->measured) {
             snprintf(centre, sizeof(centre), "%.0f", c->centre_hz);

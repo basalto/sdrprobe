@@ -790,6 +790,303 @@ static void test_the_profile_supplies_the_reference(void) {
                 1.0);
 }
 
+
+/*
+ * The second kind of evidence: where a candidate reads, rather than which
+ * multiple it is near. `.scratch/device-model/issues/11-*`.
+ *
+ * A comb flag is a coincidence argument -- this frequency is a multiple of
+ * that spacing. This is a cancellation argument, shares no arithmetic with it,
+ * and so can corroborate *or* contradict it. Both directions are asserted
+ * here, because a test that only ever agrees with the comb is not a second
+ * opinion.
+ *
+ * The airband pass of 2026-09-11 is the fixture throughout: a narrow sweep
+ * binning at about 2 kHz, and a receiver measured at -30.8 to -35.96 ppm.
+ */
+#define AIRBAND_BIN_HZ 1953.125          /* a 128-137 MHz sweep in 4096 bins */
+/*
+ * The crystal's own error, which is the *negation* of the residual
+ * `cal-measure` prints: `--calibrate gsm --arfcn 113` reported
+ * `observed_ppm -31.84` and `suggested_ppm 32` on 2026-09-11, so the reference
+ * is **fast** by 31.84 ppm and an uncorrected reading of a real transmitter
+ * comes back low. Ticket 11 took the printed residual for the error and had
+ * every displacement the wrong way round; see
+ * `tests/reading_origin_test.c`.
+ */
+#define AIRBAND_PPM 31.84
+
+/* Uncorrected, as every reading in that pass was. The crystal's error is what
+   separates the two hypotheses; the correction only decides which of them
+   reads on the nominal. */
+static struct reading_clock raw_clock(void) {
+    struct reading_clock clock = { AIRBAND_PPM, 0.0 };
+    return clock;
+}
+
+static struct survey_plan airband_plan(void) {
+    struct survey_plan plan;
+
+    memset(&plan, 0, sizeof(plan));
+    plan.lower_hz = 128e6;
+    plan.upper_hz = 136e6;
+    plan.bins = 4096;
+    plan.bin_hz = AIRBAND_BIN_HZ;
+    plan.step_count = 4;
+    plan.step_span_hz = 2e6;
+    return plan;
+}
+
+/* One comb tone, its own bin, and the reading the pass actually got. */
+static unsigned origin_at(double hz, struct reading_clock clock, double bin_hz,
+                          unsigned base) {
+    return survey_suspect_origin(base, RTL_REFERENCE_HZ, hz, clock,
+                                 survey_coherent_tolerance(bin_hz));
+}
+
+static void test_a_comb_tone_reads_exact(void) {
+    /*
+     * 129.600159 MHz is 14.4 x 9 and read +159 Hz from it. At -30.8 ppm an
+     * external transmitter on that multiple would read about 3993 Hz high, so
+     * +159 is not a near miss, it is the cancellation.
+     */
+    unsigned flags = origin_at(129600159.0, raw_clock(), AIRBAND_BIN_HZ,
+                               SURVEY_SUSPECT_UNRESOLVED);
+
+    check_int("129.600159 reads exact: clocked here",
+              (flags & SURVEY_SUSPECT_CLOCK_COHERENT) != 0, 1);
+    check_int("and is not also called unexplained",
+              (flags & SURVEY_SUSPECT_UNEXPLAINED) != 0, 0);
+    check_msg(survey_suspect_reason(flags | SURVEY_SUSPECT_REFERENCE) != NULL,
+              "comb plus coherence produced no sentence\n");
+
+    /* The fine comb too: 136.000793 is 1.6 x 85, read +793 Hz. */
+    check_int("136.000793 on the fine comb reads exact",
+              (origin_at(136000793.0, raw_clock(), AIRBAND_BIN_HZ,
+                         SURVEY_SUSPECT_UNRESOLVED) &
+               SURVEY_SUSPECT_CLOCK_COHERENT) != 0,
+              1);
+}
+
+/*
+ * And the contradiction, which is the half that makes it worth having.
+ *
+ * 94.4 MHz is 1.6 x 59 and is also the loudest FM station at this site,
+ * confirmed at 46 dB. The comb flags it, correctly by their own lights and
+ * wrongly about the world. A real transmitter there reads displaced -- 2907 Hz
+ * high at -30.8 ppm -- so the coherence test does not flag it, and says
+ * EXTERNAL positively for a caller that asks.
+ *
+ * **At a confirmation pass's resolution and not at a sweep's**, and that was
+ * written the other way round here and failed. 2907 Hz of displacement wants
+ * twice the tolerance to clear it, so a sweep binning at 1953 Hz cannot
+ * separate the hypotheses at 94 MHz and correctly says nothing; a pass binning
+ * at 977 Hz can. Both are asserted, because "the sweep says nothing" is the
+ * refusal working rather than the test failing -- and the displacement grows
+ * with frequency while a bin does not, which is why the airband candidates
+ * forty megahertz higher are reachable from a sweep and this one is not.
+ */
+#define PASS_BIN_HZ (RATE / (double)FFT)          /* 977 Hz at 2 MS/s */
+
+static void test_a_real_station_on_the_comb_is_not_flagged(void) {
+    double displaced = reading_external_hz(94400000.0, raw_clock());
+    unsigned flags;
+
+    check_close("a station on the comb reads about 3.0 kHz low",
+                displaced - 94400000.0, -3005.0, 5.0);
+    check_int("a band II sweep cannot separate the two there",
+              (int)survey_suspect_origin_at(
+                  RTL_REFERENCE_HZ, displaced, raw_clock(),
+                  survey_coherent_tolerance(AIRBAND_BIN_HZ)),
+              (int)READING_ORIGIN_UNKNOWN);
+    flags = origin_at(displaced, raw_clock(), PASS_BIN_HZ,
+                      SURVEY_SUSPECT_UNRESOLVED | SURVEY_SUSPECT_REFERENCE);
+    check_int("so it is not called clocked here",
+              (flags & SURVEY_SUSPECT_CLOCK_COHERENT) != 0, 0);
+    check_int("and a pass says so positively",
+              (int)survey_suspect_origin_at(
+                  RTL_REFERENCE_HZ, displaced, raw_clock(),
+                  survey_coherent_tolerance(PASS_BIN_HZ)),
+              (int)READING_ORIGIN_EXTERNAL);
+    /* The comb flag itself is untouched: this adds evidence, it does not
+       silently overrule a mark the operator has learned to read. */
+    check_int("while the comb flag stands",
+              (survey_suspect(&(struct survey_plan){ .lower_hz = 88e6,
+                                                     .upper_hz = 108e6,
+                                                     .bins = 4096,
+                                                     .bin_hz = 4882.8 },
+                              RTL_REFERENCE_HZ, 94400000.0, 16000.0, RATE, FFT,
+                              1) &
+               SURVEY_SUSPECT_REFERENCE) != 0,
+              1);
+}
+
+/*
+ * 150.0009 MHz: confirmed 6 of 6 at 37.7 dB, 70% of the channel standing
+ * still, on no multiple of 14.4 or 1.6, and filed under "Mobile-satellite
+ * uplink". It was indexed exactly like a frequency nobody had asked about.
+ */
+static void test_a_bare_carrier_nothing_explains(void) {
+    unsigned flags = origin_at(150000900.0, raw_clock(), AIRBAND_BIN_HZ,
+                               SURVEY_SUSPECT_UNRESOLVED);
+
+    check_int("150.0009 is on neither comb",
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 150000900.0,
+                                        RECEIVER_COMB_TOLERANCE_HZ) |
+                  survey_fine_harmonic(RTL_REFERENCE_HZ, 150000900.0, 2000.0),
+              0);
+    check_int("and is reported unexplained rather than clean",
+              (flags & SURVEY_SUSPECT_UNEXPLAINED) != 0, 1);
+    check_int("not as the receiver, which would need a grid containing it",
+              (flags & SURVEY_SUSPECT_CLOCK_COHERENT) != 0, 0);
+    check_msg(survey_suspect_reason(flags) != NULL,
+              "an unexplained bare carrier has no sentence\n");
+
+    /* Narrow, because an ordinary modulated service on no comb is not a
+       mystery and flagging every one of them would empty the flag of
+       meaning. */
+    check_int("a modulated signal on no comb is not unexplained",
+              (origin_at(150000900.0, raw_clock(), AIRBAND_BIN_HZ,
+                         SURVEY_SUSPECT_NONE) &
+               SURVEY_SUSPECT_UNEXPLAINED) != 0,
+              0);
+
+    /*
+     * **And there has to be a carrier**, which the first live run of this flag
+     * found out the expensive way. A noise maximum is narrow, so it carries
+     * `UNRESOLVED` exactly as a tone does, and a 128-137 MHz sweep turned five
+     * refuted peaks at 1.9 to 4.4 dB into "unexplained bare carriers" -- a
+     * false warning in the one direction that costs an operator their trust in
+     * the line, and one no unit check was asking about. `NO_CARRIER` is the
+     * confirmation pass's own answer to that question.
+     */
+    check_int("a noise maximum the pass found empty is not unexplained",
+              (origin_at(150000900.0, raw_clock(), AIRBAND_BIN_HZ,
+                         SURVEY_SUSPECT_UNRESOLVED |
+                             SURVEY_SUSPECT_NO_CARRIER) &
+               SURVEY_SUSPECT_UNEXPLAINED) != 0,
+              0);
+    /* Nor is one the comb already accounts for. */
+    check_int("nor is one on the comb",
+              (origin_at(129600159.0, raw_clock(), AIRBAND_BIN_HZ,
+                         SURVEY_SUSPECT_UNRESOLVED |
+                             SURVEY_SUSPECT_REFERENCE) &
+               SURVEY_SUSPECT_UNEXPLAINED) != 0,
+              0);
+}
+
+/*
+ * The refusals, which are three different situations that must produce the
+ * same silence -- and one of them is the opposite of what "calibrate first"
+ * would suggest.
+ */
+static void test_without_a_measured_crystal_it_says_nothing(void) {
+    unsigned bare = SURVEY_SUSPECT_UNRESOLVED;
+    struct reading_clock unmeasured = { 0.0, 0.0 };
+
+    /* An uncalibrated receiver: nobody has measured the error, so nothing can
+       be concluded from where anything reads. */
+    check_int("no measured crystal, no verdict",
+              origin_at(129600159.0, unmeasured, AIRBAND_BIN_HZ, bare), 0u);
+    /* A capture, which has no clock at all: the comb machinery already
+       refuses, and this must too. */
+    check_int("no reference clock, no verdict",
+              survey_suspect_origin(bare, 0.0, 129600159.0, raw_clock(),
+                                    survey_coherent_tolerance(AIRBAND_BIN_HZ)),
+              0u);
+
+    /*
+     * And the case that is **not** a refusal, which the first version of this
+     * got wrong and which made the whole measurement dead code in the shipping
+     * program: a *correctly calibrated* receiver. The program restores a
+     * stored calibration at startup and applies it, so `crystal - applied` is
+     * then zero -- and taking that one number as the input meant the flag
+     * could never be set on any receiver, calibrated or not, while this suite
+     * stayed green because a unit hands the number in.
+     *
+     * The separation is the crystal's own error and the correction does not
+     * touch it. What the correction changes is which hypothesis reads on the
+     * nominal, so the *same* comb frequency now reads displaced -- which is
+     * why the correction has to be an input rather than an assumption.
+     */
+    {
+        struct reading_clock calibrated = { AIRBAND_PPM, AIRBAND_PPM };
+        double tol = survey_coherent_tolerance(PASS_BIN_HZ);
+
+        check_int("a calibrated receiver can still be asked",
+                  reading_origin_separable(129600000.0, calibrated, tol), 1);
+        check_int("the old reading would now be called external",
+                  (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 129600159.0,
+                                                calibrated, tol),
+                  (int)READING_ORIGIN_EXTERNAL);
+        check_int("and the reading it would actually get is coherent",
+                  (int)survey_suspect_origin_at(
+                      RTL_REFERENCE_HZ,
+                      reading_coherent_hz(129600000.0, calibrated), calibrated,
+                      tol),
+                  (int)READING_ORIGIN_RECEIVER);
+    }
+
+    /* A coarse sweep cannot separate the hypotheses however good the ppm is:
+       the whole tuner in 8192 bins is 212 kHz, wanting 424 kHz of
+       separation. */
+    check_int("and a whole-tuner sweep is too coarse to ask",
+              origin_at(129600159.0, raw_clock(), 212000.0, bare), 0u);
+    check_int("while the narrow sweep that raised the question is not",
+              origin_at(129600159.0, raw_clock(), AIRBAND_BIN_HZ, bare) != 0,
+              1);
+}
+
+/*
+ * The tolerance is one bin and not the comb's, and this is the assertion that
+ * keeps somebody from "simplifying" the two into one constant. Borrowing
+ * RECEIVER_COMB_TOLERANCE_HZ does not loosen this test, it abolishes it.
+ */
+static void test_the_comb_tolerance_would_abolish_this(void) {
+    unsigned bare = SURVEY_SUSPECT_UNRESOLVED;
+
+    check_int("at the comb's 25 kHz nothing is separable below 1.6 GHz",
+              reading_origin_separable(150000000.0, raw_clock(),
+                                       RECEIVER_COMB_TOLERANCE_HZ),
+              0);
+    check_int("so every verdict would be silence",
+              survey_suspect_origin(bare, RTL_REFERENCE_HZ, 129600159.0,
+                                    raw_clock(), RECEIVER_COMB_TOLERANCE_HZ),
+              0u);
+    check_int("where one bin answers",
+              origin_at(129600159.0, raw_clock(), AIRBAND_BIN_HZ, bare) != 0,
+              1);
+    check_close("one bin is the pass's own measured precision",
+                survey_coherent_tolerance(RATE / (double)FFT), 976.5625, 0.01);
+}
+
+/* And the whole judgement over one plan, so the flags are seen to compose. */
+static void test_the_airband_candidates(void) {
+    struct survey_plan plan = airband_plan();
+    unsigned comb = survey_suspect(&plan, RTL_REFERENCE_HZ, 129600159.0,
+                                   2.0 * AIRBAND_BIN_HZ, RATE, FFT, 1);
+
+    check_int("the comb tone is narrow", (comb & SURVEY_SUSPECT_UNRESOLVED) != 0,
+              1);
+    check_int("and on the comb", (comb & SURVEY_SUSPECT_REFERENCE) != 0, 1);
+    comb |= origin_at(129600159.0, raw_clock(), AIRBAND_BIN_HZ, comb);
+    check_int("and reads exact", (comb & SURVEY_SUSPECT_CLOCK_COHERENT) != 0,
+              1);
+    check_int("which warns", survey_suspect_warns(comb), 1);
+    check_str("with both facts in one sentence",
+              survey_suspect_reason(comb),
+              "on the receiver's reference comb, and reads exact: clocked "
+              "here");
+
+    /* Coherence alone warns too: it is stronger evidence than the comb, not
+       weaker, so a candidate carrying only it must not read as clean. */
+    check_int("coherence alone is a warning",
+              survey_suspect_warns(SURVEY_SUSPECT_CLOCK_COHERENT), 1);
+    /* Unexplained is not a warning: it says nobody knows, not "beware". */
+    check_int("unexplained is not a warning",
+              survey_suspect_warns(SURVEY_SUSPECT_UNEXPLAINED), 0);
+}
+
 int main(void) {
     test_no_clock_means_no_comb();
     test_a_different_clock_is_a_different_comb();
@@ -810,6 +1107,13 @@ int main(void) {
 
     test_the_fine_comb();
     test_the_fine_comb_refuses_a_coarse_sweep();
+
+    test_a_comb_tone_reads_exact();
+    test_a_real_station_on_the_comb_is_not_flagged();
+    test_a_bare_carrier_nothing_explains();
+    test_without_a_measured_crystal_it_says_nothing();
+    test_the_comb_tolerance_would_abolish_this();
+    test_the_airband_candidates();
 
     return check_report("suspicious candidates");
 }
