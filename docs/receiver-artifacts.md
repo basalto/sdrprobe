@@ -676,10 +676,23 @@ On air, with the correction in force:
 predicted 150.004800 — **+546 Hz**, inside a bin, on a frequency no comb
 reaches.
 
-**And at least one family is still unmodelled.** The same sweep read
-135.004763, which is +443 Hz from a coherent source on 135.000000 and on
-neither comb nor octave chain. 135 is not 75 × 2ⁿ, so either there is a second
-family or the fundamental is something both 75 and 135 divide.
+**And a second family is established but has no rule.** Measured 2026-09-12:
+135.000000 and 540.000000 are clock-coherent — +75 Hz and −190 Hz against the
+corrected prediction — and on neither comb nor octave chain. They are not an
+octave chain of their own either, because **270 = 135 × 2 is absent**, and a
+narrow sweep with a confirmation pass calls the one candidate near it
+`no-carrier`.
+
+So the coherent set is **75, 135, 150, 300, 540** and the absences are
+**37.5, 175, 225, 270, 600**. As multiples of 15 MHz that is 5, 9, 10, 20, 36
+present against 15, 18, 40 absent, which no single multiplicative rule
+produces. A ×4 step would do it, and so would a doubler whose intermediate is
+not radiated — ordinary, and unfalsifiable from outside the box.
+
+`clock_chain.h` is therefore **incomplete rather than wrong**: it covers 75,
+150 and 300, claims nothing about 270, and flags nothing falsely. 135 and 540
+read `unexplained`, which is what that flag is for — asked, and nothing
+modelled accounts for it.
 
 ## Every adjustable parameter
 

@@ -332,6 +332,54 @@ correction in force; the pass measured 150.005346, **+546 Hz**, inside one
 977 Hz bin. The gap this ticket was opened about is closed -- 150 MHz is on no
 comb and the chain reaches it.
 
+## Measured further, 2026-09-12: the octave model is **incomplete**
+
+The sweep this ticket named was run. `clock_chain.h` is not wrong about what
+it covers and does not account for everything on this desk.
+
+Corrected (`calibration ... 32 ...` in force, so a coherent tone reads
+`nominal * (1 + k)`), 2 MHz windows at a 976.6 Hz bin:
+
+| nominal | predicted | observed | error | on a modelled grid? |
+| --- | --- | --- | --- | --- |
+| 75.000000 | 75 002 400 | 75 002 441 | **+41** | yes, chain x1 |
+| 135.000000 | 135 004 320 | 135 004 395 | **+75** | **no** |
+| 270.400000 | 270 408 653 | 270 407 715 | **-938** | yes, fine comb 1.6 x 169 |
+| 540.000000 | 540 017 280 | 540 017 090 | **-190** | **no** |
+| 270.000000 | 270 008 640 | 270 002 441 | -6199 | **absent** |
+
+And uncorrected, where a coherent tone reads its exact nominal, the same
+frequencies read +488 Hz -- half a bin, the quantisation of a tone at its bin's
+centre -- at 75, 150, 300 and 540, and nothing at 225, 270 or 600. A narrow
+269.6-270.4 sweep with a confirmation pass found one candidate there and the
+pass called it `no-carrier`: a noise maximum, not a weak tone under the bar.
+
+**So the clock-coherent set is 75, 135, 150, 300, 540 and the absences are
+37.5, 175, 225, 270, 600.**
+
+75, 150 and 300 are the octave chain and it stands. **135 and 540 are not on
+it** -- 135/75 is 1.8 -- and they are not an octave chain of their own either,
+because 270 is 135 x 2 and is absent. As multiples of 15 MHz the present set is
+5, 9, 10, 20, 36 and the absent set is 15, 18, 40, which no single
+multiplicative rule produces.
+
+**What that settles and what it does not.** There are at least two families
+here, and the second has **no established generating rule**. A x4 step from 135
+to 540 would do it, and so would a doubler whose intermediate 270 is not
+radiated -- physically ordinary and unfalsifiable from outside this box. 27 MHz
+is a common video clock and 27 x 5 is 135 and 27 x 20 is 540, which is a
+hypothesis and not a measurement, and 27 x 10 is 270 and absent.
+
+`clock_chain.h` is left as it is. It models what it models, its check pins the
+absence of 225 as hard as the presence of 75, 150 and 300, and it flags nothing
+falsely -- 270 is not an octave of 75 and it does not claim it. Widening it
+would mean inventing a rule to fit five points and two gaps, which is the guess
+this ticket has refused twice.
+
+**135 and 540 therefore read `unexplained` and that is the honest answer**, not
+a gap to be closed by loosening something. The flag exists to say exactly this:
+asked, and nothing modelled accounts for it.
+
 ## The next unmodelled frequency, found while closing this one
 
 The same sweep read `confirm 135151367 new confirmed 10.3 6/6

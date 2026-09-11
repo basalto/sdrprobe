@@ -667,11 +667,29 @@ static inline enum reading_origin survey_suspect_origin_at(
         double channel = reading_external_channel_hz(hz, raster.base_hz,
                                                      raster.spacing_hz, clock);
 
+        /*
+         * **`reading_origin_separable()` guards this too**, and leaving it out
+         * was a real fault rather than a tidy-up waiting to happen. The comb
+         * and chain above reach it through `reading_origin_for()`; this branch
+         * is written out because it answers one hypothesis, and the first
+         * version wrote out the comparison and not the refusal.
+         *
+         * With no measured crystal there is no displacement, so
+         * `reading_external_hz()` returns the channel unchanged and every
+         * reading within a tolerance of a channel came back EXTERNAL -- 23% of
+         * them by chance on an 8333 Hz grid. A capture is in that case, and so
+         * is any receiver nobody has calibrated. It was caught on air by a
+         * sweep run under a scratch site with no calibration, which flagged a
+         * clock-coherent tone at 135.000488 as `displaced`.
+         */
         if (channel > 0.0 &&
-            fabs(hz - reading_external_hz(channel, clock)) <= tolerance_hz)
-            origin = reading_origin_best(origin, READING_ORIGIN_EXTERNAL);
-        else if (channel > 0.0)
-            origin = reading_origin_best(origin, READING_ORIGIN_UNEXPLAINED);
+            reading_origin_separable(channel, clock, tolerance_hz)) {
+            if (fabs(hz - reading_external_hz(channel, clock)) <= tolerance_hz)
+                origin = reading_origin_best(origin, READING_ORIGIN_EXTERNAL);
+            else
+                origin = reading_origin_best(origin,
+                                             READING_ORIGIN_UNEXPLAINED);
+        }
     }
     return origin;
 }
