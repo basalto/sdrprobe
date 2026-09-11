@@ -1,7 +1,9 @@
 # 01 - A capture with traffic on it, and the gate it has to pass
 
-Status: **the gate failed, 2026-09-11** -- and not for want of daylight. See
-the comments; this blocks 02 and 03 on the installation rather than the hour.
+Status: **wontfix, 2026-09-11 -- the gate failed, and not for want of
+daylight.** The blocker is the installation, not the hour; 02 and 03 are closed
+with it. Reopen when there is an outdoor antenna or a site near an airfield.
+See the comments.
 Blocks: 02, 03
 
 Nothing here should be built before this, because the only airband capture
@@ -130,3 +132,16 @@ ground plane, in a receiver whose own spurs run to 70 dB there. What would
 change it is an outdoor antenna, or a site within useful range of an airfield.
 Tickets 02 and 03 should stay closed until one of those exists, and the honest
 close if neither will is `wontfix`.
+
+**Closed wontfix, 2026-09-11**, which is what the paragraph above asks for.
+Nothing here is a failure to look: three captures, two sweeps, a prototype and
+a control band, all in working hours, and the honest answer is that this
+receiving setup hears nothing on aeronautical VHF. The ticket is kept rather
+than deleted because it is the measurement that says so -- the next person
+does not have to re-ask, which is the same reason
+`.scratch/what-is-on-air/issues/01-the-register.md` exists.
+
+One correction lands in `spec.md` on the way out, from
+`.scratch/device-model/issues/11-*`: 135.024 (peak 134.999939) reads 61 Hz from
+exact, where an external transmitter at that tuning must read about 4.2 kHz
+off. It is the receiver. **All four** of the strong lines in that table are.
