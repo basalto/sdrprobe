@@ -1,7 +1,8 @@
 # 01 - The verdict that contradicts the comb has nowhere to appear
 
-Status: ready-for-agent -- **decided 2026-09-11: a third flag, and the comb mark
-stands.** See the comments.
+Status: **resolved 2026-09-11.** A third flag, a fourth chart mark, the comb
+mark standing, and the accepted cost asserted so nobody removes it by
+accident. See the comments.
 Opened 2026-09-11, from `.scratch/device-model/issues/11-*` landing.
 
 `reading_origin_for()` returns four answers and `survey_suspect_origin()` maps
@@ -104,3 +105,33 @@ Two things still to settle in implementation, neither of them this decision:
   happen -- band II at 94.4 MHz -- a sweep's bin is too coarse and only a pass
   can reach it. If it is pass-only, say so in the header; do not widen a
   tolerance to make it fire in a sweep.
+
+### Implemented, 2026-09-11
+
+`SURVEY_SUSPECT_DISPLACED`, printed `displaced`, listed `*!`, and drawn as a
+**fourth mark** -- a cross with a dot in it, `SDRGUI_PEAK_CONTESTED`.
+
+The fourth shape is the part the decision did not settle and had to be. The
+chart draws one mark per peak, so "beside" cannot mean two marks: a plain
+cross tells a reader to stop looking at the one candidate they should look at,
+and a plain dot silently discards the comb mark, which is the branch that was
+rejected. A shape carrying both is the only option that does neither.
+`check-geometry` asserts the precedence, including that empty still beats it.
+
+The caption prints the contested count **separately** rather than folding it
+into the crosses, for the same reason: a caption that put them in with the
+crosses would say "the receiver" about the thing it has evidence against.
+
+`survey_suspect_contested()` is the accepted cost made reportable, and
+`check-suspect` asserts that such a candidate **still warns** -- so a later
+reader who thinks that is a bug finds the assertion and this ticket before
+changing it.
+
+**One thing the decision did not foresee**, found on air rather than in the
+suite: `displaced` needed the same verdict gate `unexplained` has. A
+128-137 MHz sweep produced
+`confirm 128569641 new refuted 2.2 0/6 977 unresolved,displaced` -- "something
+real with its own oscillator is here" about a frequency found in none of six
+looks at 2.2 dB. It is a positive claim and needs something to be positive
+about. Cleared on a refuted verdict now; `clocked-here` still is not, because
+that is a statement about where a frequency read.

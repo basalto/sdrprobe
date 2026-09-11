@@ -2,6 +2,8 @@
 
 #include "survey_session.h"
 
+#include "survey_record.h"
+
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -844,6 +846,10 @@ static int survey_session_confirm_decide(struct survey_session *s,
      */
     target->bandwidth_hz =
         s->confirm.measured ? s->confirm.best.bandwidth_hz : 0.0;
+    /* And where that width was measured, which is the frequency the flags
+       below are about -- see `measured_hz`. */
+    target->measured_hz =
+        s->confirm.measured ? s->confirm.best.centre_hz : 0.0;
     target->kind_measured = s->confirm.kind_measured;
     target->carrier = s->confirm.carrier;
     target->bursts = s->confirm.bursts;
@@ -881,21 +887,34 @@ static int survey_session_confirm_decide(struct survey_session *s,
             flags, block->reference_clock_hz, s->confirm.best.centre_hz,
             block->clock,
             survey_coherent_tolerance(block->sample_rate /
-                                      (double)SDR_DSP_FFT_SIZE));
+                                      (double)SDR_DSP_FFT_SIZE),
+            survey_raster_at(s->confirm.best.centre_hz),
+            block->reference_clock_hz > 0.0
+                ? CLOCK_CHAIN_MEASURED_FUNDAMENTAL_HZ
+                : 0.0);
 
         /*
-         * A refuted target is not unexplained, it is absent. The pass looked
-         * six times and found it in none of them, so there is nothing left for
-         * a grid to fail to explain -- and the verdict is computed above
+         * A refuted target is not unexplained and not displaced -- it is
+         * absent. The pass looked six times and found it in none of them, so
+         * there is nothing for a grid to fail to explain and nothing whose
+         * oscillator could be established. The verdict is computed above
          * rather than below for exactly this, since a flag that contradicts
          * the verdict beside it is worse than no flag.
+         *
+         * Both had to be gated and the second was found the same way as the
+         * first, on air: a 128-137 MHz sweep produced
+         * `confirm 128569641 new refuted 2.2 0/6 977 unresolved,displaced`,
+         * which says "something real with its own oscillator is here" about a
+         * frequency found in none of six looks at 2.2 dB. `displaced` is a
+         * positive claim and needs something to be positive about.
          *
          * `clocked-here` is kept whatever the verdict: it is a statement about
          * where a frequency read, and a target seen in one look out of six
          * still read somewhere.
          */
         if (target->verdict == SURVEY_VERDICT_REFUTED)
-            origin &= ~(unsigned)SURVEY_SUSPECT_UNEXPLAINED;
+            origin &= ~(unsigned)(SURVEY_SUSPECT_UNEXPLAINED |
+                                  SURVEY_SUSPECT_DISPLACED);
         target->suspicion |= flags | origin;
     }
     return s->confirm.measured;

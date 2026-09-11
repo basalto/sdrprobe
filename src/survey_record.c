@@ -48,6 +48,8 @@ const char *survey_flag_text(unsigned int flags, char *buffer, size_t size) {
         flag_append(buffer, size, &used, "clocked-here");
     if (flags & SURVEY_SUSPECT_UNEXPLAINED)
         flag_append(buffer, size, &used, "unexplained");
+    if (flags & SURVEY_SUSPECT_DISPLACED)
+        flag_append(buffer, size, &used, "displaced");
     return used ? buffer : "-";
 }
 
@@ -155,7 +157,19 @@ int survey_record_candidates(const struct survey_record_tuning *tuning,
             c->suspect, tuning->reference_clock_hz, at, tuning->clock,
             survey_coherent_tolerance(
                 c->measured ? tuning->sample_rate_hz / SDR_DSP_FFT_SIZE
-                            : plan->bin_hz));
+                            : plan->bin_hz),
+            survey_raster_at(at),
+            /*
+             * The octave chain measured on this receiver at this site, not a
+             * fact about the part -- `clock_chain.h` says why it is not a
+             * `device_profile` field. It is passed only where the reference
+             * clock says there is a receiver to attribute anything to, so a
+             * capture gets no chain tests for the same reason it gets no comb
+             * tests.
+             */
+            tuning->reference_clock_hz > 0.0
+                ? CLOCK_CHAIN_MEASURED_FUNDAMENTAL_HZ
+                : 0.0);
         entry = band_plan_lookup(c->measured ? c->centre_hz : c->found_hz);
         c->allocation = entry ? entry->name : NULL;
         filled++;

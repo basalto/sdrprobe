@@ -1,6 +1,7 @@
 # 03 - A confirm row prints one frequency and another frequency's flags
 
-Status: ready-for-agent -- **decided 2026-09-11: print both.** See the comments.
+Status: **resolved 2026-09-11.** Both printed, appended so no field moves --
+and it paid for itself in its first live run. See the comments.
 Opened 2026-09-11, from a live sweep during `.scratch/device-model/issues/11-*`.
 
 A headless confirmation row prints the **target's** frequency and the
@@ -82,3 +83,28 @@ and not about this row.
 
 The check the ticket asks for stands: a row's flags must be flags of a
 frequency the row names, and with both printed that is satisfiable.
+
+### Implemented, 2026-09-11
+
+`struct survey_confirm_target` carries `measured_hz`, the centre the pass
+actually measured and **the frequency `suspicion` is about**, and the row
+prints it **last**: every existing field keeps its position, a reader of field
+three still finds the verdict, and the row still matches the `candidate` rows
+above it by its first field. Not a format change under ADR-0016, a wider row.
+
+**It paid for itself on the first live run.** A 128-137 MHz sweep gave
+`confirm 135833252 new confirmed 21.8 6/6 3906 reference,unresolved,clocked-here
+136005118` -- the row keyed at 135.833 and the flags describing 136.005, **172
+kHz apart**. Under the old row that was three flags apparently asserted of a
+frequency none of them could be true of.
+
+It also turned out to diagnose something else for free. On refuted rows the
+measured centre sits 150 to 200 kHz from the target -- `confirm 128569641 ...
+refuted ... 128375598` -- which is the carrier search wandering to the edge of
+its window, exactly the signature `carrier_75000_bare.bin`'s note describes for
+an empty frequency. That was invisible before and is now one subtraction.
+
+**The measurement question stays open**, as the decision said: whether a large
+gap means the same carrier measured properly or the search finding a stronger
+neighbour is not settled by printing both. What printing both does is make it
+answerable.

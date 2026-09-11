@@ -140,6 +140,27 @@ struct survey_confirm_target {
     double bandwidth_hz;
     unsigned suspicion;        /* enum survey_suspicion, at the finer look */
     /*
+     * The centre the pass actually measured, and **the frequency
+     * `suspicion` is about** -- 0 when nothing was measured.
+     *
+     * It is not `hz`. `hz` is what the sweep asked about and what the row is
+     * keyed by; the pass retunes to it, searches around it and reports where
+     * it found the carrier, and the two can be far apart. One live row read
+     * `confirm 136079346 ... reference,unresolved,clocked-here` for a
+     * measurement near 136.004 -- 75 kHz away, three times
+     * `RECEIVER_COMB_TOLERANCE_HZ` and eighty times the tolerance
+     * `clocked-here` is allowed, so neither flag could be true of the number
+     * printed beside them.
+     *
+     * The fault is older than those flags: `reference` has had it since the
+     * pass existed, and a tighter measurement is what made it visible
+     * (`.scratch/reading-origin/issues/03-*`). Both are printed now, which is
+     * what makes the gap answerable rather than invisible -- whether a large
+     * gap means the same carrier measured properly or the search finding a
+     * stronger neighbour is a separate question and is not settled here.
+     */
+    double measured_hz;
+    /*
      * And what kind of thing it is, from `signal_probe` -- is there a
      * standing carrier, does it transmit in bursts, how much does its
      * envelope vary. Taken here rather than only in the window because a

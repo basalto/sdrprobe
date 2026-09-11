@@ -24,6 +24,7 @@ make check-survey-sweep # the sweep's step plan, fold, and measurement
 make check-survey-session # the survey's machine: sweep, ask again, watch, measure
 make check-suspect    # candidates that look like the receiver, not the band
 make check-reading-origin # whose oscillator a reading belongs to
+make check-clock-chain # a clock family in octaves, not harmonics
 make check-lte-chain-analysis # one LTE chain walk, over both LTE captures
 make check-calibration # the lock gate, and the machine that fills its buffer
 make check-scan       # the band scan's coverage and the channel it chooses
@@ -666,13 +667,18 @@ Its candidate list carries each maximum's width and shape (`src/survey_carrier.h
 and what the site has heard of it -- new, steady, on/off, gone
 (`site_history_seen()`).
 
-**A candidate's mark says which of three things it is**, in the chart and in
+**A candidate's mark says which of four things it is**, in the chart and in
 the list, because one filled dot for everything made a spur, an empty
 frequency and a broadcast station identical on the screen where telling them
 apart matters most. A **filled dot** is a candidate with nothing known against
 it; a **cross** (`*` in the list) is the receiver's own comb; a **hollow dot**
 (`~`) is a frequency where the confirmation pass found a prominence and
-nothing else. `sdrgui_survey_peak_mark()` is the precedence -- empty wins over
+nothing else; and a **cross with a dot in it** (`*!`) is on the comb *and*
+reads displaced, so something real is there. That fourth shape exists because
+the chart draws one mark per peak and both obvious resolutions are wrong -- a
+plain cross tells a reader to stop looking at the one candidate they should
+look at, and a plain dot silently discards a mark the operator has learned to
+read (`.scratch/reading-origin/issues/01-*`). `sdrgui_survey_peak_mark()` is the precedence -- empty wins over
 receiver-like, because "there is nothing here" is what a reader acts on -- and
 the caption counts what it drew rather than what the sweep thought, because a
 caption that disagrees with the picture above it is worse than none.
@@ -733,6 +739,26 @@ tolerance is
 `RECEIVER_COMB_TOLERANCE_HZ`: 25 kHz is cheap against a 14.4 MHz comb spacing
 and would not loosen this test but abolish it, wanting a carrier at 1.6 GHz
 before any verdict was available, with a green suite throughout.
+
+**Three grids are asked, and a service raster answers only half the
+question.** The two combs and the octave chain (`src/clock_chain.h`, f/2f/4f
+and never 3f) may answer both hypotheses; a **channel raster** from the band
+plan may answer only *external*, because a channel grid says where a
+transmitter may sit and "a tone clocked by this receiver that happens to land
+on an airband channel" is not a hypothesis anybody holds. The arithmetic is
+`RECEIVER_COMB_MAX_FRACTION`'s with different numbers: at 8333 Hz spacing and
+a pass's 977 Hz tolerance a reading lands within tolerance of *some* channel
+**23% of the time**, against 0.12% for the 1.6 MHz comb. It was found on air
+-- a noise maximum refuted 0 of 6 came back `clocked-here` because its centre
+sat 433 Hz from where a coherent source on airband channel 1990 would read.
+
+**The raster lives in its own table** (`struct band_plan_raster`), not as two
+fields on all eighty `band_plan_entry` rows -- which would each carry two
+zeroes to stay `-Wall -W` clean and bury the one that matters. Only an
+allocation with **no decoder** may have one: `gsm_arfcn_hz()` and `fm_scan.h`
+already own those grids, and a second statement here could disagree with the
+module that decodes it. `check-band-plan` asserts both -- every raster names a
+real allocation by its exact lower edge, and that allocation has no decoder.
 
 **It was verified on air rather than by the suite**, which is the only thing
 that could have caught either fault. With `calibration ... 32 ...` in force a

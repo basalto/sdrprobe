@@ -1,9 +1,9 @@
 # 10 - There is a second clock here, and the comb test cannot see it
 
-Status: **ready-for-agent, 2026-09-11.** All three gates are answered and the
-family is measured: **75, 150 and 300 MHz, clock-coherent; 37.5, 175, 225 and
-600 absent.** What remains is the representation, and the measurement now
-constrains it. See the comments.
+Status: **resolved 2026-09-11.** The family is measured, `src/clock_chain.h`
+models it as octaves rather than harmonics, and 150.0009 MHz reads
+`clocked-here` on air instead of `unexplained`. Not a `device_profile` field,
+deliberately. See the comments.
 Opened 2026-09-10, from the sweep `surveys/2026-09-10-002420-24M-1766M.json`
 and three narrow confirmation passes over it.
 
@@ -306,3 +306,44 @@ octaves and must not quietly become harmonics -- a harmonic model would flag
 225 MHz, where nothing was found at a 12 dB bar. And 600 MHz was swept at the
 default 8 dB and found nothing, which is a weaker statement than the four
 absences; one look at a lower bar before calling the chain three deep.
+
+## Implemented, 2026-09-11
+
+`src/clock_chain.h` and `check-clock-chain`. **f, 2f, 4f and never 3f**, with
+the fundamental as a parameter and `CLOCK_CHAIN_MEASURED_FUNDAMENTAL_HZ` named
+as a *site* measurement rather than a device constant. It is passed only where
+the reference clock says there is a receiver to attribute anything to, so a
+capture gets no chain tests for the reason it gets no comb tests.
+
+**Nothing was added to `device_profile`**, which is this ticket's own argument
+turned on itself: what is confirmed is a family on this receiver at this site,
+and a profile field would assert it of the part.
+
+`check-clock-chain` asserts the absence of 225 MHz as hard as the presence of
+75, 150 and 300 -- `clock_chain_is_off_octave()` exists so the difference
+between an octave chain and a harmonic comb is a checked property rather than
+a remark. A check that only pinned the three present members would pass
+against the harmonic model the measurement refutes.
+
+**Verified on air.** A 128-152 MHz sweep with a confirmation pass:
+`confirm 150123535 new confirmed 12.5 5/5 unresolved,no-carrier,clocked-here
+150005346`. The model predicts 150.004800 for a coherent source with the
+correction in force; the pass measured 150.005346, **+546 Hz**, inside one
+977 Hz bin. The gap this ticket was opened about is closed -- 150 MHz is on no
+comb and the chain reaches it.
+
+## The next unmodelled frequency, found while closing this one
+
+The same sweep read `confirm 135151367 new confirmed 10.3 6/6
+unresolved,unexplained 135004763`. Against a coherent source on **135.000000**
+that is +443 Hz, inside a bin -- so it reads exactly like a clock-coherent
+tone, and 135 MHz is on no comb (135/1.6 = 84.375) and on no octave of 75
+(135/75 = 1.8).
+
+Ticket 11 already recorded 135.000000 as reading exact and fitting no modelled
+comb; this says the octave chain does not reach it either. So there is at
+least one more family, or the fundamental is not 75 MHz but something both 75
+and 135 divide -- 15 MHz would, and so would 2.5 MHz, and neither is
+established. Worth a ticket rather than a guess, and the sweep that would
+settle it is cheap: 15, 30, 45, 60, 90, 105, 120 MHz at `--ppm 0`, looking for
+which multiples are present and which are absent.

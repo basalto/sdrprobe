@@ -1,5 +1,6 @@
 #include "band_plan.h"
 
+#include <math.h>
 #include <stddef.h>
 
 /*
@@ -230,6 +231,80 @@ const struct band_plan_entry *band_plan_lookup(double hz) {
         if (hz >= entries[i].lower_hz && hz < entries[i].upper_hz)
             return &entries[i];
     return NULL;
+}
+
+/*
+ * Every allocation this table knows a channel grid for. Short on purpose: an
+ * entry here is a transcribed standard, and a gap is preferred to a guess.
+ */
+static const struct band_plan_raster rasters[] = {
+    /*
+     * VHF airband: **25/3 kHz from 118.000 MHz**, which covers both
+     * channellings at once. 8.33 kHz spacing is 25000/3, and every 25 kHz
+     * channel is on that grid because 25000 is exactly three steps -- so the
+     * finer one is the right single answer rather than a choice between them.
+     *
+     * The finer one also matters: 132.062744 MHz reads 282 Hz from where an
+     * external transmitter on 132.066667 would, and the nearest 25 kHz
+     * channels are 12.3 and 12.7 kHz away. A 25 kHz-only raster would refuse
+     * the only external carrier this site has measured
+     * (`.scratch/am-airband/spec.md`, `.scratch/device-model/issues/11-*`).
+     */
+    { 117975000.0, 25000.0 / 3.0, 118000000.0 }
+};
+
+int band_plan_raster_count(void) {
+    return (int)(sizeof(rasters) / sizeof(rasters[0]));
+}
+
+const struct band_plan_raster *band_plan_raster_at(int index) {
+    if (index < 0 || index >= band_plan_raster_count())
+        return NULL;
+    return &rasters[index];
+}
+
+int band_plan_channel_grid(double hz, double *spacing_hz, double *base_hz) {
+    const struct band_plan_entry *entry = band_plan_lookup(hz);
+    int i;
+
+    if (spacing_hz)
+        *spacing_hz = 0.0;
+    if (base_hz)
+        *base_hz = 0.0;
+    if (!entry)
+        return 0;
+    for (i = 0; i < band_plan_raster_count(); i++) {
+        const struct band_plan_raster *r = &rasters[i];
+
+        if (r->lower_hz != entry->lower_hz)
+            continue;
+        if (spacing_hz)
+            *spacing_hz = r->raster_hz;
+        if (base_hz)
+            *base_hz = r->base_hz;
+        return 1;
+    }
+    return 0;
+}
+
+double band_plan_channel_hz(double hz) {
+    const struct band_plan_entry *entry = band_plan_lookup(hz);
+    int i;
+
+    if (!entry)
+        return 0.0;
+    for (i = 0; i < band_plan_raster_count(); i++) {
+        const struct band_plan_raster *r = &rasters[i];
+        double n;
+
+        if (r->lower_hz != entry->lower_hz)
+            continue;
+        n = floor((hz - r->base_hz) / r->raster_hz + 0.5);
+        if (n < 0.0)
+            return 0.0;
+        return r->base_hz + n * r->raster_hz;
+    }
+    return 0.0;
 }
 
 int band_plan_entry_count(void) {

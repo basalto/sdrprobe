@@ -26,7 +26,7 @@ editing ADR-0015 refuses. The headless report says so in as many words:
 `# suspicious candidates resemble the receiver rather than the band; nothing
 has been removed`.
 
-## The six flags
+## The seven flags
 
 `enum survey_suspicion` in `src/survey_suspect.h`:
 
@@ -37,7 +37,8 @@ has been removed`.
 | `SURVEY_SUSPECT_UNRESOLVED` | 4 | narrower than this sweep can resolve: an observation, not a suspicion | either |
 | `SURVEY_SUSPECT_NO_CARRIER` | 8 | a closer look found a prominence and nothing else | the confirmation pass only |
 | `SURVEY_SUSPECT_CLOCK_COHERENT` | 16 | reads at its exact nominal, where an external signal could not | either, given a **measured** crystal |
-| `SURVEY_SUSPECT_UNEXPLAINED` | 32 | a bare carrier on no modelled comb, at a frequency where the question could be asked | either, given a measured crystal |
+| `SURVEY_SUSPECT_UNEXPLAINED` | 32 | a bare carrier on no modelled grid, at a frequency where the question could be asked | either, given a measured crystal |
+| `SURVEY_SUSPECT_DISPLACED` | 64 | reads displaced by this receiver's own error: its oscillator is not this one | either, given a measured crystal |
 
 The last two are section 5 below, and they are a different kind of evidence
 from everything above them: the comb argues from coincidence, they argue from
@@ -49,6 +50,11 @@ acts differently on each:
 - `survey_suspect_warns()` — REFERENCE, STEP_CENTRE or CLOCK_COHERENT. *Unplug
   the antenna and sweep again.* Marked `*` in the candidate list and drawn as a
   **cross** on the chart.
+- `survey_suspect_contested()` — DISPLACED *and* one of those. *The comb says
+  the receiver and the reading says otherwise.* Marked `*!` and drawn as a
+  **cross with a dot in it**, counted separately in the caption. DISPLACED is
+  deliberately **not** a warning: it says a real signal is here, which is the
+  opposite of what the others say.
 - `survey_suspect_empty()` — NO_CARRIER. *The frequency is empty however often
   it was seen.* Marked `~` and drawn as a **hollow dot**.
 
@@ -561,6 +567,53 @@ sweep bins at 212 kHz and would need 424 kHz of displacement — while a
 confirmation pass, tuned to the candidate at the receiver's own rate, bins at
 977 Hz and can. The flag appears where the evidence is.
 
+### The contradiction, and the two resolutions it refuses
+
+`SURVEY_SUSPECT_DISPLACED` is the answer that disagrees with a comb mark, and
+it is the reason a second kind of evidence was worth having at all. 94.4 MHz is
+1.6 × 59 and is also the loudest FM broadcast station at this site: the fine
+comb flags it, correctly by its own lights and wrongly about the world, and a
+real transmitter there reads about 3.0 kHz off exact.
+
+**It does not clear `SURVEY_SUSPECT_REFERENCE`.** This file never removes a
+candidate and never says a peak *is* an artifact; clearing a mark an operator
+has learned to read is a larger act than adding one beside it, and stronger
+evidence is not the same as evidence entitled to overrule silently.
+
+The chart draws **one** mark per peak, so "beside" had to become a fourth
+shape. Both obvious resolutions are wrong: a plain cross tells a reader to stop
+looking at the one candidate they should look at, and a plain dot silently
+discards the comb mark. `SDRGUI_PEAK_CONTESTED` carries both.
+
+That separation needs a confirmation pass's 977 Hz bin. A band II sweep binning
+at 2 kHz cannot separate the two hypotheses at 94 MHz and says so, which is the
+refusal working — the separation grows with frequency and a bin does not, so
+the airband candidates forty megahertz higher are reachable from a sweep where
+this one is not.
+
+The accepted cost is recorded rather than hidden: such a candidate **still
+counts as suspicious**, so on band II — where one channel in sixteen falls on
+the fine comb — a caption can say "mostly the receiver" about a band where the
+program has positive evidence the loudest thing is a station. The caption
+prints the contested count separately for that reason. If it misleads in
+practice the fix is to report both numbers, not to start clearing marks.
+
+### A service raster answers one hypothesis, not two
+
+A channel grid says where a **transmitter** may sit, so it may test the
+external hypothesis and not the coherent one. "A tone clocked by this receiver
+that happens to land on an airband channel" is not a hypothesis anybody holds,
+and the arithmetic makes it worse than useless: at the airband's 8333 Hz
+spacing and a pass's 977 Hz tolerance a reading lands within tolerance of
+*some* channel **23% of the time**, against 0.12% for the 1.6 MHz comb. That
+is `RECEIVER_COMB_MAX_FRACTION`'s argument with different numbers.
+
+It was found on air, not here. A 128–152 MHz sweep produced
+`confirm 134758789 new refuted 2.2 0/6 977 unresolved,clocked-here` — a noise
+maximum found in none of six looks, called a tone clocked by this receiver,
+because its measured centre landed 433 Hz from where a coherent source on
+airband channel 1990 would read.
+
 ### What must be a carrier before it can be unexplained
 
 A noise maximum is narrow, so it carries `UNRESOLVED` exactly as a tone does.
@@ -586,20 +639,47 @@ divider.
 this one. A second receiver on the desk, a powered hub, a monitor — anything
 with its own crystal reads the same way.
 
-### The contradiction, which is what makes it worth having
+## 6. A clock family in octaves
 
-94.4 MHz is 1.6 × 59 and is also the loudest FM station at this site, confirmed
-at 46 dB. The fine comb flags it, correctly by its own lights and wrongly about
-the world. A real transmitter there reads 2.9 kHz high, so `CLOCK_COHERENT` is
-not set and `survey_suspect_origin_at()` returns `EXTERNAL` for a caller that
-asks. The comb flag itself is left standing: this adds evidence rather than
-silently overruling a mark the operator has learned to read.
+`src/clock_chain.h`. The reference comb is "a tone every reference/n", which a
+divider leaves across the band. This is a different shape: **f, 2f, 4f and
+never 3f**, which is what a doubler or divider chain produces and what harmonic
+distortion of one oscillator does not.
 
-That separation needs a confirmation pass's 977 Hz bin. A band II sweep binning
-at 2 kHz cannot separate the two at 94 MHz and says so, which is the refusal
-working — the displacement grows with frequency and a bin does not, so the
-airband candidates forty megahertz higher are reachable from a sweep where this
-one is not.
+Seven 2 MHz windows at `--ppm 0`, a 976.6 Hz bin, an 8 dB bar, 2026-09-11:
+
+| tested | found | prominence |
+| --- | --- | --- |
+| **75.000000** | +488 Hz | 17.0 dB |
+| **150.000000** | +488 Hz | 11.2 dB |
+| **300.000000** | +488 Hz | 17.0 dB |
+| 37.5, 175, 225, 600 | absent, nearest 61–369 kHz away | — |
+
+All three present members read **+488 Hz, exactly half a bin** — the
+quantisation of a tone at its bin's centre, identical at all three, so it is
+the grid and not the sources. An external source would have read 2.4, 4.8 and
+9.6 kHz low.
+
+**225 MHz is the finding.** It is 75 × 3 and absent at a 12 dB bar while ×1,
+×2 and ×4 stand at 11–17 dB. A harmonic model would flag it; an octave model
+does not, and `clock_chain_is_off_octave()` exists so that difference is a
+checked property rather than a remark.
+
+The fundamental is a **parameter**, and `CLOCK_CHAIN_MEASURED_FUNDAMENTAL_HZ`
+is named as a site measurement rather than a device constant. Nothing went into
+`device_profile`: what is confirmed is a family on this receiver at this site,
+and a profile field would assert it of the part
+(`.scratch/device-model/issues/10-*`).
+
+On air, with the correction in force:
+`confirm 150123535 new confirmed 12.5 5/5 ... clocked-here 150005346` against a
+predicted 150.004800 — **+546 Hz**, inside a bin, on a frequency no comb
+reaches.
+
+**And at least one family is still unmodelled.** The same sweep read
+135.004763, which is +443 Hz from a coherent source on 135.000000 and on
+neither comb nor octave chain. 135 is not 75 × 2ⁿ, so either there is a second
+family or the fundamental is something both 75 and 135 divide.
 
 ## Every adjustable parameter
 
@@ -625,6 +705,8 @@ measure them per device and reach them from Settings.
 | `SURVEY_CONFIRM_LOOKS` | 6 | `survey_confirm.h` | enough that one burst in six is distinguishable from five |
 | `SURVEY_COHERENT_BINS` | 1.0 | `survey_suspect.h` | the pass's measured precision: three comb tones at +159, +526, +793 Hz through a 977 Hz bin |
 | `READING_SEPARABLE_TOLERANCES` | 2.0 | `reading_origin.h` | not adjustable: two windows of half-width `t` are disjoint exactly past `2t` |
+| `CLOCK_CHAIN_MEASURED_FUNDAMENTAL_HZ` | 75 MHz | `clock_chain.h` | measured on **one receiver at one site**: ×1, ×2, ×4 present at 11–17 dB, ×3 absent at 12 dB |
+| `CLOCK_CHAIN_MAX_OCTAVES` | 8 | `clock_chain.h` | one step past the highest member found; the bound exists so an absurd fundamental terminates |
 
 **Three of them are not free parameters.** `SIGNAL_ENVELOPE_RAYLEIGH` is
 `sqrt(4/π − 1)` and changing it means comparing against something that is not

@@ -1,7 +1,8 @@
 # 02 - A channel raster in the band plan, for the half that has no grid
 
-Status: ready-for-agent -- **decided 2026-09-11: a raster only where no decoder
-exists.** See the comments.
+Status: **resolved 2026-09-11.** One raster, the airband's, in its own table
+with the coupling checked -- and the raster answers **one** hypothesis, which
+was found on air. See the comments.
 Opened 2026-09-11, from `.scratch/device-model/issues/11-*` landing.
 
 `reading_origin_for()` takes a nominal frequency the caller proposes, and
@@ -114,3 +115,44 @@ has to remember.
 **Scope inherits the table's.** The band plan is "Portugal's, which is to say
 ITU Region 1 as ANACOM applies it", and 8.33 kHz channelling is European. The
 raster column says so rather than implying the grid travels.
+
+### Implemented, 2026-09-11
+
+**A second table rather than two fields on `band_plan_entry`.** Eighty curated
+rows would each have carried two zeroes to stay `-Wall -W` clean and the one
+that matters would have been invisible among them; `struct band_plan_raster`
+is a list of allocations with a known grid, one glance long. The coupling that
+buys -- a key that can drift from the table it names -- is checked rather than
+assumed: `check-band-plan` asserts every raster names a real allocation **by
+its exact lower edge**, that the allocation has no decoder, that the base lies
+in the band, and that the spacing is coarse enough for a confirmation pass to
+resolve.
+
+One entry: **VHF airband, 25/3 kHz from 118.000 MHz**, which covers both
+channellings because 25000 is exactly three steps of 25000/3.
+
+**The raster answers the external hypothesis only**, and that was not in the
+plan -- it was found on air. A 128-152 MHz sweep produced
+`confirm 134758789 new refuted 2.2 0/6 977 unresolved,clocked-here`: a noise
+maximum found in none of six looks, called a tone clocked by this receiver,
+because its measured centre landed 433 Hz from where a *coherent* source on
+airband channel 1990 would read.
+
+The arithmetic says why, and it is `RECEIVER_COMB_MAX_FRACTION`'s argument
+with different numbers. A channel grid says where a **transmitter** may sit;
+"a tone clocked by this receiver that happens to land on an airband channel"
+is not a hypothesis anybody holds. And the grid is fine: at 8333 Hz spacing
+and a pass's 977 Hz tolerance a reading lands within tolerance of *some*
+channel **23% of the time**, against 0.12% for the 1.6 MHz comb. So the comb
+and the chain may answer both hypotheses and a service raster may answer only
+the external one.
+
+### What it is already asking for
+
+Two rows of the same live sweep read `unexplained` at 148.499396 and
+148.499383, confirmed 6 of 6 at 13 dB. Against an external source on
+**148.500000** that is -604 Hz, inside a bin -- so a land-mobile raster would
+turn both into `displaced`, said positively. Land mobile has no decoder, so it
+is in scope by this ticket's own rule, and what is missing is a sourced
+channel spacing rather than a decision. Worth its own ticket with the
+allocation's spacing transcribed rather than assumed.

@@ -108,12 +108,24 @@ static struct survey_block survey_block_of(struct app *app) {
 void survey_print_confirm_target(const struct survey_confirm_target *target) {
     char flags[SURVEY_FLAG_TEXT_MAX];
 
-    printf("confirm %.0f %s %s %.1f %d/%d %.0f %s\n", target->hz,
+    /*
+     * **Both frequencies**: the one the sweep asked about, which keys the row
+     * and matches the `candidate` rows above it, and the one the pass
+     * measured, which is what the flags are about. They can be tens of
+     * kilohertz apart and used to be indistinguishable
+     * (`.scratch/reading-origin/issues/03-*`).
+     *
+     * Appended rather than inserted, so every existing field keeps its
+     * position and a reader of field three still finds the verdict -- this is
+     * not a format change under ADR-0016, it is a wider row.
+     */
+    printf("confirm %.0f %s %s %.1f %d/%d %.0f %s %.0f\n", target->hz,
            target->claim == SURVEY_CLAIM_MISSING ? "missing" : "new",
            survey_verdict_name(target->verdict),
            (double)target->prominence_db, target->hits, target->looks,
            target->bandwidth_hz,
-           survey_flag_text(target->suspicion, flags, sizeof(flags)));
+           survey_flag_text(target->suspicion, flags, sizeof(flags)),
+           target->measured_hz);
     if (!target->kind_measured)
         return;
     printf("kind %.0f %s %.1f %.3f %.3f %s %.4f\n", target->hz,
@@ -127,7 +139,7 @@ void survey_print_confirm_target(const struct survey_confirm_target *target) {
 
 void survey_print_confirm_header(void) {
     printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
-           "<hits>/<looks> <bandwidth_hz> <flags|->\n");
+           "<hits>/<looks> <bandwidth_hz> <flags|-> <measured_hz|0>\n");
     printf("# kind <frequency_hz> <carrier> <over_noise_db> <standing_share> "
            "<envelope> <bursts> <occupancy>\n");
 }
@@ -1789,12 +1801,17 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
         const struct survey_carrier *row_carrier = survey_carrier_at(s, hz);
         unsigned asked = survey_confirmed_flags_at(
             app, row_carrier ? row_carrier->centre_hz : hz);
-        int suspect = survey_suspect_warns(survey_suspect_at(app, hz, 0.0) |
-                                           asked);
+        unsigned flags = survey_suspect_at(app, hz, 0.0) | asked;
+        int suspect = survey_suspect_warns(flags);
         /* Its own marker, because it is its own finding: the receiver's comb
            says unplug the antenna, and this says the frequency is empty
            however often it was seen. */
         int empty = survey_suspect_empty(asked);
+        /* And its own again: on the comb, and yet it reads displaced, so
+           something real is there. `*!` rather than a fourth character,
+           because it is the cross plus a contradiction and reads as one
+           (`.scratch/reading-origin/issues/01-*`). */
+        int contested = survey_suspect_contested(flags);
 
         /* The marker leads the row. Trailing it put it at the end of the
            longest line in the panel, where sdrgui_text_fit ellipsised it away
@@ -1826,7 +1843,8 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
                 snprintf(width, sizeof(width), "-");
             snprintf(text, sizeof(text),
                      "%s %10.4f MHz  %6.1f dBFS  %6s  %-9s  %s",
-                     empty ? "~" : suspect ? "*" : " ", hz / 1e6,
+                     empty ? "~" : contested ? "*!" : suspect ? "*" : " ",
+                     hz / 1e6,
                      (double)ss->peaks[i].power_dbfs, width,
                      carrier ? survey_shape_name(
                                    survey_carrier_shape(carrier->width_hz))
