@@ -160,7 +160,7 @@ void render_waterfall(struct app *app) {
                    : app->sv.waterfall_height;
     /* How many bins a row holds now. Rows are stored a maximum apart so the
        stride never changes, but only this many of each are filled. */
-    int bins = app->spectrum_bins > 0 ? app->spectrum_bins
+    int bins = app->frame.spectrum_bins > 0 ? app->frame.spectrum_bins
                                       : SDR_DSP_FFT_SIZE;
     for (int y = 0; y < rows; y++) {
         const float *row = app->sv.waterfall_dbfs +
@@ -184,7 +184,7 @@ void render_waterfall(struct app *app) {
 
 
 void update_waterfall(struct app *app) {
-    if (!app->sv.waterfall_ready || !app->spectrum_ready)
+    if (!app->sv.waterfall_ready || !app->frame.spectrum_ready)
         return;
 
     int retained = app->sv.waterfall_rows < app->sv.waterfall_capacity
@@ -195,8 +195,8 @@ void update_waterfall(struct app *app) {
                 app->sv.waterfall_dbfs,
                 (size_t)retained * SDR_DSP_FFT_MAX *
                     sizeof(*app->sv.waterfall_dbfs));
-    memcpy(app->sv.waterfall_dbfs, app->spectrum_average,
-           (size_t)app->spectrum_bins *
+    memcpy(app->sv.waterfall_dbfs, app->frame.spectrum_average,
+           (size_t)app->frame.spectrum_bins *
            sizeof(*app->sv.waterfall_dbfs));
     if (app->sv.waterfall_rows < app->sv.waterfall_height)
         app->sv.waterfall_rows++;
@@ -245,7 +245,7 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
         (double)app->applied_sample_rate, calibration_mode,
         calibration_mode && app->cal.technology == 0,
         0.0, 0.0,
-        app->sv.waterfall_rows, app->sv.waterfall_height, app->pair_count,
+        app->sv.waterfall_rows, app->sv.waterfall_height, app->frame.pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
@@ -278,7 +278,7 @@ void draw_waterfall(const struct app *app) {
         app->plot, app->sv.waterfall, (double)app->applied_frequency,
         (double)app->applied_sample_rate, 0, 0,
         0.0, 0.0,
-        app->sv.waterfall_rows, app->sv.waterfall_height, app->pair_count,
+        app->sv.waterfall_rows, app->sv.waterfall_height, app->frame.pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
@@ -306,22 +306,22 @@ void draw_waterfall(const struct app *app) {
 }
 
 void update_scatter(struct app *app, double now, int insert) {
-    if (insert && app->pair_count > 0) {
+    if (insert && app->frame.pair_count > 0) {
         struct scatter_block *block =
             &app->sv.scatter_history[app->sv.scatter_history_head];
-        block->count = app->pair_count < SCATTER_SAMPLES
-                           ? app->pair_count
+        block->count = app->frame.pair_count < SCATTER_SAMPLES
+                           ? app->frame.pair_count
                            : SCATTER_SAMPLES;
         block->time = now;
         for (size_t n = 0; n < block->count; n++) {
             size_t index = block->count == 1
                                ? 0
-                               : n * (app->pair_count - 1) /
+                               : n * (app->frame.pair_count - 1) /
                                      (block->count - 1);
             /* The scatter axes are in units of full scale, so a
                constellation looks the same whatever the container. */
-            block->i[n] = app->i_samples[index] / app->device.full_scale;
-            block->q[n] = app->q_samples[index] / app->device.full_scale;
+            block->i[n] = app->frame.i_samples[index] / app->device.full_scale;
+            block->q[n] = app->frame.q_samples[index] / app->device.full_scale;
         }
         app->sv.scatter_inserted = block->count;
         app->sv.scatter_history_head =
@@ -431,11 +431,11 @@ void draw_base_hud(const struct app *app,
         snprintf(text, sizeof(text), "acquisition error: %s",
                  snapshot->worker_error);
         sdrgui_text_fit(text, 22, 154, 17, hud_width(), (Color){ 255, 104, 104, 255 });
-    } else if (!app->have_samples) {
+    } else if (!app->frame.have_samples) {
         DrawText("waiting for samples", 22, 154, 17,
                   (Color){ 250, 190, 74, 255 });
-    } else if (app->signal_stats_ready) {
-        const struct sdr_signal_stats *stats = &app->signal_stats;
+    } else if (app->frame.signal_stats_ready) {
+        const struct sdr_signal_stats *stats = &app->frame.signal_stats;
         const char *quality = "healthy";
         Color quality_color = (Color){ 90, 220, 164, 255 };
         if (stats->clipping_percent >= 0.1f || stats->headroom_db < 1.0f) {
@@ -456,14 +456,14 @@ void draw_base_hud(const struct app *app,
 }
 
 void draw_magnitude(const struct app *app) {
-    double duration_ms = app->have_samples
-                             ? (double)app->pair_count * 1000.0 /
+    double duration_ms = app->frame.have_samples
+                             ? (double)app->frame.pair_count * 1000.0 /
                                    app->applied_sample_rate
                              : 0.0;
     struct sdrgui_magnitude_params params = {
-        app->plot, app->have_samples, app->sv.magnitude_peaks,
+        app->plot, app->frame.have_samples, app->sv.magnitude_peaks,
         app->sv.magnitude_bin_count, app->sv.magnitude_lower, app->sv.magnitude_upper,
-        app->magnitude_min, app->magnitude_mean, app->magnitude_max,
+        app->frame.magnitude_min, app->frame.magnitude_mean, app->frame.magnitude_max,
         duration_ms, device_magnitude_max(&app->device)
     };
     sdrgui_magnitude(&params);
@@ -479,13 +479,13 @@ void draw_spectrum(const struct app *app) {
     params.plot = app->plot;
     params.center_hz = (double)app->applied_frequency;
     params.sample_rate = (double)app->applied_sample_rate;
-    params.ready = app->spectrum_ready;
-    params.average = app->spectrum_average;
-    params.peak = app->spectrum_peak;
-    params.bins = app->spectrum_bins;
+    params.ready = app->frame.spectrum_ready;
+    params.average = app->frame.spectrum_average;
+    params.peak = app->frame.spectrum_peak;
+    params.bins = app->frame.spectrum_bins;
     params.lower_dbfs = app->sv.spectrum_lower_dbfs;
     params.top_dbfs = SPECTRUM_TOP_DBFS;
-    params.windows = app->spectrum_windows;
+    params.windows = app->frame.spectrum_windows;
     if (span > 0.0 && data > 0.0 && span < data - 1.0) {
         params.view_lower_hz = w->view_lower_hz;
         params.view_upper_hz = w->view_upper_hz;
@@ -515,7 +515,7 @@ void draw_scatter(const struct app *app) {
 void recompute_magnitude_bins(struct app *app) {
     size_t capacity;
 
-    if (!app->have_samples || app->pair_count == 0) {
+    if (!app->frame.have_samples || app->frame.pair_count == 0) {
         app->sv.magnitude_bin_count = 0;
         return;
     }
@@ -523,22 +523,13 @@ void recompute_magnitude_bins(struct app *app) {
     if (capacity > SAMPLE_BLOCK_PAIRS)
         capacity = SAMPLE_BLOCK_PAIRS;
     app->sv.magnitude_bin_count = sdr_dsp_peak_bins(
-        app->magnitudes, app->pair_count, app->sv.magnitude_peaks, capacity);
+        app->frame.magnitudes, app->frame.pair_count, app->sv.magnitude_peaks, capacity);
 }
 
 void decay_spectrum_peak(struct app *app, double now) {
-    if (!app->spectrum_peak_ready) {
-        app->spectrum_peak_time = now;
-        return;
-    }
-    double elapsed = now - app->spectrum_peak_time;
-    if (elapsed <= 0.0)
-        return;
-    float decay = (float)elapsed * PEAK_DECAY_DB_PER_SECOND;
-    for (int i = 0; i < app->spectrum_bins; i++)
-        app->spectrum_peak[i] = fmaxf(SDR_DSP_DBFS_FLOOR,
-                                     app->spectrum_peak[i] - decay);
-    app->spectrum_peak_time = now;
+    /* The rate is this view's preference; the walk across the bins is the
+       frame's, and so is the array. */
+    signal_frame_decay_peak(&app->frame, now, PEAK_DECAY_DB_PER_SECOND);
 }
 
 void adjust_active_scale(struct app *app, int zoom_in) {

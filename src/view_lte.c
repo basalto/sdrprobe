@@ -298,9 +298,9 @@ static void scan_confirm_step(struct app *app, double now, int have_block) {
     }
 
     if (have_block &&
-        app->pair_count >= LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE) {
+        app->frame.pair_count >= LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE) {
         scan->looks++;
-        if (lte_cell_search(app->i_samples, app->q_samples, app->pair_count,
+        if (lte_cell_search(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
                             (double)app->applied_sample_rate, &cell,
                             NULL) == 1 &&
             cell.pci == scan->found[scan->confirm_index].pci)
@@ -370,9 +370,9 @@ void update_lte_scan(struct app *app, double now, int have_block) {
 
     earfcn = lte_scan_candidate(band, scan->candidate);
     if (have_block &&
-        app->pair_count >= LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE) {
+        app->frame.pair_count >= LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE) {
         scan->looks++;
-        if (lte_cell_search(app->i_samples, app->q_samples, app->pair_count,
+        if (lte_cell_search(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
                             (double)app->applied_sample_rate, &cell,
                             NULL) == 1) {
             if (cell.pci == scan->pending_pci) {
@@ -441,8 +441,8 @@ void update_lte(struct app *app, double now) {
     struct lte_trace *trace = app->lte.analysis_mode ? &app->lte.trace : NULL;
 
     app->lte.earfcn = lte_earfcn_for_hz((double)app->applied_frequency);
-    lte_session_feed(&app->lte.session, app->i_samples, app->q_samples,
-                     app->pair_count, (double)app->applied_sample_rate,
+    lte_session_feed(&app->lte.session, app->frame.i_samples, app->frame.q_samples,
+                     app->frame.pair_count, (double)app->applied_sample_rate,
                      app->device.full_scale, now, trace, &event);
 }
 

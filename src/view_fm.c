@@ -71,11 +71,11 @@ void update_fm_flush(struct app *app, double now, int flush) {
     struct fm_view *fm = &app->fm;
     size_t n;
 
-    if (app->pair_count < 2)
+    if (app->frame.pair_count < 2)
         return;
     /* The multiplex, which the sound, the charts and the decode all read. One
        discriminator pass for all three. */
-    n = fm_discriminate_f(app->i_samples, app->q_samples, app->pair_count,
+    n = fm_discriminate_f(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
                           multiplex, SAMPLE_BLOCK_PAIRS);
     if (n == 0)
         return;
@@ -1238,7 +1238,7 @@ void update_fm_scan(struct app *app, double now, int have_block) {
                a step contributes every block it saw rather than only its
                last. */
             double centre = (double)app->applied_frequency;
-            sdr_dsp_channel_powers(app->spectrum_average, SDR_DSP_FFT_SIZE,
+            sdr_dsp_channel_powers(app->frame.spectrum_average, SDR_DSP_FFT_SIZE,
                                    centre - app->applied_sample_rate / 2.0,
                                    centre + app->applied_sample_rate / 2.0,
                                    centre - scan->plan.accept_half_hz,

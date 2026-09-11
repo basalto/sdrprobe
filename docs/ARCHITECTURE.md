@@ -20,7 +20,7 @@ this repository.
                                     │ consume_latest()
                     ┌───────────────▼──────────────────────────┐
                     │ sdrprobe.c           frame loop          │
-                    │   process_block(), input, draw dispatch   │
+                    │   frame + input + draw dispatch           │
                     └───────────────┬──────────────────────────┘
                  ┌──────────────────┼───────────────────┐
                  ▼                  ▼                   ▼

@@ -99,10 +99,10 @@ void update_gsm_sch(struct app *app, double now) {
     struct gsm_session_event event;
 
     if (app->gsm.selected_hz <= 0.0 || app->bandscan.running ||
-        app->pair_count == 0)
+        app->frame.pair_count == 0)
         return;
-    gsm_session_feed(&app->gsm.session, app->i_samples, app->q_samples,
-                     app->pair_count, (double)app->applied_sample_rate,
+    gsm_session_feed(&app->gsm.session, app->frame.i_samples, app->frame.q_samples,
+                     app->frame.pair_count, (double)app->applied_sample_rate,
                      app->gsm.selected_hz - (double)app->applied_frequency,
                      now, &event);
 }
@@ -193,8 +193,8 @@ void draw_gsm(struct app *app) {
     sdrgui_text_fit(text, 322, 90, 17, gsm_header_width(322), (Color){ 190, 208, 218, 255 });
 
     /* Signal quality of the inspected channel (estimated SNR for gain/lock). */
-    if (app->signal_stats_ready) {
-        const struct sdr_signal_stats *stats = &app->signal_stats;
+    if (app->frame.signal_stats_ready) {
+        const struct sdr_signal_stats *stats = &app->frame.signal_stats;
         Color quality_color = (Color){ 90, 220, 164, 255 };
         if (stats->clipping_percent >= 0.1f || stats->headroom_db < 1.0f)
             quality_color = (Color){ 255, 102, 94, 255 };
