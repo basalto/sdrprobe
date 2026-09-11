@@ -273,15 +273,19 @@ static inline int installation_history_key(const struct installation *inst,
  *
  * `surveys/history-<receiver>-<site>-<antenna>.txt`, with everything outside
  * `[A-Za-z0-9_-]` reduced to a dash so a site typed with spaces or accents
- * still names one file. The old shape -- `surveys/history-<site>.txt` -- is
- * `site_history_path()` and stays exactly where it is, because ADR-0022 keeps
- * legacy baselines rather than renaming them: a file written before the ADR
- * cannot say which receiver and antenna produced it, and inventing that is the
- * one thing the ADR refuses.
+ * still names one file.
  *
- * So the two paths coexist. A legacy baseline is found, offered, and merged
- * only when an operator assigns it. Returns 0, or -1 when the setup is
- * incomplete or the name will not fit.
+ * **This is the only history name the program builds.** A file under the old
+ * shape, `surveys/history-<site>.txt`, is inert: nothing opens it, nothing
+ * offers it and nothing merges it. ADR-0022 promised an unassigned legacy
+ * baseline the operator could claim; that was never implemented and the ADR
+ * was amended on 2026-09-11 to say so, taking the by-site entry points in
+ * `site_history.h` with it. A file written before the ADR cannot say which
+ * receiver and antenna produced it, and inventing that is the one thing the
+ * ADR refuses -- so an operator who does know renames it to this name, which
+ * puts the assertion where the knowledge is.
+ *
+ * Returns 0, or -1 when the setup is incomplete or the name will not fit.
  */
 static inline int installation_history_path(const struct installation *inst,
                                             char *out, size_t size) {

@@ -752,8 +752,15 @@ ordinary gain adjustment.
 <label>` is the legacy shape and stays readable; `calibration <receiver> <ppm>
 <site>` is the new one — a separate line, so an older build still reads the
 file and so a legacy value stays visibly legacy rather than being silently
-given an owner. `surveys/history-<site>.txt` likewise coexists with
-`surveys/history-<receiver>-<site>-<antenna>.txt`. Claiming is the operator's
+given an owner. **The survey history's twin of that promise was never built,
+and ADR-0022 was amended on 2026-09-11 to say so**: `surveys/history-<site>.txt`
+is inert, not an unassigned baseline waiting to be claimed. The program builds
+one history name, `installation_history_path()`'s, so nothing opened a legacy
+file and nothing offered one -- the three by-site entry points had no caller
+outside `tests/` and are deleted with the clause. An operator who knows a
+legacy file's provenance renames it, which puts the assertion where the
+knowledge is; `check-installation` asserts the file stays inert beside a
+receiver-scoped one. Claiming is the operator's
 explicit act: `--claim-calibration`, with `--receiver-label` for a receiver
 whose USB serial is missing or shared, which many of these dongles are. A
 receiver with no identity is told so rather than offered a claim it cannot
@@ -778,7 +785,8 @@ and the pass confirmed one, while the same flag over band II confirmed all
 twenty-four broadcast stations. The site is a combo: type a new
 one, or pick one this receiver has been to before, from the list `config_remember_site()` keeps -- spelling one place two
 ways makes it two places and nothing downstream can tell. Saving also folds the
-sweep into `surveys/history-<site>.txt` (`src/site_history.c`), which is what
+sweep into `surveys/history-<receiver>-<site>-<antenna>.txt`
+(`src/site_history.c`), which is what
 lets the window tick the candidates this site has never heard, mark where
 something it knows has gone quiet, and say under the cursor how many sweeps
 ago. Matching uses the coarser of the two sweeps' bin widths; the reason is in

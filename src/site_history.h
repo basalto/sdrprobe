@@ -13,7 +13,8 @@
  * small derived summary the window itself needs, in a form C can read back in
  * a dozen lines rather than a JSON parser.
  *
- * One file per site, `surveys/history-<site>.txt`, line-oriented like the
+ * One file per receiving setup -- receiver, site and antenna, ADR-0022 --
+ * named by `installation_history_path()`, line-oriented like the
  * configuration:
  *
  *     site home-desk
@@ -234,27 +235,21 @@ int site_history_missing(const struct site_history *history, const double *hz,
                          double bin_hz, const struct site_entry **out,
                          int max);
 
-/* Where a site's history lives: `surveys/history-<site>.txt`, with anything
-   awkward in the name replaced so it is a filename. Returns 0, or -1. */
-int site_history_path(const char *site, char *out, size_t size);
-
-/* Read it. Returns 0 when a file was read, 1 when there is none yet (the
-   history is initialised empty), -1 on an unreadable one. */
-int site_history_load(const char *site, struct site_history *history);
-/* Write it, creating `surveys/` if need be. Returns 0, or -1. */
-int site_history_save(const struct site_history *history);
-
 /*
- * The same two, addressed by path rather than by site.
+ * Read and write one, addressed by path.
  *
  * ADR-0022 keys a history by the whole receiving setup, and
  * `installation_history_path()` builds that name. These take it directly so
  * the format layer stays the format layer: it reads and writes a file and has
- * no opinion about what identifies one.
+ * no opinion about what identifies one. There is deliberately no by-site
+ * entry point -- see the note at the end of this header.
  *
- * `site_history_load_path` still stamps `label` into the history's own site
- * field, because that is what the file's `site` line means to a later reader
- * and to `survey_store`.
+ * `site_history_load_path` returns 0 when a file was read, 1 when there is
+ * none yet (the history is initialised empty) and -1 on an unreadable one. It
+ * stamps `label` into the history's own site field, because that is what the
+ * file's `site` line means to a later reader and to `survey_store`.
+ *
+ * `site_history_save_path` creates `surveys/` if need be. Returns 0, or -1.
  */
 int site_history_load_path(const char *path, const char *label,
                            struct site_history *history);
@@ -262,23 +257,28 @@ int site_history_save_path(const char *path,
                            const struct site_history *history);
 
 /*
- * A legacy site-only baseline is **not read at all**, and that is not what
- * ADR-0022 says.
+ * A legacy site-only baseline is **not read at all**, and since 2026-09-11
+ * that is what ADR-0022 says.
  *
- * The ADR keeps `surveys/history-<site>.txt` as an unassigned baseline that
- * the operator may assign to a receiving setup. Neither half is implemented:
- * the program opens only `installation_history_path()`'s name, so the three
- * functions above that address a history *by site* --
- * `site_history_path`/`_load`/`_save` -- have no caller outside `tests/`, and
- * `site_history_legacy_entries()` had none from the day it was added (0.45.0)
- * to the day it was deleted. Nothing merges a legacy file because nothing
- * ever opens one.
+ * The ADR used to keep `surveys/history-<site>.txt` as an unassigned baseline
+ * the operator could assign to a receiving setup. Neither half was ever
+ * implemented -- the program opens only `installation_history_path()`'s name,
+ * so nothing merged a legacy file for the trivial reason that nothing opened
+ * one -- and `site_history_legacy_entries()` had no caller from the day it was
+ * added (0.45.0) to the day it was deleted.
  *
- * Contrast ADR-0018's calibration twin, which has `installation_legacy_ppm()`,
- * a **Claim +N PPM** button and a headless `--claim-calibration`. Three
- * surfaces there, none here. `.scratch/deepening/issues/13-*` carries the
- * choice: build the assignment, or amend the ADR to say a legacy baseline
- * ages out by being replaced rather than claimed.
+ * The ADR is amended rather than the feature built, so the three by-site
+ * entry points -- `site_history_path`/`_load`/`_save`, which had no caller
+ * outside `tests/` -- are **deleted** with it. A function that exists and is
+ * never called reads as an implemented feature to everyone after, which is
+ * the whole fault being closed here. An operator who knows the provenance of
+ * a legacy file can rename it to the receiver-scoped name, which asserts the
+ * receiver and the antenna where the knowledge actually is.
+ *
+ * The property that survives is that such a file is inert:
+ * `check-installation` puts one beside a receiver-scoped history and asserts
+ * `installation_history_load()` returns the receiver-scoped entries and
+ * nothing else. `.scratch/deepening/issues/13-*` carries the reasoning.
  */
 
 #endif

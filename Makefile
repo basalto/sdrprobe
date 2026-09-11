@@ -259,12 +259,17 @@ check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 
 # Command-line parsing: every flag, every rejection. Pure text in, options
 # out, so it links nothing at all.
-# The antenna and site that persist between runs. Text in, text out.
+# The antenna and site that persist between runs. Mostly text in, text out --
+# and one test that writes files, because ADR-0022's amended promise is that a
+# legacy site-only history is never opened, which nothing pure can assert. It
+# runs in a temporary directory of its own and never touches surveys/.
 check-installation: $(TESTS)/installation_test.c $(TESTS)/check.h \
-		$(SRC)/installation.h $(SRC)/site_history.h $(SRC)/site_history.c
+		$(SRC)/installation.h $(SRC)/installation.c $(SRC)/config.c \
+		$(SRC)/site_history.h $(SRC)/site_history.c
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/installation_test \
-		$(TESTS)/installation_test.c $(SRC)/site_history.c -lm
+		$(TESTS)/installation_test.c $(SRC)/installation.c \
+		$(SRC)/config.c $(SRC)/site_history.c -lm
 	$(Q)./$(BUILD)/installation_test
 
 check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
