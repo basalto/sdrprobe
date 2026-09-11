@@ -109,3 +109,39 @@ instead) and what it does *not* establish (the fundamental: 25 MHz is not
 representation question in the second gate above is unchanged, but it is now a
 question about at least three confirmed families rather than one unconfirmed
 source.
+
+## More of the family, 2026-09-11, and a pattern
+
+An hour over 108-137 MHz found six clock-coherent lines, with the ppm measured
+the same morning rather than quoted: **-35.96, locked, sem 0.04 over 498 FCCH
+measurements**, so an external signal must be displaced **4.0-4.7 kHz** at
+these frequencies. Every line below reads within 800 Hz of exact.
+
+| measured | is | dB over floor |
+| --- | --- | --- |
+| 120.000427 | 1.6 x 75 | 48-70 |
+| 127.999817 | 1.6 x 80 | 23.5 |
+| 129.600159 | 14.4 x 9 | 27-50 |
+| 135.999207 | 1.6 x 85 | 25.5 |
+| 110.400513 | 1.6 x 69 | 46.0 |
+| 115.197876 | 1.6 x 72 | **70.3** |
+| **130.000000** | neither comb | 25.0 |
+| **135.000000** | neither comb | 45.1 |
+
+The two in bold are this ticket's family, and with the 75.000000 and 150.0009
+already recorded that makes four members: **75, 130, 135, 150 MHz -- every one
+a multiple of 5 MHz**, and none a multiple of 1.6 or 14.4.
+
+**State that as a hypothesis, not a conclusion.** Against it: 110, 115, 120
+and 125 are also multiples of 5 and none of them showed an unexplained line
+(110.4 and 115.2 are the 1.6 comb; 125.121 has no carrier). So "multiples of
+5 MHz" predicts lines that are not there, which a real comb family would not
+do. What is solid is that four unexplained clock-coherent lines all happen to
+be 5 MHz multiples, and that 5 MHz is not 28 800 000 / n -- so whatever
+produces them is not a plain divider off the reference.
+
+**And 115.197876 at 70.3 dB over its floor is the loudest thing this receiver
+has ever been pointed at in that range.** Whatever else the comb model needs,
+it is not a small effect: in the aeronautical bands the receiver's own spurs
+are 20 dB above anything external, which is why
+`.scratch/am-airband/issues/01-*` failed its gate today.
