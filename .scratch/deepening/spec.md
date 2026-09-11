@@ -164,6 +164,28 @@ The report is `/tmp/architecture-review-20260910-095531.html`.
    numbered 13 because the second review had already claimed 10-12.
    `needs-triage`, and the honest close may be to amend the ADR.
 
+## Third review, 2026-09-11
+
+Tickets 11 and 12 pass the deletion test after implementation. Ticket 10 now
+owns and checks the receiver transition and rollback, while applied-state and
+lease ownership deliberately wait for observed UHD semantics. The review
+report is `/tmp/architecture-review-20260911-123343.html`.
+
+One new strong candidate survived the code check:
+
+14. **One LTE chain analysis, live or captured** -- the live `--lte-chain`
+   path and `probe-lte-chain` both walk cell search, broadcast hypotheses and
+   run-level evidence, but do so in separate implementations. Share the
+   public per-block analysis and accumulated result while keeping root scores,
+   timing nudges, CRC distance and repetition controls in the white-box
+   capture probe. Strong and `ready-for-agent`.
+
+The wider headless sample driver remains worth exploring but is not ticketed
+here: its loop variations may make an interface as wide as its implementation.
+Magnitude binning, a uniform session dispatcher, overlay management and a
+shared analysis-mode module were rejected as false depth or conflicts with
+ADR-0023.
+
 ## What this is not
 
 - Not a change to any DSP answer. Every capture in `testfiles/` must decode
