@@ -361,84 +361,43 @@ static int open_capture(struct app *app) {
 
 
 int process_block(struct app *app, double now) {
-    double sum = 0.0;
+    struct signal_frame_input in;
+    int geometry_changed = 0, produced;
 
-    app->pair_count = sdr_dsp_convert_iq(
-        &app->device, app->acq.raw, app->acq.raw_len, app->i_samples,
-        app->q_samples, app->magnitudes, SAMPLE_BLOCK_PAIRS);
-    if (app->pair_count == 0)
-        return 0;
-    app->have_samples = 1;
-    app->magnitude_min = app->magnitudes[0];
-    app->magnitude_max = app->magnitudes[0];
-    for (size_t i = 0; i < app->pair_count; i++) {
-        float magnitude = app->magnitudes[i];
-        if (magnitude < app->magnitude_min)
-            app->magnitude_min = magnitude;
-        if (magnitude > app->magnitude_max)
-            app->magnitude_max = magnitude;
-        sum += magnitude;
-    }
-    app->magnitude_mean = (float)(sum / (double)app->pair_count);
-    app->signal_stats_ready = sdr_dsp_signal_stats(
-        app->i_samples, app->q_samples, app->magnitudes, app->pair_count,
-        app->magnitude_sorted, app->device.full_scale, &app->signal_stats);
-    recompute_magnitude_bins(app);
-
-    const float *spectrum_i = app->i_samples;
-    const float *spectrum_q = app->q_samples;
-    if (app->remove_dc) {
-        memcpy(app->spectrum_i, app->i_samples,
-               app->pair_count * sizeof(*app->spectrum_i));
-        memcpy(app->spectrum_q, app->q_samples,
-               app->pair_count * sizeof(*app->spectrum_q));
-        sdr_dsp_remove_dc(app->spectrum_i, app->spectrum_q,
-                             app->pair_count);
-        spectrum_i = app->spectrum_i;
-        spectrum_q = app->spectrum_q;
-    }
     /*
-     * The size is a function of what is on screen, worked out here rather
-     * than remembered across a screen change -- see
-     * input_scope_owns_spectrum for why that distinction is load-bearing.
+     * The frame does the measuring; this decides what to ask it for and what
+     * a changed geometry means on screen.
+     *
+     * The transform size is worked out here and passed in, rather than the
+     * frame asking what is on screen: `input_scope_owns_spectrum()` is a
+     * question about presentation, and a module that answers it cannot be
+     * checked without one. It is asked every block rather than remembered
+     * across a screen change, which is the distinction that header explains.
      */
+    memset(&in, 0, sizeof(in));
+    in.profile = &app->device;
+    in.bytes = app->acq.raw;
+    in.byte_count = app->acq.raw_len;
+    in.remove_dc = app->remove_dc;
+    in.now = now;
     {
         struct input_state screen = input_state_now(app);
-        int size = input_scope_owns_spectrum(&screen) &&
-                   sdr_dsp_fft_size_valid(app->sv.fft_size)
-                       ? app->sv.fft_size : SDR_DSP_FFT_SIZE;
-        if (size != app->spectrum_bins) {
-            /* A different number of bins is a different chart; the peak hold
-               and the waterfall's history were gathered against the old one
-               and mean nothing under the new. */
-            app->spectrum_peak_ready = 0;
-            app->sv.waterfall_rows = 0;
-            app->spectrum_bins = size;
-        }
+        in.fft_size = input_scope_owns_spectrum(&screen) &&
+                      sdr_dsp_fft_size_valid(app->sv.fft_size)
+                          ? app->sv.fft_size : SDR_DSP_FFT_SIZE;
     }
-    int windows = sdr_dsp_spectrum(
-        &app->dsp, spectrum_i, spectrum_q, app->pair_count,
-        app->spectrum_bins, app->device.full_scale, app->spectrum_average,
-        app->spectrum_candidate);
-    if (windows > 0) {
-        /* The live bins, not the array's length: it is sized to the largest
-           transform and mostly empty at every other size. */
-        if (!app->spectrum_peak_ready) {
-            memcpy(app->spectrum_peak, app->spectrum_candidate,
-                   (size_t)app->spectrum_bins *
-                   sizeof(app->spectrum_peak[0]));
-            app->spectrum_peak_ready = 1;
-        } else {
-            for (int i = 0; i < app->spectrum_bins; i++)
-                if (app->spectrum_candidate[i] > app->spectrum_peak[i])
-                    app->spectrum_peak[i] = app->spectrum_candidate[i];
-        }
-        app->spectrum_peak_time = now;
-        app->spectrum_windows = windows;
-        app->spectrum_ready = 1;
-        return 1;
-    }
-    return 0;
+
+    produced = signal_frame_process(&app->frame, &in, &geometry_changed);
+    if (app->frame.have_samples)
+        recompute_magnitude_bins(app);
+    /*
+     * A different number of bins is a different chart. The frame threw its own
+     * peak hold away; the waterfall's rows are the Scope's and are thrown away
+     * here, because the frame is not allowed to reach into a view to do it.
+     */
+    if (geometry_changed)
+        app->sv.waterfall_rows = 0;
+    return produced;
 }
 
 
@@ -630,8 +589,7 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
         app->applied_sample_rate = sample_rate;
     /* Every spectrum and waterfall row was measured across a different span
        and is now meaningless; the frame loop rebuilds them. */
-    app->spectrum_ready = 0;
-    app->spectrum_peak_ready = 0;
+    signal_frame_invalidate(&app->frame);
 
     if (start_acquisition(app) < 0) {
         device_set_sample_rate_hz(&app->source, old_rate);
@@ -816,8 +774,7 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     }
     app->applied_frequency = reported;
     app->applied_ppm = source_ppm(app);
-    app->spectrum_ready = 0;
-    app->spectrum_peak_ready = 0;
+    signal_frame_invalidate(&app->frame);
     /* The waterfall's history now belongs to a frequency the receiver has
        left, but rebuilding it is drawing, and this runs on paths with no
        window: view_scope_resize_if_needed() notices and clears it. */
@@ -1303,7 +1260,7 @@ static int run_gui(struct app *app) {
     if (recreate_waterfall(app, app->plot, 1) < 0)
         return -1;
 
-    sdr_dsp_init(&app->dsp);
+    sdr_dsp_init(&app->frame.dsp);
     /* The survey is where a session starts: "what is out there" comes before
        "what does this one look like", and the Scope views need somebody to
        have tuned the receiver first. TAB_SURVEY is 0, so this is also what
@@ -1916,7 +1873,7 @@ static void print_broadcast(struct app *app, const struct gsm_sch_result *sch)
     if (sch->frame_number % 51 != 1)
         return;
     memset(soft, 0, sizeof(soft));
-    if (gsm_normal_bursts(app->i_samples, app->q_samples, app->pair_count,
+    if (gsm_normal_bursts(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
                           (double)app->applied_sample_rate, sch,
                           GSM_BCCH_BURSTS, soft) < GSM_BCCH_BURSTS)
         return; /* the block ran past the end of this sample block */
@@ -2012,7 +1969,7 @@ static void print_tetra(struct app *app, double now)
     struct tetra_session *t = &app->tetra.session;
 
     (void)now;
-    tetra_session_feed(t, app->i_samples, app->q_samples, app->pair_count,
+    tetra_session_feed(t, app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
                        (double)app->applied_sample_rate, &event);
 
     if (event.rate_unsupported) {
@@ -2182,7 +2139,7 @@ static int run_headless(struct app *app) {
         double began = monotonic_seconds();
         int i;
 
-        sdr_dsp_init(&app->dsp);
+        sdr_dsp_init(&app->frame.dsp);
         for (i = 0; i < lte_band_count(); i++)
             if (lte_band_at(i)->band == app->options.lte_scan_band)
                 band = lte_band_at(i);
@@ -2268,7 +2225,7 @@ static int run_headless(struct app *app) {
         uint32_t carrier = 0;
         int earfcn = app->options.earfcn;
 
-        sdr_dsp_init(&app->dsp);
+        sdr_dsp_init(&app->frame.dsp);
         if (app->options.lte_chain_band) {
             printf("lte-chain scanning band %d\n", app->options.lte_chain_band);
             fflush(stdout);
@@ -2339,7 +2296,7 @@ static int run_headless(struct app *app) {
                         snapshot.worker_error);
                 return -1;
             }
-            if (app->pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE)
+            if (app->frame.pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE)
                 continue;
             blocks++;
             /*
@@ -2359,8 +2316,8 @@ static int run_headless(struct app *app) {
              * refuses, which is what the no-cell line reports, and a block
              * with no cell in it has the time to spare.
              */
-            found_cells = lte_cell_search_all(app->i_samples, app->q_samples,
-                                              app->pair_count,
+            found_cells = lte_cell_search_all(app->frame.i_samples, app->frame.q_samples,
+                                              app->frame.pair_count,
                                               (double)app->applied_sample_rate,
                                               app->device.full_scale,
                                               on_carrier,
@@ -2388,8 +2345,8 @@ static int run_headless(struct app *app) {
                         on_carrier[best].pss_correlation)
                         best = b;
                 cell = on_carrier[best];
-            } else if (lte_cell_search(app->i_samples, app->q_samples,
-                                       app->pair_count,
+            } else if (lte_cell_search(app->frame.i_samples, app->frame.q_samples,
+                                       app->frame.pair_count,
                                        (double)app->applied_sample_rate, &cell,
                                        NULL) != 1) {
                 printf("chain %lu pss %.3f %.3f n_id_2 %d timing - "
@@ -2438,8 +2395,8 @@ static int run_headless(struct app *app) {
                     int h2, mib_ok = 0;
                     for (h2 = 0; h2 < 3 && !mib_ok; h2++) {
                         float soft[LTE_PBCH_SOFT_BITS];
-                        if (lte_pbch_soft_bits(app->i_samples, app->q_samples,
-                                               app->pair_count,
+                        if (lte_pbch_soft_bits(app->frame.i_samples, app->frame.q_samples,
+                                               app->frame.pair_count,
                                                (double)app->applied_sample_rate,
                                                &all[c], all[c].subframe0_start,
                                                ports[h2], soft,
@@ -2463,8 +2420,8 @@ static int run_headless(struct app *app) {
                                (long)cell.subframe0_start,
                            (double)all[c].pss_correlation,
                            (double)all[c].sss_correlation,
-                           lte_reference_power(app->i_samples, app->q_samples,
-                                               app->pair_count,
+                           lte_reference_power(app->frame.i_samples, app->frame.q_samples,
+                                               app->frame.pair_count,
                                                (double)app->applied_sample_rate,
                                                app->device.full_scale,
                                                &all[c], &np)
@@ -2484,8 +2441,8 @@ static int run_headless(struct app *app) {
             lte_stat_add(&stats.sss, cell.sss_correlation);
             {
                 struct lte_channel_shape shape;
-                if (lte_channel_shape(app->i_samples, app->q_samples,
-                                      app->pair_count,
+                if (lte_channel_shape(app->frame.i_samples, app->frame.q_samples,
+                                      app->frame.pair_count,
                                       (double)app->applied_sample_rate,
                                       app->device.full_scale,
                                       &cell, &shape)) {
@@ -2500,8 +2457,8 @@ static int run_headless(struct app *app) {
             }
             {
                 float coherence[LTE_PORT_COUNT];
-                if (lte_port_coherence(app->i_samples, app->q_samples,
-                                       app->pair_count,
+                if (lte_port_coherence(app->frame.i_samples, app->frame.q_samples,
+                                       app->frame.pair_count,
                                        (double)app->applied_sample_rate,
                                        &cell, coherence)) {
                     int ports = 0, p;
@@ -2516,8 +2473,8 @@ static int run_headless(struct app *app) {
                    calibrated gain in front of this receiver. RSRQ is the
                    comparable one -- see struct lte_reference_power. */
                 struct lte_reference_power power;
-                if (lte_reference_power(app->i_samples, app->q_samples,
-                                        app->pair_count,
+                if (lte_reference_power(app->frame.i_samples, app->frame.q_samples,
+                                        app->frame.pair_count,
                                         (double)app->applied_sample_rate,
                                         app->device.full_scale,
                                         &cell, &power)) {
@@ -2536,8 +2493,8 @@ static int run_headless(struct app *app) {
             for (h = 0; h < 3; h++) {
                 float soft[LTE_PBCH_SOFT_BITS];
                 struct lte_mib mib;
-                if (lte_pbch_soft_bits(app->i_samples, app->q_samples,
-                                       app->pair_count,
+                if (lte_pbch_soft_bits(app->frame.i_samples, app->frame.q_samples,
+                                       app->frame.pair_count,
                                        (double)app->applied_sample_rate, &cell,
                                        cell.subframe0_start,
                                        lte_session_port_hypotheses[h], soft,
@@ -2691,7 +2648,7 @@ static int run_headless(struct app *app) {
         int reported = 0, locked = 0;
         const char *why = "timeout";
 
-        sdr_dsp_init(&app->dsp);
+        sdr_dsp_init(&app->frame.dsp);
         app->cal.open = 1;
         app->cal.technology = app->options.calibrate == 1 ? 0 : 1;
         if (app->options.calibrate == 1) {
@@ -2829,7 +2786,7 @@ static int run_headless(struct app *app) {
     if (app->options.survey_report) {
         int survey_result;
 
-        sdr_dsp_init(&app->dsp);
+        sdr_dsp_init(&app->frame.dsp);
         survey_result = survey_report_run(app);
         if (stop_acquisition(app) < 0)
             survey_result = -1;
@@ -2850,7 +2807,7 @@ static int run_headless(struct app *app) {
              strcmp(app->options.technology, "tetra") == 0)
         decoder = DECODE_TETRA;
     if (app->options.decode)
-        sdr_dsp_init(&app->dsp);
+        sdr_dsp_init(&app->frame.dsp);
 
     while (!signal_stop_requested) {
         struct timespec tick = { 0, 100 * 1000000L };
@@ -2867,7 +2824,7 @@ static int run_headless(struct app *app) {
                only says whether it updated -- but the magnitudes and centred
                I/Q it fills in are. */
             process_block(app, now);
-            if (app->pair_count > 0)
+            if (app->frame.pair_count > 0)
                 print_new_decodes(app, now, decoder);
         }
         if (snapshot.worker_failed) {

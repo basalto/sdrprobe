@@ -70,8 +70,8 @@ void update_tetra(struct app *app, double now) {
     struct tetra_session_event event;
     int k;
 
-    tetra_session_feed(&t->session, app->i_samples, app->q_samples,
-                       app->pair_count, (double)app->applied_sample_rate,
+    tetra_session_feed(&t->session, app->frame.i_samples, app->frame.q_samples,
+                       app->frame.pair_count, (double)app->applied_sample_rate,
                        &event);
 
     t->point_count = 0;

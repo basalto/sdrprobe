@@ -1,6 +1,6 @@
 # 11 - Make an acquired signal frame a deep module
 
-Status: ready-for-agent
+Status: resolved, 2026-09-11
 
 `process_block()` in `sdrprobe.c` turns one raw sample block into everything
 the Probe and Decoder contexts consume:
@@ -136,23 +136,24 @@ their technology session checks and `make check-pipelines`. Final gate:
 
 ## Tasks
 
-- [ ] Add `signal_frame.{c,h}` with no GUI, driver or technology dependency.
-- [ ] Add and gate `check-signal-frame` with complete Makefile prerequisites.
-- [ ] Pin raw I/Q versus DC-filtered spectrum input.
-- [ ] Pin U8/S16-equivalent frame results.
-- [ ] Pin FFT-size geometry change and peak-hold reset.
-- [ ] Pin equal-size peak-hold accumulation and malformed input refusal.
-- [ ] Move the current processing sequence unchanged into the module.
-- [ ] Pass FFT size explicitly from the frame loop.
-- [ ] Return geometry change instead of clearing waterfall rows internally.
-- [ ] Migrate Scope consumers and inspect Scope screenshots.
-- [ ] Migrate GSM, LTE, ADS-B, TETRA and FM sessions.
-- [ ] Migrate calibration and both channel scans.
-- [ ] Migrate Survey window and headless adapters.
-- [ ] Remove obsolete sample/spectrum fields from `struct app`.
-- [ ] Remove `process_block()` from `view.h` and `sdrprobe.c`.
-- [ ] Update `AGENTS.md`, `CLAUDE.md` and `docs/ARCHITECTURE.md`.
-- [ ] Run `make check-touched`, `make screens NAMES="magnitude spectrum scatter waterfall"`, and `make check`.
+- [x] Add `signal_frame.{c,h}` with no GUI, driver or technology dependency.
+- [x] Add and gate `check-signal-frame` with complete Makefile prerequisites.
+- [x] Pin raw I/Q versus DC-filtered spectrum input.
+- [x] Pin U8/S16-equivalent frame results.
+- [x] Pin FFT-size geometry change and peak-hold reset.
+- [x] Pin equal-size peak-hold accumulation and malformed input refusal.
+- [x] Move the current processing sequence unchanged into the module.
+- [x] Pass FFT size explicitly from the frame loop.
+- [x] Return geometry change instead of clearing waterfall rows internally.
+- [x] Migrate Scope consumers and inspect Scope screenshots.
+- [x] Migrate GSM, LTE, ADS-B, TETRA and FM sessions.
+- [x] Migrate calibration and both channel scans.
+- [x] Migrate Survey window and headless adapters.
+- [x] Remove obsolete sample/spectrum fields from `struct app`.
+- [~] Remove `process_block()` from `view.h` and `sdrprobe.c` -- **not done,
+  deliberately**; see the comments.
+- [x] Update `AGENTS.md`, `CLAUDE.md` and `docs/ARCHITECTURE.md`.
+- [x] Run `make check-touched`, `make screens NAMES="magnitude spectrum scatter waterfall"`, and `make check`.
 
 ## Acceptance criteria
 
@@ -201,3 +202,56 @@ DC-filter choice as a caller-supplied argument, which is the right shape for
 either answer, but the answer itself should be written down here when phase 3
 settles what presentation supplies.
 
+## Comments
+
+**Done 2026-09-11.** `src/signal_frame.{c,h}` and `check-signal-frame` --
+**962 checks** where the composition had none -- and `struct app` loses
+twenty-two fields to one `struct signal_frame frame`. `make check` is 18871 in
+57 suites and takes 68 s. The capture pipelines are byte-identical apart from
+the recording's wall-clock filename, the capture survey is byte-identical, and
+all four Scope screens were looked at.
+
+**The hypothesis held.** No consumer needed to mutate a derived array, and the
+transform size went out to the caller without argument. 199 references moved
+across 11 files; the old fields were **deleted** rather than left beside the
+new ones, so anything missed was a compile error rather than a silent reader
+of a stale copy.
+
+**Two things the migration turned up that the ticket did not list.**
+
+Ten call sites were writing the frame's readiness by hand, and four of them
+set the same **pair** of flags -- `spectrum_ready = 0; spectrum_peak_ready =
+0` -- which is the shape that eventually drifts: clear one and keep the other
+and the chart is a maximum over two different bands with nothing to say so.
+That pair is `signal_frame_invalidate()` now, and it says *why* at each call
+site. And `decay_spectrum_peak()` in `view_scope.c` was a loop walking the
+frame's own bins; the walk is `signal_frame_decay_peak()` and the rate stays
+the view's, because how long a transient should stay legible is a display
+preference. Both are checked.
+
+**One claim of the check's was wrong before the code was.** The
+U8-against-S16 test asserted the magnitude summary would be *identical* across
+containers. It is not, and must not be: the floats stay in the device's own
+counts, because clipping means "at the ADC's rail" and a rail is a count. They
+scale by exactly the sixteen the container was shifted by, and the spectrum --
+dBFS, normalised by each profile's own full scale -- is what is identical. The
+check says both now. (The fixture also had `(byte - 128) * 16` where the exact
+equivalent is `byte * 16 - 2040`; eight counts wrong, and a check asserting
+"close" would have hidden it.)
+
+## Why `process_block()` stayed
+
+The plan's phase 5 says to remove it and have the frame loop call the module.
+It is still there, at thirty lines, and that is a deliberate departure.
+
+It has **eight call sites** -- the frame loop, three headless paths and
+`survey_report.c` -- and what it now contains is not DSP but two pieces of
+application policy: asking `input_scope_owns_spectrum()` what transform size
+this screen wants, and dropping the waterfall's rows when the frame reports
+its geometry changed. Deleting it would copy both into eight places, which is
+the duplication this ticket exists to end, one layer up.
+
+So the acceptance criterion it serves -- *every decision `process_block()`
+made is directly checked* -- is met by a different split than the plan
+assumed: the DSP decisions are in `check-signal-frame`, and the one decision
+left is `input_scope_owns_spectrum()`, which `check-input` already covers.

@@ -407,6 +407,16 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   `while` loop for the sweep, the pass and the measurement, because the
   session makes them one machine; the two shapes it replaced were the same
   loop written twice with different bugs.
+- `src/signal_frame.{c,h}` — one sample block, converted and measured:
+  centred I/Q, magnitudes and their summary, the signal statistics, the
+  DC-filtered copy the spectrum is taken from, the transform, its peak hold
+  and its readiness. It was `process_block()` in `sdrprobe.c` writing twenty
+  loose fields of `struct app`; the primitives were each checked and their
+  composition was not. It knows nothing about what is on screen -- the
+  transform size is an argument and a change of geometry is something it
+  *reports*, so the Scope decides what that means for a waterfall's rows.
+  `signal_frame_invalidate()` and `signal_frame_decay_peak()` are the two
+  things callers used to do by hand.
 - `src/survey_record.{c,h}` — what a finished survey *is*, before anybody
   draws it or writes it down: the plan and the dwell, the receiving setup, the
   candidates and carriers, what a confirmation pass concluded about each, and

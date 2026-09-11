@@ -118,8 +118,7 @@ int apply_settings(struct app *app) {
         app->options.ppm = ppm;
         app->applied_ppm = ppm;
         app->remove_dc = app->set.remove_dc;
-        app->spectrum_ready = 0;
-        app->spectrum_peak_ready = 0;
+        signal_frame_invalidate(&app->frame);
         if (recreate_waterfall(app, app->plot, 1) < 0) {
             snprintf(app->set.error, sizeof(app->set.error),
                      "Could not reset waterfall for the new frequency");
@@ -178,8 +177,7 @@ int apply_settings(struct app *app) {
     app->options.ppm = ppm;
     app->applied_ppm = settings_ppm(app);
     app->remove_dc = app->set.remove_dc;
-    app->spectrum_ready = 0;
-    app->spectrum_peak_ready = 0;
+    signal_frame_invalidate(&app->frame);
     if (recreate_waterfall(app, app->plot, 1) < 0) {
         snprintf(app->set.error, sizeof(app->set.error),
                  "Could not reset waterfall for the new frequency");

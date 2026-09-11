@@ -31,6 +31,7 @@
 #include "installation.h"
 #include "device_backend.h"
 #include "sdr_dsp.h"
+#include "signal_frame.h"
 #include "signal_findings.h"
 #include "survey_sweep.h"
 #include "survey_session.h"
@@ -873,6 +874,18 @@ struct survey_view {
     char kept_to[24];
 };
 
+/*
+ * A frame is a block, and these two say so in different headers.
+ *
+ * `SIGNAL_FRAME_PAIRS` cannot be `SAMPLE_BLOCK_PAIRS` directly without
+ * `signal_frame.h` including `acquisition.h`, which would drag a worker and a
+ * mutex into a module that measures arithmetic. So the number is stated twice
+ * and the compiler is made to check it here, where both are visible -- which
+ * is the only place that can.
+ */
+typedef char signal_frame_is_one_block[
+    (SIGNAL_FRAME_PAIRS == SAMPLE_BLOCK_PAIRS) ? 1 : -1];
+
 struct app {
     struct scope_view sv;
     struct survey_view survey;
@@ -897,7 +910,6 @@ struct app {
      * fields on it and never save; `installation_commit()` is the one writer.
      */
     struct installation installation;
-    struct sdr_dsp dsp;
     /* The open source, whatever kind it is: a receiver, a capture, later a
        UHD device. `device_backend.h` owns the handle; nothing here looks at
        it. This was an `rtlsdr_dev_t *`, which is why `<rtl-sdr.h>` used to be
@@ -933,34 +945,19 @@ struct app {
     struct sigaction old_sigint;
     struct sigaction old_sigterm;
 
-    float i_samples[SAMPLE_BLOCK_PAIRS];
-    float q_samples[SAMPLE_BLOCK_PAIRS];
-    float spectrum_i[SAMPLE_BLOCK_PAIRS];
-    float spectrum_q[SAMPLE_BLOCK_PAIRS];
-    float magnitudes[SAMPLE_BLOCK_PAIRS];
-    float magnitude_sorted[SAMPLE_BLOCK_PAIRS];
-    size_t pair_count;
-    float magnitude_min;
-    float magnitude_mean;
-    float magnitude_max;
-    struct sdr_signal_stats signal_stats;
-    int signal_stats_ready;
-
     /*
-     * One spectrum, sized to the largest transform the Scope may ask for.
-     * `spectrum_bins` is how many of them are currently filled -- everything
-     * that reads this must use that rather than the array's length, which is
-     * a capacity and not a count.
+     * The block, converted and measured -- and nothing else in this struct.
+     *
+     * These were twenty-odd loose arrays, counters and ready flags here, with
+     * `process_block()` in `sdrprobe.c` writing all of them and every view,
+     * overlay, session and headless path reading them directly. The
+     * primitives were each checked and their composition was not, which is
+     * where the interesting faults are: a peak hold kept across a change of
+     * transform size, or a decoder handed the DC-filtered samples instead of
+     * the raw ones. `signal_frame.h` owns both the buffers and those
+     * decisions now, and `check-signal-frame` reaches them.
      */
-    float spectrum_average[SDR_DSP_FFT_MAX];
-    float spectrum_candidate[SDR_DSP_FFT_MAX];
-    float spectrum_peak[SDR_DSP_FFT_MAX];
-    int spectrum_bins;
-    int spectrum_windows;
-    int spectrum_ready;
-    int spectrum_peak_ready;
-    double spectrum_peak_time;
-    int have_samples;
+    struct signal_frame frame;
 
     enum active_tab tab;
     enum decode_kind decode;

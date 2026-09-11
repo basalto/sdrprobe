@@ -257,9 +257,9 @@ static void update_lte_calibration(struct app *app) {
     struct lte_cell cell;
     double observed_ppm;
 
-    if (app->pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE)
+    if (app->frame.pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE)
         return;
-    if (lte_cell_search(app->i_samples, app->q_samples, app->pair_count,
+    if (lte_cell_search(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
                         (double)app->applied_sample_rate, &cell, NULL) != 1) {
         snprintf(app->cal.status, sizeof(app->cal.status),
                  "No LTE cell found at EARFCN %d", app->cal.lte_earfcn);
@@ -348,7 +348,7 @@ void update_calibration_measurement(struct app *app) {
         update_lte_calibration(app);
         return;
     }
-    if (!app->spectrum_ready)
+    if (!app->frame.spectrum_ready)
         return;
 
     double lower = (double)app->applied_frequency -
@@ -368,8 +368,8 @@ void update_calibration_measurement(struct app *app) {
     double fcch_target = (double)app->cal.expected_hz -
                          (double)app->applied_frequency +
                          GSM_FCCH_TONE_HZ;
-    int have_fcch = gsm_fcch_detect(app->i_samples, app->q_samples,
-                                           app->pair_count,
+    int have_fcch = gsm_fcch_detect(app->frame.i_samples, app->frame.q_samples,
+                                           app->frame.pair_count,
                                            app->applied_sample_rate,
                                            fcch_target,
                                            GSM_FCCH_SEARCH_HALF_HZ, &fcch);
@@ -378,7 +378,7 @@ void update_calibration_measurement(struct app *app) {
        carrier estimate used in centroid mode. */
     struct sdr_channel_estimate estimate;
     int have_centroid = sdr_dsp_estimate_channel_center(
-        app->spectrum_average, SDR_DSP_FFT_SIZE, lower, upper,
+        app->frame.spectrum_average, SDR_DSP_FFT_SIZE, lower, upper,
         app->cal.expected_hz, 100000.0, 50000.0,
         app->cal.workspace, &estimate);
     if (have_centroid) {
@@ -486,12 +486,12 @@ void update_drift_check(struct app *app, int have_block) {
     }
 
     /* DRIFT_MEASURE */
-    if (have_block && app->spectrum_ready &&
+    if (have_block && app->frame.spectrum_ready &&
         app->cal.drift_recent_count < DRIFT_RECENT) {
         struct gsm_fcch_result fcch;
         double target = (double)app->cal.gsm_expected_hz -
                         (double)app->applied_frequency + GSM_FCCH_TONE_HZ;
-        if (gsm_fcch_detect(app->i_samples, app->q_samples, app->pair_count,
+        if (gsm_fcch_detect(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
                             app->applied_sample_rate, target,
                             GSM_FCCH_SEARCH_HALF_HZ, &fcch)) {
             double carrier = (double)app->applied_frequency +

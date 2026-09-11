@@ -71,7 +71,7 @@ int start_scan(struct app *app) {
 }
 
 void update_scan(struct app *app) {
-    if (!app->bandscan.running || !app->spectrum_ready)
+    if (!app->bandscan.running || !app->frame.spectrum_ready)
         return;
     double elapsed = GetTime() - app->bandscan.step_started_at;
     enum scan_step_phase phase = scan_step_phase_at(elapsed, app->bandscan.step,
@@ -83,7 +83,7 @@ void update_scan(struct app *app) {
     double center = (double)app->applied_frequency;
     double lower = center - app->applied_sample_rate / 2.0;
     double upper = center + app->applied_sample_rate / 2.0;
-    sdr_dsp_channel_powers(app->spectrum_average, SDR_DSP_FFT_SIZE,
+    sdr_dsp_channel_powers(app->frame.spectrum_average, SDR_DSP_FFT_SIZE,
                               lower, upper,
                               center - app->bandscan.plan.accept_half_hz,
                               center + app->bandscan.plan.accept_half_hz,
@@ -102,8 +102,8 @@ void update_scan(struct app *app) {
             continue;
         struct gsm_fcch_result fcch;
         double target = channel - center + GSM_FCCH_TONE_HZ;
-        gsm_fcch_detect(app->i_samples, app->q_samples,
-                               app->pair_count, app->applied_sample_rate,
+        gsm_fcch_detect(app->frame.i_samples, app->frame.q_samples,
+                               app->frame.pair_count, app->applied_sample_rate,
                                target, GSM_FCCH_SEARCH_HALF_HZ, &fcch);
         app->bandscan.bcch_conf[arfcn] =
             scan_hold_confidence(app->bandscan.bcch_conf[arfcn], fcch.confidence);

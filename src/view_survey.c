@@ -84,11 +84,11 @@ static struct survey_block survey_block_of(struct app *app) {
     struct survey_block b;
 
     memset(&b, 0, sizeof(b));
-    b.i_samples = app->i_samples;
-    b.q_samples = app->q_samples;
-    b.pair_count = app->pair_count;
-    b.spectrum = app->spectrum_average;
-    b.scratch = app->magnitude_sorted;
+    b.i_samples = app->frame.i_samples;
+    b.q_samples = app->frame.q_samples;
+    b.pair_count = app->frame.pair_count;
+    b.spectrum = app->frame.spectrum_average;
+    b.scratch = app->frame.magnitude_sorted;
     b.centre_hz = (double)app->applied_frequency;
     b.sample_rate = (double)app->applied_sample_rate;
     b.reference_clock_hz = app->device.reference_clock_hz;
@@ -418,7 +418,7 @@ static void survey_save_sweep(struct app *app) {
     in.peaks = ss->peaks;
     in.peak_count = ss->peak_count;
     in.spectrum = survey_session_spectrum(ss);
-    in.scratch = app->magnitude_sorted;
+    in.scratch = app->frame.magnitude_sorted;
     in.carriers = ss->carriers;
     in.carrier_count = ss->carrier_count;
     in.targets = ss->confirm.target;
