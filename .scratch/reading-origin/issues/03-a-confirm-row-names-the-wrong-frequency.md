@@ -1,6 +1,6 @@
 # 03 - A confirm row prints one frequency and another frequency's flags
 
-Status: needs-triage
+Status: ready-for-agent -- **decided 2026-09-11: print both.** See the comments.
 Opened 2026-09-11, from a live sweep during `.scratch/device-model/issues/11-*`.
 
 A headless confirmation row prints the **target's** frequency and the
@@ -59,3 +59,26 @@ That a row's flags are flags *of* the frequency the row names, whichever of
 the three answers is chosen -- which no check asserts today, for either the
 new flags or `reference`. `check-survey-session` drives the machine with a
 fake block and is where the pair would be pinned.
+
+## Comments
+
+**Decided 2026-09-11. Print both**, the way `probe-signal` was fixed for
+exactly this class of confusion -- the offset it was asked for and the offset
+it found.
+
+It is the only one of the three options that changes no existing field's
+meaning, so it is not a file-format change under ADR-0016 and the `confirm`
+row keeps matching the `candidate` rows above it by its first field. The row
+gets wider, which is the whole of the cost.
+
+**The measurement question is still open and is the more interesting half.**
+79 kHz is a long way, and nothing in the row says whether that is the same
+carrier measured properly or the search having found a stronger neighbour --
+which is the fault `carrier_75000_bare.bin`'s note warns about, where a window
+across the whole span returns a real neighbour at +176 kHz. Printing both
+makes the gap *visible*, which is what is wanted first; if the gap turns out to
+be large often, that is a second ticket about the measurement's search window
+and not about this row.
+
+The check the ticket asks for stands: a row's flags must be flags of a
+frequency the row names, and with both printed that is satisfiable.

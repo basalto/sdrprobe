@@ -1,6 +1,7 @@
 # 02 - A channel raster in the band plan, for the half that has no grid
 
-Status: needs-triage
+Status: ready-for-agent -- **decided 2026-09-11: a raster only where no decoder
+exists.** See the comments.
 Opened 2026-09-11, from `.scratch/device-model/issues/11-*` landing.
 
 `reading_origin_for()` takes a nominal frequency the caller proposes, and
@@ -86,3 +87,30 @@ should say so rather than implying the grid travels.
 - The airband survivor lands on 132.066667 and on no 25 kHz channel, which is
   `check-reading-origin`'s case today and would become the band plan's.
 - No raster contradicts `gsm_arfcn_hz()` or `fm_scan.h` where both speak.
+
+## Comments
+
+**Decided 2026-09-11.** A raster **only for allocations with no decoder behind
+them**, which is where it is needed anyway: an allocation with a decoder can be
+asked directly, and `gsm_arfcn_hz()` and `fm_scan.h` already own those grids.
+
+This answers the triage question in the negative, and the negative is the
+useful half. A raster column covering GSM 900 and band II would be a **fourth
+statement** of facts two modules already hold, and a table that disagrees with
+`gsm_arfcn_hz()` about where ARFCN 1 is would be worse than no table. The
+deletion test settles it: delete a raster for an allocation with a decoder and
+nothing breaks, because the decoder's own map is authoritative.
+
+So the starting set is small and each entry names its source the way the band
+edges name the QNAF. The airband's 25/3 kHz from 118.000 MHz is the one with a
+measurement behind it -- it is the only grid that explains this site's one
+external carrier, at 282 Hz.
+
+**`BAND_PLAN_DECODER_COUNT` is the gate**, which is convenient: an entry whose
+`decoder` is not `BAND_PLAN_NONE` may not carry a raster, and that is a
+property a check can assert over the whole table rather than a rule somebody
+has to remember.
+
+**Scope inherits the table's.** The band plan is "Portugal's, which is to say
+ITU Region 1 as ANACOM applies it", and 8.33 kHz channelling is European. The
+raster column says so rather than implying the grid travels.

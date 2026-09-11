@@ -277,3 +277,32 @@ Two things to be careful of, both of which this ticket already argued:
 600 MHz is worth one more look at a lower bar before the chain is called
 three-deep; it was swept at the default 8 dB and found nothing, which is a
 weaker statement than the four absences above.
+
+## Comments, continued
+
+**Decided 2026-09-11: a header beside `survey_suspect.h`, with the fundamental
+as a parameter -- not a `device_profile` field.**
+
+The same shape `survey_comb_spacing_hz()` has, and for the same reason: it is a
+fact about a clock, it takes what it is handed, and it refuses when handed
+nothing. An octave chain is `f * 2^n` for n in some range, which is two numbers
+rather than the one `reference_clock_hz` holds, and modelling it as a *rule*
+that takes a fundamental keeps the question of **whose** fundamental separate
+from the arithmetic.
+
+**It does not go in `device_profile` yet**, and that is this ticket's own
+argument turned on itself: what is confirmed is a family on *this* receiver at
+*this* site, and a profile field would assert it of the part. That is precisely
+what `.scratch/calibrating-the-flags/` was opened to record and what ticket 02
+refuses on the rate-range hole. A second receiver is what turns "this chip does
+this" into a fact about a chip.
+
+**A source with no clock still gets no chain tests**, for the reason it gets no
+comb tests: a capture has no crystal to blame.
+
+What the implementation has to keep from the measurement above: the chain is
+present at x1, x2 and x4 and **absent at the odd multiple x3**, so the rule is
+octaves and must not quietly become harmonics -- a harmonic model would flag
+225 MHz, where nothing was found at a 12 dB bar. And 600 MHz was swept at the
+default 8 dB and found nothing, which is a weaker statement than the four
+absences; one look at a lower bar before calling the chain three deep.

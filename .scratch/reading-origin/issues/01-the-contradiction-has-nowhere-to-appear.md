@@ -1,6 +1,7 @@
 # 01 - The verdict that contradicts the comb has nowhere to appear
 
-Status: needs-triage
+Status: ready-for-agent -- **decided 2026-09-11: a third flag, and the comb mark
+stands.** See the comments.
 Opened 2026-09-11, from `.scratch/device-model/issues/11-*` landing.
 
 `reading_origin_for()` returns four answers and `survey_suspect_origin()` maps
@@ -69,3 +70,37 @@ is an assertion about what the operator is *told*, which is the same gap the
 flags themselves had: they were set correctly and had no names for a whole
 live sweep, and a feature that works and says nothing is indistinguishable
 from one that does not work.
+
+## Comments
+
+**Decided 2026-09-11.** A **third flag** -- the reading is displaced, so
+whatever is here is not clocked by this receiver -- drawn and listed **beside**
+`reference` rather than instead of it. `SURVEY_SUSPECT_REFERENCE` is not
+suppressed.
+
+The reasoning is `survey_suspect.h`'s own and it is worth restating because the
+other branch is tempting: this file "never removes a candidate and never says a
+peak *is* an artifact", and clearing a mark an operator has learned to read is
+a bigger act than adding one beside it. The coherence evidence is stronger than
+the coincidence it contradicts, and *stronger* is not the same as *entitled to
+overrule silently*.
+
+**The cost is accepted and must be recorded rather than hidden**: the
+suspicious count beside the candidate list keeps counting candidates the
+program has evidence against. That is the known price of this choice. If it
+turns out to mislead in practice -- a band II sweep whose count says "mostly
+the receiver" when three of them read displaced -- the honest fix is to report
+*both* numbers, not to start suppressing.
+
+Two things still to settle in implementation, neither of them this decision:
+
+- **The mark and the sentence.** `survey_suspect_reason()` returns one
+  sentence and `sdrgui_survey_peak_mark()` draws one mark, so a candidate
+  carrying comb-plus-displaced has to resolve to something. Extend the
+  existing precedence (empty beats receiver-like) rather than copying it.
+- **Whether it is a confirmation-pass flag only.** Unmeasured. It needs a
+  signal within a comb tolerance of a multiple *and* a bin fine enough to
+  separate the hypotheses there, and on the one band where that is known to
+  happen -- band II at 94.4 MHz -- a sweep's bin is too coarse and only a pass
+  can reach it. If it is pass-only, say so in the header; do not widen a
+  tolerance to make it fire in a sweep.
