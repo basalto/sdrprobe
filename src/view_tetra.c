@@ -71,7 +71,7 @@ void update_tetra(struct app *app, double now) {
     int k;
 
     tetra_session_feed(&t->session, app->frame.i_samples, app->frame.q_samples,
-                       app->frame.pair_count, (double)app->applied_sample_rate,
+                       app->frame.pair_count, (double)app->applied.sample_rate_hz,
                        &event);
 
     t->point_count = 0;

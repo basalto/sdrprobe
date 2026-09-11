@@ -113,7 +113,7 @@ int recreate_waterfall(struct app *app, Rectangle plot,
         app->sv.waterfall_rows = height;
     app->sv.waterfall_ready = 1;
     render_waterfall(app);
-    app->sv.waterfall_tuned_hz = app->applied_frequency;
+    app->sv.waterfall_tuned_hz = app->applied.frequency_hz;
     return 0;
 }
 
@@ -210,11 +210,11 @@ void view_window_input(struct app *app, struct chart_window *win,
     Rectangle plot = sdrgui_waterfall_area(rect);
     double want;
 
-    chart_window_sync(win, app->applied_frequency, app->applied_sample_rate,
+    chart_window_sync(win, app->applied.frequency_hz, app->applied.sample_rate_hz,
                       min_span);
     want = chart_window_input(win, plot, key, min_span);
     if (want != 0.0 && allow_retune && app->receiver_mode) {
-        double target = (double)app->applied_frequency + want;
+        double target = (double)app->applied.frequency_hz + want;
         /*
          * The centre moves and the rate does not. That is a constraint here
          * rather than a preference: the LTE view runs on 1.92 MS/s and
@@ -223,7 +223,7 @@ void view_window_input(struct app *app, struct chart_window *win,
          * the centre anyway.
          */
         if (target > 0.0)
-            retune_receiver(app, (uint32_t)llround(target), app->applied_ppm);
+            retune_receiver(app, (uint32_t)llround(target), app->applied.ppm);
     }
 }
 
@@ -241,8 +241,8 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
                          Rectangle rect, const struct chart_window *win) {
     Rectangle plot = sdrgui_waterfall_area(rect);
     struct sdrgui_waterfall_params params = {
-        rect, app->sv.waterfall, (double)app->applied_frequency,
-        (double)app->applied_sample_rate, calibration_mode,
+        rect, app->sv.waterfall, (double)app->applied.frequency_hz,
+        (double)app->applied.sample_rate_hz, calibration_mode,
         calibration_mode && app->cal.technology == 0,
         0.0, 0.0,
         app->sv.waterfall_rows, app->sv.waterfall_height, app->frame.pair_count,
@@ -275,8 +275,8 @@ void draw_waterfall(const struct app *app) {
     double span = w->view_upper_hz - w->view_lower_hz;
     double data = w->data_upper_hz - w->data_lower_hz;
     struct sdrgui_waterfall_params params = {
-        app->plot, app->sv.waterfall, (double)app->applied_frequency,
-        (double)app->applied_sample_rate, 0, 0,
+        app->plot, app->sv.waterfall, (double)app->applied.frequency_hz,
+        (double)app->applied.sample_rate_hz, 0, 0,
         0.0, 0.0,
         app->sv.waterfall_rows, app->sv.waterfall_height, app->frame.pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
@@ -415,8 +415,8 @@ void draw_base_hud(const struct app *app,
     sdrgui_text_fit(text, 22, 78, 17, hud_width(), (Color){ 187, 205, 216, 255 });
     snprintf(text, sizeof(text),
               "center: %.6f MHz   rate: %u S/s   gain: %s   PPM: %+d   DC filter: %s   view: %s   FPS: %d",
-              app->applied_frequency / 1000000.0, app->applied_sample_rate,
-              gain, app->applied_ppm, app->remove_dc ? "on" : "off",
+              app->applied.frequency_hz / 1000000.0, app->applied.sample_rate_hz,
+              gain, app->applied.ppm, app->remove_dc ? "on" : "off",
               view_name(app->view), GetFPS());
     sdrgui_text_fit(text, 22, 103, 17, hud_width(), (Color){ 187, 205, 216, 255 });
     snprintf(text, sizeof(text),
@@ -458,7 +458,7 @@ void draw_base_hud(const struct app *app,
 void draw_magnitude(const struct app *app) {
     double duration_ms = app->frame.have_samples
                              ? (double)app->frame.pair_count * 1000.0 /
-                                   app->applied_sample_rate
+                                   app->applied.sample_rate_hz
                              : 0.0;
     struct sdrgui_magnitude_params params = {
         app->plot, app->frame.have_samples, app->sv.magnitude_peaks,
@@ -477,8 +477,8 @@ void draw_spectrum(const struct app *app) {
 
     memset(&params, 0, sizeof(params));
     params.plot = app->plot;
-    params.center_hz = (double)app->applied_frequency;
-    params.sample_rate = (double)app->applied_sample_rate;
+    params.center_hz = (double)app->applied.frequency_hz;
+    params.sample_rate = (double)app->applied.sample_rate_hz;
     params.ready = app->frame.spectrum_ready;
     params.average = app->frame.spectrum_average;
     params.peak = app->frame.spectrum_peak;
@@ -580,7 +580,7 @@ int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
            is not a drawing operation, and it happens on paths that have no
            window at all. What it leaves behind is a history gathered at
            another frequency, which the view throws away here. */
-        if (app->sv.waterfall_tuned_hz != app->applied_frequency)
+        if (app->sv.waterfall_tuned_hz != app->applied.frequency_hz)
             return recreate_waterfall(app, plot, 1);
         return 0;
     }
@@ -616,8 +616,8 @@ void view_scope_release(struct app *app) {
  * rather than remembered. `view` is the part of it drawn.
  */
 void scope_freq_sync(struct app *app) {
-    chart_window_sync(&app->sv.window, app->applied_frequency,
-                      app->applied_sample_rate, CHART_MIN_SPAN_HZ);
+    chart_window_sync(&app->sv.window, app->applied.frequency_hz,
+                      app->applied.sample_rate_hz, CHART_MIN_SPAN_HZ);
 }
 
 /* What the two charts are showing, for the header to say and for anything
@@ -664,10 +664,10 @@ int scope_freq_input(struct app *app, Rectangle outer,
     scope_freq_sync(app);
     want = chart_window_input(&app->sv.window, plot, key, CHART_MIN_SPAN_HZ);
     if (want != 0.0 && app->receiver_mode) {
-        double target = (double)app->applied_frequency + want;
+        double target = (double)app->applied.frequency_hz + want;
         if (target > 0.0 &&
             retune_receiver(app, (uint32_t)llround(target),
-                            app->applied_ppm) == 0)
+                            app->applied.ppm) == 0)
             return 1;
     }
     return 0;
@@ -699,7 +699,7 @@ void scope_header_sync(struct app *app) {
     scope_freq_sync(app);
     if (sv->field_focus != SCOPE_FIELD_CENTRE)
         scope_field_text(sv->centre_text, sizeof(sv->centre_text),
-                         (double)app->applied_frequency);
+                         (double)app->applied.frequency_hz);
     if (sv->field_focus != SCOPE_FIELD_START)
         scope_field_text(sv->start_text, sizeof(sv->start_text),
                          sv->window.freq.view_lower_hz);
@@ -716,7 +716,7 @@ static int scope_field_commit(struct app *app) {
     if (sv->field_focus == SCOPE_FIELD_CENTRE) {
         double hz = scope_field_hz(sv->centre_text);
         if (hz > 0.0 && app->receiver_mode &&
-            retune_receiver(app, (uint32_t)llround(hz), app->applied_ppm) == 0)
+            retune_receiver(app, (uint32_t)llround(hz), app->applied.ppm) == 0)
             retuned = 1;
     } else if (sv->field_focus == SCOPE_FIELD_START ||
                sv->field_focus == SCOPE_FIELD_END) {

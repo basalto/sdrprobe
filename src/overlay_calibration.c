@@ -81,7 +81,7 @@ void open_calibration(struct app *app) {
     scan_release_receiver(app);
     app->cal.measured_hz = 0.0;
     app->cal.offset_hz = 0.0;
-    app->cal.suggested_ppm = app->applied_ppm;
+    app->cal.suggested_ppm = app->applied.ppm;
     snprintf(app->cal.status, sizeof(app->cal.status),
              "Select GSM 900 ARFCN 1-124, then press Start");
 }
@@ -126,8 +126,8 @@ static int start_lte_calibration(struct app *app) {
         return -1;
     }
     app->cal.expected_hz = carrier;
-    chart_window_sync(&app->cal.window, app->applied_frequency,
-                      app->applied_sample_rate, CHART_MIN_SPAN_HZ);
+    chart_window_sync(&app->cal.window, app->applied.frequency_hz,
+                      app->applied.sample_rate_hz, CHART_MIN_SPAN_HZ);
     chart_window_centre_on(&app->cal.window, (double)carrier,
                            CALIBRATION_VIEW_HALF_WIDTH_HZ,
                            CHART_MIN_SPAN_HZ);
@@ -146,7 +146,7 @@ static int start_lte_calibration(struct app *app) {
         return -1;
     }
     if (retune_receiver_at_rate(app, app->cal.tune_hz, LTE_SAMPLE_RATE_HZ,
-                                app->applied_ppm) < 0) {
+                                app->applied.ppm) < 0) {
         snprintf(app->cal.status, sizeof(app->cal.status),
                  "The receiver would not take LTE's 1.92 MS/s: %.100s",
                  app->receiver_error);
@@ -173,7 +173,7 @@ int start_calibration(struct app *app) {
                  "Only 2G and 4G are supported in this version");
         return -1;
     }
-    if (app->applied_sample_rate < 1000000U) {
+    if (app->applied.sample_rate_hz < 1000000U) {
         snprintf(app->cal.status, sizeof(app->cal.status),
                  "GSM calibration requires a sample rate of at least 1 MS/s");
         return -1;
@@ -187,8 +187,8 @@ int start_calibration(struct app *app) {
     }
 
     app->cal.expected_hz = expected;
-    chart_window_sync(&app->cal.window, app->applied_frequency,
-                      app->applied_sample_rate,
+    chart_window_sync(&app->cal.window, app->applied.frequency_hz,
+                      app->applied.sample_rate_hz,
                       chart_min_span(GSM900_ARFCN_SPACING_HZ));
     chart_window_centre_on(&app->cal.window, (double)expected,
                            CALIBRATION_VIEW_HALF_WIDTH_HZ,
@@ -203,7 +203,7 @@ int start_calibration(struct app *app) {
                  "Could not take the receiver: %.100s", app->receiver_error);
         return -1;
     }
-    if (retune_receiver(app, app->cal.tune_hz, app->applied_ppm) < 0) {
+    if (retune_receiver(app, app->cal.tune_hz, app->applied.ppm) < 0) {
         /*
          * Quoted rather than assumed. Both of these used to return with no
          * status at all and let the headless report print whatever
@@ -260,7 +260,7 @@ static void update_lte_calibration(struct app *app) {
     if (app->frame.pair_count < LTE_HALF_FRAME_SAMPLES + LTE_FFT_SIZE)
         return;
     if (lte_cell_search(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
-                        (double)app->applied_sample_rate, &cell, NULL) != 1) {
+                        (double)app->applied.sample_rate_hz, &cell, NULL) != 1) {
         snprintf(app->cal.status, sizeof(app->cal.status),
                  "No LTE cell found at EARFCN %d", app->cal.lte_earfcn);
         return;
@@ -277,7 +277,7 @@ static void update_lte_calibration(struct app *app) {
                    (double)app->cal.expected_hz * 1000000.0;
     calibration_tracker_observe(&app->cal.track, observed_ppm);
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
-        app->applied_ppm, app->cal.measured_hz,
+        app->applied.ppm, app->cal.measured_hz,
         (double)app->cal.expected_hz);
     /*
      * And the gate. Easy to leave out, and invisible when you do: the numbers
@@ -351,10 +351,10 @@ void update_calibration_measurement(struct app *app) {
     if (!app->frame.spectrum_ready)
         return;
 
-    double lower = (double)app->applied_frequency -
-                   app->applied_sample_rate / 2.0;
-    double upper = (double)app->applied_frequency +
-                   app->applied_sample_rate / 2.0;
+    double lower = (double)app->applied.frequency_hz -
+                   app->applied.sample_rate_hz / 2.0;
+    double upper = (double)app->applied.frequency_hz +
+                   app->applied.sample_rate_hz / 2.0;
     double elapsed = monotonic_seconds() - app->cal.started_at;
     if (elapsed < CALIBRATION_SETTLE_SECONDS) {
         snprintf(app->cal.status, sizeof(app->cal.status),
@@ -366,11 +366,11 @@ void update_calibration_measurement(struct app *app) {
        prominence must not wipe an FCCH accumulation. */
     struct gsm_fcch_result fcch;
     double fcch_target = (double)app->cal.expected_hz -
-                         (double)app->applied_frequency +
+                         (double)app->applied.frequency_hz +
                          GSM_FCCH_TONE_HZ;
     int have_fcch = gsm_fcch_detect(app->frame.i_samples, app->frame.q_samples,
                                            app->frame.pair_count,
-                                           app->applied_sample_rate,
+                                           app->applied.sample_rate_hz,
                                            fcch_target,
                                            GSM_FCCH_SEARCH_HALF_HZ, &fcch);
 
@@ -395,7 +395,7 @@ void update_calibration_measurement(struct app *app) {
     switch (calibration_track(&app->cal.track, have_fcch, have_centroid)) {
     case CALIBRATION_USE_FCCH:
         app->cal.fcch_confidence = fcch.confidence;
-        measured_hz = (double)app->applied_frequency +
+        measured_hz = (double)app->applied.frequency_hz +
                       fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
         break;
     case CALIBRATION_HOLD_TONE:
@@ -422,7 +422,7 @@ void update_calibration_measurement(struct app *app) {
     calibration_tracker_observe(&app->cal.track, observed_ppm);
 
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
-        app->applied_ppm, app->cal.expected_hz *
+        app->applied.ppm, app->cal.expected_hz *
                               (1.0 + app->cal.track.recent_center / 1000000.0),
         app->cal.expected_hz);
     if (app->cal.suggested_ppm < -1000)
@@ -490,11 +490,11 @@ void update_drift_check(struct app *app, int have_block) {
         app->cal.drift_recent_count < DRIFT_RECENT) {
         struct gsm_fcch_result fcch;
         double target = (double)app->cal.gsm_expected_hz -
-                        (double)app->applied_frequency + GSM_FCCH_TONE_HZ;
+                        (double)app->applied.frequency_hz + GSM_FCCH_TONE_HZ;
         if (gsm_fcch_detect(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
-                            app->applied_sample_rate, target,
+                            app->applied.sample_rate_hz, target,
                             GSM_FCCH_SEARCH_HALF_HZ, &fcch)) {
-            double carrier = (double)app->applied_frequency +
+            double carrier = (double)app->applied.frequency_hz +
                              fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
             app->cal.drift_recent_ppm[app->cal.drift_recent_count++] =
                 (carrier - (double)app->cal.gsm_expected_hz) /
@@ -621,9 +621,9 @@ void handle_calibration_input(struct app *app) {
                    looks for a cell (ADR-0014). */
                 int acquired;
                 if (calibration_borrow(app, &acquired) == 0 &&
-                    retune_receiver_at_rate(app, app->applied_frequency,
+                    retune_receiver_at_rate(app, app->applied.frequency_hz,
                                             LTE_SAMPLE_RATE_HZ,
-                                            app->applied_ppm) == 0 &&
+                                            app->applied.ppm) == 0 &&
                     band &&
                     lte_scan_begin(app, band->band, monotonic_seconds()) == 0) {
                     app->cal.lte_scanning = 1;
@@ -749,7 +749,7 @@ void handle_calibration_input(struct app *app) {
             snprintf(app->cal.status,
                      sizeof(app->cal.status),
                      "Applied %+d PPM; measuring residual error",
-                     app->applied_ppm);
+                     app->applied.ppm);
             /* The health indicator turns green only for an FCCH-backed lock;
                record the calibrated channel so drift can be re-checked. */
             if (app->cal.track.source == CALIBRATION_SOURCE_FCCH) {
@@ -758,7 +758,7 @@ void handle_calibration_input(struct app *app) {
                 app->cal.gsm_valid = 1;
                 app->cal.gsm_expected_hz = app->cal.expected_hz;
                 app->cal.gsm_tune_hz = app->cal.tune_hz;
-                app->cal.gsm_ppm = app->applied_ppm;
+                app->cal.gsm_ppm = app->applied.ppm;
                 app->cal.gsm_arfcn = arfcn;
                 app->cal.drift_health = CAL_HEALTH_GOOD;
                 app->cal.drift_ppm = 0.0;
@@ -927,7 +927,7 @@ void draw_calibration(struct app *app) {
     snprintf(text, sizeof(text),
              "expected: %.6f MHz   tuned center: %.6f MHz   current correction: %+d PPM",
              app->cal.expected_hz / 1000000.0,
-             app->applied_frequency / 1000000.0, app->applied_ppm);
+             app->applied.frequency_hz / 1000000.0, app->applied.ppm);
     sdrgui_text_fit(text, (int)cl.status[0].x, (int)cl.status[0].y, 17,
                     cl.status[0].width, (Color){ 190, 208, 218, 255 });
     if (app->cal.track.measurements > 0) {
@@ -974,10 +974,10 @@ void draw_calibration(struct app *app) {
      */
     draw_waterfall_rect(app, 1, cl.chart, &app->cal.window);
     if (app->cal.expected_hz > 0) {
-        double full_lower = (double)app->applied_frequency -
-                            app->applied_sample_rate / 2.0;
-        double full_upper = (double)app->applied_frequency +
-                            app->applied_sample_rate / 2.0;
+        double full_lower = (double)app->applied.frequency_hz -
+                            app->applied.sample_rate_hz / 2.0;
+        double full_upper = (double)app->applied.frequency_hz +
+                            app->applied.sample_rate_hz / 2.0;
         double lower = (double)app->cal.expected_hz -
                        CALIBRATION_VIEW_HALF_WIDTH_HZ;
         double upper = (double)app->cal.expected_hz +

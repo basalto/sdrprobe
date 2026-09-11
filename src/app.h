@@ -31,6 +31,7 @@
 #include "installation.h"
 #include "device_backend.h"
 #include "sdr_dsp.h"
+#include "receiver_runtime.h"
 #include "signal_frame.h"
 #include "signal_findings.h"
 #include "survey_sweep.h"
@@ -921,13 +922,26 @@ struct app {
     int receiver_mode;
     int applied_manual_gain;
     int applied_gain_tenths;
-    int applied_ppm;
     /* The gain list was here, as a pointer and a count. It is
        `device.gain_list` / `gain_count`, reached through
        `device_gain_option_count()` and `device_gain_option_value()` so a
        continuous range and a discrete list read the same (ticket 06). */
-    uint32_t applied_frequency;
-    uint32_t applied_sample_rate;
+    /*
+     * What the receiver is currently doing: frequency, rate and correction,
+     * together because they move together.
+     *
+     * Three loose fields before, and `receiver_runtime.{c,h}` needed them as
+     * one thing to roll a failed transition back -- a refusal has to leave
+     * all three where it found them, and a rollback over three separately
+     * owned fields is three chances to restore two of them. There is still
+     * exactly one owner of this fact; grouping it is not a second.
+     *
+     * Gain and `receiver_mode` are deliberately still loose. Where they
+     * belong is `.scratch/deepening/issues/10-*`'s phase 4, and it wants the
+     * second receiver first: whether "mode" is a capability, a kind of source
+     * or nothing at all is a question a single device cannot answer.
+     */
+    struct receiver_applied applied;
     /*
      * What this run's samples came out of: the container, its full scale, the
      * tuner's reach, the gain model (device_profile.h). One profile per

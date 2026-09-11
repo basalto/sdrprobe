@@ -70,8 +70,8 @@ void gsm_tune_selected(struct app *app, int arfcn) {
     app->gsm.selected_hz = (double)expected;
     /* Open on the channel that was chosen. A default, not a lock: 0 puts the
        whole span back and a drag goes anywhere. */
-    chart_window_sync(&app->gsm.window, app->applied_frequency,
-                      app->applied_sample_rate,
+    chart_window_sync(&app->gsm.window, app->applied.frequency_hz,
+                      app->applied.sample_rate_hz,
                       chart_min_span(GSM900_ARFCN_SPACING_HZ));
     chart_window_centre_on(&app->gsm.window, (double)expected,
                            CALIBRATION_VIEW_HALF_WIDTH_HZ,
@@ -83,7 +83,7 @@ void gsm_tune_selected(struct app *app, int arfcn) {
        the GSM view already entered, and a tune that quietly took ownership
        was how one screen could end up owning the receiver twice. */
     if (app->receiver_mode)
-        retune_receiver(app, expected - 400000U, app->applied_ppm);
+        retune_receiver(app, expected - 400000U, app->applied.ppm);
 }
 
 /* Note an SCH decode that cannot be right: T1 advances once per 1326 frames,
@@ -102,8 +102,8 @@ void update_gsm_sch(struct app *app, double now) {
         app->frame.pair_count == 0)
         return;
     gsm_session_feed(&app->gsm.session, app->frame.i_samples, app->frame.q_samples,
-                     app->frame.pair_count, (double)app->applied_sample_rate,
-                     app->gsm.selected_hz - (double)app->applied_frequency,
+                     app->frame.pair_count, (double)app->applied.sample_rate_hz,
+                     app->gsm.selected_hz - (double)app->applied.frequency_hz,
                      now, &event);
 }
 

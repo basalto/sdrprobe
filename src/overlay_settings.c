@@ -40,7 +40,7 @@ static int settings_ppm(struct app *app) {
 
 void open_settings(struct app *app) {
     snprintf(app->set.ppm, sizeof(app->set.ppm), "%d",
-             app->applied_ppm);
+             app->applied.ppm);
     app->set.ppm_length = (int)strlen(app->set.ppm);
     {
         int choice = sdr_dsp_fft_choice_of(app->sv.fft_size);
@@ -69,7 +69,7 @@ int apply_settings(struct app *app) {
      * frequency, because a PPM or gain change restarts acquisition and the
      * device comes back untuned.
      */
-    uint32_t frequency = app->applied_frequency;
+    uint32_t frequency = app->applied.frequency_hz;
     int ppm;
     if (parse_int(app->set.ppm, &ppm) < 0 || ppm < -1000 || ppm > 1000) {
         snprintf(app->set.error, sizeof(app->set.error),
@@ -113,10 +113,10 @@ int apply_settings(struct app *app) {
     }
 
     if (!app->receiver_mode) {
-        app->applied_frequency = frequency;
+        app->applied.frequency_hz = frequency;
         app->options.frequency = frequency;
         app->options.ppm = ppm;
-        app->applied_ppm = ppm;
+        app->applied.ppm = ppm;
         app->remove_dc = app->set.remove_dc;
         signal_frame_invalidate(&app->frame);
         if (recreate_waterfall(app, app->plot, 1) < 0) {
@@ -133,8 +133,8 @@ int apply_settings(struct app *app) {
                       : 0;
     int old_manual = app->applied_manual_gain;
     int old_gain = app->applied_gain_tenths;
-    int old_ppm = app->applied_ppm;
-    uint32_t old_frequency = app->applied_frequency;
+    int old_ppm = app->applied.ppm;
+    uint32_t old_frequency = app->applied.frequency_hz;
     if (stop_acquisition(app) < 0)
         return -1;
     if (device_set_gain(&app->source, manual, gain) < 0 ||
@@ -170,12 +170,12 @@ int apply_settings(struct app *app) {
         return -1;
     }
 
-    app->applied_frequency = reported_frequency;
+    app->applied.frequency_hz = reported_frequency;
     app->applied_manual_gain = manual;
     app->applied_gain_tenths = gain;
     app->options.frequency = frequency;
     app->options.ppm = ppm;
-    app->applied_ppm = settings_ppm(app);
+    app->applied.ppm = settings_ppm(app);
     app->remove_dc = app->set.remove_dc;
     signal_frame_invalidate(&app->frame);
     if (recreate_waterfall(app, app->plot, 1) < 0) {
@@ -187,8 +187,8 @@ int apply_settings(struct app *app) {
         device_flush(&app->source);
         app->applied_manual_gain = old_manual;
         app->applied_gain_tenths = old_gain;
-        app->applied_ppm = old_ppm;
-        app->applied_frequency = old_frequency;
+        app->applied.ppm = old_ppm;
+        app->applied.frequency_hz = old_frequency;
         start_acquisition(app);
         return -1;
     }
@@ -305,7 +305,7 @@ void draw_settings(const struct app *app) {
     {
         char fft[96];
         int size = sdr_dsp_fft_choice(app->set.fft_choice);
-        double rate = (double)app->applied_sample_rate;
+        double rate = (double)app->applied.sample_rate_hz;
         int windows = size > 0 ? (int)(SAMPLE_BLOCK_PAIRS / (size_t)size) : 0;
 
         DrawText("Scope resolution", (int)l.fft_previous.x,

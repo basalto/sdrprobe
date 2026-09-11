@@ -25,8 +25,8 @@
 /* The decisions below are in adsb_analysis.h; these hand it what it needs out
    of struct app. */
 int adsb_tuned(const struct app *app) {
-    return adsb_receiver_ready(app->applied_frequency,
-                               app->applied_sample_rate, DEFAULT_FREQUENCY);
+    return adsb_receiver_ready(app->applied.frequency_hz,
+                               app->applied.sample_rate_hz, DEFAULT_FREQUENCY);
 }
 
 static struct adsb_layout adsb_layout_now(void) {
@@ -138,7 +138,7 @@ void handle_adsb_input(struct app *app) {
     }
     if (!adsb_tuned(app) && app->receiver_mode &&
         clicked(l.retune_button)) {
-        retune_receiver(app, DEFAULT_FREQUENCY, app->applied_ppm);
+        retune_receiver(app, DEFAULT_FREQUENCY, app->applied.ppm);
     }
 }
 

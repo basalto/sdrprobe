@@ -35,7 +35,7 @@ int start_scan(struct app *app) {
                  "Channel scan requires a live receiver");
         return -1;
     }
-    if (scan_plan_make((double)app->applied_sample_rate, &app->bandscan.plan) !=
+    if (scan_plan_make((double)app->applied.sample_rate_hz, &app->bandscan.plan) !=
         SCAN_PLAN_OK) {
         snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Channel scan requires a sample rate of at least 1 MS/s");
@@ -57,7 +57,7 @@ int start_scan(struct app *app) {
     if (receiver_lease_token_active(&app->bandscan.lease_token)) {
         if (retune_receiver(app,
                             (uint32_t)llround(app->bandscan.plan.first_center_hz),
-                            app->applied_ppm) < 0)
+                            app->applied.ppm) < 0)
             return -1;
     } else if (receiver_borrow_at(app, &app->bandscan.lease_token,
                                   (uint32_t)llround(app->bandscan.plan.first_center_hz),
@@ -80,9 +80,9 @@ void update_scan(struct app *app) {
     if (phase == SCAN_STEP_SETTLING)
         return;
 
-    double center = (double)app->applied_frequency;
-    double lower = center - app->applied_sample_rate / 2.0;
-    double upper = center + app->applied_sample_rate / 2.0;
+    double center = (double)app->applied.frequency_hz;
+    double lower = center - app->applied.sample_rate_hz / 2.0;
+    double upper = center + app->applied.sample_rate_hz / 2.0;
     sdr_dsp_channel_powers(app->frame.spectrum_average, SDR_DSP_FFT_SIZE,
                               lower, upper,
                               center - app->bandscan.plan.accept_half_hz,
@@ -103,7 +103,7 @@ void update_scan(struct app *app) {
         struct gsm_fcch_result fcch;
         double target = channel - center + GSM_FCCH_TONE_HZ;
         gsm_fcch_detect(app->frame.i_samples, app->frame.q_samples,
-                               app->frame.pair_count, app->applied_sample_rate,
+                               app->frame.pair_count, app->applied.sample_rate_hz,
                                target, GSM_FCCH_SEARCH_HALF_HZ, &fcch);
         app->bandscan.bcch_conf[arfcn] =
             scan_hold_confidence(app->bandscan.bcch_conf[arfcn], fcch.confidence);
@@ -136,7 +136,7 @@ void update_scan(struct app *app) {
         return;
     }
     double next = scan_plan_step_centre(&app->bandscan.plan, app->bandscan.step);
-    if (retune_receiver(app, (uint32_t)llround(next), app->applied_ppm) < 0) {
+    if (retune_receiver(app, (uint32_t)llround(next), app->applied.ppm) < 0) {
         app->bandscan.running = 0;
         receiver_return(app, &app->bandscan.lease_token);
         return;

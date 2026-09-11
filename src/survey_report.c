@@ -69,8 +69,8 @@ static struct survey_block survey_block_now(struct app *app) {
     block.pair_count = app->frame.pair_count;
     block.spectrum = app->frame.spectrum_average;
     block.scratch = app->frame.magnitude_sorted;
-    block.centre_hz = (double)app->applied_frequency;
-    block.sample_rate = (double)app->applied_sample_rate;
+    block.centre_hz = (double)app->applied.frequency_hz;
+    block.sample_rate = (double)app->applied.sample_rate_hz;
     block.reference_clock_hz = app->device.reference_clock_hz;
     block.remove_dc = app->remove_dc;
     return block;
@@ -131,7 +131,7 @@ static void survey_obey_headless(struct app *app,
     if (event->sweep_stopped)
         fprintf(stderr, "%s\n", ss->status);
     if (event->retune_hz) {
-        if (retune_receiver(app, event->retune_hz, app->applied_ppm) < 0) {
+        if (retune_receiver(app, event->retune_hz, app->applied.ppm) < 0) {
             struct survey_session_event refusal;
 
             fprintf(stderr, "The receiver would not tune to %.3f MHz.\n",
@@ -317,7 +317,7 @@ static int survey_confirm_sweep(struct app *app,
                                 struct slot_snapshot *snapshot) {
     struct survey_session *ss = &app->survey.session;
     struct survey_session_event event;
-    uint32_t home = app->applied_frequency;
+    uint32_t home = app->applied.frequency_hz;
     int asked;
 
     asked = survey_session_confirm_all(ss, monotonic_seconds(), &event);
@@ -331,7 +331,7 @@ static int survey_confirm_sweep(struct app *app,
        run. A script reading this has to be able to tell them apart. */
     survey_print_confirm_summary(ss);
     if (asked > 0 && home)
-        retune_receiver(app, home, app->applied_ppm);
+        retune_receiver(app, home, app->applied.ppm);
     return ss->confirm.count;
 }
 
@@ -429,8 +429,8 @@ static int survey_capture(struct app *app) {
     struct survey_session *ss = &app->survey.session;
     struct slot_snapshot snapshot;
     struct survey_session_event event;
-    double rate = (double)app->applied_sample_rate;
-    double centre = (double)app->applied_frequency;
+    double rate = (double)app->applied.sample_rate_hz;
+    double centre = (double)app->applied.frequency_hz;
 
     if (survey_session_one_tuning(ss, centre, rate, &event) !=
         SURVEY_PLAN_OK) {
@@ -474,7 +474,7 @@ static int survey_receiver(struct app *app) {
 
     switch (survey_session_sweep(ss, (double)options->survey_from_hz,
                                  (double)options->survey_to_hz,
-                                 (double)app->applied_sample_rate, dwell,
+                                 (double)app->applied.sample_rate_hz, dwell,
                                  monotonic_seconds(), &event)) {
     case SURVEY_PLAN_BAD_RANGE:
         fprintf(stderr, "The high edge of the range must be above the low "

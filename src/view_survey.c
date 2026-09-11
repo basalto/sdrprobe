@@ -89,8 +89,8 @@ static struct survey_block survey_block_of(struct app *app) {
     b.pair_count = app->frame.pair_count;
     b.spectrum = app->frame.spectrum_average;
     b.scratch = app->frame.magnitude_sorted;
-    b.centre_hz = (double)app->applied_frequency;
-    b.sample_rate = (double)app->applied_sample_rate;
+    b.centre_hz = (double)app->applied.frequency_hz;
+    b.sample_rate = (double)app->applied.sample_rate_hz;
     b.reference_clock_hz = app->device.reference_clock_hz;
     b.remove_dc = app->remove_dc;
     return b;
@@ -192,12 +192,12 @@ static void survey_obey(struct app *app,
         if (survey_session_confirming(ss)) {
             failed = receiver_lease_token_active(&s->confirm_lease_token)
                          ? retune_receiver(app, event->retune_hz,
-                                           app->applied_ppm) < 0
+                                           app->applied.ppm) < 0
                          : receiver_borrow_at(app, &s->confirm_lease_token,
                                               event->retune_hz, 0) < 0;
         } else {
             failed = retune_receiver(app, event->retune_hz,
-                                     app->applied_ppm) < 0;
+                                     app->applied.ppm) < 0;
         }
         if (!failed) {
             /* The settle starts when the tuner moved, not when it was asked
@@ -260,8 +260,8 @@ static void freq_window_put(struct survey_view *s,
 void survey_tuning_from(struct survey_record_tuning *out,
                         const struct app *app) {
     memset(out, 0, sizeof(*out));
-    out->centre_hz = (double)app->applied_frequency;
-    out->sample_rate_hz = (double)app->applied_sample_rate;
+    out->centre_hz = (double)app->applied.frequency_hz;
+    out->sample_rate_hz = (double)app->applied.sample_rate_hz;
     out->reference_clock_hz = app->device.reference_clock_hz;
     out->remove_dc = app->remove_dc;
 }
@@ -567,8 +567,8 @@ static void survey_commit_installation(struct app *app) {
          */
         if (app->receiver_mode && app->config.site[0]) {
             int ppm = config_site_ppm(&app->config, app->config.site);
-            if (ppm != app->applied_ppm &&
-                retune_receiver(app, app->applied_frequency, ppm) == 0) {
+            if (ppm != app->applied.ppm &&
+                retune_receiver(app, app->applied.frequency_hz, ppm) == 0) {
                 app->options.ppm = ppm;
                 snprintf(s->session.status, sizeof(s->session.status),
                          "Site %s: applied its %+d PPM correction.",
@@ -796,7 +796,7 @@ static int survey_start(struct app *app) {
     }
 
     if (survey_session_sweep(ss, (double)from_hz, (double)to_hz,
-                             (double)app->applied_sample_rate, dwell,
+                             (double)app->applied.sample_rate_hz, dwell,
                              GetTime(), &event) != SURVEY_PLAN_OK)
         return -1;
     /*
@@ -873,7 +873,7 @@ int survey_choose_band(struct app *app, int nth) {
     /* And the dwell, because one value does not suit a band of two megahertz
        and one of two hundred. */
     snprintf(s->dwell, sizeof(s->dwell), "%.2f",
-             survey_band_dwell(from, to, (double)app->applied_sample_rate));
+             survey_band_dwell(from, to, (double)app->applied.sample_rate_hz));
     s->dwell_length = (int)strlen(s->dwell);
 
     /*
@@ -1560,7 +1560,7 @@ void handle_survey_input(struct app *app) {
         survey_session_stop(ss, NULL);
         if (app->receiver_mode &&
             retune_receiver(app, (uint32_t)llround(centre - SURVEY_OFFSET_HZ),
-                            app->applied_ppm) < 0) {
+                            app->applied.ppm) < 0) {
             snprintf(ss->status, sizeof(ss->status),
                      "The receiver would not tune to %.4f MHz.", centre / 1e6);
             return;
@@ -1613,7 +1613,7 @@ void handle_survey_input(struct app *app) {
             view_survey_leave(app);
             set_decode(app, DECODE_ADSB);
             set_tab(app, TAB_DECODE);
-            retune_receiver(app, DEFAULT_FREQUENCY, app->applied_ppm);
+            retune_receiver(app, DEFAULT_FREQUENCY, app->applied.ppm);
         } else if (decoder == BAND_PLAN_LTE) {
             /*
              * Snapped to the channel raster, not tuned to where the energy
@@ -1630,7 +1630,7 @@ void handle_survey_input(struct app *app) {
             set_decode(app, DECODE_LTE);
             if (earfcn > 0 && lte_earfcn_downlink_hz((unsigned int)earfcn,
                                                      &centre) == 0)
-                retune_receiver(app, centre, app->applied_ppm);
+                retune_receiver(app, centre, app->applied.ppm);
             set_tab(app, TAB_DECODE);
         } else if (decoder == BAND_PLAN_FM) {
             /*
@@ -2382,7 +2382,7 @@ void draw_survey(struct app *app) {
         snprintf(text, sizeof(text),
                  "step %d / %d   %.3f MHz   bin %.0f kHz   dwell %.2f s",
                  ss->step + 1, ss->step_count,
-                 app->applied_frequency / 1e6,
+                 app->applied.frequency_hz / 1e6,
                  survey_bin_width_hz(s) / 1e3, ss->dwell_seconds);
         sdrgui_text_fit(text, (int)l.header_left, (int)l.status_y, 17,
                         l.header_right - l.header_left,
