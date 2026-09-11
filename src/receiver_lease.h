@@ -22,8 +22,8 @@
  * - It does not own hardware. A snapshot is what the receiver *was* set to;
  *   putting it back is the caller's business, and `retune_receiver()` is
  *   still the only thing that touches a dongle.
- * - It does not duplicate the current tuning. `app->applied_frequency` and
- *   `app->applied_sample_rate` remain the sole truth for that.
+ * - It does not duplicate the current tuning. `app->applied.frequency_hz` and
+ *   `app->applied.sample_rate_hz` remain the sole truth for that.
  * - It does not carry PPM. Applying a calibration is deliberate persistent
  *   state and must survive every return; rolling one back with the tuning is
  *   the bug this refuses to make possible. There is no field to get wrong.

@@ -87,7 +87,7 @@ void update_fm_flush(struct app *app, double now, int flush) {
      * change at frame rate anyway.
      */
     if (fm->analysis_mode && now - fm->spectrum_at > 0.25) {
-        double rate = (double)app->applied_sample_rate;
+        double rate = (double)app->applied.sample_rate_hz;
         size_t want;
 
         /* Ask for the whole transform, then keep the part of it a multiplex
@@ -139,8 +139,8 @@ void update_fm_flush(struct app *app, double now, int flush) {
            draw before anything is played and the level follower is already
            settled when Play is pressed. */
         if (fm->audio.decimate < 1 ||
-            fm->audio.sample_rate != (double)app->applied_sample_rate)
-            fm_audio_init(&fm->audio, (double)app->applied_sample_rate);
+            fm->audio.sample_rate != (double)app->applied.sample_rate_hz)
+            fm_audio_init(&fm->audio, (double)app->applied.sample_rate_hz);
 
         /* One pass gives both: the sum signal for the charts and the two
            channels for the card. */
@@ -177,7 +177,7 @@ void update_fm_flush(struct app *app, double now, int flush) {
         struct fm_session_event event;
 
         fm_session_feed(&fm->session, multiplex, n,
-                        (double)app->applied_sample_rate, now, flush, &event);
+                        (double)app->applied.sample_rate_hz, now, flush, &event);
         if (fm->analysis_mode && fm->session.bb_count > 0)
             fm_rds_timing_scores(fm->session.bb_i, fm->session.bb_q,
                                  fm_rds_chunk_length(fm->session.bb_count, 1),
@@ -280,7 +280,7 @@ static void draw_scan_list(const struct app *app, Rectangle rect) {
                               (Color){ 255, 174, 62, 40 });
             /* The carrier being listened to now, so choosing another from
                the list is a move from somewhere rather than from nowhere. */
-            if (fabs((double)app->applied_frequency - f->frequency_hz) < 50000.0)
+            if (fabs((double)app->applied.frequency_hz - f->frequency_hz) < 50000.0)
                 DrawRectangle((int)rect.x + 4, (int)row_y - 2,
                               (int)rect.width - 8, (int)m.row_h,
                               (Color){ 99, 228, 170, 34 });
@@ -671,7 +671,7 @@ void fm_play(struct app *app) {
         debug_log_write("fm-audio", "stopped");
         return;
     }
-    if (fm_audio_init(&fm->audio, (double)app->applied_sample_rate) < 0) {
+    if (fm_audio_init(&fm->audio, (double)app->applied.sample_rate_hz) < 0) {
         snprintf(app->fm.audio_error, sizeof(app->fm.audio_error),
                  "The sample rate is too low to carry audio.");
         return;
@@ -763,8 +763,8 @@ void enter_fm(struct app *app) {
      */
     if (app->fm.scan.found_count > 0 || app->fm.scan.running)
         return;
-    if ((double)app->applied_frequency >= FM_BAND_LOWER_HZ &&
-        (double)app->applied_frequency <= FM_BAND_UPPER_HZ)
+    if ((double)app->applied.frequency_hz >= FM_BAND_LOWER_HZ &&
+        (double)app->applied.frequency_hz <= FM_BAND_UPPER_HZ)
         return;
     fm_scan_begin(app);
 }
@@ -1000,7 +1000,7 @@ void handle_fm_input(struct app *app) {
  * for as long as the window took to empty.
  */
 void fm_tune(struct app *app, double hz) {
-    if (retune_receiver(app, (uint32_t)llround(hz), app->applied_ppm) < 0)
+    if (retune_receiver(app, (uint32_t)llround(hz), app->applied.ppm) < 0)
         return;
     app->fm.session.soft_count = 0;
     app->fm.session.bit_count = 0;
@@ -1019,7 +1019,7 @@ void fm_tune(struct app *app, double hz) {
      * its predecessor's verdict, and the first stereo station makes the rest
      * of the band look stereo.
      */
-    fm_audio_init(&app->fm.audio, (double)app->applied_sample_rate);
+    fm_audio_init(&app->fm.audio, (double)app->applied.sample_rate_hz);
 }
 
 /*
@@ -1046,7 +1046,7 @@ void fm_scan_begin(struct app *app) {
                  "A band scan needs a live receiver.");
         return;
     }
-    if (fm_scan_plan_for((double)app->applied_sample_rate, &scan->plan) !=
+    if (fm_scan_plan_for((double)app->applied.sample_rate_hz, &scan->plan) !=
         FM_SCAN_OK) {
         snprintf(scan->status, sizeof(scan->status),
                  "The sample rate is too low to sweep the band.");
@@ -1068,7 +1068,7 @@ void fm_scan_begin(struct app *app) {
      */
     if (receiver_lease_token_active(&scan->lease_token)) {
         if (retune_receiver(app, (uint32_t)llround(scan->plan.first_center_hz),
-                            app->applied_ppm) < 0) {
+                            app->applied.ppm) < 0) {
             scan->sweeping = 0;
             return;
         }
@@ -1237,10 +1237,10 @@ void update_fm_scan(struct app *app, double now, int have_block) {
             /* Measure into the channel grid while the step is still open, so
                a step contributes every block it saw rather than only its
                last. */
-            double centre = (double)app->applied_frequency;
+            double centre = (double)app->applied.frequency_hz;
             sdr_dsp_channel_powers(app->frame.spectrum_average, SDR_DSP_FFT_SIZE,
-                                   centre - app->applied_sample_rate / 2.0,
-                                   centre + app->applied_sample_rate / 2.0,
+                                   centre - app->applied.sample_rate_hz / 2.0,
+                                   centre + app->applied.sample_rate_hz / 2.0,
                                    centre - scan->plan.accept_half_hz,
                                    centre + scan->plan.accept_half_hz,
                                    FM_BAND_LOWER_HZ, FM_CHANNEL_SPACING_HZ,
@@ -1265,7 +1265,7 @@ void update_fm_scan(struct app *app, double now, int have_block) {
                         (uint32_t)llround(scan->plan.first_center_hz +
                                           (double)scan->step *
                                               scan->plan.step_hz),
-                        app->applied_ppm);
+                        app->applied.ppm);
         scan->step_started_at = now;
         return;
     }

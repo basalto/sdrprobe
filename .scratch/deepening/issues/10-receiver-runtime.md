@@ -1,6 +1,6 @@
 # 10 - One receiver runtime owns transitions and applied state
 
-Status: needs-info
+Status: needs-info -- **phases 1a, 2 and 3 are done** (2026-09-11); 4 to 6 still want the second receiver. See the comments.
 
 Depends on: `.scratch/device-model/issues/07-a-second-backend.md` reaching the
 point where the UHD adapter's actual stream and state semantics are known.
@@ -152,19 +152,21 @@ Focused checks while iterating: the new runtime check,
 
 - [ ] Complete the UHD observations required by Phase 1 and change this ticket
   to `ready-for-agent`.
-- [ ] Write the shared/adapter-specific transition table.
-- [ ] Add `receiver_runtime.{c,h}` and register both files in Makefile
+- [x] Write the shared/adapter-specific transition table -- **RTL-SDR half
+  only**, above; UHD's is what clears `needs-info`.
+- [x] Add `receiver_runtime.{c,h}` and register both files in Makefile
   prerequisites.
-- [ ] Add `check-receiver-runtime` to `CHECK_UNITS` and clean bookkeeping.
-- [ ] Pin failed frequency-after-rate rollback before moving production code.
-- [ ] Pin restart, stop, flush and read-back failures.
+- [x] Add `check-receiver-runtime` to `CHECK_UNITS` and clean bookkeeping.
+- [x] Pin failed frequency-after-rate rollback before moving production code.
+- [x] Pin restart, stop, flush and read-back failures.
 - [ ] Move acquisition start/stop behind the runtime without changing callers.
-- [ ] Move frequency/rate transactions and preserve their error text.
+- [x] Move frequency/rate transactions and preserve their error text.
 - [ ] Move applied settings and make the runtime their only writer.
 - [ ] Decide `receiver_mode` as capability, source kind or deletion from UHD
   evidence.
-- [ ] Decide `remove_dc` ownership with ticket 11 rather than moving it
-  automatically.
+- [x] Decide `remove_dc` ownership with ticket 11 rather than moving it
+  automatically -- **it is signal-frame policy**, an argument to
+  `signal_frame_process()`, not receiver state. Ticket 11 settled it.
 - [ ] Move lease orchestration behind the runtime.
 - [ ] Migrate settings, calibration and views one owner at a time.
 - [ ] Remove receiver lifecycle helpers from `view.h` and `sdrprobe.c`.
@@ -230,3 +232,105 @@ frame** -- all seven views, all three overlays, `survey_report.c` and
 `sdrprobe.c`. Running phase 5 before ticket 11 means walking those twelve
 files twice, with a live-hardware verification pass each time.
 
+## Phase 1a: what the RTL-SDR backend actually does, 2026-09-11
+
+Observed against the attached R820T, one call at a time. This is the baseline
+UHD gets compared against; recording it now rather than reconstructing it
+later with a second device confusing the picture.
+
+| transition | rc | read back |
+| --- | --- | --- |
+| `open(0)` | 0 | full scale 127.5, 2 bytes/pair, reference 28 800 000 Hz |
+| `set_sample_rate_hz(2000000)` | 0 | 2000000 |
+| `set_frequency_hz(948400000)` | 0 | 948400000, exactly what was asked |
+| `set_ppm(-31)` | 0 | -31 |
+| `set_gain(manual, 297)` | 0 | 297 |
+| `flush()` | 0 | -- |
+| `stop()` with no stream running | **-1** | -- |
+| `set_sample_rate_hz(250000)` | **0** | 250000 |
+| `set_frequency_hz(10)` | **0** | 10 |
+| `close()` then `device_session_open()` | -- | 0, not open |
+
+**Every setter reads back exactly what it was given**, which is worth knowing:
+`retune_receiver()` reads the tuning back and uses 0 to mean "could not", and
+on this device the read-back is never a *correction*. A device that rounds to
+a PLL step would make that line load-bearing in a way it currently is not.
+
+### Two findings, and both change what a check can test
+
+**`stop()` returns -1 when no stream is running.** `stop_acquisition()` only
+reaches it inside `worker_is_reading()`, so the program never sees this -- but
+a runtime that stopped unconditionally would read a failure that is not one.
+Whatever owns the lifecycle has to keep that guard, or treat "nothing to stop"
+as success.
+
+**The backend does not refuse an unreachable setting.** A sample rate of
+250 kHz -- inside librtlsdr's documented hole -- returns 0 and reads back
+250000. A frequency of **10 Hz**, eight orders of magnitude below the tuner,
+also returns 0 and reads back 10. librtlsdr prints `[R82XX] PLL not locked!`
+to stderr and reports success.
+
+So `retune_receiver()`'s "Receiver rejected %.6f MHz or %+d ppm" is a message
+for a failure this backend does not produce from an out-of-range value: it
+accepts the request and tunes somewhere useless. The rollback paths that *are*
+reachable are a failing `flush`, a read-back of 0, and a failing restart --
+which is what the discriminating check has to drive, and it means the fake
+backend must be told to fail rather than merely asked for something absurd.
+
+It is also a real gap rather than a test detail: **nothing in the program
+notices a tuning the tuner could not honour.** Whether a runtime should
+validate against `device_profile`'s reach before asking is a decision for this
+ticket, and the profile already carries the numbers (ticket 05).
+
+## Comments
+
+**Phases 2 and 3 done 2026-09-11, and they did not need the second receiver.**
+
+`src/receiver_runtime.{c,h}` owns the sequence -- stop, apply, flush, read
+back, restart, and the rollback at every step -- and `check-receiver-runtime`
+is **65 checks** over it, driven by a fake device and a fake worker. The
+sequence had been correct by inspection since it was written; nothing had ever
+executed a single rollback branch.
+
+The discriminating case is pinned: **the rate takes and the tuning refuses**,
+and what the caller is left holding is the old rate, the old tuning, one
+running worker and a sentence naming which half refused. So are a refusing
+rate, a flush that fails, a read-back of zero, a restart that fails, a stop
+that fails, an unchanged rate not stopping the worker at all, and a capture
+refusing both with a reason.
+
+**`retune_receiver()` and `retune_receiver_at_rate()` delegate to it now**, so
+this is not a module waiting for a caller -- which is the fault
+`.scratch/deepening/issues/13-*` was opened about. `runtime_over()` is the one
+place the runtime is built over `struct app`, and it **borrows**: the applied
+state stays the application's single owner, the worker's lifecycle stays in
+`sdrprobe.c` with the thread and the signal mask.
+
+**The three applied fields are one struct now** -- `struct receiver_applied`,
+201 references across 12 files -- because a rollback has to put all three back
+and a rollback over three separately owned fields is three chances to restore
+two of them. That is part of phase 4, and deliberately only the part that a
+single device can answer. `receiver_mode` and the gain are still loose: what
+"mode" should be is exactly what the second receiver is needed to decide.
+
+**Verified on hardware, because this is the half no check reaches.** A live
+88-92 MHz sweep retuned at every step and came back with ten FM carriers,
+89.499 MHz among them at 55.9 dB, and `survey blocks 6 settling 3` -- three
+steps, three stale blocks discarded, which is the one line that caught the
+settle fault when the survey machine was extracted. `make check` is 18936 in
+58 suites and the capture pipelines are byte-identical.
+
+## What is still blocked, and it is genuinely UHD
+
+- **Phase 1b**, the UHD half of the transition table. Phase 1a is above.
+- **The rest of phase 4**: `receiver_mode` as capability, source kind or
+  deletion, and where gain belongs. One device cannot answer either.
+- **Phase 5**, the lease orchestration and the caller migration, and
+  **phase 6**, removing the old surface from `view.h`.
+
+One thing phase 1a found that belongs to whoever finishes this: **the backend
+does not refuse an unreachable setting** -- 10 Hz and a rate inside
+librtlsdr's own hole both return success and read back -- so nothing in the
+program notices a tuning the tuner could not honour. `device_profile` carries
+the reach (ticket 05). Whether the runtime should check it before asking is a
+decision this ticket now has the evidence to make.

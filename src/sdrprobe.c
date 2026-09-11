@@ -241,9 +241,9 @@ static int configure_receiver(struct app *app) {
         app->applied_gain_tenths = selected_gain == 0 ? 0 : reported_gain;
     }
 
-    app->applied_frequency = reported_frequency;
-    app->applied_sample_rate = reported_rate;
-    app->applied_ppm = source_ppm(app);
+    app->applied.frequency_hz = reported_frequency;
+    app->applied.sample_rate_hz = reported_rate;
+    app->applied.ppm = source_ppm(app);
     const char *device_name =
         device_backend_rtlsdr_name(app->options.device_index);
     snprintf(app->source_label, sizeof(app->source_label), "RTL-SDR: %s",
@@ -282,9 +282,9 @@ static int open_capture(struct app *app) {
                 strerror(errno));
         return -1;
     }
-    app->applied_frequency = app->options.frequency;
-    app->applied_sample_rate = app->options.sample_rate;
-    app->applied_ppm = app->options.ppm;
+    app->applied.frequency_hz = app->options.frequency;
+    app->applied.sample_rate_hz = app->options.sample_rate;
+    app->applied.ppm = app->options.ppm;
     snprintf(app->source_label, sizeof(app->source_label), "capture: %s",
              app->options.file_path);
 
@@ -307,7 +307,7 @@ static int open_capture(struct app *app) {
     }
     app->device = device_profile_capture(
         app->options.file_path, sidecar.format, sidecar.full_scale,
-        (double)app->applied_frequency, app->applied_sample_rate);
+        (double)app->applied.frequency_hz, app->applied.sample_rate_hz);
     unsigned width = app->device.bytes_per_pair;
     if (width == 0) {
         fprintf(stderr, "Capture %s: unsupported sample format.\n",
@@ -515,7 +515,7 @@ int start_acquisition(struct app *app) {
         return -1;
     }
     if (acquisition_attach_source(&app->acq, &app->source, app->capture,
-                                  app->applied_sample_rate,
+                                  app->applied.sample_rate_hz,
                                   app->device.bytes_per_pair,
                                   app->options.file_path,
                                   !app->options.play_once) < 0) {
@@ -559,56 +559,52 @@ int start_acquisition(struct app *app) {
  * had already changed. Only the LTE view passes a different rate -- see
  * ADR-0014 -- and retune_receiver() below is this with the rate left alone.
  */
+/*
+ * The runtime, over this application's state.
+ *
+ * It borrows rather than owns: `app->applied` is the one owner of what the
+ * receiver is doing, and the worker's lifecycle is still here with the
+ * thread, the signal mask and the choice of worker function. What the runtime
+ * owns is the *sequence* -- stop, apply, flush, read back, restart, and the
+ * rollback at every step -- which is the half no check could reach while it
+ * lived in this file taking `struct app`. `check-receiver-runtime` drives all
+ * of it against a fake device and a fake worker.
+ */
+static int runtime_stop(void *ctx) {
+    return stop_acquisition((struct app *)ctx);
+}
+
+static int runtime_start(void *ctx) {
+    return start_acquisition((struct app *)ctx);
+}
+
+static struct receiver_runtime runtime_over(struct app *app) {
+    struct receiver_runtime rt;
+
+    memset(&rt, 0, sizeof(rt));
+    rt.source = &app->source;
+    rt.applied = &app->applied;
+    rt.error = app->receiver_error;
+    rt.error_size = sizeof(app->receiver_error);
+    rt.live = app->receiver_mode;
+    rt.life.stop = runtime_stop;
+    rt.life.start = runtime_start;
+    rt.life.ctx = app;
+    return rt;
+}
+
 int retune_receiver_at_rate(struct app *app, uint32_t frequency,
                             uint32_t sample_rate, int ppm) {
-    uint32_t old_rate = app->applied_sample_rate;
-    int changed_rate = sample_rate != old_rate;
+    struct receiver_runtime rt = runtime_over(app);
     int result;
 
-    if (!app->receiver_mode) {
-        snprintf(app->receiver_error, sizeof(app->receiver_error),
-                 "Changing the sample rate requires a live receiver");
-        return -1;
-    }
-    if (!changed_rate)
-        return retune_receiver(app, frequency, ppm);
-
-    if (stop_acquisition(app) < 0)
-        return -1;
-    if (device_set_sample_rate_hz(&app->source, sample_rate) < 0 ||
-        device_flush(&app->source) < 0) {
-        snprintf(app->receiver_error, sizeof(app->receiver_error),
-                 "Receiver refused %.3f MS/s", sample_rate / 1e6);
-        device_set_sample_rate_hz(&app->source, old_rate);
-        device_flush(&app->source);
-        start_acquisition(app);
-        return -1;
-    }
-    app->applied_sample_rate = source_sample_rate(app);
-    if (app->applied_sample_rate == 0)
-        app->applied_sample_rate = sample_rate;
-    /* Every spectrum and waterfall row was measured across a different span
-       and is now meaningless; the frame loop rebuilds them. */
-    signal_frame_invalidate(&app->frame);
-
-    if (start_acquisition(app) < 0) {
-        device_set_sample_rate_hz(&app->source, old_rate);
-        device_flush(&app->source);
-        app->applied_sample_rate = old_rate;
-        start_acquisition(app);
-        return -1;
-    }
-    result = retune_receiver(app, frequency, ppm);
-    if (result < 0) {
-        /* The tuning failed but the rate took. Put the rate back too, so a
-           refusal leaves the receiver where it was found. */
-        if (stop_acquisition(app) == 0) {
-            device_set_sample_rate_hz(&app->source, old_rate);
-            device_flush(&app->source);
-            app->applied_sample_rate = old_rate;
-            start_acquisition(app);
-        }
-    }
+    debug_log_write("tune", "%.6f MHz, %+d ppm, %.3f MS/s (from %.6f MHz, "
+                    "%.3f MS/s)", frequency / 1e6, ppm, sample_rate / 1e6,
+                    app->applied.frequency_hz / 1e6,
+                    app->applied.sample_rate_hz / 1e6);
+    result = receiver_runtime_tune_at_rate(&rt, frequency, sample_rate, ppm);
+    if (app->receiver_mode)
+        signal_frame_invalidate(&app->frame);
     return result;
 }
 
@@ -632,8 +628,8 @@ int receiver_borrow(struct app *app, struct receiver_lease_token *token) {
 
     if (!app->receiver_mode)
         return 0;
-    here.center_hz = app->applied_frequency;
-    here.sample_rate_hz = app->applied_sample_rate;
+    here.center_hz = app->applied.frequency_hz;
+    here.sample_rate_hz = app->applied.sample_rate_hz;
     if (receiver_lease_acquire(&app->lease, here, token) < 0) {
         snprintf(app->receiver_error, sizeof(app->receiver_error),
                  "Too many screens are borrowing the receiver at once");
@@ -647,17 +643,17 @@ int receiver_borrow_at(struct app *app, struct receiver_lease_token *token,
     int moved;
 
     if (!app->receiver_mode)
-        return retune_receiver(app, frequency, app->applied_ppm);
+        return retune_receiver(app, frequency, app->applied.ppm);
     if (receiver_borrow(app, token) < 0)
         return -1;
     /* The rate is only worth the more expensive path when it actually
        differs; retune_receiver_at_rate() says the same and would delegate
        anyway, but saying it here keeps the two callers legible. */
-    if (sample_rate != 0 && sample_rate != app->applied_sample_rate)
+    if (sample_rate != 0 && sample_rate != app->applied.sample_rate_hz)
         moved = retune_receiver_at_rate(app, frequency, sample_rate,
-                                        app->applied_ppm);
+                                        app->applied.ppm);
     else
-        moved = retune_receiver(app, frequency, app->applied_ppm);
+        moved = retune_receiver(app, frequency, app->applied.ppm);
     if (moved < 0) {
         /* The retune already put the hardware back, so the snapshot describes
            a borrowing that never happened. */
@@ -677,10 +673,10 @@ int receiver_restore_held(struct app *app,
         debug_log_write("lease", "restore out of order, ignored");
         return -1;
     }
-    if (back.sample_rate_hz != app->applied_sample_rate)
+    if (back.sample_rate_hz != app->applied.sample_rate_hz)
         return retune_receiver_at_rate(app, back.center_hz,
-                                       back.sample_rate_hz, app->applied_ppm);
-    return retune_receiver(app, back.center_hz, app->applied_ppm);
+                                       back.sample_rate_hz, app->applied.ppm);
+    return retune_receiver(app, back.center_hz, app->applied.ppm);
 }
 
 int receiver_return(struct app *app, struct receiver_lease_token *token) {
@@ -704,12 +700,12 @@ int receiver_return(struct app *app, struct receiver_lease_token *token) {
      * persistent state and must survive the return -- which is why the
      * snapshot has no third field to get this wrong with.
      */
-    if (back.sample_rate_hz != app->applied_sample_rate)
+    if (back.sample_rate_hz != app->applied.sample_rate_hz)
         restored = retune_receiver_at_rate(app, back.center_hz,
                                            back.sample_rate_hz,
-                                           app->applied_ppm);
+                                           app->applied.ppm);
     else
-        restored = retune_receiver(app, back.center_hz, app->applied_ppm);
+        restored = retune_receiver(app, back.center_hz, app->applied.ppm);
     if (restored < 0)
         return -1;              /* the token stays live, and retryable */
     receiver_lease_finish_return(&app->lease, token);
@@ -729,68 +725,23 @@ int receiver_commit(struct app *app, struct receiver_lease_token *token) {
 }
 
 int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
+    struct receiver_runtime rt = runtime_over(app);
+    int result;
+
     /* Logged before the attempt, not after: a retune that fails is exactly
-       the one worth having a record of, and the failure path returns from
-       several places. */
+       the one worth having a record of. */
     debug_log_write("tune", "%.6f MHz, %+d ppm (from %.6f MHz)",
-                    frequency / 1e6, ppm, app->applied_frequency / 1e6);
-    if (!app->receiver_mode) {
-        snprintf(app->receiver_error, sizeof(app->receiver_error),
-                 "Tuning requires a live receiver: a capture holds one "
-                 "frequency");
-        return -1;
-    }
-    uint32_t old_frequency = app->applied_frequency;
-    int old_ppm = app->applied_ppm;
-    if (stop_acquisition(app) < 0)
-        return -1;
-    if (set_frequency_correction(&app->source, ppm) < 0 ||
-        device_set_frequency_hz(&app->source, frequency) < 0 ||
-        device_flush(&app->source) < 0) {
-        snprintf(app->receiver_error, sizeof(app->receiver_error),
-                 "Receiver rejected %.6f MHz or %+d ppm", frequency / 1e6,
-                 ppm);
-        set_frequency_correction(&app->source, old_ppm);
-        device_set_frequency_hz(&app->source, old_frequency);
-        device_flush(&app->source);
-        app->applied_frequency = old_frequency;
-        app->applied_ppm = old_ppm;
-        if (start_acquisition(app) < 0)
-            return -1;
-        return -1;
-    }
-    uint32_t reported = source_frequency(app);
-    if (reported == 0) {
-        snprintf(app->receiver_error, sizeof(app->receiver_error),
-                 "Could not read the tuning back from the receiver");
-        set_frequency_correction(&app->source, old_ppm);
-        device_set_frequency_hz(&app->source, old_frequency);
-        device_flush(&app->source);
-        app->applied_frequency = old_frequency;
-        app->applied_ppm = old_ppm;
-        if (start_acquisition(app) < 0)
-            return -1;
-        return -1;
-    }
-    app->applied_frequency = reported;
-    app->applied_ppm = source_ppm(app);
-    signal_frame_invalidate(&app->frame);
-    /* The waterfall's history now belongs to a frequency the receiver has
-       left, but rebuilding it is drawing, and this runs on paths with no
-       window: view_scope_resize_if_needed() notices and clears it. */
-    if (start_acquisition(app) < 0) {
-        set_frequency_correction(&app->source, old_ppm);
-        device_set_frequency_hz(&app->source, old_frequency);
-        device_flush(&app->source);
-        app->applied_frequency = old_frequency;
-        app->applied_ppm = old_ppm;
-        start_acquisition(app);
-        snprintf(app->receiver_error, sizeof(app->receiver_error),
-                 "Acquisition would not restart; put the previous tuning "
-                 "back");
-        return -1;
-    }
-    return 0;
+                    frequency / 1e6, ppm, app->applied.frequency_hz / 1e6);
+    result = receiver_runtime_tune(&rt, frequency, ppm);
+    /*
+     * Every spectrum was measured across a different span and is now
+     * meaningless, whether the move took or was rolled back. The waterfall's
+     * history is in the same position, but rebuilding it is drawing and this
+     * runs on paths with no window: `view_scope_resize_if_needed()` notices.
+     */
+    if (app->receiver_mode)
+        signal_frame_invalidate(&app->frame);
+    return result;
 }
 
 
@@ -1046,8 +997,8 @@ int start_capture_record(struct app *app, const char *basename,
     snprintf(path, sizeof(path), "captures/%s_%s.bin", basename, stamp);
 
     struct acquisition_record_request req = {
-        app->applied_frequency, app->applied_sample_rate,
-        app->applied_gain_tenths, app->applied_manual_gain, app->applied_ppm,
+        app->applied.frequency_hz, app->applied.sample_rate_hz,
+        app->applied_gain_tenths, app->applied_manual_gain, app->applied.ppm,
         arfcn, carrier_offset_hz, technology,
         app->source_label, app->tuner_label, seconds,
         app->device.format, app->device.full_scale
@@ -1281,7 +1232,7 @@ static int run_gui(struct app *app) {
         return -1;
     }
     if (acquisition_attach_source(&app->acq, &app->source, app->capture,
-                                  app->applied_sample_rate,
+                                  app->applied.sample_rate_hz,
                                   app->device.bytes_per_pair,
                                   app->options.file_path,
                                   !app->options.play_once) < 0) {
@@ -1874,7 +1825,7 @@ static void print_broadcast(struct app *app, const struct gsm_sch_result *sch)
         return;
     memset(soft, 0, sizeof(soft));
     if (gsm_normal_bursts(app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
-                          (double)app->applied_sample_rate, sch,
+                          (double)app->applied.sample_rate_hz, sch,
                           GSM_BCCH_BURSTS, soft) < GSM_BCCH_BURSTS)
         return; /* the block ran past the end of this sample block */
     for (int b = 0; b < GSM_BCCH_BURSTS; b++)
@@ -1970,14 +1921,14 @@ static void print_tetra(struct app *app, double now)
 
     (void)now;
     tetra_session_feed(t, app->frame.i_samples, app->frame.q_samples, app->frame.pair_count,
-                       (double)app->applied_sample_rate, &event);
+                       (double)app->applied.sample_rate_hz, &event);
 
     if (event.rate_unsupported) {
         static int complained;
         if (!complained++)
             fprintf(stderr, "TETRA needs a sample rate that is a whole "
                             "multiple of %.0f S/s; %u is not.\n",
-                    TETRA_WORK_RATE_HZ, app->applied_sample_rate);
+                    TETRA_WORK_RATE_HZ, app->applied.sample_rate_hz);
         return;
     }
     if (!event.demodulated)
@@ -2028,7 +1979,7 @@ static void print_new_decodes(struct app *app, double now,
         update_fm(app, now);
         if (s->pi_valid && (!announced_valid || s->pi != announced_pi)) {
             printf("FM   station 0x%04X  %.3f MHz\n", s->pi,
-                   app->applied_frequency / 1e6);
+                   app->applied.frequency_hz / 1e6);
             announced_pi = s->pi;
             announced_valid = 1;
             announced_ps[0] = '\0';
@@ -2229,9 +2180,9 @@ static int run_headless(struct app *app) {
         if (app->options.lte_chain_band) {
             printf("lte-chain scanning band %d\n", app->options.lte_chain_band);
             fflush(stdout);
-            if (retune_receiver_at_rate(app, app->applied_frequency,
+            if (retune_receiver_at_rate(app, app->applied.frequency_hz,
                                         LTE_SAMPLE_RATE_HZ,
-                                        app->applied_ppm) < 0 ||
+                                        app->applied.ppm) < 0 ||
                 lte_scan_begin(app, app->options.lte_chain_band,
                                monotonic_seconds()) != 0) {
                 fprintf(stderr, "Could not start the band scan\n");
@@ -2265,10 +2216,10 @@ static int run_headless(struct app *app) {
             return -1;
         }
         if (retune_receiver_at_rate(app, carrier, LTE_SAMPLE_RATE_HZ,
-                                    app->applied_ppm) < 0)
+                                    app->applied.ppm) < 0)
             return -1;
         printf("lte-chain earfcn %d carrier_hz %u rate %u ppm %d\n", earfcn,
-               carrier, app->applied_sample_rate, app->applied_ppm);
+               carrier, app->applied.sample_rate_hz, app->applied.ppm);
         printf("# chain <block> pss <corr> <runner_up> n_id_2 <n> timing <sample> "
                "offset_hz <hz> integer <subcarriers>\n");
         printf("# chain <block> sss <corr> <runner_up> n_id_1 <n> pci <n> cp "
@@ -2318,7 +2269,7 @@ static int run_headless(struct app *app) {
              */
             found_cells = lte_cell_search_all(app->frame.i_samples, app->frame.q_samples,
                                               app->frame.pair_count,
-                                              (double)app->applied_sample_rate,
+                                              (double)app->applied.sample_rate_hz,
                                               app->device.full_scale,
                                               on_carrier,
                                               LTE_MAX_CELLS_PER_CARRIER, NULL);
@@ -2347,7 +2298,7 @@ static int run_headless(struct app *app) {
                 cell = on_carrier[best];
             } else if (lte_cell_search(app->frame.i_samples, app->frame.q_samples,
                                        app->frame.pair_count,
-                                       (double)app->applied_sample_rate, &cell,
+                                       (double)app->applied.sample_rate_hz, &cell,
                                        NULL) != 1) {
                 printf("chain %lu pss %.3f %.3f n_id_2 %d timing - "
                        "offset_hz - integer - no-cell\n", blocks,
@@ -2397,7 +2348,7 @@ static int run_headless(struct app *app) {
                         float soft[LTE_PBCH_SOFT_BITS];
                         if (lte_pbch_soft_bits(app->frame.i_samples, app->frame.q_samples,
                                                app->frame.pair_count,
-                                               (double)app->applied_sample_rate,
+                                               (double)app->applied.sample_rate_hz,
                                                &all[c], all[c].subframe0_start,
                                                ports[h2], soft,
                                                NULL) != LTE_PBCH_SOFT_BITS)
@@ -2422,7 +2373,7 @@ static int run_headless(struct app *app) {
                            (double)all[c].sss_correlation,
                            lte_reference_power(app->frame.i_samples, app->frame.q_samples,
                                                app->frame.pair_count,
-                                               (double)app->applied_sample_rate,
+                                               (double)app->applied.sample_rate_hz,
                                                app->device.full_scale,
                                                &all[c], &np)
                                ? (double)np.rsrp_dbfs : 0.0,
@@ -2443,7 +2394,7 @@ static int run_headless(struct app *app) {
                 struct lte_channel_shape shape;
                 if (lte_channel_shape(app->frame.i_samples, app->frame.q_samples,
                                       app->frame.pair_count,
-                                      (double)app->applied_sample_rate,
+                                      (double)app->applied.sample_rate_hz,
                                       app->device.full_scale,
                                       &cell, &shape)) {
                     printf("chain %lu channel delay_ns %.0f spread_ns %.0f "
@@ -2459,7 +2410,7 @@ static int run_headless(struct app *app) {
                 float coherence[LTE_PORT_COUNT];
                 if (lte_port_coherence(app->frame.i_samples, app->frame.q_samples,
                                        app->frame.pair_count,
-                                       (double)app->applied_sample_rate,
+                                       (double)app->applied.sample_rate_hz,
                                        &cell, coherence)) {
                     int ports = 0, p;
                     for (p = 0; p < LTE_PORT_COUNT; p++)
@@ -2475,7 +2426,7 @@ static int run_headless(struct app *app) {
                 struct lte_reference_power power;
                 if (lte_reference_power(app->frame.i_samples, app->frame.q_samples,
                                         app->frame.pair_count,
-                                        (double)app->applied_sample_rate,
+                                        (double)app->applied.sample_rate_hz,
                                         app->device.full_scale,
                                         &cell, &power)) {
                     printf("chain %lu power rsrp_dbfs %.1f rssi_dbfs %.1f "
@@ -2495,7 +2446,7 @@ static int run_headless(struct app *app) {
                 struct lte_mib mib;
                 if (lte_pbch_soft_bits(app->frame.i_samples, app->frame.q_samples,
                                        app->frame.pair_count,
-                                       (double)app->applied_sample_rate, &cell,
+                                       (double)app->applied.sample_rate_hz, &cell,
                                        cell.subframe0_start,
                                        lte_session_port_hypotheses[h], soft,
                                        NULL) != LTE_PBCH_SOFT_BITS)
@@ -2610,7 +2561,7 @@ static int run_headless(struct app *app) {
          */
         {
             struct lte_findings findings;
-            int fi, n = lte_findings_from(&stats, (double)app->applied_frequency,
+            int fi, n = lte_findings_from(&stats, (double)app->applied.frequency_hz,
                                           &findings);
             for (fi = 0; fi < n; fi++)
                 printf("lte-chain-finding %s\n", findings.line[fi]);
@@ -2667,9 +2618,9 @@ static int run_headless(struct app *app) {
             /* Find something to calibrate against rather than being told. */
             printf("calibrate scanning band %d\n", app->options.calibrate_band);
             fflush(stdout);
-            if (retune_receiver_at_rate(app, app->applied_frequency,
+            if (retune_receiver_at_rate(app, app->applied.frequency_hz,
                                         LTE_SAMPLE_RATE_HZ,
-                                        app->applied_ppm) < 0 ||
+                                        app->applied.ppm) < 0 ||
                 lte_scan_begin(app, app->options.calibrate_band,
                                monotonic_seconds()) != 0) {
                 fprintf(stderr, "Could not start the band scan\n");
@@ -2717,7 +2668,7 @@ static int run_headless(struct app *app) {
         printf("calibrate technology %s channel %s expected_hz %u "
                "applied_ppm %d\n",
                app->options.calibrate == 1 ? "gsm" : "lte", app->cal.channel,
-               app->cal.expected_hz, app->applied_ppm);
+               app->cal.expected_hz, app->applied.ppm);
         fflush(stdout);
 
         while (!signal_stop_requested) {
@@ -3030,7 +2981,7 @@ int main(int argc, char **argv) {
             app->options.ppm = profile;
             if (app->receiver_mode &&
                 set_frequency_correction(&app->source, profile) >= 0)
-                app->applied_ppm = profile;
+                app->applied.ppm = profile;
             fprintf(stderr, "Restored %+d ppm for %s at \"%s\".\n", profile,
                     app->installation.receiver, app->installation.site);
         }
