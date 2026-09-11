@@ -255,7 +255,90 @@ static void test_inspect_reaches_every_decoder(void) {
     }
 }
 
+
+/*
+ * The channel rasters, and the coupling that makes a second table safe.
+ *
+ * `.scratch/reading-origin/issues/02-*`. The rasters live in their own list
+ * rather than as two more fields on every one of eighty curated rows -- so
+ * the four or five that matter are one glance rather than lost among
+ * seventy-five pairs of zeroes -- and the price of that is a key that can
+ * drift from the table it names. These are the assertions that stop it.
+ */
+static void test_the_channel_rasters(void) {
+    int i;
+
+    check_true("there is at least one raster", band_plan_raster_count() > 0);
+    check_true("and out of range is NULL",
+               band_plan_raster_at(-1) == NULL &&
+                   band_plan_raster_at(band_plan_raster_count()) == NULL);
+
+    for (i = 0; i < band_plan_raster_count(); i++) {
+        const struct band_plan_raster *r = band_plan_raster_at(i);
+        const struct band_plan_entry *entry;
+
+        check_true("a raster has a spacing", r->raster_hz > 0.0);
+        check_true("and a base", r->base_hz > 0.0);
+
+        /* The key: every raster names a real allocation by its exact lower
+           edge. An allocation whose edges move without its raster following
+           would silently grid the wrong band. */
+        entry = band_plan_lookup(r->lower_hz + 1.0);
+        check_msg(entry != NULL, "raster %d names no allocation\n", i);
+        if (!entry)
+            continue;
+        check_msg(entry->lower_hz == r->lower_hz,
+                  "raster %d is keyed to %.0f but the allocation starts at "
+                  "%.0f\n", i, r->lower_hz, entry->lower_hz);
+
+        /*
+         * **Only allocations with no decoder may carry one**, which is the
+         * whole scope decision. An allocation with a decoder can be asked
+         * directly -- gsm_arfcn_hz() and fm_scan.h own those grids -- and a
+         * second statement here would be a table that can disagree with the
+         * module that decodes it.
+         */
+        check_msg(entry->decoder == BAND_PLAN_NONE,
+                  "raster %d is on %s, which has a decoder\n", i,
+                  entry->name);
+
+        /* The base is at or below the allocation, or every channel in it is
+           half a step out -- the failure that reads as unexplained
+           everywhere. */
+        check_msg(r->base_hz >= entry->lower_hz - r->raster_hz &&
+                      r->base_hz <= entry->upper_hz,
+                  "raster %d's base %.0f is outside %s\n", i, r->base_hz,
+                  entry->name);
+
+        /* And coarse enough to be resolved at a confirmation pass's bin,
+           977 Hz at 2 MS/s -- a finer grid names channels by rounding. */
+        check_msg(r->raster_hz > 2.0 * 977.0,
+                  "raster %d's %.1f Hz spacing cannot be resolved\n", i,
+                  r->raster_hz);
+    }
+}
+
+/* The lookup, on the one allocation that has a grid. */
+static void test_the_airband_channels(void) {
+    check_close("118.000 MHz is a channel", band_plan_channel_hz(118000000.0),
+                118000000.0, 1.0);
+    /* 25 kHz channels are on the 8.33 kHz grid, because 25000 is exactly
+       three steps of 25000/3. */
+    check_close("121.500 MHz is one too", band_plan_channel_hz(121500000.0),
+                121500000.0, 1.0);
+    /* And the one this site has measured. */
+    check_close("132.066667 is the channel near 132.0667",
+                band_plan_channel_hz(132066000.0), 132066666.7, 0.5);
+    /* Outside any rastered allocation, and outside the table entirely. */
+    check_close("band II has no raster here",
+                band_plan_channel_hz(94400000.0), 0.0, 1e-9);
+    check_close("and nowhere the table knows nothing about",
+                band_plan_channel_hz(1.0), 0.0, 1e-9);
+}
+
 int main(void) {
+    test_the_channel_rasters();
+    test_the_airband_channels();
     test_above_the_rtl_reach();
     test_known_frequencies();
     test_gaps();

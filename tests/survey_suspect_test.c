@@ -838,10 +838,17 @@ static struct survey_plan airband_plan(void) {
 }
 
 /* One comb tone, its own bin, and the reading the pass actually got. */
+/* No service raster: the comb grids alone, which is most of the spectrum. */
+static const struct survey_raster no_raster = { 0.0, 0.0 };
+/* And the airband's, the one grid the band plan knows. */
+static const struct survey_raster airband_raster = { 25000.0 / 3.0,
+                                                     118000000.0 };
+
 static unsigned origin_at(double hz, struct reading_clock clock, double bin_hz,
                           unsigned base) {
     return survey_suspect_origin(base, RTL_REFERENCE_HZ, hz, clock,
-                                 survey_coherent_tolerance(bin_hz));
+                                 survey_coherent_tolerance(bin_hz), no_raster,
+                                 0.0);
 }
 
 static void test_a_comb_tone_reads_exact(void) {
@@ -897,17 +904,51 @@ static void test_a_real_station_on_the_comb_is_not_flagged(void) {
     check_int("a band II sweep cannot separate the two there",
               (int)survey_suspect_origin_at(
                   RTL_REFERENCE_HZ, displaced, raw_clock(),
-                  survey_coherent_tolerance(AIRBAND_BIN_HZ)),
+                  survey_coherent_tolerance(AIRBAND_BIN_HZ),
+                  no_raster, 0.0),
               (int)READING_ORIGIN_UNKNOWN);
-    flags = origin_at(displaced, raw_clock(), PASS_BIN_HZ,
-                      SURVEY_SUSPECT_UNRESOLVED | SURVEY_SUSPECT_REFERENCE);
+    /* As the real callers compose it: `c->suspect |= survey_suspect_origin(
+       c->suspect, ...)`, so the word carries both what the grids said and what
+       the reading said. */
+    flags = SURVEY_SUSPECT_UNRESOLVED | SURVEY_SUSPECT_REFERENCE;
+    flags |= origin_at(displaced, raw_clock(), PASS_BIN_HZ, flags);
     check_int("so it is not called clocked here",
               (flags & SURVEY_SUSPECT_CLOCK_COHERENT) != 0, 0);
     check_int("and a pass says so positively",
               (int)survey_suspect_origin_at(
                   RTL_REFERENCE_HZ, displaced, raw_clock(),
-                  survey_coherent_tolerance(PASS_BIN_HZ)),
+                  survey_coherent_tolerance(PASS_BIN_HZ),
+                  no_raster, 0.0),
               (int)READING_ORIGIN_EXTERNAL);
+    /*
+     * And the operator is told. `SURVEY_SUSPECT_DISPLACED` is the half of
+     * this that reaches a screen; without it the verdict was computed and
+     * thrown away, which is a feature that works and says nothing.
+     */
+    check_int("which sets the displaced flag",
+              (flags & SURVEY_SUSPECT_DISPLACED) != 0, 1);
+    check_int("beside the comb flag, not instead of it",
+              (flags & SURVEY_SUSPECT_REFERENCE) != 0, 1);
+    check_str("and the sentence leads with the contradiction",
+              survey_suspect_reason(flags),
+              "on the receiver's comb, but reads displaced: something real "
+              "is here");
+    /*
+     * The accepted cost, asserted so nobody "fixes" it by accident: such a
+     * candidate still counts as suspicious. The decision was to add evidence
+     * rather than clear a mark, and `survey_suspect_contested()` is what a
+     * caller reports the other number with.
+     */
+    check_int("it still warns, which is the cost of not suppressing",
+              survey_suspect_warns(flags), 1);
+    check_int("and is separately reportable as contested",
+              survey_suspect_contested(flags), 1);
+    check_int("where a plain comb tone is not contested",
+              survey_suspect_contested(SURVEY_SUSPECT_REFERENCE |
+                                       SURVEY_SUSPECT_CLOCK_COHERENT),
+              0);
+    check_int("nor is a displaced signal that was never comb-flagged",
+              survey_suspect_contested(SURVEY_SUSPECT_DISPLACED), 0);
     /* The comb flag itself is untouched: this adds evidence, it does not
        silently overrule a mark the operator has learned to read. */
     check_int("while the comb flag stands",
@@ -960,6 +1001,20 @@ static void test_a_bare_carrier_nothing_explains(void) {
      * the line, and one no unit check was asking about. `NO_CARRIER` is the
      * confirmation pass's own answer to that question.
      */
+    /*
+     * And `displaced` needs something to be positive about, for the same
+     * reason and found the same way: a live sweep produced
+     * `confirm 128569641 new refuted 2.2 0/6 977 unresolved,displaced`, which
+     * claims a real signal with its own oscillator at a frequency found in
+     * none of six looks. The verdict gate is in `survey_session.c`; this is
+     * the property it enforces.
+     */
+    check_int("a refused reading claims no oscillator",
+              (origin_at(150000900.0, raw_clock(), AIRBAND_BIN_HZ,
+                         SURVEY_SUSPECT_UNRESOLVED |
+                             SURVEY_SUSPECT_NO_CARRIER) &
+               SURVEY_SUSPECT_DISPLACED) != 0,
+              0);
     check_int("a noise maximum the pass found empty is not unexplained",
               (origin_at(150000900.0, raw_clock(), AIRBAND_BIN_HZ,
                          SURVEY_SUSPECT_UNRESOLVED |
@@ -992,7 +1047,8 @@ static void test_without_a_measured_crystal_it_says_nothing(void) {
        refuses, and this must too. */
     check_int("no reference clock, no verdict",
               survey_suspect_origin(bare, 0.0, 129600159.0, raw_clock(),
-                                    survey_coherent_tolerance(AIRBAND_BIN_HZ)),
+                                    survey_coherent_tolerance(AIRBAND_BIN_HZ),
+                                    no_raster, 0.0),
               0u);
 
     /*
@@ -1017,13 +1073,13 @@ static void test_without_a_measured_crystal_it_says_nothing(void) {
                   reading_origin_separable(129600000.0, calibrated, tol), 1);
         check_int("the old reading would now be called external",
                   (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 129600159.0,
-                                                calibrated, tol),
+                                                calibrated, tol, no_raster, 0.0),
                   (int)READING_ORIGIN_EXTERNAL);
         check_int("and the reading it would actually get is coherent",
                   (int)survey_suspect_origin_at(
                       RTL_REFERENCE_HZ,
                       reading_coherent_hz(129600000.0, calibrated), calibrated,
-                      tol),
+                      tol, no_raster, 0.0),
                   (int)READING_ORIGIN_RECEIVER);
     }
 
@@ -1051,7 +1107,8 @@ static void test_the_comb_tolerance_would_abolish_this(void) {
               0);
     check_int("so every verdict would be silence",
               survey_suspect_origin(bare, RTL_REFERENCE_HZ, 129600159.0,
-                                    raw_clock(), RECEIVER_COMB_TOLERANCE_HZ),
+                                    raw_clock(), RECEIVER_COMB_TOLERANCE_HZ,
+                                    no_raster, 0.0),
               0u);
     check_int("where one bin answers",
               origin_at(129600159.0, raw_clock(), AIRBAND_BIN_HZ, bare) != 0,
@@ -1087,6 +1144,142 @@ static void test_the_airband_candidates(void) {
               survey_suspect_warns(SURVEY_SUSPECT_UNEXPLAINED), 0);
 }
 
+
+/*
+ * The service's own grid, which is what makes `unexplained` mean "no comb
+ * *and* no channel" rather than only the first half.
+ *
+ * The airband is the one allocation the band plan knows a raster for, and it
+ * is also the one with a measurement behind it: 132.062744 MHz is the only
+ * external carrier this site has ever recorded.
+ */
+static void test_a_service_raster_explains_what_the_comb_cannot(void) {
+    struct reading_clock rx = raw_clock();
+    double tol = survey_coherent_tolerance(PASS_BIN_HZ);
+    unsigned bare = SURVEY_SUSPECT_UNRESOLVED;
+
+    /*
+     * On no comb, and on a real channel -- so it is a signal with an
+     * oscillator of its own, said positively rather than by elimination.
+     */
+    check_int("132.062744 is on no comb",
+              survey_reference_harmonic(RTL_REFERENCE_HZ, 132062744.0,
+                                        RECEIVER_COMB_TOLERANCE_HZ) |
+                  survey_fine_harmonic(RTL_REFERENCE_HZ, 132062744.0, 2000.0),
+              0);
+    check_int("and with no raster it is merely unexplained",
+              (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 132062744.0, rx,
+                                            tol, no_raster, 0.0),
+              (int)READING_ORIGIN_UNEXPLAINED);
+    check_int("with the airband's raster it is an external signal",
+              (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 132062744.0, rx,
+                                            tol, airband_raster, 0.0),
+              (int)READING_ORIGIN_EXTERNAL);
+    check_int("so it is flagged displaced rather than unexplained",
+              survey_suspect_origin(bare, RTL_REFERENCE_HZ, 132062744.0, rx,
+                                    tol, airband_raster, 0.0),
+              SURVEY_SUSPECT_DISPLACED);
+    check_int("where without the raster it would read unexplained",
+              survey_suspect_origin(bare, RTL_REFERENCE_HZ, 132062744.0, rx,
+                                    tol, no_raster, 0.0),
+              SURVEY_SUSPECT_UNEXPLAINED);
+
+    /*
+     * **The raster answers the external hypothesis only.** A channel grid
+     * says where a transmitter may sit; "a tone clocked by this receiver that
+     * happens to land on an airband channel" is not a hypothesis anybody
+     * holds, and at 8333 Hz spacing with a 977 Hz tolerance it would fire by
+     * chance 23% of the time.
+     *
+     * Found on air: a 128-152 MHz sweep produced
+     * `confirm 134758789 new refuted 2.2 0/6 977 unresolved,clocked-here` --
+     * a noise maximum found in none of six looks, called a tone clocked by
+     * this receiver, because its measured centre lands 433 Hz from where a
+     * coherent source on airband channel 1990 would read.
+     */
+    {
+        /* A reading exactly where a *coherent* source on a channel would be.
+           The comb would call that RECEIVER; the raster must not. */
+        double channel = reading_nearest_channel_hz(134587207.0, 118000000.0,
+                                                    25000.0 / 3.0);
+        double as_coherent = reading_coherent_hz(channel, rx);
+
+        check_true("the coherent reading of a channel is a real frequency",
+                   as_coherent > 0.0);
+        check_int("and the raster does not call it the receiver's",
+                  (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, as_coherent,
+                                                rx, tol, airband_raster, 0.0),
+                  (int)READING_ORIGIN_UNEXPLAINED);
+        /* While the same reading on a comb multiple still is. */
+        check_int("where a comb multiple still answers both ways",
+                  (int)survey_suspect_origin_at(
+                      RTL_REFERENCE_HZ, reading_coherent_hz(136000000.0, rx),
+                      rx, tol, no_raster, 0.0),
+                  (int)READING_ORIGIN_RECEIVER);
+    }
+
+    /*
+     * And a raster too fine to resolve names channels by rounding, so it is
+     * refused rather than believed -- at a pass's 977 Hz that is anything
+     * under about 2 kHz.
+     */
+    {
+        struct survey_raster fine = { 1000.0, 118000000.0 };
+
+        check_int("a 1 kHz raster is not consulted",
+                  (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 132062744.0,
+                                                rx, tol, fine, 0.0),
+                  (int)READING_ORIGIN_UNEXPLAINED);
+    }
+}
+
+
+/*
+ * The octave chain, which is the gap this whole flag was opened about.
+ *
+ * 150.0009 MHz: confirmed 6 of 6 at 37.7 dB, 70% of the channel standing
+ * still, on no multiple of 14.4 or 1.6 MHz, filed by the band plan under
+ * "Mobile-satellite uplink". Before `clock_chain.h` the best this could say
+ * was `unexplained`, which was the right answer to a question that had not
+ * been asked properly. With the family measured, it is the receiver's.
+ */
+static void test_the_octave_chain_closes_the_gap(void) {
+    struct reading_clock rx = raw_clock();
+    double tol = survey_coherent_tolerance(AIRBAND_BIN_HZ);
+    unsigned bare = SURVEY_SUSPECT_UNRESOLVED;
+    const double chain = CLOCK_CHAIN_MEASURED_FUNDAMENTAL_HZ;
+
+    check_int("with no chain modelled it is unexplained",
+              (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 150000900.0, rx,
+                                            tol, no_raster, 0.0),
+              (int)READING_ORIGIN_UNEXPLAINED);
+    check_int("and with the measured chain it is the receiver's",
+              (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 150000900.0, rx,
+                                            tol, no_raster, chain),
+              (int)READING_ORIGIN_RECEIVER);
+    check_int("so it is flagged clocked-here rather than unexplained",
+              survey_suspect_origin(bare, RTL_REFERENCE_HZ, 150000900.0, rx,
+                                    tol, no_raster, chain),
+              SURVEY_SUSPECT_CLOCK_COHERENT);
+
+    /*
+     * **225 MHz must not be**, and this is the assertion that keeps the model
+     * from quietly becoming a harmonic comb. It is 75 x 3, it was swept and
+     * found empty at a 12 dB bar, and a harmonic model would claim it.
+     */
+    check_int("an odd multiple is not on the chain",
+              (int)survey_suspect_origin_at(RTL_REFERENCE_HZ, 225000000.0, rx,
+                                            tol, no_raster, chain),
+              (int)READING_ORIGIN_UNEXPLAINED);
+
+    /* And a capture, which passes no fundamental, is told nothing -- the same
+       refusal it gets from the comb, for the same reason. */
+    check_int("a source with no clock gets no chain test",
+              survey_suspect_origin(bare, 0.0, 150000900.0, rx, tol,
+                                    no_raster, 0.0),
+              0u);
+}
+
 int main(void) {
     test_no_clock_means_no_comb();
     test_a_different_clock_is_a_different_comb();
@@ -1114,6 +1307,8 @@ int main(void) {
     test_without_a_measured_crystal_it_says_nothing();
     test_the_comb_tolerance_would_abolish_this();
     test_the_airband_candidates();
+    test_a_service_raster_explains_what_the_comb_cannot();
+    test_the_octave_chain_closes_the_gap();
 
     return check_report("suspicious candidates");
 }

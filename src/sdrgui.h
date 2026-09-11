@@ -284,7 +284,20 @@ struct sdrgui_survey_params {
 enum sdrgui_peak_mark {
     SDRGUI_PEAK_SIGNAL = 0,  /* a filled dot: nothing is known against it */
     SDRGUI_PEAK_RECEIVER,    /* a cross: on the receiver's own comb */
-    SDRGUI_PEAK_EMPTY        /* a hollow dot: a closer look found nothing */
+    SDRGUI_PEAK_EMPTY,       /* a hollow dot: a closer look found nothing */
+    /*
+     * A cross with a dot in it: receiver-like by frequency, and yet it reads
+     * displaced by this receiver's own error, which a tone clocked here could
+     * not. Something real is on a comb multiple.
+     *
+     * A **fourth shape** rather than resolving to one of the three, because
+     * both of the obvious resolutions are wrong. A plain cross tells a reader
+     * to stop looking at the one candidate they should look at; a plain dot
+     * silently discards the comb mark, which
+     * `.scratch/reading-origin/issues/01-*` decided against. The chart draws
+     * one mark per peak, so "beside" has to mean a shape that carries both.
+     */
+    SDRGUI_PEAK_CONTESTED
 };
 
 /*
@@ -301,12 +314,19 @@ enum sdrgui_peak_mark {
 #define SDRGUI_PEAK_FLAG_RECEIVER 0x1u   /* SURVEY_SUSPECT_REFERENCE */
 #define SDRGUI_PEAK_FLAG_STEP 0x2u       /* SURVEY_SUSPECT_STEP_CENTRE */
 #define SDRGUI_PEAK_FLAG_EMPTY 0x8u      /* SURVEY_SUSPECT_NO_CARRIER */
+#define SDRGUI_PEAK_FLAG_DISPLACED 0x40u /* SURVEY_SUSPECT_DISPLACED */
 
 static inline enum sdrgui_peak_mark sdrgui_survey_peak_mark(unsigned flags) {
     if (flags & SDRGUI_PEAK_FLAG_EMPTY)
         return SDRGUI_PEAK_EMPTY;
-    if (flags & (SDRGUI_PEAK_FLAG_RECEIVER | SDRGUI_PEAK_FLAG_STEP))
+    if (flags & (SDRGUI_PEAK_FLAG_RECEIVER | SDRGUI_PEAK_FLAG_STEP)) {
+        /* Receiver-like by frequency and contradicted by where it reads. The
+           contradiction is the more useful half to a reader, so it shows --
+           without discarding the cross that earned the suspicion. */
+        if (flags & SDRGUI_PEAK_FLAG_DISPLACED)
+            return SDRGUI_PEAK_CONTESTED;
         return SDRGUI_PEAK_RECEIVER;
+    }
     return SDRGUI_PEAK_SIGNAL;
 }
 

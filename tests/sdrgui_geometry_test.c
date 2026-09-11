@@ -339,6 +339,39 @@ static void test_peak_marks(void) {
               (int)SDRGUI_PEAK_FLAG_STEP, (int)SURVEY_SUSPECT_STEP_CENTRE);
     check_int("the empty bit is the survey's",
               (int)SDRGUI_PEAK_FLAG_EMPTY, (int)SURVEY_SUSPECT_NO_CARRIER);
+    check_int("and so is the displaced bit",
+              (int)SDRGUI_PEAK_FLAG_DISPLACED, (int)SURVEY_SUSPECT_DISPLACED);
+
+    /*
+     * The fourth mark, and the two resolutions it exists to refuse.
+     *
+     * On the comb *and* reading displaced: a plain cross would tell a reader
+     * to stop looking at the one candidate they should look at, and a plain
+     * dot would silently discard the comb mark, which
+     * `.scratch/reading-origin/issues/01-*` decided against. One mark per
+     * peak means the shape has to carry both.
+     */
+    check_int("on the comb and displaced draws the contested mark",
+              sdrgui_survey_peak_mark(SDRGUI_PEAK_FLAG_RECEIVER |
+                                      SDRGUI_PEAK_FLAG_DISPLACED),
+              SDRGUI_PEAK_CONTESTED);
+    check_int("a step centre that reads displaced too",
+              sdrgui_survey_peak_mark(SDRGUI_PEAK_FLAG_STEP |
+                                      SDRGUI_PEAK_FLAG_DISPLACED),
+              SDRGUI_PEAK_CONTESTED);
+    /* Displaced on its own is not contested: nothing is contradicting it, it
+       is simply a signal. */
+    check_int("displaced alone is an ordinary signal",
+              sdrgui_survey_peak_mark(SDRGUI_PEAK_FLAG_DISPLACED),
+              SDRGUI_PEAK_SIGNAL);
+    /* And empty still beats everything, including the contradiction: a
+       frequency the pass found nothing at is empty whatever its reading
+       implied. */
+    check_int("empty still wins over contested",
+              sdrgui_survey_peak_mark(SDRGUI_PEAK_FLAG_EMPTY |
+                                      SDRGUI_PEAK_FLAG_RECEIVER |
+                                      SDRGUI_PEAK_FLAG_DISPLACED),
+              SDRGUI_PEAK_EMPTY);
 }
 
 int main(void) {
