@@ -62,5 +62,10 @@ candidate on air.
 
 ## Order
 
-1. `01` -- a shorter coarse probe, under `does-it-help`.
-2. `02` -- stop recompiling what has not changed.
+1. `01` -- a shorter coarse probe, under `does-it-help`. **Done 2026-09-11**,
+   and it turned out to be a defect: the coarse grid was four times the main
+   lobe it was probing with, so it had a comb of blind frequencies at which a
+   noise-free carrier was lost outright. The gate is **115 s** now and
+   `probe-signal` went from 13.0 s to 3.0 s over one capture.
+2. `02` -- stop recompiling what has not changed. Now the largest remaining
+   item: of the 115 s, ~60 is compilation that nothing changed.
