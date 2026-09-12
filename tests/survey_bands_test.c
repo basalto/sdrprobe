@@ -94,7 +94,7 @@ static void test_only_what_the_tuner_reaches(void) {
     check_both_directions("FM only", 80000000.0, 120000000.0, 2);
 
     /* And the reach comes from a profile, not from constants here. */
-    struct device_profile rtl = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile rtl = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     check_close("the RTL profile's lower reach", rtl.tune_lower_hz, TUNER_LOW,
                 0.5);
     check_close("and its upper", rtl.tune_upper_hz, TUNER_HIGH, 0.5);
@@ -110,6 +110,27 @@ static void test_only_what_the_tuner_reaches(void) {
     int wide = survey_band_count(WIDE_LOW, WIDE_HIGH);
     check_true("a narrower tuner offers fewer bands",
                survey_band_count(80000000.0, 120000000.0) < narrow);
+
+    /*
+     * A third profile, because two were not enough: `check_both_directions`
+     * runs against an R820T and a 70 MHz - 6 GHz part, and an **E4000's reach
+     * contains neither** -- it loses everything under 52 MHz and gains
+     * 1766-2212. A property that passes against two device's numbers can
+     * still be offering half of a third's bands and missing half again.
+     */
+    {
+        struct device_profile e4k =
+            device_profile_rtlsdr(NULL, DEVICE_TUNER_E4000, NULL, 0);
+
+        check_both_directions("E4000", e4k.tune_lower_hz, e4k.tune_upper_hz,
+                              10);
+        check_true("the E4000 offers bands the R820T cannot reach",
+                   survey_band_count(e4k.tune_lower_hz, e4k.tune_upper_hz) > 0);
+        check_true("and band III at 40 MHz is offered to neither",
+                   !survey_band_reachable(band_plan_lookup(40000000.0),
+                                          e4k.tune_lower_hz,
+                                          e4k.tune_upper_hz));
+    }
 
     check_true("the wideband part reaches 2.4 GHz ISM, which the RTL cannot",
                survey_band_reachable(band_plan_lookup(2437000000.0),

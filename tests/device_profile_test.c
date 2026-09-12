@@ -41,7 +41,7 @@ static const int R820T_GAINS[] = {0,   9,   14,  27,  37,  77,  87,  125,
  */
 static void test_rtlsdr_reproduces_todays_constants(void) {
     struct device_profile p =
-        device_profile_rtlsdr("RTL-SDR (R820T)", R820T_GAINS, R820T_GAIN_COUNT);
+        device_profile_rtlsdr("RTL-SDR (R820T)", DEVICE_TUNER_R820T, R820T_GAINS, R820T_GAIN_COUNT);
 
     check_true("the profile is coherent", device_profile_valid(&p));
     check_str("it says what it is", p.name, "RTL-SDR (R820T)");
@@ -60,6 +60,39 @@ static void test_rtlsdr_reproduces_todays_constants(void) {
      */
     check_close("an R820T reaches 24 MHz", p.tune_lower_hz, 24.0e6, 0.5);
     check_close("up to 1766 MHz", p.tune_upper_hz, 1766.0e6, 0.5);
+
+    /*
+     * And those are the **tuner's** numbers, not the RTL2832's, which is what
+     * this profile asserted of every device until an E4000 was plugged in and
+     * recorded at 1900 and 2100 MHz while refusing 40 MHz
+     * (`.scratch/device-model/issues/14-*`).
+     */
+    {
+        struct device_profile e4k =
+            device_profile_rtlsdr("E4000", DEVICE_TUNER_E4000, NULL, 0);
+        struct device_profile none =
+            device_profile_rtlsdr("mystery", DEVICE_TUNER_UNKNOWN, NULL, 0);
+
+        check_close("an E4000 starts at 52 MHz", e4k.tune_lower_hz, 52.0e6,
+                    0.5);
+        check_close("and reaches 2212", e4k.tune_upper_hz, 2212.0e6, 0.5);
+        check_int("the profile remembers which tuner it is",
+                  e4k.tuner, DEVICE_TUNER_E4000);
+
+        /* Neither reach contains the other: the E4000 loses everything under
+           52 MHz and gains 1766-2212. A default would have to pick one and be
+           wrong about the other, which is why there is none. */
+        check_true("the E4000 reaches higher than the R820T",
+                   e4k.tune_upper_hz > p.tune_upper_hz);
+        check_true("and cannot reach as low",
+                   e4k.tune_lower_hz > p.tune_lower_hz);
+
+        /* Zero is a refusal, the shape device_default_full_scale() takes for
+           S16: a caller handed an unknown tuner has to go and find out. */
+        check_close("an unknown tuner claims no lower reach",
+                    none.tune_lower_hz, 0.0, 1e-9);
+        check_close("and no upper", none.tune_upper_hz, 0.0, 1e-9);
+    }
 
     check_close("settle is SURVEY_SETTLE_SECONDS", p.settle_seconds,
                 SURVEY_SETTLE_SECONDS, 1e-9);
@@ -98,7 +131,7 @@ static void test_rtlsdr_reproduces_todays_constants(void) {
  * nothing erroring.
  */
 static void test_block_arithmetic_follows_the_container(void) {
-    struct device_profile rtl = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile rtl = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     struct device_profile wide = device_profile_capture(
         "12-in-16", SAMPLE_FORMAT_S16, 2047.5f, 800.0e6, 2000000);
 
@@ -145,7 +178,7 @@ static void test_block_arithmetic_follows_the_container(void) {
  * more processing for twice as many half-length blocks.
  */
 static void test_a_block_is_the_same_signal_on_every_container(void) {
-    struct device_profile rtl = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile rtl = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     struct device_profile wide = device_profile_capture(
         "12-in-16", SAMPLE_FORMAT_S16, 2047.5f, 800.0e6, 2000000);
     const size_t pairs = 131072; /* SAMPLE_BLOCK_PAIRS */
@@ -252,7 +285,7 @@ static void test_a_capture_refuses_to_retune(void) {
 /* A list and a range are both representable, and tell each other apart. */
 static void test_both_gain_models(void) {
     struct device_profile listed =
-        device_profile_rtlsdr(NULL, R820T_GAINS, R820T_GAIN_COUNT);
+        device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, R820T_GAINS, R820T_GAIN_COUNT);
 
     check_int("a tuner list is a list", (int)listed.gain_model,
               GAIN_MODEL_LIST);
@@ -263,7 +296,7 @@ static void test_both_gain_models(void) {
     check_int("highest is 49.6", listed.gain_list[R820T_GAIN_COUNT - 1], 496);
 
     /* An AD9361 has a continuous range in dB; the same struct holds it. */
-    struct device_profile ranged = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile ranged = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     ranged.gain_model = GAIN_MODEL_RANGE;
     ranged.gain_unit = GAIN_UNIT_DB;
     ranged.gain_min = 0.0;
@@ -277,7 +310,7 @@ static void test_both_gain_models(void) {
 
     /* Asked with no list, the profile carries no gain model rather than an
        invented one -- an empty list would offer a settings panel nothing. */
-    struct device_profile unasked = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile unasked = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     check_int("no list asked for, no model", (int)unasked.gain_model,
               GAIN_MODEL_NONE);
     check_int("and no entries", unasked.gain_count, 0);
@@ -288,7 +321,7 @@ static void test_both_gain_models(void) {
  * one entry is a gain nobody can select and nothing that says so.
  */
 static void test_an_oversized_gain_list_is_refused(void) {
-    struct device_profile p = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile p = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     int many[DEVICE_GAIN_LIST_MAX + 1];
     for (int i = 0; i < DEVICE_GAIN_LIST_MAX + 1; i++)
         many[i] = i;
@@ -299,7 +332,7 @@ static void test_an_oversized_gain_list_is_refused(void) {
     check_int("and the last one is the last one",
               p.gain_list[DEVICE_GAIN_LIST_MAX - 1], DEVICE_GAIN_LIST_MAX - 1);
 
-    struct device_profile q = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile q = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     check_int("one more is refused",
               device_profile_set_gain_list(&q, many, DEVICE_GAIN_LIST_MAX + 1),
               -1);
@@ -318,7 +351,7 @@ static void test_an_oversized_gain_list_is_refused(void) {
 
 /* The incoherent profiles a hand-filled struct produces. */
 static void test_validity_catches_a_mismatched_struct(void) {
-    struct device_profile good = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile good = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     check_true("the RTL profile is coherent", device_profile_valid(&good));
     check_true("a null one is not", device_profile_valid(NULL) == 0);
 
@@ -362,7 +395,7 @@ static void test_validity_catches_a_mismatched_struct(void) {
 
 /* A name longer than the field is cut, not written past. */
 static void test_a_long_name_is_bounded(void) {
-    struct device_profile p = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile p = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     char lengthy[DEVICE_NAME_MAX * 2];
     memset(lengthy, 'x', sizeof(lengthy) - 1);
     lengthy[sizeof(lengthy) - 1] = '\0';
@@ -374,7 +407,7 @@ static void test_a_long_name_is_bounded(void) {
     device_profile_set_name(&p, NULL);
     check_str("a null name empties it", p.name, "");
 
-    struct device_profile d = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile d = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     check_str("the default names the family", d.name, "RTL-SDR");
     struct device_profile c =
         device_profile_capture(NULL, SAMPLE_FORMAT_U8, 127.5f, 1.0e8, 2000000);
@@ -388,7 +421,7 @@ static void test_a_long_name_is_bounded(void) {
  */
 static void test_both_gain_models_step_the_same_way(void) {
     struct device_profile listed =
-        device_profile_rtlsdr(NULL, R820T_GAINS, R820T_GAIN_COUNT);
+        device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, R820T_GAINS, R820T_GAIN_COUNT);
     char text[32];
 
     check_int("a tuner's list has as many options as entries",
@@ -401,7 +434,7 @@ static void test_both_gain_models_step_the_same_way(void) {
     check_str("and tenths read as dB", text, "29.7 dB");
 
     /* An AD9361-style continuous range: 0 to 76 in steps of 1. */
-    struct device_profile ranged = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile ranged = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     ranged.gain_model = GAIN_MODEL_RANGE;
     ranged.gain_unit = GAIN_UNIT_INDEX;
     ranged.gain_min = 0.0;
@@ -436,7 +469,7 @@ static void test_both_gain_models_step_the_same_way(void) {
     check_str("where a real dB gain says dB", text, "40 dB");
 
     /* Nothing to offer, offered as nothing rather than as one option. */
-    struct device_profile none = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile none = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     check_int("no gain model, no options", device_gain_option_count(&none), 0);
     check_int("a null profile too", device_gain_option_count(NULL), 0);
     check_int("and asking for a value gives the floor",

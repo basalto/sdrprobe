@@ -401,7 +401,7 @@ static void test_arfcn_for_hz(void) {
 }
 
 int main(void) {
-    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
+    g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     test_cellular_calibration();
     test_fcch_detection();
     test_sch_decode();
