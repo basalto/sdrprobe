@@ -1516,6 +1516,60 @@ static void test_channel_shape(void) {
 #include "two_cell_sweep.inc"
 #else
 
+/*
+ * Which bands a receiver is offered, from its reach rather than from a list.
+ *
+ * `lte_reachable_band()` was the literal `{ 28, 20, 8 }` with **no check at
+ * all** -- a decision drawn as three buttons by two panels and reachable by
+ * nothing, which is the gap ADR-0012 is about. It was also an R820T's subset
+ * asserted of every device (`.scratch/device-model/issues/14-*`).
+ */
+static void test_the_bands_a_receiver_is_offered(void) {
+    int b[LTE_BANDS_MAX];
+
+    /* An R820T: 24 - 1766 MHz. Ascending by frequency, which is not the
+       table's order -- 28 is 758 MHz and 8 is 925. */
+    check_int("an R820T sweeps three bands",
+              lte_bands_reachable(24.0e6, 1766.0e6, b, LTE_BANDS_MAX), 3);
+    check_int("lowest first: band 28 at 758 MHz", b[0], 28);
+    check_int("then band 20 at 791", b[1], 20);
+    check_int("then band 8 at 925", b[2], 8);
+
+    /* An E4000: 52 - 2212 MHz. It loses nothing here and gains 3 and 1. */
+    check_int("an E4000 sweeps five",
+              lte_bands_reachable(52.0e6, 2212.0e6, b, LTE_BANDS_MAX), 5);
+    check_int("band 3 at 1805 is the fourth", b[3], 3);
+    check_int("band 1 at 2110 is the fifth", b[4], 1);
+
+    /* Band 7 is 2620-2690, past both. Neither offers it. */
+    check_int("band 7 needs 2.7 GHz",
+              lte_bands_reachable(52.0e6, 2700.0e6, b, LTE_BANDS_MAX), 6);
+
+    /* End to end, not overlapping: a tuner reaching halfway into band 3 is
+       not offered it, because the sweep would tune where it cannot hear and
+       report an absence it never tested. Band 3 runs to 1879.9 MHz. */
+    check_int("half of band 3 is not band 3",
+              lte_bands_reachable(52.0e6, 1850.0e6, b, LTE_BANDS_MAX), 3);
+    check_int("and all of it is",
+              lte_bands_reachable(52.0e6, 1880.0e6, b, LTE_BANDS_MAX), 4);
+
+    /* A capture reaches one frequency, so it sweeps no band. The picker has
+       to be able to draw zero of them. */
+    check_int("a capture offers none",
+              lte_bands_reachable(796.0e6, 796.0e6, b, LTE_BANDS_MAX), 0);
+    check_int("and an unknown tuner's 0/0 likewise",
+              lte_bands_reachable(0.0, 0.0, b, LTE_BANDS_MAX), 0);
+
+    /* Refusals rather than overruns. */
+    check_int("no room, no answer",
+              lte_bands_reachable(24.0e6, 1766.0e6, b, 0), 0);
+    check_int("a capacity of one truncates rather than overruns",
+              lte_bands_reachable(24.0e6, 1766.0e6, b, 1), 1);
+    check_int("and it is still the lowest", b[0], 28);
+    check_int("no buffer, no answer",
+              lte_bands_reachable(24.0e6, 1766.0e6, NULL, LTE_BANDS_MAX), 0);
+}
+
 int main(void) {
     g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     twiddles_init();
@@ -1567,6 +1621,7 @@ int main(void) {
      */
     check_real_capture("testfiles/lte_b8_pci330_4port.bin", 330, -2, 25, 4, 3);
 
+    test_the_bands_a_receiver_is_offered();
     return check_report("lte cell search and broadcast channel");
 }
 
