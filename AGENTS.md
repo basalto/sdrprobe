@@ -621,6 +621,54 @@ how this repository is worked on. Say which skill, what changed, and which
 part of the session was the evidence -- the same standard as any other claim
 here.
 
+### numpy is available, and where it may be used
+
+Installed 2026-09-12, deliberately, and the boundary matters more than the
+package. **Exploration and cross-checks in numpy; anything that becomes a
+claim gets a C probe in `scripts/` behind a `make` target**, compiled from the
+program's own `.c` wherever it can reach one.
+
+The reason is the same one behind item 2 above. A numpy answer lands in a
+transcript: nobody can reproduce it from a clean clone, and it does not
+exercise a line of the code that ships. If numpy becomes where answers *live*,
+it quietly undoes what makes this repository's claims checkable -- `probe-*`
+compiles the module's `.c` in precisely so that a diagnostic and the program
+cannot disagree.
+
+What it is genuinely worth is the other half. **A round trip cannot check a
+convention both sides share**, and this repository has lost months to that
+twice; what caught the two-cell fixture was a *second implementation*, clang
+against gcc. numpy shares no code with `sdr_dsp.c`, so where a second C probe
+compiled from the same headers would agree by construction, numpy can
+disagree. That is the case for it, and it is the same case `dsp-validation`
+makes for corroboration over self-agreement.
+
+It is not an ADR-0003 question. That refuses FFTW and liquid-dsp **in the
+program**; nothing here links numpy into `sdrprobe`.
+
+**The worked example is the session that installed it**, and it is the
+argument rather than an illustration of it.
+`.scratch/device-model/issues/13-*` measured an envelope line with a C probe
+that evaluates the DFT at each candidate frequency, scanning in 2 Hz steps
+across a record that resolves 0.25 Hz. Half a hertz off a line the response is
+already down to 1.7%, so the scan sampled a sinc pattern between its teeth and
+returned a **sidelobe at 8018.00 Hz**; a follow-up fine scan then searched a
+window chosen from that premise and confirmed it to two decimal places. The
+arithmetic was right at every step. A numpy transform of the whole record --
+every bin, no scan step, no shared code -- put the line at 7812.50 in three
+captures, and the C probe agreed the moment it was asked at that frequency:
+1.9424 against 0.2023.
+
+**Neither a review of the C nor a second C probe would have caught that**, and
+that is the whole case for having a second implementation. The wrong answer
+came from how the spectrum was *sampled*, which is a decision a reader
+re-reading the same reasoning re-makes.
+
+The other half of the rule held in the same session: the question began as
+exploration -- are these sidebands even resolvable -- and ended as a finding,
+so it ended as `envspec.c` and a ticket rather than as a transcript, and the
+ticket says it graduates to `scripts/` on the second campaign that needs it.
+
 ### Validating DSP work
 
 A round trip proves the code agrees with itself, not with the standard.
