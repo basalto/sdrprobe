@@ -45,9 +45,11 @@ present and no real-time deadline. A live receiver has neither guarantee.
    together, and both are reported. A station tuned 100 kHz off, or an AGC
    sitting somewhere unhelpful, gives a pilot that never locks and therefore
    no subcarrier at all.
-4. **The station.** Least likely with *every* station affected, but the
-   operator here has refarmed spectrum before -- two of the three GSM captures
-   went off the air that way.
+4. **The station.** Least likely with *every* station affected. This spec
+   argued the operator "has refarmed spectrum before", citing two GSM captures
+   going quiet; that was wrong -- there is no GSM refarming here, and those
+   cells are simply not audible from this site. Which removes the only
+   evidence this hypothesis had.
 
 ## How to tell them apart
 

@@ -33,9 +33,12 @@ the 100 kHz offset is load-bearing by accident: it is exercising the
 decoder's tolerance of an offset, and doing so silently, so a future change
 that lost that tolerance would fail here for a reason nobody had written down.
 
-Needs the receiver and needs TSF still on air at 89.5 here -- check before
-assuming, since two of the three GSM captures went off the air with the
-operator's refarming and cannot be re-recorded.
+Needs the receiver and needs TSF still on air at 89.5 **here** -- check
+before assuming. Two of the three GSM captures cannot be re-recorded from this
+desk for exactly that reason: their cells are not audible from where the work
+happens. (This ticket said they "went off the air with the operator's
+refarming". They did not -- there is no GSM refarming here; the receiver
+moved.)
 
 Keep the invariants `check-pipelines` already asserts: identification 0x8343,
 the name `TSF`, and the programme type. The programme type is not decoration
