@@ -176,3 +176,64 @@ the comment and widen the margin rather than asserting the marginal case --
 `fm_rds_tsf.bin` went from two seconds to three because a name at two seconds
 depended on where the segment cycle fell, and `check-pipelines` had been
 passing on a coin flip.
+
+## The instrument can be wrong, and its output still looks like a measurement
+
+Everything above is about a false claim or a fixture that differs between
+builds. This is a third kind and it is the hardest to see, because there is no
+failure: a number comes out, with units and a precision, and it is wrong.
+Three from one session, 2026-09-12.
+
+**A search grid must be finer than the resolution of what it searches.** A
+probe evaluated a DFT at chosen frequencies and scanned 7000-9000 Hz in **2 Hz
+steps** over a four-second record, which resolves **0.25 Hz**. Half a hertz
+off a line the response has already fallen to 1.7% of its peak, so the scan
+sampled a sinc pattern between its teeth and returned a **sidelobe at
+8018.00 Hz** for a line at 7812.50. Every digit of that was stable and
+reproducible.
+
+The compounding move is the one to watch for: the follow-up "fine scan" swept
+8000-8040 Hz at 0.1 Hz and **confirmed 8018.00 to two decimals**. A refinement
+inside a window chosen from a wrong coarse answer cannot find the error --
+it can only add precision to it. When a coarse pass and a fine pass agree,
+they have told you nothing that the coarse pass did not.
+
+So: **state your instrument's resolution before reading its output**, and make
+every step finer than it. This repository has the same fault in shipping code
+and fixed it -- `SIGNAL_COARSE_PAIRS` documents a coarse grid that stepped
+four main lobes and had nulls between its probes. The class is live here.
+
+**When a cross-check disagrees, suspect the harness's constants first.** A
+numpy reference for `sdr_dsp_spectrum()` floored its power at -200 dB where
+the program floors at `SDR_DSP_DBFS_FLOOR`, **-120**. The comparison reported
+a **79 dB** disagreement, which is a five-alarm number, and the first
+explanation reached for was float32 precision -- plausible, quantitative and
+wrong. With the program's own floor the two agree to 0.01 dB above -100 dBFS.
+Before believing a disagreement, list the constants the *harness* chose and
+check each against the program's.
+
+**A null is only as good as the condition it was measured in.** Odd multiples
+of 14.4 MHz were recorded as absent on one receiver and as "not the inside
+kind" on another. Both readings were taken at default gain with an antenna
+connected, and both were wrong: at max gain with the antenna off, all seven
+are present and internal. With the antenna on, a stronger external signal a
+few kilohertz away won the nearest-candidate comparison, so the pass reported
+**that** signal, displaced, and concluded "external" -- a null wearing a
+frequency, a level and a verdict.
+
+Before recording an absence, ask what condition would reveal the thing you are
+failing to see, and run it. Here that is *turn the gain up and take the
+antenna off*; elsewhere it is a longer look, a narrower channel, a different
+seed. **An absence measured in one condition is a fact about the condition.**
+
+### What the three have in common
+
+In none of them was the arithmetic wrong, and in none would re-reading the
+code have helped -- a reader re-makes the same sampling decision. What found
+two of them was **an implementation sharing no code**: numpy, transforming the
+whole record instead of scanning it. What found the third was **changing the
+measurement condition rather than the measurement**.
+
+So when a result matters and you built the thing that produced it, the
+question is not "is this code right" but "what would disagree with this if it
+were wrong, and does it?"
