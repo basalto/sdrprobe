@@ -116,6 +116,58 @@ answer moves, make the fixture a population:
 The cost is real -- that check went from 1.3 s to 3.5 -- and it is worth it
 where a single draw would otherwise be pinning luck.
 
+## A green check can mean nothing at all
+
+The failures above are claims that were false. These are claims that were
+**true and empty** -- the assertion held, the suite was green, and the feature
+did not work in the shipping program. They are worse, because nothing fails.
+
+**Check the input is not degenerate.** A discriminator was given
+`crystal - applied` as its only input, on the reasoning that a corrected
+receiver has nothing left to measure with. The program restores a stored
+calibration at startup and applies it, so that difference is **zero on every
+calibrated receiver and zero again on every uncalibrated one**: the flag could
+never be set, anywhere, and the whole unit suite passed throughout because a
+unit hands the number in. Ask of every new input: *what is this in the
+shipping program, on the day, and is it ever not zero?*
+
+**A branch written out by hand does not inherit the refusals.** The same
+header refuses to answer when the two hypotheses are inseparable, and every
+path reached that refusal through one function -- except one, which answered a
+single hypothesis and so was written out inline. It got the comparison and not
+the guard, and then claimed 23% of readings by chance on every capture. When
+you write out what a helper does because you need only part of it, list what
+the helper does that you are *not* doing.
+
+**Build the value the way the caller builds it.** An assertion read
+`flags & REFERENCE` from the return of a function that returns only its own
+contribution, where every real caller does `x->suspect |= f(x->suspect, ...)`.
+The check was testing an expression the program never evaluates. If the
+shipping line is a compound assignment, the check's line is too.
+
+**Prefer the fact with a check digit over the estimate.** Two measurements
+answered "how many antenna ports": a per-block coherence estimate, and the
+count in the broadcast message's CRC mask. The estimate reads 3 in at least
+one block where the message says 2 in all of them. Asserting the estimate is
+pinning noise; assert the decoded fact and let the estimate corroborate it,
+which is what it is for.
+
+**Say what resolution the claim holds at.** "A real station on the comb reads
+displaced" is true at a confirmation pass's 977 Hz bin and *false* at a
+sweep's 1953 Hz, because the separation is 2.9 kHz and needs twice the
+tolerance to clear. Written at the sweep's bin the assertion failed and looked
+like a bug in the discriminator. A claim about telling two things apart is not
+complete until it names the bin it is true in -- and the case where it
+correctly says nothing is worth asserting beside it.
+
+**And the convention a program prints may be the negation of the one it
+means.** `cal-measure` prints `observed_ppm -31.84`, the residual; the
+crystal's error is `+31.84`. A ticket derived a whole discriminator from the
+printed sign and had every displacement backwards, and the check written from
+the ticket was internally consistent and wrong about the receiver. When a sign
+comes from a line of output rather than from a definition, derive it once from
+a measurement whose direction is independently known.
+
 ## After a real-signal measurement, pin the number you saw
 
 Not the number you expected. A measured 19 groups agreeing is worth recording;

@@ -344,6 +344,26 @@ Mode S at 0.327 against FM's 0.145), 0.80 still sits 0.12 under the lowest
 positive and 0.47 above the highest negative, and on the one block both
 shipped callers hand it every verdict is unchanged.
 
+`probe-tone` asks whether a clock-coherent tone is at one frequency, and whose
+clock it is. It was a shell one-liner written about a dozen times in one
+afternoon -- sweep a window, find the candidate, subtract -- and every number
+of that campaign landed in a transcript rather than a ticket, which is what
+`AGENTS.md` says a repeated scratch script is for.
+
+```sh
+make probe-tone FREQ_TONE=150M                    # crystal from the config
+make probe-tone FREQ_TONE=480M APPLIED_TONE=0     # sweep uncorrected
+```
+
+**It reports the candidate nearest *each* hypothesis and not the one nearest
+the nominal**, which is the trap it was written the wrong way round first: the
+two predictions sit either side of the nominal and can be tens of kilohertz
+apart, so nearest-to-nominal picks another signal whenever one is closer. Asked
+about 480 MHz it reported a candidate 5.4 kHz below and called it unexplained,
+while the coherent tone sat 15.1 kHz above. It is the same trap
+`reading_origin.h` documents for channel rasters -- the hypothesis decides
+where to look -- and it is worth knowing that it bit twice in one file.
+
 `probe-survey-threshold` answers a different kind of question: what a survey of
 *nothing* reports. Pure noise through the real transform and the real fold, at
 every fold depth a sweep can have, and the answer is no candidates at any bar
