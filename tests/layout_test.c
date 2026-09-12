@@ -14,6 +14,10 @@
 #include "survey_layout.h"
 
 #include "check.h"
+
+/* What an R820T reaches: bands 28, 20 and 8. The layouts take a count now,
+   because an E4000 reaches five and a capture none. */
+#define LTE_R820T_BANDS 3
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -208,7 +212,8 @@ static void check_calibration_overlay(void) {
     for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++)
     for (lte = 0; lte <= 1; lte++) {
         struct calibration_layout l =
-            calibration_layout_for(sizes[c][0], sizes[c][1], lte);
+            calibration_layout_for(sizes[c][0], sizes[c][1], lte,
+                                   LTE_R820T_BANDS);
         /* Eighteen in the 4G arrangement; sized with room rather than to fit,
            because a check that overruns its own array reports whatever was
            next in the stack -- which it did, as 'back runs off the side'. */
@@ -227,7 +232,7 @@ static void check_calibration_overlay(void) {
         all[n] = l.apply_ppm;   names[n++] = "apply";
         all[n] = l.claim_ppm;   names[n++] = "claim";
         if (lte) {
-            for (i = 0; i < CALIBRATION_LTE_BANDS; i++) {
+            for (i = 0; i < l.lte_band_count; i++) {
                 all[n] = l.lte_band[i]; names[n++] = "lte band";
             }
             all[n] = l.lte_scan; names[n++] = "lte scan";
@@ -270,7 +275,8 @@ static void check_calibration_overlay(void) {
         /* Selecting 4G adds a row, so everything under it must move down. */
         if (lte) {
             struct calibration_layout gsm =
-                calibration_layout_for(sizes[c][0], sizes[c][1], 0);
+                calibration_layout_for(sizes[c][0], sizes[c][1], 0,
+                                       LTE_R820T_BANDS);
             check_msg(l.status[0].y > gsm.status[0].y,
                       "%.0fx%.0f the 4G row does not push the status down\n",
                       sizes[c][0], sizes[c][1]);
@@ -830,7 +836,7 @@ static void check_lte(void) {
     };
     for (unsigned c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++) {
         float w = sizes[c].width, h = sizes[c].height;
-        struct lte_layout l = lte_layout_for(w, h);
+        struct lte_layout l = lte_layout_for(w, h, LTE_R820T_BANDS);
         Rectangle row[3] = { l.found_panel, l.cell_panel, l.mib_panel };
 
         for (int i = 0; i < 3; i++) {
@@ -913,9 +919,9 @@ static void check_lte(void) {
         check_msg(l.header_right <= l.record_button.x,
                   "%.0fx%.0f: header text runs under the record button\n",
                   w, h);
-        for (int i = 0; i < LTE_LAYOUT_BANDS; i++) {
-            Rectangle next = (i + 1 < LTE_LAYOUT_BANDS) ? l.band_button[i + 1]
-                                                        : l.scan_button;
+        for (int i = 0; i < l.band_count; i++) {
+            Rectangle next = (i + 1 < l.band_count) ? l.band_button[i + 1]
+                                                    : l.scan_button;
             check_msg(l.band_button[i].x + l.band_button[i].width <= next.x,
                       "%.0fx%.0f: band button %d runs into the next\n", w, h,
                       i);

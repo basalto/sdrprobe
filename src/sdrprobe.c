@@ -1524,7 +1524,7 @@ static int run_gui(struct app *app) {
                         rect = fm_waterfall_rect(app);
                     } else if (app->decode == DECODE_LTE) {
                         win = &app->lte.window;
-                        rect = lte_waterfall_rect();
+                        rect = lte_waterfall_rect(app);
                     }
                     if (win)
                         view_window_input(app, win, rect, chart_key, spacing,

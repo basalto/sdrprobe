@@ -23,6 +23,32 @@
 #include "sdrgui.h"
 
 /*
+ * Which bands this receiver offers, and which of them is chosen.
+ *
+ * Two helpers rather than open code at four sites: the row of buttons, the
+ * label under the scan, and the layout that places them all have to agree
+ * about the same list, and they used to agree by all reading one compiled-in
+ * literal -- which is why they agreed and were all wrong on any tuner but an
+ * R820T.
+ */
+static int cal_band_count(const struct app *app) {
+    int bands[LTE_BANDS_MAX];
+    return view_lte_bands(app, bands);
+}
+
+static const struct lte_band *cal_selected_band(const struct app *app) {
+    int bands[LTE_BANDS_MAX];
+    int count = view_lte_bands(app, bands);
+    int index = app->cal.lte_band;
+
+    if (count <= 0)
+        return NULL;
+    if (index < 0 || index >= count)
+        index = 0;
+    return lte_band_for_number(bands[index]);
+}
+
+/*
  * GSM 900 channel calibration, the band scan that feeds it, and the periodic
  * drift re-check -- one overlay, drawn over whichever tab is active.
  *
@@ -314,7 +340,7 @@ static void update_lte_calibration_scan(struct app *app) {
     update_lte_scan(app, monotonic_seconds(), 1);
     if (lte_scan_running(app)) {
         const struct lte_band *band =
-            lte_band_for_number(lte_reachable_band(app->cal.lte_band));
+            cal_selected_band(app);
         snprintf(app->cal.status, sizeof(app->cal.status),
                  "Scanning band %d: %d of %d channels, %d cells so far",
                  band ? band->band : 0, app->lte.scan.candidate + 1,
@@ -584,7 +610,8 @@ void adjust_waterfall_scale(struct app *app, int zoom_in) {
 
 void handle_calibration_input(struct app *app) {
     struct calibration_layout cl =
-        calibration_layout_now(app->cal.technology == 1);
+        calibration_layout_now(app->cal.technology == 1,
+                               cal_band_count(app));
     Rectangle tech_2g = cl.tech[0];
     Rectangle tech_4g = cl.tech[1];
     Rectangle tech_5g = cl.tech[2];
@@ -611,7 +638,7 @@ void handle_calibration_input(struct app *app) {
             }
         if (clicked(cl.lte_scan) && !app->cal.lte_scanning) {
             const struct lte_band *band =
-                lte_band_for_number(lte_reachable_band(app->cal.lte_band));
+                cal_selected_band(app);
             if (!app->receiver_mode) {
                 snprintf(app->cal.status,
                          sizeof(app->cal.status),
@@ -802,13 +829,15 @@ void handle_calibration_input(struct app *app) {
 }
 
 Rectangle calibration_chart_rect(const struct app *app) {
-    return calibration_layout_now(app->cal.technology == 1).chart;
+    return calibration_layout_now(app->cal.technology == 1,
+                                  cal_band_count(app)).chart;
 }
 
 void draw_calibration(struct app *app) {
     char text[256];
     struct calibration_layout cl =
-        calibration_layout_now(app->cal.technology == 1);
+        calibration_layout_now(app->cal.technology == 1,
+                               cal_band_count(app));
     Rectangle tech_2g = cl.tech[0];
     Rectangle tech_4g = cl.tech[1];
     Rectangle tech_5g = cl.tech[2];
@@ -842,9 +871,14 @@ void draw_calibration(struct app *app) {
         char row[128];
         int b, i, rows;
 
-        for (b = 0; b < CALIBRATION_LTE_BANDS; b++) {
-            snprintf(row, sizeof(row), "Band %d", lte_reachable_band(b));
-            draw_button(cl.lte_band[b], row, b == app->cal.lte_band);
+        {
+            int bands[LTE_BANDS_MAX];
+            int count = view_lte_bands(app, bands);
+
+            for (b = 0; b < count; b++) {
+                snprintf(row, sizeof(row), "Band %d", bands[b]);
+                draw_button(cl.lte_band[b], row, b == app->cal.lte_band);
+            }
         }
         draw_button(cl.lte_scan,
                     app->cal.lte_scanning ? "Scanning" : "Scan band",

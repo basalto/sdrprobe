@@ -36,8 +36,11 @@
 /* The reachable list lives with the band table now, so the calibration
    picker and this view cannot offer different bands. */
 
-static struct lte_layout lte_layout_now(void) {
-    return lte_layout_for((float)GetScreenWidth(), (float)GetScreenHeight());
+static struct lte_layout lte_layout_now(const struct app *app) {
+    int bands[LTE_BANDS_MAX];
+
+    return lte_layout_for((float)GetScreenWidth(), (float)GetScreenHeight(),
+                          view_lte_bands(app, bands));
 }
 
 int lte_on_grid(const struct app *app) {
@@ -48,10 +51,17 @@ int lte_on_grid(const struct app *app) {
    and this view cannot disagree about what a band number means. */
 
 static const struct lte_band *selected_band(const struct app *app) {
+    int bands[LTE_BANDS_MAX];
+    int count = view_lte_bands(app, bands);
     int index = app->lte.scan.band;
-    if (index < 0 || index >= LTE_LAYOUT_BANDS)
-        index = 1;
-    return lte_band_for_number(lte_reachable_band(index));
+
+    /* A receiver that reaches no band -- a capture -- selects none, and the
+       caller gets NULL rather than whatever the first row used to be. */
+    if (count <= 0)
+        return NULL;
+    if (index < 0 || index >= count)
+        index = 0;
+    return lte_band_for_number(bands[index]);
 }
 
 void view_lte_defaults(struct app *app) {
@@ -180,11 +190,15 @@ static int scan_start(struct app *app, double now) {
 
 int lte_scan_begin(struct app *app, int band_number, double now) {
     int i;
-    for (i = 0; i < LTE_LAYOUT_BANDS; i++)
-        if (lte_reachable_band(i) == band_number) {
+    {
+    int bands[LTE_BANDS_MAX];
+    int count = view_lte_bands(app, bands);
+    for (i = 0; i < count; i++)
+        if (bands[i] == band_number) {
             app->lte.scan.band = i;
             return scan_start(app, now);
         }
+    }
     return -1;
 }
 
@@ -916,7 +930,7 @@ static void draw_charts(const struct app *app, const struct lte_layout *l) {
 }
 
 void draw_lte(struct app *app) {
-    struct lte_layout l = lte_layout_now();
+    struct lte_layout l = lte_layout_now(app);
     const struct lte_band *band = selected_band(app);
     double now = GetTime();
     uint64_t record_bytes = 0;
@@ -933,10 +947,15 @@ void draw_lte(struct app *app) {
     draw_button(l.view_toggle,
                 app->lte.analysis_mode ? "View: Signal" : "View: Charts", 0);
 
-    for (i = 0; i < LTE_LAYOUT_BANDS; i++) {
-        char label[24];
-        snprintf(label, sizeof(label), "Band %d", lte_reachable_band(i));
-        draw_button(l.band_button[i], label, i == app->lte.scan.band);
+    {
+        int bands[LTE_BANDS_MAX];
+        int count = view_lte_bands(app, bands);
+
+        for (i = 0; i < count; i++) {
+            char label[24];
+            snprintf(label, sizeof(label), "Band %d", bands[i]);
+            draw_button(l.band_button[i], label, i == app->lte.scan.band);
+        }
     }
     draw_button(l.scan_button, app->lte.scan.running ? "Stop" : "Scan band",
                 app->lte.scan.running);
@@ -1011,12 +1030,12 @@ void draw_lte(struct app *app) {
     draw_found_panel(app, found_rect(app, &l));
 }
 
-Rectangle lte_waterfall_rect(void) {
-    return lte_layout_now().waterfall;
+Rectangle lte_waterfall_rect(const struct app *app) {
+    return lte_layout_now(app).waterfall;
 }
 
 void handle_lte_input(struct app *app) {
-    struct lte_layout l = lte_layout_now();
+    struct lte_layout l = lte_layout_now(app);
     int i;
 
     if (IsKeyPressed(KEY_ESCAPE)) {
@@ -1034,7 +1053,7 @@ void handle_lte_input(struct app *app) {
                              ACQUISITION_RECORD_BUTTON_SECONDS);
         return;
     }
-    for (i = 0; i < LTE_LAYOUT_BANDS; i++) {
+    for (i = 0; i < l.band_count; i++) {
         if (!clicked(l.band_button[i]))
             continue;
         /* Choosing a band abandons what the last one found: the list is this

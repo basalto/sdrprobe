@@ -480,10 +480,19 @@ reports the part and this file already asked, using the answer only to spell a
 name. `enum device_tuner` and `device_tuner_reach()` now decide it, and an
 unknown tuner gets **0 and 0** rather than a default, for the same reason
 `device_default_full_scale()` refuses S16. `.scratch/device-model/issues/14-*`
-has the measurements and what is left: `lte_reachable_band()` is still the
-literal `{ 28, 20, 8 }` -- an R820T's subset of a band table that already
-carries 1, 3 and 7 -- and unbaking it changes how many buttons two panels
-draw, so it is its own phase.
+has the measurements.
+
+**The band picker follows from the same fact.** `lte_reachable_band()` was the
+literal `{ 28, 20, 8 }`, drawn as three buttons by the LTE view and the
+calibration overlay and reachable by no check at all.
+`lte_bands_reachable(lower, upper, out, max)` answers it from the profile,
+ascending by frequency, and a band counts only when its **whole** downlink
+fits -- half a band is a sweep that tunes where it cannot hear and reports an
+absence it never tested. An R820T gets 28, 20, 8; an E4000 gets those and 3
+and 1; a capture gets **none**, and the two panels draw zero buttons with the
+scan button moved up to meet them. `view_lte_bands()` is the one accessor, so
+the two panels cannot come to disagree the way two copies of a literal would
+not have.
 
 **Two tuners have reach holes their bounds cannot express** -- an E4000 does
 not lock between about 1107 and 1246 MHz, an FC2580 covers 146-308 and 438-924

@@ -166,11 +166,50 @@ const struct lte_band *lte_band_for_number(int number) {
     return NULL;
 }
 
-int lte_reachable_band(int index) {
-    static const int reachable[LTE_REACHABLE_BANDS] = { 28, 20, 8 };
-    if (index < 0 || index >= LTE_REACHABLE_BANDS)
+int lte_bands_reachable(double lower_hz, double upper_hz, int *out, int max) {
+    int i, count = 0;
+
+    int all[LTE_BANDS_MAX];
+
+    if (!out || max <= 0 || !(upper_hz > lower_hz))
         return 0;
-    return reachable[index];
+    /* The table is in band-number order; a picker wants frequency order, and
+       the two differ -- 1, 3, 7, 8, 20, 28 against 758, 791, 925, 1805, 2110,
+       2620 MHz. Insertion into the answer keeps it ascending without sorting
+       the table, which other callers index by band number. */
+    for (i = 0; i < lte_band_count(); i++) {
+        const struct lte_band *b = lte_band_at(i);
+        double low, high;
+        int j, at;
+
+        if (!b)
+            continue;
+        low = b->downlink_low_hz;
+        high = low + (double)(b->earfcn_high - b->earfcn_low) * 100000.0;
+        if (low < lower_hz || high > upper_hz)
+            continue;               /* not end to end */
+        if (count >= (int)(sizeof all / sizeof all[0]))
+            break;
+        for (at = 0; at < count; at++)
+            if (lte_band_for_number(all[at])->downlink_low_hz > low)
+                break;
+        for (j = count; j > at; j--)
+            all[j] = all[j - 1];
+        all[at] = b->band;
+        count++;
+    }
+    /*
+     * **Sort first, truncate second.** Filling the caller's array directly
+     * and stopping at `max` keeps whichever bands the *table* happened to
+     * list first, so a caller with room for one got band 8 rather than band
+     * 28 -- a silent dependence on an ordering this function exists to
+     * replace. The check caught it on its first run.
+     */
+    if (count > max)
+        count = max;
+    for (i = 0; i < count; i++)
+        out[i] = all[i];
+    return count;
 }
 
 const struct lte_band *lte_band_at(int index) {

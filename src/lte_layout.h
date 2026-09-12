@@ -1,6 +1,8 @@
 #ifndef LTE_LAYOUT_H
 #define LTE_LAYOUT_H
 
+#include "lte_dsp.h"
+
 #include <raylib.h>
 
 #include "panel_rows.h"
@@ -24,7 +26,10 @@
  * four charts, the way the ADS-B view replaces its log.
  */
 
-#define LTE_LAYOUT_BANDS 3       /* the bands an RTL-SDR can reach */
+/* Capacity, not a count: how many band buttons a row can hold. The count
+   is the receiver's and arrives as an argument -- an R820T sweeps three
+   bands, an E4000 five, a capture none. */
+#define LTE_LAYOUT_BANDS LTE_BANDS_MAX
 
 /* Four charts on the analysis row. The fourth is the antenna-port coherence,
    which is four bars and so the narrowest content here -- but an equal split
@@ -34,6 +39,7 @@
 
 struct lte_layout {
     Rectangle band_button[LTE_LAYOUT_BANDS];
+    int band_count;   /* how many of them this receiver earns */
     Rectangle scan_button;       /* "Scan band" / "Stop" share this spot */
     Rectangle view_toggle;       /* View: Charts / View: Signal */
     Rectangle record_button;
@@ -98,7 +104,8 @@ static inline struct lte_panel_rows lte_panel_rows_for(Rectangle panel) {
     return l;
 }
 
-static inline struct lte_layout lte_layout_for(float width, float height) {
+static inline struct lte_layout lte_layout_for(float width, float height,
+                                              int band_count) {
     struct lte_layout l;
     const float left = 22.0f;
     const float right_margin = 22.0f;
@@ -125,10 +132,22 @@ static inline struct lte_layout lte_layout_for(float width, float height) {
     /* The band selector and the scan share a strip of their own below the
        header, because choosing a band retunes the receiver and that is not a
        thing to put next to the record button by accident. */
+    if (band_count < 0)
+        band_count = 0;
+    if (band_count > LTE_LAYOUT_BANDS)
+        band_count = LTE_LAYOUT_BANDS;
+    l.band_count = band_count;
+    /* Only the ones this receiver earns get a rectangle. A button past the
+       count is not drawn, so giving it a position would be inviting a hit
+       test to find it -- `panel_rows.h` takes the same line about rows. */
     for (i = 0; i < LTE_LAYOUT_BANDS; i++)
-        l.band_button[i] = (Rectangle){ left + (float)i * 96.0f, 132.0f,
-                                        90.0f, 26.0f };
-    l.scan_button = (Rectangle){ left + LTE_LAYOUT_BANDS * 96.0f + 12.0f,
+        l.band_button[i] = (i < band_count)
+            ? (Rectangle){ left + (float)i * 96.0f, 132.0f, 90.0f, 26.0f }
+            : (Rectangle){ 0.0f, 0.0f, 0.0f, 0.0f };
+    /* The scan button follows the row that is actually drawn, so a receiver
+       with fewer bands does not leave a hole and one with more is not
+       overlapped. */
+    l.scan_button = (Rectangle){ left + (float)band_count * 96.0f + 12.0f,
                                  132.0f, 130.0f, 26.0f };
 
     span = height - top - bottom_margin;

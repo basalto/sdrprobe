@@ -91,14 +91,29 @@ int lte_band_count(void);
 const struct lte_band *lte_band_at(int index);
 
 /*
- * The bands an RTL-SDR can actually reach, in the order a picker should offer
- * them. The table above holds bands 1, 3 and 7 as well, because a caller
- * holding an EARFCN deserves the frequency it names -- but offering them in a
- * scan picker wastes minutes tuning where an R820T cannot hear, which is what
- * the calibration's band buttons did when they took the table's first three.
+ * The bands **this receiver** can sweep end to end, ascending, in the order a
+ * picker should offer them.
+ *
+ * It was the literal `{ 28, 20, 8 }` -- an R820T's subset, compiled in, while
+ * the table above already carried 1, 3 and 7. The table is right to carry
+ * them: a caller holding an EARFCN deserves the frequency it names, and
+ * whether this receiver can hear it is a separate question. What was wrong is
+ * answering that separate question with one device's numbers, which is how an
+ * E4000 came to be offered nothing above 960 MHz while a 1805-1880 MHz sweep
+ * on it returns twelve carriers (`.scratch/device-model/issues/14-*`).
+ *
+ * **End to end, not overlapping.** A band half inside the tuner's reach is
+ * not a band to offer a scan: the sweep would spend minutes tuning where the
+ * receiver cannot hear and report an absence it never tested. So a band
+ * counts when its whole downlink fits.
+ *
+ * A capture's profile reaches exactly one frequency, so it reaches **no**
+ * band, and the count is 0. That is the right answer and the picker has to be
+ * able to draw it -- a scan needs a live receiver, which is what the view
+ * already says in words.
  */
-#define LTE_REACHABLE_BANDS 3
-int lte_reachable_band(int index);
+#define LTE_BANDS_MAX 8
+int lte_bands_reachable(double lower_hz, double upper_hz, int *out, int max);
 /* The table entry for a band number, or NULL. */
 const struct lte_band *lte_band_for_number(int number);
 const struct lte_band *lte_band_for_earfcn(unsigned int earfcn);

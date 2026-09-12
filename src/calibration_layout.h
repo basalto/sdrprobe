@@ -1,6 +1,8 @@
 #ifndef CALIBRATION_LAYOUT_H
 #define CALIBRATION_LAYOUT_H
 
+#include "lte_dsp.h"
+
 #include <raylib.h>
 
 /*
@@ -26,7 +28,9 @@
  * layouts that have to be kept in step.
  */
 
-#define CALIBRATION_LTE_BANDS 3
+/* Capacity, not a count: the count is the receiver's, and arrives as an
+   argument. See view.h's view_lte_bands(). */
+#define CALIBRATION_LTE_BANDS LTE_BANDS_MAX
 #define CALIBRATION_CELL_ROW_H 26.0f
 #define CALIBRATION_STATUS_ROWS 4
 #define CALIBRATION_ROW_H 34.0f
@@ -55,6 +59,7 @@ struct calibration_layout {
     /* 4G only; zero-width when 2G is selected, so a caller that draws them
        anyway draws nothing rather than drawing them somewhere wrong. */
     Rectangle lte_band[CALIBRATION_LTE_BANDS];
+    int lte_band_count;   /* how many this receiver earns */
     Rectangle lte_scan;
     /* The found-cell picker takes the chart's place rather than covering it:
        before a cell is chosen the chart has nothing to say, and a panel over a
@@ -68,7 +73,8 @@ struct calibration_layout {
 
 static inline struct calibration_layout calibration_layout_for(float width,
                                                                float height,
-                                                               int lte) {
+                                                               int lte,
+                                                               int band_count) {
     struct calibration_layout l;
     float right = width - 24.0f;
     float y;
@@ -101,11 +107,21 @@ static inline struct calibration_layout calibration_layout_for(float width,
     y += CALIBRATION_ROW_H + 6.0f;
 
     /* Row two, 4G only: the band to scan, and the button that scans it. */
+    if (band_count < 0)
+        band_count = 0;
+    if (band_count > CALIBRATION_LTE_BANDS)
+        band_count = CALIBRATION_LTE_BANDS;
+    l.lte_band_count = band_count;
     if (l.lte) {
         for (i = 0; i < CALIBRATION_LTE_BANDS; i++)
-            l.lte_band[i] = (Rectangle){ 24.0f + (float)i * 76.0f, y, 70.0f,
-                                         28.0f };
-        l.lte_scan = (Rectangle){ 256.0f, y, 100.0f, 28.0f };
+            l.lte_band[i] = (i < band_count)
+                ? (Rectangle){ 24.0f + (float)i * 76.0f, y, 70.0f, 28.0f }
+                : (Rectangle){ 24.0f, y, 0.0f, 0.0f };
+        /* After the row that is drawn, not after the row that could be: the
+           capacity is eight now and this button used to sit at a fixed 256,
+           which three buttons cleared and five would not. */
+        l.lte_scan = (Rectangle){ 24.0f + (float)band_count * 76.0f + 12.0f,
+                                  y, 100.0f, 28.0f };
         y += 28.0f + 6.0f;
     } else {
         for (i = 0; i < CALIBRATION_LTE_BANDS; i++)
@@ -132,9 +148,10 @@ static inline struct calibration_layout calibration_layout_for(float width,
     return l;
 }
 
-static inline struct calibration_layout calibration_layout_now(int lte) {
+static inline struct calibration_layout calibration_layout_now(int lte,
+                                                               int band_count) {
     return calibration_layout_for((float)GetScreenWidth(),
-                                  (float)GetScreenHeight(), lte);
+                                  (float)GetScreenHeight(), lte, band_count);
 }
 
 /* Which row of the found-cell list a point is over, or -1. */
