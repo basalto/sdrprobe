@@ -468,8 +468,28 @@ tuning and rate reach, the gain model, whether ppm drifts, the reference clock,
 the retune settle. It is **data, not a vtable**; function pointers wait for a
 second backend to satisfy them (ticket 07), because an adapter with one
 implementation is a pass-through. No driver header, no GUI header, no `struct
-app`, and **nothing reads it yet** -- `check-device-profile` is its only
-consumer, deliberately, since tickets 03 to 06 move one area each.
+app`. `backend_rtlsdr.c` builds one at open and `survey_bands.h` takes the
+reach from it.
+
+**The reach is the tuner's, and the profile said otherwise until a second
+dongle was plugged in.** `device_profile_rtlsdr()` hardcoded 24 - 1766 MHz for
+every device: an R820T's. An E4000 board records at 1900 and 2100 MHz and
+refuses 40, so the band picker was offering it short wave, CB and band I
+television it cannot tune while withholding 1766 - 2212 MHz it can. librtlsdr
+reports the part and this file already asked, using the answer only to spell a
+name. `enum device_tuner` and `device_tuner_reach()` now decide it, and an
+unknown tuner gets **0 and 0** rather than a default, for the same reason
+`device_default_full_scale()` refuses S16. `.scratch/device-model/issues/14-*`
+has the measurements and what is left: `lte_reachable_band()` is still the
+literal `{ 28, 20, 8 }` -- an R820T's subset of a band table that already
+carries 1, 3 and 7 -- and unbaking it changes how many buttons two panels
+draw, so it is its own phase.
+
+**Two tuners have reach holes their bounds cannot express** -- an E4000 does
+not lock between about 1107 and 1246 MHz, an FC2580 covers 146-308 and 438-924
+-- which is the rate-hole problem on a second axis. Still represented as a
+plain low and high, deliberately, and now with three instances behind the
+question rather than one.
 
 **`full_scale` is carried rather than derived from the format, and that is the
 finding, not a convenience.** Ticket 01's rescaled corpus and a real 12-bit

@@ -39,7 +39,7 @@ static size_t fill_tone(double cycles_per_pair, double amplitude,
 }
 
 static struct device_profile house(void) {
-    return device_profile_rtlsdr("check", NULL, 0);
+    return device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
 }
 
 static struct signal_frame_input an_input(size_t byte_count, int fft_size) {

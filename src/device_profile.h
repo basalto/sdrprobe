@@ -109,7 +109,12 @@ struct device_profile {
      * What the front end can reach. `can_retune` is false for file playback,
      * which is not a limitation to work around -- a capture holds one tuning
      * and the code already refuses to move it.
+     *
+     * `tuner` is what decides the two bounds on an RTL-SDR: they are the
+     * tuner's numbers and not the demodulator's, which is what this profile
+     * got wrong for every device that was not an R820T.
      */
+    int tuner;                  /* enum device_tuner; 0 is unknown */
     double tune_lower_hz;
     double tune_upper_hz;
     unsigned rate_min_hz;
@@ -387,6 +392,67 @@ static inline int device_profile_set_gain_list(struct device_profile *p,
 }
 
 /*
+ * Which tuner is in front of the demodulator.
+ *
+ * **The reach belongs to the tuner, not to the RTL2832**, and this profile
+ * carried an R820T's 24-1766 MHz under the RTL-SDR's name until a second
+ * dongle was plugged in and recorded at 1900 and 2100 MHz while refusing
+ * 40 MHz (`docs/two-receivers-compared.md`,
+ * `.scratch/device-model/issues/14-*`). librtlsdr reports the part, so
+ * nothing has to be assumed.
+ */
+enum device_tuner {
+    DEVICE_TUNER_UNKNOWN = 0,
+    DEVICE_TUNER_E4000,
+    DEVICE_TUNER_FC0012,
+    DEVICE_TUNER_FC0013,
+    DEVICE_TUNER_FC2580,
+    DEVICE_TUNER_R820T,
+    DEVICE_TUNER_R828D
+};
+
+/*
+ * What that tuner can reach, or 0 and 0 for one nobody has measured.
+ *
+ * **Zero is a refusal and not a default**, the same shape
+ * `device_default_full_scale()` takes for S16: a caller handed an unknown
+ * tuner has to go and find out, where a default would quietly supply one
+ * part's numbers for another -- which is the exact fault this exists to fix.
+ *
+ * Two of these have holes their reach cannot express. The E4000 does not lock
+ * between about 1107 and 1246 MHz, and an FC2580 covers 146-308 and 438-924
+ * with nothing between; a low and a high cannot say so, exactly as
+ * `rate_min_hz`/`rate_max_hz` cannot say that librtlsdr's rates have a gap.
+ * Two axes and three devices now, where `issues/02-*` refused a
+ * representation for one -- and the E4000 at least *refuses* a tuning inside
+ * its gap rather than returning success, which is more than the R820T does
+ * out of range.
+ */
+static inline void device_tuner_reach(enum device_tuner tuner,
+                                      double *lower_hz, double *upper_hz) {
+    double lo = 0.0, hi = 0.0;
+
+    switch (tuner) {
+    case DEVICE_TUNER_R820T:
+    case DEVICE_TUNER_R828D:
+        lo = 24000000.0;   hi = 1766000000.0; break;
+    case DEVICE_TUNER_E4000:
+        lo = 52000000.0;   hi = 2212000000.0; break;
+    case DEVICE_TUNER_FC0012:
+        lo = 22000000.0;   hi =  948000000.0; break;
+    case DEVICE_TUNER_FC0013:
+        lo = 22000000.0;   hi = 1100000000.0; break;
+    case DEVICE_TUNER_FC2580:
+        lo = 146000000.0;  hi =  924000000.0; break;
+    case DEVICE_TUNER_UNKNOWN:
+    default:
+        break;
+    }
+    if (lower_hz) *lower_hz = lo;
+    if (upper_hz) *upper_hz = hi;
+}
+
+/*
  * Today's receiver, with today's constants.
  *
  * Every number here is already compiled into the program somewhere else, and
@@ -399,6 +465,7 @@ static inline int device_profile_set_gain_list(struct device_profile *p,
  * invented one.
  */
 static inline struct device_profile device_profile_rtlsdr(const char *name,
+                                                          enum device_tuner tuner,
                                                           const int *gains,
                                                           int gain_count) {
     struct device_profile p;
@@ -410,10 +477,13 @@ static inline struct device_profile device_profile_rtlsdr(const char *name,
     p.full_scale = device_default_full_scale(SAMPLE_FORMAT_U8); /* 127.5 */
     p.bytes_per_pair = device_format_bytes_per_pair(SAMPLE_FORMAT_U8);
 
-    /* SURVEY_TUNER_LOWER_HZ / SURVEY_TUNER_UPPER_HZ (survey_bands.h). An
-       R820T's reach, and check-survey-bands asserts it in both directions. */
-    p.tune_lower_hz = 24000000.0;
-    p.tune_upper_hz = 1766000000.0;
+    /* SURVEY_TUNER_LOWER_HZ / SURVEY_TUNER_UPPER_HZ (survey_bands.h) are an
+       R820T's, which is what this used to hardcode for every tuner.
+       check-survey-bands asserts the reach in both directions, and does it
+       against more than one profile because one device's numbers pass while
+       offering half of one band list and missing half of another. */
+    p.tuner = (int)tuner;
+    device_tuner_reach(tuner, &p.tune_lower_hz, &p.tune_upper_hz);
 
     /*
      * librtlsdr's rates. **The real device has a hole in this range** --
