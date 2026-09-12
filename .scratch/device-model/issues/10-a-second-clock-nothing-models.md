@@ -1,6 +1,9 @@
 # 10 - There is a second clock here, and the comb test cannot see it
 
-Status: **resolved 2026-09-11.** The family is measured, `src/clock_chain.h`
+Status: **reopened 2026-09-12** -- a wider sweep found a complete octave chain
+from 30 to 960 MHz that the 75 MHz model does not contain, and the coherent
+set is now fifteen frequencies. See "The campaign" at the end.
+Was: **resolved 2026-09-11.** The family is measured, `src/clock_chain.h`
 models it as octaves rather than harmonics, and 150.0009 MHz reads
 `clocked-here` on air instead of `unexplained`. Not a `device_profile` field,
 deliberately. See the comments.
@@ -395,3 +398,76 @@ and 135 divide -- 15 MHz would, and so would 2.5 MHz, and neither is
 established. Worth a ticket rather than a guess, and the sweep that would
 settle it is cheap: 15, 30, 45, 60, 90, 105, 120 MHz at `--ppm 0`, looking for
 which multiples are present and which are absent.
+
+## The campaign, 2026-09-12
+
+Fifteen more windows swept, calibrated (+32 ppm applied, so a clock-coherent
+tone reads `nominal * (1 + 32e-6)`), 2 MHz windows at a 976.6 Hz bin unless
+said otherwise. Error is observed minus that prediction.
+
+| nominal | error | on the 1.6 MHz comb? |
+| --- | --- | --- |
+| 30 MHz | **-472** | no |
+| 60 MHz | **+423** (mean of four step grids) | no |
+| 75 MHz | +41 | no |
+| 120 MHz | +555 | yes, 1.6 x 75 |
+| 135 MHz | +75 | no |
+| 150 MHz | +571 | no |
+| 180 MHz | +588 | no |
+| 240 MHz | +621 | yes, 1.6 x 150 |
+| 300 MHz | +488 (uncorrected run) | no |
+| 360 MHz | +687 | yes, 1.6 x 225 |
+| 480 MHz | -223 | yes, 1.6 x 300 |
+| 540 MHz | -190 | no |
+| 720 MHz | -91 | yes, 1.6 x 450 |
+| 960 MHz | **+42** | yes, 1.6 x 600 |
+| 1440 MHz | +307 | yes, 1.6 x 900 |
+
+Absent, and the last two re-checked with narrow sweeps rather than inferred
+from a wide one: **37.5, 45, 175, 225, 270, 600**. At 270 a confirmation pass
+called the one nearby candidate `no-carrier`; at 600 a 599.5-600.5 sweep found
+nothing at all. 90 MHz is masked by FM broadcast and 1920 is outside the
+tuner's reach, so both are untested rather than absent.
+
+### The control, which is what makes these fixed frequencies
+
+A tone found by a sweep could be a fixed emitter or an artifact that moves with
+the tuning, and one sweep cannot tell those apart -- each frequency is covered
+by exactly one step. So the 60 MHz tone was swept four times with deliberately
+different step boundaries: 59-61, 59.3-61.3, 58.6-60.6 and 59.75-60.75. It read
+60.002441, 60.002637, 60.001855 and 60.002441 -- a spread of **782 Hz, less
+than one bin**. Fixed.
+
+That is the same control the 1.6 MHz comb passed when it was established, and
+it had never been run on this family.
+
+### What it shows, and it is not the 75 MHz chain
+
+**30, 60, 120, 240, 480, 960 is a complete octave chain**, and only the top
+four are also multiples of 1.6 MHz -- 30 and 60 are not on the comb at all. So
+this ladder is real and distinct from both modelled combs. Extrapolated down
+its fundamental is **15 MHz**, which is under the R820T's ~24 MHz floor and
+cannot be looked at here.
+
+As multiples of 15 MHz the present set is **2, 4, 5, 8, 9, 10, 12, 16, 20, 24,
+32, 36, 48, 64, 96** and the absent set is **3, 15, 18, 40**. Four sub-ladders
+fall out, and their gaps are the interesting part:
+
+- 2, 4, 8, 16, 32, 64 -- complete, 30 MHz to 960
+- 12, 24, 48, 96 -- complete, 180 MHz to 1440
+- 5, 10, 20 -- 75 to 300, and **40 (600 MHz) is absent**, checked narrowly
+- 9, 36 -- 135 and 540, and **18 (270 MHz) is absent**, checked narrowly
+
+So `clock_chain.h`'s 75 x 2^n is one of four ladders and is the one that
+stops early. **The header is not wrong and is now clearly the smallest part of
+the picture**, and widening it to "multiples of 15 MHz" would predict 45, 225,
+270 and 600, all four of which were looked for and are not there.
+
+### One degeneracy worth knowing before anybody theorises
+
+**480 MHz is both USB 2.0 high-speed's bit rate and exactly 1.6 x 300**, so
+this receiver cannot separate a USB spur from a comb tone there. 240 and 960
+are its half and double and are also present, which is suggestive and not
+evidence. 480/28.8 is exactly 50/3.
+
+`docs/rtl-sdr-spurs-reference.md` is the literature search against all of this.
