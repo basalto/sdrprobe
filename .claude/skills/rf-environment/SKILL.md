@@ -107,9 +107,13 @@ Once both gates pass, rank on what the repository actually gets:
   Viterbi; a burst technology inherits the correlator. Reuse is worth real
   weight, but never enough to survive a failed gate -- DAB had the best reuse
   of anything considered and is not there.
-- **Whether it stays on air.** Two of the three GSM captures cannot be
-  retaken: the cells were refarmed away mid-project. A permanent transmitter is
-  worth more than a stronger temporary one.
+- **Whether it is reachable from where the work happens.** Two of the three
+  GSM captures cannot be retaken at the desk they are used from: those cells
+  were recorded at another site and are not audible here. It is worth being
+  precise about which of the two this is -- a transmitter that stopped, or a
+  receiver that moved -- because only the first is a fact about the air, and
+  guessing the first when it was the second is how "the operator refarmed the
+  band" got written down here as though somebody had measured it.
 - **Whether it is anyone's to decode.** TETRA is present and its
   synchronisation burst is close kin to GSM's SCH, so it would reuse a great
   deal. It is emergency-services spectrum, and the question of what may be
