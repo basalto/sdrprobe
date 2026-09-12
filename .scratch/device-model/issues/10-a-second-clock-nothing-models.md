@@ -1,8 +1,13 @@
 # 10 - There is a second clock here, and the comb test cannot see it
 
-Status: **reopened 2026-09-12** -- a wider sweep found a complete octave chain
+Status: **open, 2026-09-12** -- a wider sweep found a complete octave chain
 from 30 to 960 MHz that the 75 MHz model does not contain, and the coherent
-set is now fifteen frequencies. See "The campaign" at the end.
+set is now fifteen frequencies. See "The campaign" at the end. Since then the
+**antenna unplug has been run** and sorts that set in two -- the ladder is
+radiated and heard back, 115.2 and 960 are made and heard inside -- and the
+**four-grid control has been run on 540 MHz**, which is fixed. What is still
+owed is the unplug on 135 and 540 specifically, which needs them present, and
+a second receiver for the ladder (`07-*`).
 Was: **resolved 2026-09-11.** The family is measured, `src/clock_chain.h`
 models it as octaves rather than harmonics, and 150.0009 MHz reads
 `clocked-here` on air instead of `unexplained`. Not a `device_profile` field,
@@ -564,3 +569,166 @@ and wants the unplug test re-run over the odd multiples.
 **195 and 255 MHz: absent.** Offered as a cheap test of whether the residue is
 a 60 MHz-spaced family offset by 15; it is not. Speculation tested and dead,
 which is what it was offered for.
+
+## The unplug test, 2026-09-12: the ladder is radiated, the comb is not
+
+The test this ticket has called for since it was opened, and the one it said
+"still does that and nothing else does". Two antenna-off/antenna-on pairs,
+thirteen frequencies each, uncorrected (`--ppm 0`, so a clock-coherent tone
+reads its exact nominal), 2 MHz windows at a 976.6 Hz bin, dwell 1.0.
+
+**Every tone below reads +488 Hz from its nominal -- half a bin, the
+quantisation of a line at its bin's centre -- in every pass, so the four
+passes are measuring the same tones.** The one exception is 30 MHz, which read
+-488 in the second pass: the other half-bin, which is where a line on a bin
+boundary lands.
+
+| nominal | on #1 | on #2 | off #1 | off #2 | change |
+| --- | --- | --- | --- | --- | --- |
+| 97.400 FM **(control)** | -28.1 | -25.3 | -63.2 | -61.7 | **-35.8** |
+| 174.718 band III **(control)** | -42.0 | -41.8 | gone | gone | large |
+| 30.000 | -50.6 | -50.6 | gone | gone | large |
+| 60.000 | -27.5 | -26.6 | gone | gone | large |
+| 120.000 | -28.0 | -27.8 | gone | gone | large |
+| 180.000 | -29.5 | -28.8 | gone | gone | large |
+| 240.000 | -30.4 | -31.1 | gone | gone | large |
+| 480.000 | -25.8 | -27.2 | -62.3 | -61.6 | **-35.5** |
+| 960.000 | -48.0 | -46.5 | -40.7 | -39.3 | **+7.3** |
+| 129.600 (14.4 x 9) | -47.4 | -46.3 | -58.8 | -58.4 | -11.7 |
+| 115.200 (1.6 x 72) | -30.1 | -30.0 | -34.7 | -34.5 | **-4.5** |
+| 540.000 | absent | absent | gone | gone | -- |
+| 135.000 | absent | -58.4 | gone | gone | -- |
+
+**The controls are what make the rest readable.** An FM broadcast station falls
+35.8 dB and a band III signal disappears, so the antenna really is decoupled;
+and both off passes agree to 1.5 dB at every surviving frequency, so the state
+of the antenna and not the passage of twenty minutes is what the table is
+about.
+
+### What it sorts
+
+**480 MHz falls 35.5 dB and the broadcast station falls 35.8.** To within
+three tenths of a decibel the USB ladder's strongest member arrives at the ADC
+**by the same path as a transmitter in the next town**: out of the receiver,
+into the air, back down the whip. 30, 60, 120, 180 and 240 do not survive the
+unplug at all. So the ladder is the *radiated and heard back* kind, which is
+the half of `docs/receiver-artifacts.md`'s sort that has never been assigned
+before -- and it is assigned against a measured control rather than by
+elimination.
+
+**115.2 MHz falls 4.5 dB and 960 MHz does not fall at all.** Those reach the
+converter with no antenna attached: the *made and heard entirely inside* kind.
+129.6 sits between at 11.7 dB and is closer to the inside than the outside.
+
+That is a sort the comb model cannot express and does not need to -- it is not
+about where a tone sits, it is about how it arrives -- but it bears directly on
+the suppression argument. **A radiated artifact is attenuated by anything that
+attenuates signal**, so it is not a fixed property of the part the way an
+internal spur is, and a second receiver in a different enclosure with a
+different cable will not reproduce the ladder's *levels* even if it reproduces
+its frequencies. Ticket 07 should expect that.
+
+### Three things this does not establish
+
+**Why 960 MHz gets 7.3 dB louder with the antenna removed**, reproduced in both
+pairs and therefore not noise. No mechanism is offered here. A front end
+loaded differently by an open connector is a hypothesis and was not tested.
+
+**Anything about 540 and 135.** 540 was absent in all four passes and 135
+appeared in exactly one, so their absence with the antenna off cannot be
+attributed to the antenna. They remain the two frequencies nothing explains,
+and the unplug test on *them* specifically is still owed.
+
+**Whether the radiated ladder is radiated by the dongle or by the host.** The
+cable, the port, the laptop and the hub are all inside "this receiver" as the
+test defines it. An unplugged antenna separates paths, not sources.
+
+## The four-grid control on 540 MHz, 2026-09-12
+
+Run automatically by a watcher, because the tone will not wait for somebody to
+be looking: eleven catches in fifteen rounds between 16:02 and 16:19, each one
+triggering the control immediately.
+
+| grid (sweep start) | reading | offset from 540.000000 |
+| --- | --- | --- |
+| 539.00 | 540000488 | +488 Hz |
+| 538.60 | 539999902 | -98 Hz |
+| 539.75 | 540000488 (confirm 540000299, 540000314) | +488 Hz |
+| 539.30 | never detected | -- |
+
+Three grids of four, repeatedly over seventeen minutes, spread **586 Hz** --
+inside one 976.6 Hz bin, and the same figure the 60 MHz member and the 480 MHz
+member give. **540 MHz is a fixed emitter**, not an artifact at an offset from
+the local oscillator. The grid that never saw it is the one whose step
+boundary falls on 540.0; that is a property of the sweep, not of the tone.
+
+### And "intermittent" is carrying two meanings
+
+Across the eleven catches the level is **-54.2 to -54.7 dBFS**, a spread of a
+quarter of a decibel, while the prominence sits at **8.0 to 8.6 dB** against a
+bar of 8.0. The four rounds that missed it are the bar, not the source: a
+steady weak tone crossing a threshold, which is not what "intermittent" was
+taken to mean when this ticket recorded the family as the two things that do
+not stay still.
+
+**That does not overturn the afternoon of 2026-09-11**, where 135 and 540 were
+absent in four step grids, in a 1.0 s dwell sweep and at three gains -- that is
+a real absence and gain max rules out the bar. Both are true: the pair varies
+over hours, and within an hour the detection record is dominated by a
+threshold crossing. Anything counting sightings per sweep is measuring the
+second while meaning the first.
+
+## Two faults in the instruments, found by using them
+
+**`probe-tone` calls a plainly coherent tone unexplained when the line has
+sidebands.** 120.000488 is +488 Hz from exact and the verdict was "neither
+hypothesis fits cleanly"; so was 115.200488. The rule is
+`bcgap < begap / 4`, and at 120 MHz the nearest candidate to the *external*
+prediction is a sideband 1531 Hz away, so the coherent candidate's 488 Hz has
+to beat 383 and does not. **A dense sideband family manufactures a competitor
+for the external hypothesis**, and the margin rule then refuses a verdict it
+should give. It is the same shape as the trap the script's own header
+documents -- the hypothesis decides where to look -- and the fix is to judge
+an offset against the bin that measured it rather than against whatever else
+happens to be nearby.
+
+### The sidebands are not the ladder's, and they are not the microframe
+
+Offered here as corroboration of the UTMI reading in
+`docs/rtl-sdr-spurs-reference.md` -- 480 MHz carries a symmetric family at
++/-7812 Hz, which is 8 bins at 976.6 Hz, and USB 2.0 high-speed frames every
+125 us, which is 8000 Hz. Both fit a number 8 bins wide, so it was written
+down as suggestive and measured the same afternoon. **It is wrong, and it is
+wrong twice.**
+
+A sideband pair around a carrier is amplitude modulation, so the spacing is a
+line in the *envelope*, and an envelope does not care where the carrier sits.
+Four seconds at each rate, magnitude decimated to a sixteenth, mean removed,
+transformed whole:
+
+| capture | rate | peak | rate / peak |
+| --- | --- | --- | --- |
+| 479.700 MHz, ladder tone at +300 kHz | 2 000 000 | 7812.50 Hz | 256.000 |
+| 470.300 MHz, **nothing in the window** | 2 000 000 | 7812.50 Hz | 256.000 |
+| 470.300 MHz, same channel | 2 048 000 | 8000.00 Hz | 256.000 |
+| 470.300 MHz, same channel | 1 920 000 | 7500.00 Hz | 256.000 |
+| `testfiles/carrier_75000_bare.bin`, weeks old | 2 000 000 | 7812.50 Hz | 256.000 |
+
+**It is one line every 256 sample pairs -- 512 bytes, a USB bulk packet -- and
+not a frequency at all.** A microframe would be 8000 Hz at every sample rate;
+this scales with the rate. And it is in a capture with no coherent tone in the
+window and in one recorded weeks earlier at another frequency, so it is not
+the ladder's either. The survey's "+/-7812 Hz" is its own 8-bin quantisation
+of the packet rate, and the two agreeing at 2 MS/s is arithmetic coincidence.
+
+**At 2.048 MS/s the line sits on 8000.00 Hz exactly**, so a measurement at
+that one rate would have confirmed the microframe hypothesis to the last digit
+and been false. `13-a-line-every-256-samples.md` carries it, along with the
+scan-step error that produced a confident wrong answer of 8018.00 Hz first.
+
+**What matters here is the negative: there is no sideband evidence for UTMI**,
+and the literature section's "likely and not established" stands exactly where
+it was.
+
+**`--ppm` overwrites a stored calibration, and the campaign's own method uses
+it.** See `12-an-explicit-ppm-overwrites-a-measurement.md`.

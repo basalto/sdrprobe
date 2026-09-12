@@ -78,6 +78,34 @@ with the antenna, because the dongle radiates its clock and hears itself come
 back. Both are the receiver's doing, but *"unplug it and an artifact stays"*
 holds only for the first kind.
 
+The same test was run over the octave ladder and both combs on 2026-09-12, two
+antenna-off/antenna-on pairs with a broadcast station as the control, and it
+sorts them the same way with a sharper edge (`.scratch/device-model/issues/10-*`):
+
+| line | antenna on | antenna off | change |
+| --- | --- | --- | --- |
+| 97.400 MHz FM **(control)** | -26.7 | -62.5 | **-35.8** |
+| 480.000 MHz, the ladder | -26.5 | -62.0 | **-35.5** |
+| 30, 60, 120, 180, 240 MHz | -27 to -51 | gone | large |
+| 960.000 MHz | -47.3 | -40.0 | **+7.3** |
+| 129.600 MHz = 14.4 x 9 | -46.9 | -58.6 | -11.7 |
+| 115.200 MHz = 1.6 x 72 | -30.1 | -34.6 | **-4.5** |
+
+**480 MHz loses 35.5 dB and the broadcast station loses 35.8.** To within three
+tenths of a decibel the ladder's strongest member reaches the converter by the
+same path as a transmitter in the next town, and five more ladder members do
+not survive the unplug at all. The fine comb's 115.2 MHz loses 4.5 dB and
+960 MHz loses nothing: those are the inside kind.
+
+Two things follow that matter beyond the sort. **A radiated artifact is
+attenuated by whatever attenuates signal**, so its level is not a property of
+the part -- a second receiver in a different enclosure with a different cable
+will not reproduce the ladder's levels even where it reproduces its
+frequencies, which is a caution for anything built on
+`.scratch/device-model/issues/07-*`. And **960 MHz getting louder with the
+antenna removed is reproduced in both pairs and unexplained**; no mechanism is
+offered here.
+
 ### The algorithm
 
 `survey_comb_harmonic(hz, spacing_hz, tolerance_hz)`:
