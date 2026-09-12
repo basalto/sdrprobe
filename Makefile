@@ -969,6 +969,12 @@ probe-tone: scripts/tone_probe.sh sdrprobe
 		APPLIED_TONE=$(APPLIED_TONE) DWELL_TONE=$(DWELL_TONE) \
 		WINDOW_TONE=$(WINDOW_TONE) ./scripts/tone_probe.sh
 
+probe-artifacts: scripts/artifact_sweep.sh sdrprobe
+	$(Q)NOMINALS="$(NOMINALS)" GAIN_ARTIFACTS=$(GAIN_ARTIFACTS) \
+		PPM_ARTIFACTS=$(PPM_ARTIFACTS) SPAN_ARTIFACTS=$(SPAN_ARTIFACTS) \
+		DWELL_ARTIFACTS=$(DWELL_ARTIFACTS) LABEL_ARTIFACTS="$(LABEL_ARTIFACTS)" \
+		./scripts/artifact_sweep.sh
+
 probe-periodicity: scripts/signal_periodicity.c $(SRC)/signal_probe.c \
 		$(SRC)/signal_probe.h
 	@mkdir -p $(BUILD)
@@ -1007,4 +1013,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-tone probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean
+.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean
