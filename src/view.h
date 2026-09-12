@@ -5,6 +5,27 @@
 
 #include "app.h"
 #include "survey_record.h"
+#include "lte_dsp.h"
+
+/*
+ * The bands this receiver can sweep, for whichever panel is drawing the row.
+ *
+ * One accessor because **two panels draw the same row** -- the LTE view's
+ * header and the calibration overlay's 4G arrangement -- and two copies of
+ * "which bands" is how they come to disagree about what the buttons mean.
+ * It used to be a compiled-in literal that both read, which had the same
+ * effect and was wrong about every tuner but one.
+ *
+ * `out` must hold LTE_BANDS_MAX. Returns the count, which is **0 for a
+ * capture**: its profile reaches one frequency, so it sweeps no band.
+ */
+static inline int view_lte_bands(const struct app *app, int *out) {
+    if (!app || !out)
+        return 0;
+    return lte_bands_reachable(app->device.tune_lower_hz,
+                               app->device.tune_upper_hz, out,
+                               LTE_BANDS_MAX);
+}
 
 /*
  * The Decode tab's screens, one file each, plus the few helpers they share
@@ -96,7 +117,7 @@ void gsm_tune_selected(struct app *app, int arfcn);
 Rectangle gsm_scan_rect(void);
 Rectangle gsm_waterfall_rect(void);
 Rectangle calibration_chart_rect(const struct app *app);
-Rectangle lte_waterfall_rect(void);
+Rectangle lte_waterfall_rect(const struct app *app);
 Rectangle fm_waterfall_rect(const struct app *app);
 Rectangle gsm_burst_rect(void);
 

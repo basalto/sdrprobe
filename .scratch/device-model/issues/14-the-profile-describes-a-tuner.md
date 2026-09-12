@@ -1,7 +1,6 @@
 # 14 - The RTL-SDR profile describes a tuner, in two places
 
-Status: **phase 1 resolved 2026-09-12**; the `lte_reachable_band()` half is
-open. `enum device_tuner` and `device_tuner_reach()` decide the reach,
+Status: **resolved 2026-09-12**, both halves. `enum device_tuner` and `device_tuner_reach()` decide the reach,
 `backend_rtlsdr.c` passes what librtlsdr already told it, an unknown tuner
 gets 0 and 0 rather than a default, and `check-device-profile` and
 `check-survey-bands` both carry an E4000 -- the third profile that section
@@ -125,3 +124,41 @@ it, not a line change.
 Worth doing when it is done: band 3 is busy here -- a 1805-1880 MHz sweep on
 the E4000 returned 12 carriers -- and reaching a band is not decoding it, as
 the 20-second chain walk in this ticket's body records.
+
+## Phase 2, the same day: the picker follows the profile
+
+`lte_reachable_band()` is gone. `lte_bands_reachable(lower, upper, out, max)`
+takes the reach and returns the bands whose **whole** downlink fits, ascending
+by frequency -- which is not the table's order, since the table is by band
+number and 28 is the lowest frequency.
+
+`LTE_REACHABLE_BANDS`, `LTE_LAYOUT_BANDS` and `CALIBRATION_LTE_BANDS` were
+three constants that all had to be 3 and all had to agree. They are one
+capacity now (`LTE_BANDS_MAX`), and the **count** is an argument to both
+layouts -- so the scan button follows the row that was drawn rather than
+sitting at a fixed x that three buttons happened to clear. Buttons past the
+count get a zero rectangle rather than a position, on `panel_rows.h`'s
+argument: a control that is not drawn should not be findable by a hit test.
+
+`view_lte_bands()` is the single accessor both panels use, because two panels
+drawing the same row from two copies of a list is how they come to disagree --
+which is what the literal was, and why they agreed and were both wrong.
+
+**A capture offers no band**, and that is visible: under file playback the LTE
+view now draws no band buttons and moves Scan band up to where the first one
+was. A capture's profile reaches one frequency; a band scan needs a receiver,
+which the view already said in words and now says in what it draws.
+
+### The check found a real defect on its first run
+
+Unusually for this session, the claim was right and the code was wrong. Asked
+for one band with room for one, the first version returned **8** rather than
+**28**: it filled the caller's array in table order and stopped at `max`, so
+truncation silently depended on the ordering the function exists to replace.
+Sort first, truncate second.
+
+Worth noting what was there before: `lte_reachable_band()` had **no check at
+all** -- a decision drawn as three buttons by two panels, reachable by
+nothing, which is exactly the gap ADR-0012 names. Its replacement has
+fourteen assertions including both tuners, the end-to-end rule, the capture's
+zero and the truncation.
