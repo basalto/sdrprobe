@@ -1,6 +1,11 @@
 # 14 - The RTL-SDR profile describes a tuner, in two places
 
-Status: needs-triage
+Status: **phase 1 resolved 2026-09-12**; the `lte_reachable_band()` half is
+open. `enum device_tuner` and `device_tuner_reach()` decide the reach,
+`backend_rtlsdr.c` passes what librtlsdr already told it, an unknown tuner
+gets 0 and 0 rather than a default, and `check-device-profile` and
+`check-survey-bands` both carry an E4000 -- the third profile that section
+asked for.
 Opened 2026-09-12, from `docs/two-receivers-compared.md`: a second dongle,
 an Elonics E4000, measured against the R820T everything here was built on.
 
@@ -85,3 +90,38 @@ that already exists.
 And whatever `lte_reachable_band()` becomes, the property to pin is that it
 never returns a band the profile cannot tune, and never withholds one it can.
 Today it is a literal with no relation to a profile at all.
+
+
+## Comments
+
+**Phase 1 done, 2026-09-12.** Nothing had to be discovered: `backend_rtlsdr.c`
+has always called `rtlsdr_get_tuner_type()` and used the answer **only to
+spell a device name**, while the profile beside it hardcoded an R820T's reach.
+The fix is `enum device_tuner`, a `device_tuner_reach()` table, and passing
+the answer instead of dropping it.
+
+Two decisions worth keeping:
+
+**An unknown tuner gets 0 and 0, not a default.** The same shape
+`device_default_full_scale()` takes for S16 and for the same reason: a default
+here is how one part's numbers came to be asserted of another in the first
+place. A caller handed zero has to go and find out.
+
+**The tuner argument was threaded with `make add-argument`**, which is what
+that tool exists for -- 14 call sites in `device_profile_test.c` alone and ten
+files in all. It is the first use of it since it became a checked tool.
+
+### What is left, and why it is a phase rather than a follow-up
+
+`lte_reachable_band()` is still `{ 28, 20, 8 }`. The band table three lines
+above it already carries 1, 3 and 7 with their EARFCN ranges, so the literal
+is the only thing withholding them -- but `LTE_REACHABLE_BANDS` is a
+compile-time 3 that `view_lte.c` and `overlay_calibration.c` loop over to draw
+band buttons. Making the list depend on a profile makes the **count** depend
+on a profile, which moves two panels' geometry and whatever `check-layout`
+asserts about them. That is a piece of work with a screenshot at the end of
+it, not a line change.
+
+Worth doing when it is done: band 3 is busy here -- a 1805-1880 MHz sweep on
+the E4000 returned 12 carriers -- and reaching a band is not decoding it, as
+the 20-second chain walk in this ticket's body records.

@@ -51,7 +51,7 @@ static int fake_open(struct device_session *s, int index,
     memset(&fake_state, 0, sizeof(fake_state));
     fake_state.frequency_hz = 100000000;
     fake_state.sample_rate_hz = 2000000;
-    *out = device_profile_rtlsdr("fake", NULL, 0);
+    *out = device_profile_rtlsdr("fake", DEVICE_TUNER_R820T, NULL, 0);
     s->handle = &fake_state;
     return 0;
 }

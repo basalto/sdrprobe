@@ -782,7 +782,7 @@ static void test_a_different_clock_is_a_different_comb(void) {
  * the constant.
  */
 static void test_the_profile_supplies_the_reference(void) {
-    struct device_profile rtl = device_profile_rtlsdr(NULL, NULL, 0);
+    struct device_profile rtl = device_profile_rtlsdr(NULL, DEVICE_TUNER_R820T, NULL, 0);
     check_close("the RTL profile's reference is what this suite tests",
                 rtl.reference_clock_hz, RTL_REFERENCE_HZ, 0.5);
     check_close("and the comb is it halved",

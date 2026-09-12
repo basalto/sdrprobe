@@ -898,7 +898,7 @@ static void test_the_sizes_offered(void) {
 }
 
 int main(void) {
-    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
+    g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     test_conversion();
     test_standard_block();
     test_peak_bins();

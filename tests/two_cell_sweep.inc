@@ -53,7 +53,7 @@ static double amplitude_db(double amplitude) {
 
 /* The suite's own setup, in one place, so the sweep cannot drift from it. */
 static void sweep_setup(void) {
-    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
+    g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     twiddles_init();
 }
 

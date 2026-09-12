@@ -1517,7 +1517,7 @@ static void test_channel_shape(void) {
 #else
 
 int main(void) {
-    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
+    g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     twiddles_init();
 
     test_bands();

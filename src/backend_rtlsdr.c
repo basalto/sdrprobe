@@ -35,6 +35,27 @@ static const char *tuner_name(rtlsdr_dev_t *dev) {
     }
 }
 
+/*
+ * The same question, answered for the profile rather than for a label.
+ *
+ * This file has always asked librtlsdr which tuner it has and used the answer
+ * only to spell a name, while `device_profile_rtlsdr()` hardcoded an R820T's
+ * reach for every device -- so an E4000 was offered 24-52 MHz it cannot tune
+ * and denied 1766-2212 MHz it can (`.scratch/device-model/issues/14-*`).
+ * Nothing had to be discovered to fix that; the answer was being thrown away.
+ */
+static enum device_tuner tuner_kind(rtlsdr_dev_t *dev) {
+    switch (rtlsdr_get_tuner_type(dev)) {
+    case RTLSDR_TUNER_E4000:  return DEVICE_TUNER_E4000;
+    case RTLSDR_TUNER_FC0012: return DEVICE_TUNER_FC0012;
+    case RTLSDR_TUNER_FC0013: return DEVICE_TUNER_FC0013;
+    case RTLSDR_TUNER_FC2580: return DEVICE_TUNER_FC2580;
+    case RTLSDR_TUNER_R820T:  return DEVICE_TUNER_R820T;
+    case RTLSDR_TUNER_R828D:  return DEVICE_TUNER_R828D;
+    default:                  return DEVICE_TUNER_UNKNOWN;
+    }
+}
+
 static int rtl_open(struct device_session *s, int index,
                     struct device_profile *out) {
     rtlsdr_dev_t *dev = NULL;
@@ -56,8 +77,8 @@ static int rtl_open(struct device_session *s, int index,
         gain_count = 0;
 
     snprintf(name, sizeof(name), "RTL-SDR %s", tuner_name(dev));
-    *out = device_profile_rtlsdr(name, gain_count > 0 ? gains : NULL,
-                                 gain_count);
+    *out = device_profile_rtlsdr(name, tuner_kind(dev),
+                                 gain_count > 0 ? gains : NULL, gain_count);
 
     /*
      * The USB serial, for ADR-0018's keying. Many of these dongles ship with
