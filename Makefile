@@ -961,6 +961,14 @@ probe-signal: scripts/signal_report.c $(SRC)/signal_probe.c \
 		$(AT_SIGNAL) $(CONTROLS_SIGNAL) $(CHANNEL_SIGNAL) \
 		$(SEARCH_SIGNAL) $(GUARD_SIGNAL) $(PAIRS_SIGNAL)
 
+# Is there a clock-coherent tone at this frequency, and whose clock is it?
+# Written a dozen times as a one-liner in one afternoon; the numbers belong in
+# a ticket rather than a transcript. Needs a receiver.
+probe-tone: scripts/tone_probe.sh sdrprobe
+	$(Q)FREQ_TONE=$(FREQ_TONE) SPAN_TONE=$(SPAN_TONE) PPM_TONE=$(PPM_TONE) \
+		APPLIED_TONE=$(APPLIED_TONE) DWELL_TONE=$(DWELL_TONE) \
+		WINDOW_TONE=$(WINDOW_TONE) ./scripts/tone_probe.sh
+
 probe-periodicity: scripts/signal_periodicity.c $(SRC)/signal_probe.c \
 		$(SRC)/signal_probe.h
 	@mkdir -p $(BUILD)
@@ -999,4 +1007,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean
+.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-tone probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean
