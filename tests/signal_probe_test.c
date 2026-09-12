@@ -1000,6 +1000,60 @@ static void test_a_line_is_found_wherever_it_sits(void) {
     }
 }
 
+/*
+ * What the refinement actually converges to, at the one buffer length that
+ * makes it tight.
+ *
+ * Nothing else here pins it. The synthetic carrier tests use 200000 pairs and
+ * allow 30 Hz; the real capture reaches the 300000-pair probe cap and asserts
+ * two searches against *each other* to 200 Hz. So the fine stage could stop
+ * converging and lose an order of magnitude of resolution with the suite
+ * green. A noise-free tone at the cap, walked across the grid, says it lands
+ * within 2 Hz from six different positions.
+ *
+ * **Measured, both ways.** Truncating the cascade to a single stage fails
+ * four of these six (reading 3.5 Hz off) and only two assertions elsewhere in
+ * this file, neither about resolution.
+ *
+ * **And what it does not pin, which is worth knowing before trusting it.**
+ * The refinement's first step is `rate / SIGNAL_COARSE_PAIRS / 4` = 7.63 Hz
+ * at 2 MS/s while the probe's first null is `rate / probe` = 6.67 Hz, so the
+ * worst a grid point can sit from the line is 3.8 Hz and the margin is 1.75.
+ * That relation is **not** what this test protects: making the first step
+ * four times coarser leaves every assertion here passing, because each stage
+ * re-centres on the previous winner and the cascade recovers. Tried, not
+ * assumed. If the probe cap is ever raised without touching
+ * SIGNAL_COARSE_PAIRS or the quarter, this suite will not notice.
+ */
+#define REFINE_PAIRS 300000
+static float rfi[REFINE_PAIRS], rfq[REFINE_PAIRS];
+
+static void test_the_refinement_cannot_land_in_a_null(void) {
+    const double rate = 2000000.0, base = 120000.0;
+    /* Zero, half a refine step, a whole one, and half a coarse step: the
+       positions where a grid that stepped too far would lose the line. */
+    const double offsets[] = { 0.0, 1.9, 3.8, 7.6, 15.25, 22.9 };
+    size_t k, n;
+
+    for (k = 0; k < sizeof offsets / sizeof offsets[0]; k++) {
+        double want = base + offsets[k];
+        struct signal_carrier c;
+
+        for (n = 0; n < REFINE_PAIRS; n++) {
+            double a = 2.0 * M_PI * want * (double)n / rate;
+            rfi[n] = (float)(100.0 * cos(a));
+            rfq[n] = (float)(100.0 * sin(a));
+        }
+        check_int("a tone off the refinement grid is still found",
+                  signal_find_carrier(rfi, rfq, REFINE_PAIRS, rate,
+                                      base - 500.0, base + 500.0, 0.0,
+                                      20000.0, &c), 1);
+        check_msg(fabs(c.offset_hz - want) < 2.0,
+                  "tone at %+.2f Hz off the grid read %.2f Hz (want %.2f)",
+                  offsets[k], c.offset_hz, want);
+    }
+}
+
 int main(void) {
     test_a_pure_tone_is_all_line();
     test_only_in_channel_energy_counts();
@@ -1024,5 +1078,6 @@ int main(void) {
     test_the_standing_fraction_does_not_depend_on_the_look();
     test_a_steady_carrier_reads_the_same_at_any_length();
     test_a_wider_channel_admits_more_of_the_noise();
+    test_the_refinement_cannot_land_in_a_null();
     return check_report("where a carrier is, and whether anything rides it");
 }

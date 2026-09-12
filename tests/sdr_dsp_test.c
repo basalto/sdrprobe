@@ -112,13 +112,71 @@ static void test_signal_stats(void) {
 }
 
 static void fill_tone(float *i, float *q, size_t offset, float amplitude,
-                      int bin) {
+                      double bin) {
     for (int n = 0; n < SDR_DSP_FFT_SIZE; n++) {
-        float phase = 2.0f * PI_F * (float)bin * (float)n /
-                      (float)SDR_DSP_FFT_SIZE;
+        float phase = (float)(2.0 * (double)PI_F * bin * (double)n /
+                              (double)SDR_DSP_FFT_SIZE);
         i[offset + (size_t)n] = 127.5f * amplitude * cosf(phase);
         q[offset + (size_t)n] = 127.5f * amplitude * sinf(phase);
     }
+}
+
+/*
+ * A tone that does not land on a bin centre.
+ *
+ * `test_spectrum()` below puts its tone on **bin 37 exactly**, which is the
+ * on-grid fixture this repository has been caught by before: every synthetic
+ * tone for `signal_find_carrier()` was at 120 000 Hz, which lands on its
+ * grid, and the blind comb between grid points went unnoticed for months. An
+ * on-bin tone cannot see a window applied wrongly at the edges, a
+ * normalisation that only happens to be right at a bin centre, or any error
+ * that cancels for a tone with no leakage.
+ *
+ * The assertion is a textbook number rather than a pinned measurement, which
+ * is what makes it worth having: a tone exactly halfway between two bins
+ * reads **1.42 dB low** through a Hann window (Harris 1978, scalloping loss)
+ * and splits evenly between the two. Nothing in this file's arithmetic
+ * produces that figure -- it is a property of the window, so a check against
+ * it is a check against something outside the code under test.
+ *
+ * Cross-checked 2026-09-12 against numpy over off-bin tones, two tones, noise
+ * and a real capture: every bin above -100 dBFS agrees to better than 0.01 dB,
+ * and the bins that do not are within 20 dB of SDR_DSP_DBFS_FLOOR.
+ */
+static void test_a_tone_between_two_bins(void) {
+    const size_t count = SDR_DSP_FFT_SIZE;
+    float *i = calloc(count, sizeof(*i));
+    float *q = calloc(count, sizeof(*q));
+    float average[SDR_DSP_FFT_SIZE];
+    float maximum[SDR_DSP_FFT_SIZE];
+    struct sdr_dsp dsp;
+    int lower = SDR_DSP_FFT_SIZE / 2 + 37;
+
+    if (!i || !q) {
+        fprintf(stderr, "allocation failed\n");
+        exit(2);
+    }
+    sdr_dsp_init(&dsp);
+    fill_tone(i, q, 0, 1.0f, 37.5);
+
+    check_size("half-bin spectrum window count",
+               (size_t)sdr_dsp_spectrum(&dsp, i, q, count, SDR_DSP_FFT_SIZE,
+                                        g_probe_device.full_scale,
+                                        average, maximum), 1);
+
+    check_close("half-bin tone, lower bin: Hann scalloping loss",
+                maximum[lower], -1.42f, 0.01f);
+    check_close("half-bin tone, upper bin: Hann scalloping loss",
+                maximum[lower + 1], -1.42f, 0.01f);
+    check_close("a tone halfway between two bins splits evenly",
+                maximum[lower] - maximum[lower + 1], 0.0f, 0.001f);
+
+    /* And it must not read full scale, which is what an on-bin fixture
+       asserts and what a broken window would keep asserting. */
+    check_true("a tone off the grid reads low", maximum[lower] < -1.0f);
+
+    free(i);
+    free(q);
 }
 
 static void test_spectrum(void) {
@@ -847,6 +905,7 @@ int main(void) {
     test_dc_removal();
     test_signal_stats();
     test_spectrum();
+    test_a_tone_between_two_bins();
     test_channel_powers();
     test_percentiles_without_sorting();
     test_find_peaks();
