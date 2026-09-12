@@ -265,7 +265,7 @@ static void consistency_sweep(FILE *f) {
 }
 
 int main(int argc, char **argv) {
-    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
+    g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     const char *path = argc > 1 ? argv[1] : "testfiles/adsb_modes1.bin";
     FILE *f = fopen(path, "rb");
     if (!f) {

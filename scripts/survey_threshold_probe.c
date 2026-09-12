@@ -232,7 +232,7 @@ static void measure(const char *label, double from_hz, double to_hz,
 }
 
 int main(int argc, char **argv) {
-    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
+    g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     int draws = argc > 1 ? atoi(argv[1]) : DRAWS_DEFAULT;
 
     if (draws < 1)
