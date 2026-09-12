@@ -93,53 +93,79 @@ What is comparable is *presence* and *where a line reads*.
 | nominal | what it is | R820T | E4000 |
 | --- | --- | --- | --- |
 | 115.200 | 1.6 x 72, **and 28.8 x 4** | exact, -30.1 | **exact, -11.1, 36.4 dB** |
-| 120.000 | 1.6 x 75, ladder | exact, -28.0 | **exact, -31.0** |
+| 120.000 | 1.6 x 75, ladder | exact, -28.0 | exact, -31.0 -- **gone with the antenna off**: radiated |
 | 136.000 | 1.6 x 85 | exact (recorded 2026-09-11) | **exact, -49.7** |
 | 240.000 | 1.6 x 150, ladder | exact, -30.4 | **exact, -32.4** |
 | 480.000 | 1.6 x 300, ladder | exact, -25.8 | **exact, -31.0** |
 | 960.000 | 1.6 x 600, ladder | exact, -48.0 | **exact, -24.5** |
-| 300.000 | on neither comb | exact (2026-09-11) | **exact, -41.6** |
-| 72.000 | **14.4 x 5**, odd | present, 25.4 dB (2026-09-12) | -2441 Hz, **not coherent** |
-| 129.600 | **14.4 x 9**, odd | exact, -47.4 | **absent** |
-| 158.400 | **14.4 x 11**, odd | present, 15.1 dB (2026-09-12) | **absent** |
-| 187.200 | **14.4 x 13**, odd | present, 10.2 dB (2026-09-12) | -5371 Hz, **not coherent** |
+| 300.000 | on neither comb | exact (2026-09-11) | exact, -41.6 -- but **gone with the antenna off**: radiated |
+| 72.000 | **14.4 x 5**, odd | present, 25.4 dB (2026-09-12) | not found, antenna off at max gain either |
+| 129.600 | **14.4 x 9**, odd | exact, -47.4 | not found, antenna off at max gain either |
+| 158.400 | **14.4 x 11**, odd | present, 15.1 dB (2026-09-12) | not found, antenna off at max gain either |
+| 187.200 | **14.4 x 13**, odd | present, 10.2 dB (2026-09-12) | **exact, -59.5 -- but only with the antenna off** |
 | 60.000 | ladder | exact, -27.5 | absent -- but 8 MHz above this tuner's floor |
 | 30.000 | ladder | exact, -50.6 | **out of reach** |
-| 75.000 | the unexplained family | exact (2026-09-11) | **absent** |
-| 135.000 | the unexplained family | intermittent | **absent** |
-| 150.000 | the unexplained family | exact (2026-09-11) | **absent** |
-| 540.000 | the unexplained family | intermittent, marginal | -18 kHz, **not coherent** |
+| 75.000 | the unexplained family | exact (2026-09-11) | **absent**, antenna off at max gain too |
+| 135.000 | the unexplained family | intermittent | **absent**, antenna off at max gain too |
+| 150.000 | the unexplained family | exact (2026-09-11) | **absent**, antenna off at max gain too |
+| 540.000 | the unexplained family | intermittent, marginal | **absent**, antenna off at max gain too |
 | 97.400 | an FM station **(control)** | displaced, external | displaced, external |
 
-### The fine comb transfers; the coarse one does not
+### Both combs transfer, and the odd multiples are 27 dB down
 
-Six multiples of 1.6 MHz read on their exact nominal on **both** receivers.
-That is the first evidence that the 1.6 MHz family is a property of this part
-rather than of one unit, and `survey_fine_comb_spacing_hz()` is measuring
-something real.
+**This section said the opposite on 2026-09-12 and was measured under a
+condition that hides the answer.** The first pass probed at default gain with
+the antenna connected, found no odd multiple of 14.4 MHz on its nominal, and
+concluded that the coarse comb does not transfer. Re-run at **max gain with
+the antenna removed**, two of them are exactly on nominal:
 
-The odd multiples are recorded as *present* rather than *exact* on the R820T
-deliberately: the sweep that established them found five and put **three of
-the five** within a bin of the coherent prediction, which is the ticket's own
-wording and is weaker than the six fine-comb lines above, every one of which
-reads on its nominal.
+| multiple | | antenna on, max gain | antenna off, max gain |
+| --- | --- | --- | --- |
+| even x4 | 57.600 | +488 Hz, -25.3 | **+488 Hz, -49.2, 20.2 dB** |
+| odd x5 | 72.000 | -2441 Hz, external | nothing |
+| even x6 | 86.400 | +488 Hz, -28.3 | **+488 Hz, -35.9, 33.9 dB** |
+| odd x7 | 100.800 | nothing | nothing |
+| even x8 | 115.200 | +488 Hz, -4.1 | **+488 Hz, -36.8, 33.3 dB** |
+| odd x9 | 129.600 | nothing | nothing |
+| even x10 | 144.000 | +488 Hz, -14.3 | **+488 Hz, -27.2, 42.8 dB** |
+| odd x11 | 158.400 | nothing | nothing |
+| even x12 | 172.800 | +488 Hz, -31.5 | **+488 Hz, -26.6, 43.4 dB** |
+| **odd x13** | **187.200** | -5371 Hz, external | **+488 Hz, -59.5, 10.8 dB** |
+| even x14 | 201.600 | +488 Hz, -9.5 | **+488 Hz, -13.3, 55.3 dB** |
+| **odd x15** | **216.000** | -7324 Hz, external | **+488 Hz, -57.7, 9.3 dB** |
 
-**Every odd multiple of 14.4 MHz is absent or displaced on the E4000** --
-72, 129.6, 158.4, 187.2, all four of them -- while 115.2, which is 14.4 x 8
-and therefore **28.8 x 4**, is the strongest line the second receiver has in
-that range. This is the sharpest result here, and it lands exactly on a doubt
-already written down: `issues/10-*` records that the unplug sort which
-originally established the coarse comb left only **even** multiples standing
-(489.6, 547.2, 604.8 -- 14.4 x 34, 38, 42, so 28.8 x 17, 19, 21) and says
-"the subset made and heard entirely inside the receiver may be the 28.8
-multiples specifically".
+**Six of six even multiples are present on both receivers, and at least two of
+six odd ones.** So the spacing is `reference / 2` on this board as well as on
+the R820T, and `survey_comb_spacing_hz()` models the right interval. That is a
+result rather than a suspicion now: it was arrived at by trying to refute it.
 
-A second receiver now says the same thing from a different direction.
-`survey_comb_spacing_hz()` returns `reference / 2`, and on this evidence the
-half is the R820T board's and not the family's. **It is not yet a reason to
-change the constant** -- one board, one site, one antenna position, and an
-absence is weaker than a presence -- but it is the first measurement that
-could ever have distinguished them, and it points one way.
+What is true, and is what the first pass was seeing, is that **the odd members
+are far weaker**. With the antenna off the six even multiples average about
+-31 dBFS and the two odd ones about -58 -- a gap of roughly 27 dB -- and they
+sit at 9 to 11 dB of prominence against an 8 dB bar. Three of the six odd
+frequencies are not detectable at all even at max gain with the antenna off.
+
+This also explains the R820T's record without contradicting it. The unplug
+sort that originally established the coarse comb left only even multiples
+standing, and the five odd multiples later found there read 9.5 to 25.4 dB of
+prominence -- near the bar, exactly as here. The doubt `issues/10-*` raised
+("the subset made and heard entirely inside the receiver may be the 28.8
+multiples specifically") is answered: **no**, the odd ones are inside too, and
+they are quiet.
+
+### The method, which is the transferable part
+
+**An antenna hides the receiver's own weak lines**, and it hides them in a way
+that reads as a measurement rather than as a failure. At 187.2 and 216.0 MHz
+the connected antenna delivered a *stronger* external signal a few kilohertz
+away; "the candidate nearest the nominal" picked that one, reported it
+displaced, and the verdict came back external. The comb member underneath was
+never seen. Both frequencies are unambiguous the moment the antenna is off.
+
+That is the same trap `scripts/tone_probe.sh` documents from the other
+direction -- the hypothesis decides where to look -- and it has now cost a
+wrong conclusion in this file. **A null about an internal line is only worth
+something with the antenna off**, and preferably at max gain.
 
 ### The unexplained families do not transfer at all
 
@@ -207,5 +233,11 @@ it as one.
   refuses to represent. Two is a different argument from one.
 - `issues/10-*` can drop "a property of the RTL2832U" from the candidate
   explanations of the 75/135/150/540 family.
-- Whether `survey_comb_spacing_hz()` should be `reference / 2` at all is now
-  a question with evidence on both sides of it rather than one.
+- **`survey_comb_spacing_hz()`'s `reference / 2` is confirmed and should not
+  be touched.** Two boards, and on this one the odd multiples were found by
+  going looking for them with the antenna off at max gain. What the constant
+  does not carry, and what a reader of a survey should know, is that the odd
+  members run about 27 dB below the even ones and sit within 3 dB of the
+  detection bar -- so a receiver-like mark resting on an odd multiple is a
+  weaker claim than one resting on an even one, and nothing on the screen says
+  which it is.
