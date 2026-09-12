@@ -657,6 +657,59 @@ The experiment still worth doing is the one that was never possible today:
 **catch 135 or 540 while present and run the four-grid control and the antenna
 unplug on them.** Until then they are two readings, not two frequencies.
 
+## 10. The 14.4 MHz comb, tested at last -- 2026-09-12
+
+Section 6's sharpest observation was not about the unexplained frequencies at
+all. **This repository's 14.4 MHz comb rested on one frequency**, 129.600159,
+and every other member it had ever cited -- 489.6, 547.2, 604.8, 144.0 -- is an
+*even* multiple, which is also a multiple of 28.8. So the claim "a tone every
+reference/2" had never been distinguished from "a tone every reference".
+
+The odd multiples were swept. All five are present:
+
+| nominal | 14.4 x | observed | error vs coherent |
+| --- | --- | --- | --- |
+| 43.2 MHz | 3 | 43 201 465 | +83 Hz |
+| 72.0 MHz | 5 | 71 999 512 | -2792 Hz |
+| 100.8 MHz | 7 | 100 805 371 | +2145 Hz |
+| 158.4 MHz | 11 | 158 405 371 | +302 Hz |
+| 187.2 MHz | 13 | 187 206 348 | +358 Hz |
+
+(72.0 and 100.8 read two to three bins off the coherent prediction rather than
+under one. Both are strong -- 25.4 and 13.7 dB -- and a strong peak is pulled
+by its own skirt; the others are inside a bin. Worth re-measuring at a
+confirmation pass's resolution before anything is built on those two.)
+
+**So the spacing is reference/2 and not reference.** `survey_comb_spacing_hz()`
+models the right interval, and the evidence for it is now five independent
+frequencies rather than one.
+
+### What this does *not* establish, and it matters
+
+**Every multiple of 14.4 is also a multiple of 1.6**, since 14.4 = 9 x 1.6. So
+this test separates 14.4 from 28.8 and does **nothing** to separate a 14.4 comb
+from the 1.6 comb -- the five frequencies above are equally members of both.
+
+What separates them is the other direction: **131.2, 136.0, 270.4, 120, 240 and
+480 MHz are multiples of 1.6 and are not multiples of 14.4**. Those are what
+make the fine comb an independent family rather than a re-description.
+
+And a third distinction is still unexamined. The antenna-unplug sort that
+originally established the coarse comb left three tones standing -- 489.6,
+547.2 and 604.8 -- which are 14.4 x 34, 38 and 42, all **even**, and therefore
+28.8 x 17, 19 and 21. So the subset that is made *and heard* entirely inside
+the receiver may be the 28.8 multiples specifically, which is a finer statement
+than anything this repository currently makes and would need the unplug test
+re-run across the odd multiples above.
+
+### 195 and 255 MHz: absent, and the speculation dies as designed
+
+Section 6 offered these as a deliberately cheap test: every present frequency
+except 30, 75 and 135 is a multiple of 60, and those three sit on the same grid
+offset by 15 -- so 195 and 255 would have to be present if the residue were a
+60 MHz-spaced family. Both are **absent**. Two points and a coincidence, as the
+section said, and now measured rather than assumed.
+
 ## References
 
 Ordered by how much of this document rests on each.
