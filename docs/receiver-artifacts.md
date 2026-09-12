@@ -106,6 +106,29 @@ frequencies, which is a caution for anything built on
 antenna removed is reproduced in both pairs and unexplained**; no mechanism is
 offered here.
 
+**The sort was re-run at max gain later the same day, and it moves two
+things.** Default gain sees the loud half of anything and reports a pattern.
+
+First, **every odd multiple of 14.4 MHz survives the unplug** -- x3, x5, x7,
+x9, x11, x13 and x15, all seven, all reading their exact nominal with the
+antenna off. The paragraph above records that the original sort left only even
+multiples standing, and this file wondered whether the inside kind was the
+28.8 multiples specifically. It is not. The odd multiples are inside too and
+are **15.4 dB quieter** on average, a gap that narrows with frequency --
+22.6 dB at x2/x3, nothing by x14/x15. A sort run near the detection bar reads
+that level difference as a difference in kind.
+
+Second, **the 75/135/150/300 MHz family is radiated**, which nothing had
+established. Every member that was up read its exact nominal with the antenna
+connected and vanished without it; since a tone reading its exact nominal on
+an uncorrected receiver is one clocked by this crystal, the family is
+generated inside and heard back through the antenna -- the second kind, like
+the low ladder. `.scratch/device-model/issues/10-*` has the table.
+
+**So a mark's strength is not evidence of its kind**, and nothing here should
+be read as implying it is. What separates the two kinds is the unplug, run at
+a gain high enough to put the quiet half above the bar.
+
 ### The algorithm
 
 `survey_comb_harmonic(hz, spacing_hz, tolerance_hz)`:
