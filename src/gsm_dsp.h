@@ -45,6 +45,18 @@ struct gsm_fcch_result {
     float amplitude;
 };
 
+/*
+ * The GSM 900 downlink grid: channel n sits at base + n * spacing.
+ *
+ * Here rather than in app.h, where they were, because the grid is a fact
+ * about the band and not about this program's state -- and a module that
+ * wanted it had to include `struct app` to get it, which is how a header for
+ * the application's shared state becomes a header everything includes.
+ * gsm_downlink_hz() below is the same arithmetic with the bounds checked.
+ */
+#define GSM900_BASE_HZ 935000000.0
+#define GSM900_ARFCN_SPACING_HZ 200000.0
+
 /* GSM 900 downlink ARFCN (1-124) -> frequency in Hz. Returns 0 for an
    out-of-range ARFCN. */
 int gsm_downlink_hz(unsigned int arfcn, uint32_t *frequency_hz);

@@ -8,6 +8,7 @@
 #include "scan_layout.h"
 #include "view.h"
 #include "sdrgui.h"
+#include "debug_log.h"
 
 /*
  * The GSM 900 band scan: sweep the downlink, chart each channel's power, and
@@ -67,6 +68,10 @@ int start_scan(struct app *app) {
     app->bandscan.step_started_at = GetTime();
     app->bandscan.running = 1;
     app->bandscan.open = 1;
+    debug_log_write("gsm-scan", "begin, %d steps, %.1f s",
+                    app->bandscan.plan.step_count,
+                    app->bandscan.plan.step_count *
+                        (SCAN_STEP_SETTLE_SECONDS + SCAN_STEP_PROBE_SECONDS));
     return 0;
 }
 
@@ -116,6 +121,23 @@ void update_scan(struct app *app) {
     if (phase == SCAN_STEP_FINISHED) {
         app->bandscan.running = 0;
         int chosen = scan_choose(app->bandscan.power, app->bandscan.bcch_conf);
+        /*
+         * What a two-minute walk came to, in one line.
+         *
+         * `bcch` separately from `chosen` because they can differ and the
+         * difference is the whole answer: scan_choose() falls back to the
+         * loudest channel when nothing carried a broadcast carrier, so a
+         * `chosen` with `bcch 0` beside it is "something to look at" rather
+         * than "a GSM channel", and a reader who cannot tell those apart is
+         * looking at a chart that can never say anything.
+         */
+        debug_log_write("gsm-scan", "done, %d steps, chose arfcn %d, "
+                        "bcch %d, confidence %.2f",
+                        app->bandscan.plan.step_count, chosen,
+                        scan_select_bcch(app->bandscan.power,
+                                         app->bandscan.bcch_conf),
+                        chosen > 0 ? (double)app->bandscan.bcch_conf[chosen]
+                                   : 0.0);
         if (chosen > 0 && app->bandscan.autoselect &&
             app->tab == TAB_DECODE && app->decode == DECODE_GSM &&
             !app->cal.open) {
