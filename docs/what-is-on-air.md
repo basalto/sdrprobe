@@ -98,6 +98,22 @@ The confirmation pass measures at 244 Hz where the sweep had 212 kHz bins, and
 now reports what kind of thing it found. That is what settled these -- none of
 them is a decoder.
 
+**And the receiver's own signals divide in two, measured 2026-09-12.** Two
+antenna-off/antenna-on pairs, with an FM broadcast station as the control,
+which lost 35.8 dB when the antenna came off. The 480 MHz ladder member lost
+**35.5** and 30, 60, 120, 180 and 240 MHz disappeared outright: those are
+radiated by this receiver and heard back through the antenna, on the same path
+as any transmitter. 115.2 MHz (1.6 x 72) lost 4.5 dB and 960 MHz lost nothing:
+those are made and heard entirely inside. `docs/receiver-artifacts.md` has the
+table and the consequence -- a radiated artifact's *level* is not a property
+of the part, so it will not transfer to another receiver even where its
+frequency does.
+
+**What that does not license.** The unplug was run on the 30-480 ladder and
+both combs; it was **not** run on 75, 135 or 540 MHz, which were absent or
+intermittent throughout, so nothing here says by which path the 75 MHz family
+in the table above arrives.
+
 **VHF band I television, 60-68 MHz**, the second-strongest group in the sweep.
 Two narrow carriers a few kilohertz wide, one of them *bare*: 62.4058 MHz at
 43.5 dB with 89% of the channel standing still. A television channel is 7 MHz.
