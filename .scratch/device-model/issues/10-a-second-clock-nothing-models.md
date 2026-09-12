@@ -471,3 +471,67 @@ are its half and double and are also present, which is suggestive and not
 evidence. 480/28.8 is exactly 50/3.
 
 `docs/rtl-sdr-spurs-reference.md` is the literature search against all of this.
+
+## The literature, and what it did to the set -- 2026-09-12
+
+`docs/rtl-sdr-spurs-reference.md` is the search: ten references, primary and
+secondary separated, confidence marked on every claim.
+
+**One real hit and it is the ladder.** UTMI [R8] puts 480 MHz (the high-speed
+bit rate), 60 MHz (8-bit parallel) and 30 MHz (16-bit parallel) live on a USB
+2.0 PHY die at once. Ten of the fifteen measured frequencies are that family
+and its third harmonics -- 30, 60, 120, 240, 480, 960 and 180, 360, 720, 1440
+-- all necessarily coherent with 28.8 MHz because the RTL2832U has one crystal
+for everything [R1]. It explains the **shape** as well as the frequencies: a
+clock tree has a top and a bottom and halves in between, which is what
+`clock_chain.h` models, and this is the first external reason to think that
+shape is right rather than fitted.
+
+Marked **likely and not established**: no source says the RTL2832U's PHY is
+UTMI or ULPI, and its datasheet says nothing about USB clocking at all.
+
+**Two clean nulls.** Nothing published describes a 14.4 MHz comb or a 1.6 MHz
+comb; 28.8/18 appears in no datasheet, no register description and not in
+librtlsdr. And nothing accounts for 75/150/300 or 135/540 -- six hypotheses
+are tabulated with the measured absence that kills each.
+
+**Two corrections to what this ticket assumed.** The R820T VCO is 1770-3540
+MHz (`vco_max = vco_min * 2`, literally, in `tuner_r82xx.c`), and the R820T's
+own design-centre crystal is 16 MHz -- 28.8 comes from the RTL2832U.
+
+### Then the measurements moved
+
+Section 6 named three things to do and all three were done within the hour.
+
+**48 MHz: absent**, and the test was weaker than billed -- 48 is not in UTMI's
+480/60/30 family, so its absence is consistent with the USB hypothesis rather
+than against it.
+
+**90 MHz: absent**, and this one counts. It is 3 x 30, the missing member of
+the third-harmonic row that carries 180, 360, 720 and 1440. Two harmonic rows
+now have a gap each: 3 x 30 and 5 x 120.
+
+**135 and 540 are intermittent, and that is the finding.** Both were present
+this morning -- 135 confirmed 6 of 6 looks -- and by afternoon both are absent
+in four step grids, in a 1.0 s dwell sweep that found nothing at all in
+134-136, and at gain max, 20 and 8 alike. Over the same hours the ladder did
+not move one hertz: 30.000488, 60.002441, 180.006348, 480.015137, 960.030762,
+identical morning and afternoon.
+
+**So the set divides into a steady ladder and two intermittent tones, and the
+division falls exactly where the literature's explanatory power does.** The two
+things nothing explains are also the two that do not stay still -- and they
+have therefore **never passed the fixed-frequency control**, because they
+vanished before it could be run on them. Two readings, not two frequencies.
+
+One hypothesis was tested and discarded on the spot: that they are second-order
+products of the ladder, 135 = 60 + 75 and 540 = 60 + 480. **225, 270 and 600
+are also sums of steady tones and all three are absent**, so sums do not
+discriminate.
+
+### What this ticket needs next
+
+Catch 135 or 540 **while present** and run the four-grid control and the
+antenna unplug on them. Everything else is waiting on that. The ladder needs
+no more work here; it needs a second receiver, which is
+`.scratch/device-model/issues/07-*`.
