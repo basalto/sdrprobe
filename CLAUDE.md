@@ -22,6 +22,7 @@ make check-options    # the command line: every flag, value, and rejection
 make check-survey     # the survey window's zoom, pan and clamp arithmetic
 make check-survey-sweep # the sweep's step plan, fold, and measurement
 make check-survey-session # the survey's machine: sweep, ask again, watch, measure
+make check-startup-session # find a reference, measure the crystal, hold it at the gate
 make check-suspect    # candidates that look like the receiver, not the band
 make check-reading-origin # whose oscillator a reading belongs to
 make check-clock-chain # a clock family in octaves, not harmonics
@@ -269,6 +270,9 @@ make probe-signal FILE_SIGNAL=captures/x.bin AT_SIGNAL=300000 \
     CONTROLS_SIGNAL=-200000,600000                      # on air, or noise?
 make probe-fm-filter FILE_FM_FILTER=testfiles/fm_rds_tsf.bin  # RDS: which biphase filter?
 make probe-two-cell                          # two cells on one carrier: how often?
+make probe-fcch FILE_FCCH=captures/x.bin RATE_FCCH=2000000 CARRIER_FCCH=400000
+                                             # every coherent tone in a GSM
+                                             # channel, and which is the FCCH
 ```
 
 `probe-periodicity` is the odd one out: it demodulates nothing, and works on a
@@ -1569,6 +1573,118 @@ correction belonging to neither. An LTE calibration borrows 1.92 MS/s
 (ADR-0014) and gives the rate back on close. Measured on air, the two agree to
 about a ppm -- GSM ARFCN 113 gave -31.3 and LTE EARFCN 6200 gave -32.5.
 
+**The session begins at a known installation** (ADR-0024). On a plain windowed
+receiver launch a modal form asks where this is -- site, antenna, receiver
+label, gain, the 4G fall-back band -- while a calibration runs behind it and
+reports into the form's own panel. `startup_session.{c,h}` is the machine and
+`overlay_startup.c` only draws it: it scans GSM 900 with `scan_plan.h`'s walk,
+takes `scan_select_bcch()`, and falls through to an LTE band scan when nothing
+carried a broadcast carrier.
+
+**GSM leads, and not because it is more precise.** Both references pass
+through the same gate at the same tolerance, and the on-air pair above agree
+to about a ppm. It leads because **only an FCCH-backed calibration enables the
+drift re-check** -- `update_drift_check()` returns immediately unless
+`cal.gsm_valid`, which only `CALIBRATION_SOURCE_FCCH` sets -- because an FCCH
+is a tone where a PSS phase wraps every 15 kHz, and because a GSM reference
+costs **sixteen steps of 0.8 s** against minutes for a band of LTE channels.
+The fall-through is on **"no BCCH"**, never "no power": `scan_choose()` sits
+beside `scan_select_bcch()` and falls back to the loudest channel, which for a
+band full of carriers that are not GSM hands the calibration one with no tone
+in it.
+
+**Two references, or none.** A search asks the band what to calibrate
+against, so it owes a second opinion: after one channel locks the gate the
+machine measures the next-best verified carrier and requires the two within
+`STARTUP_AGREE_PPM`. Disagreement is a **refusal** that applies nothing and
+reports both numbers -- `app.h` said so before it was built, and
+`.scratch/startup-installation/issues/08-*` is why it had to be. At this site
+three parity-verified GSM cells give **+71, +51 and +35 ppm** ordered by
+frequency, about -1.8 ppm per megahertz, and *no single-channel statistic
+separates them*: the spreads overlap, the tone coherence is flat across a
+channel (see below), and the worst offender decodes 284 synchronisation bursts
+in 25 s. A caller that **names** the channel is not second-guessed --
+`--calibrate gsm --arfcn N` is an instruction, not a question.
+
+`make probe-fcch` is what settled the shape of it: it sweeps `gsm_fcch_detect`
+across a channel with a narrow search at each step, where the shipping
+detector takes one winner over +/-50 kHz. **Amplitude is the discriminator and
+confidence is not** -- GMSK is constant-envelope and continuous-phase, so the
+coherence reads 0.96 to 0.997 at *every* position inside an occupied carrier
+and says nothing about where the tone is. By amplitude each channel shows one
+clean peak, so the detector is not preferring a wrong line; the channels
+really do read differently. **Pass `RATE_FCCH`**: an empty `make` variable
+vanishes from the argument list rather than becoming an empty argument, so
+omitting it shifts every positional after it. And **`STEP_FCCH` and
+`HALF_FCCH` are separate knobs on purpose** -- they were one, so resolving a
+few-kHz effect meant stepping in a few-kHz stride and the answer came out
+quantised to the size of the thing being measured.
+
+**No `probe-*` or `bench-*` target is built by `make check`, and four of them
+had stopped compiling.** `device_profile_rtlsdr()` gained a tuner argument and
+every *test* was updated because tests are in `CHECK_UNITS`; `gsm_chain_probe`,
+`adsb_chain_probe`, `dsp_bench` and `survey_threshold_probe` were not, and it
+was found only by reaching for one mid-diagnosis. Same shape as
+`check-signal-probe` existing and never being gated.
+
+**A tone is not a broadcast carrier, and the scan takes the loudest.**
+`GSM_FCCH_SEARCH_HALF_HZ` is 50 kHz, so the detector reports any coherent line
+within that of where an FCCH would be -- so the chosen channel has to produce
+a **parity-valid synchronisation burst** before anything is measured against
+it, and a candidate that cannot is dropped in favour of the next best.
+`.scratch/startup-installation/issues/08-*` is the open question underneath
+it: at this site ARFCN 63 passes that gate with BSIC 42 and still reads 14 ppm
+from ARFCN 113, and the 2x2 at two applied corrections says that is a constant
+13 kHz bias on one channel's tone rather than two cells disagreeing about one
+crystal. **Until it is understood the startup form is not unattended** -- it
+files nothing without a click, and it shows the channel, the BSIC and the
+correction so the click is an informed one.
+
+**`--calibrate` and the startup form are one machine now** (`--calibrate auto`
+runs the same GSM-then-LTE search), and folding them found a shipped bug that
+no check could: the headless path called `update_calibration_measurement()`
+**every loop iteration** rather than once per block, recording each block's
+residual five to twenty times. The ring is 64 deep and the gate reads a median
+and a MAD over it, so duplicates defeat the exact thing those statistics are
+for -- two of three live runs locked on a run of outliers and suggested a
+correction 45 ppm wrong. The window, which called the same function from
+inside `if (spectrum_updated)`, was never affected. `check-startup-session`
+pins one-residual-per-block.
+
+The verdict then lives in the **health indicator**, hovering a dot for the
+correction, the reference and how long ago. Nothing here dismisses itself on a
+timer: a correction is a standing fact about the receiver, and a surface that
+erased itself could not answer "what am I corrected by?" a minute later.
+
+**A scripted run never sees it**, and that is a rule rather than luck --
+`startup_form_wanted()` is pure and `check-options` covers every case.
+`--headless`, `--file`, `--duration`, `--view`, `--ppm`, `--site` and
+`--no-startup` each skip it; `--view startup` opens it anyway, so it can be
+screenshotted. The environment answers the same four questions for a launcher
+that cannot reach the command line -- `SDRPROBE_SITE`, `SDRPROBE_ANTENNA`,
+`SDRPROBE_RECEIVER_LABEL`, `SDRPROBE_NO_STARTUP` -- read through a lookup
+passed to `options_apply_environment()` rather than `getenv()` inside the
+parser, because that is the one thing a check cannot control. **A flag beats a
+variable beats the config file**, and an empty variable is not a value: a unit
+file that forgot to fill one in must not file every sweep under the last site
+used.
+
+**What the log records, and what it did not.** `debug_log_write()` had
+twenty-one call sites in two files, and `overlay_calibration.c` contained
+none: a calibration performed in the window left no record anywhere except the
+final integer in the config file -- no sequence, no reference, no scatter,
+while the headless path prints every residual deliberately. There are now
+`cal`, `startup`, `gsm-scan`, `lte-scan`, `config` and `installation`
+keywords, using **the same field names `--calibrate` prints** (`observed_ppm`,
+`sem_ppm`, `source`, and the five-word reason vocabulary), because two
+vocabularies for one measurement is how a grep stops working at the seam. The
+`open` line carries the version; a second `installation` line carries the
+receiver, site, antenna and gain, and has to be second because the serial is
+not known until the device is open. And `retune_receiver()`'s comment promised
+that "a retune that fails is exactly the one worth having a record of" while
+logging only the request -- the outcome is logged now, quoting
+`receiver_error`.
+
 - **Calibration lock** (`update_calibration_measurement`, `robust_center_spread`)
   gates on a median/MAD-based standard error over a *source-homogeneous* residual
   buffer — mixing centroid and FCCH residuals is the bug the gate exists to
@@ -1695,9 +1811,16 @@ share the header -- which is exactly what makes it hard to notice.
   nothing, and two seconds names it only depending on where the segment cycle
   falls -- a separate two-second recording of the same station minutes earlier
   did not. The old capture was on the lucky side of that.
-  `gsm_arfcn_113.bin` is the only one whose cell is still on air — 69 and 73
-  went off the air with the operator's refarming, so they are historical and
-  cannot be re-recorded. Those real-signal
+  `gsm_arfcn_113.bin` is the only one whose cell is on air **at the site
+  these are worked on**. 69 and 73 were recorded elsewhere and their cells are
+  not audible here, so they cannot be re-recorded from this desk — which is a
+  fact about where the receiver is, not about the network. This file said they
+  "went off the air with the operator's refarming"; **there is no GSM
+  refarming here and that claim was never measured**, it was inferred from two
+  captures going quiet after the receiver moved. ADR-0022 is the same
+  observation made properly: a signal that vanishes when the installation
+  changes has not gone off the air, and a history that could not tell those
+  apart would report it as though it had. Those real-signal
   invariants are the only checks a wrong SCH field layout cannot satisfy: the
   synthetic round trip passes against any layout the encoder shares.
 

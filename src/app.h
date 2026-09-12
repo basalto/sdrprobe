@@ -36,6 +36,7 @@
 #include "signal_findings.h"
 #include "survey_sweep.h"
 #include "survey_session.h"
+#include "startup_session.h"
 
 
 /*
@@ -50,8 +51,10 @@
  * temporary borrowing of the receiver, each owner holds a token rather than a
  * frequency, and receiver_lease.h is the rule they unwind by.
  */
-#define GSM900_BASE_HZ 935000000.0
-#define GSM900_ARFCN_SPACING_HZ 200000.0
+/* GSM900_BASE_HZ and GSM900_ARFCN_SPACING_HZ were here, which meant a module
+   wanting the channel grid had to include the whole of the application's
+   state to get it. They are in gsm_dsp.h now, beside gsm_downlink_hz(), which
+   is the map they are the arithmetic of. */
 
 /*
  * The calibration overlay's own state: the GSM 900 channel calibration, the
@@ -85,8 +88,8 @@
  * The order is load-bearing: the header draws the row from this enum's values,
  * so the numbers a reader presses are these positions. FM leads because it is
  * the one that always has something to show here -- broadcast is on the air
- * every hour of every day, where a GSM capture needs a cell that has not been
- * refarmed and ADS-B needs an aircraft overhead.
+ * every hour of every day, where a GSM capture needs a cell within reach of
+ * wherever the receiver is and ADS-B needs an aircraft overhead.
  */
 enum decode_kind {
     DECODE_FM,
@@ -796,6 +799,52 @@ struct help_overlay {
  * (`.scratch/deepening/issues/04-survey-session.md`). The split is the point:
  * everything in this struct is about a window and nothing in it decides.
  */
+/*
+ * The startup form: where this is, what it is listening with, and the
+ * calibration running while the operator answers.
+ *
+ * ADR-0024. What *decides* is `struct startup_session`, which has never seen
+ * this struct -- everything here is a text field, a menu, a selection or a
+ * lease token, which is the split `struct survey_view` was taken through and
+ * for the same reason.
+ */
+struct startup_view {
+    struct startup_session session;
+
+    /* Nested like `cal.open` and `help.open`. ADR-0008: extend the enums,
+       do not add a flag to `struct app`. */
+    int open;
+
+    char site[CONFIG_VALUE_MAX];
+    int site_length;
+    char antenna[CONFIG_VALUE_MAX];
+    int antenna_length;
+    /* A receiver with no USB serial, or one of the many that share theirs,
+       cannot have a calibration profile at all (ADR-0018) -- so this is asked
+       here, where it is still fixable, rather than discovered when the
+       correction fails to file. */
+    char label[CONFIG_VALUE_MAX];
+    int label_length;
+
+    int focus;                  /* enum startup_field, or -1 for none */
+    int site_menu_open;
+    int antenna_menu_open;
+
+    /* Which of the reachable LTE bands the fall-back would scan. An index
+       into view_lte_bands(), not a band number: the list is the receiver's
+       and a number that is not on it is not reachable. */
+    int band;
+
+    /* The receiver, while the calibration behind the form owns it. */
+    struct receiver_lease_token lease_token;
+    /* Whether the machine's last retune request has been passed to the
+       receiver yet, and what it was -- so the adapter can report the tuning
+       back exactly once. */
+    uint32_t pending_hz;
+    uint32_t pending_rate_hz;
+    int retune_pending;
+};
+
 struct survey_view {
     struct survey_session session;
 
@@ -898,6 +947,7 @@ struct app {
     struct settings_panel set;
     struct help_overlay help;
     struct calibration cal;
+    struct startup_view startup;
     struct band_scan bandscan;
     struct acquisition acq;
     struct options options;

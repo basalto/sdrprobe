@@ -44,7 +44,12 @@ enum start_view {
        reason every decision has to be (ADR-0012). */
     START_VIEW_CALIBRATION,
     START_VIEW_SETTINGS,
-    START_VIEW_HELP
+    START_VIEW_HELP,
+    /* The startup form. Normally it opens by itself on a plain windowed
+       receiver launch and a scripted run never sees it; naming it here is how
+       it can be screenshotted and looked at, which is the whole reason
+       START_VIEW_CALIBRATION above exists. */
+    START_VIEW_STARTUP
 };
 
 enum gain_request_kind {
@@ -132,7 +137,9 @@ struct options {
     /*
      * Run a calibration with no window and print what it measures.
      *
-     * 0 none, 1 GSM, 2 LTE. The lock gate is a decision -- it decides whether
+     * 0 none, 1 GSM, 2 LTE, 3 auto -- the startup machine's own GSM-then-LTE
+     * search (ADR-0024), which until it was named here could only be reached
+     * by launching a window. The lock gate is a decision -- it decides whether
      * a correction may be applied -- and until this it was reachable only by
      * somebody clicking Start and watching a status line, which is exactly
      * what ADR-0012 says a decision must never be.
@@ -170,6 +177,19 @@ struct options {
     /* A stable name for a receiver whose USB serial is missing or shared,
        which many of these dongles are. Beats the serial when set. */
     const char *receiver_label;
+    /*
+     * Do not open the startup form.
+     *
+     * It exists to find out the installation, so a run that already states it
+     * has nothing to be asked -- and every scripted shape of run skips it
+     * anyway (startup_form_wanted()). This is the explicit refusal, for the
+     * operator who would rather answer once in the config file.
+     */
+    int no_startup;
+    /* Whether --view was given at all, as opposed to the default landing on
+       Survey. `startup_form_wanted()` needs the difference: a run that names
+       its screen is a scripted one, and `--view survey` is naming it. */
+    int view_seen;
     int gsm_features;         /* GSM_OPT_* bitmask for the SCH decoder */
     int gsm_features_seen;
     int remove_dc;            /* the DC-spike filter, on unless told otherwise */
@@ -227,5 +247,39 @@ int parse_gsm_features(const char *text, int filter_flag, int finecfo_flag,
 int parse_switch(const char *text, int *value);
 
 int parse_options(int argc, char **argv, struct options *options);
+
+/*
+ * The environment's say in the same four questions the startup form asks:
+ * SDRPROBE_SITE, SDRPROBE_ANTENNA, SDRPROBE_RECEIVER_LABEL and
+ * SDRPROBE_NO_STARTUP.
+ *
+ * It exists because a launcher, a systemd unit or a field script cannot
+ * always reach the command line -- and wrapping the binary in a shell script
+ * to add two flags is how a deployment acquires a second place to get the
+ * site wrong.
+ *
+ * **One precedence rule: a flag beats a variable beats the config file.** So
+ * a value already set by a flag is left alone here, and a value set here is
+ * remembered exactly as a flag's is -- a site named once should be offerable
+ * next time however it was named, and a second rule is how one place becomes
+ * two.
+ *
+ * `lookup` is the reader rather than getenv(), so a check can hand it a table
+ * and reach every case. Calling getenv() inside the parser would put the one
+ * thing a check cannot control in the middle of the one thing every check
+ * controls. Returns how many values it applied.
+ */
+int options_apply_environment(struct options *options,
+                              const char *(*lookup)(const char *));
+
+/*
+ * Whether this run should open the startup form at all.
+ *
+ * Pure, and a list rather than a condition scattered over main(): a scripted
+ * run must never be stopped by a form, and `check-pipelines`, every
+ * screenshot recipe and every --duration check depend on that being true by
+ * rule rather than by luck.
+ */
+int startup_form_wanted(const struct options *options);
 
 #endif

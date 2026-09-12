@@ -77,14 +77,16 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
 	$(SRC)/view_survey.c \
 	$(SRC)/band_plan.c \
-	$(SRC)/overlay_calibration.c $(SRC)/overlay_scan.c \
+	$(SRC)/overlay_calibration.c $(SRC)/overlay_startup.c $(SRC)/overlay_scan.c \
 	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
+	$(SRC)/startup_session.c \
 	$(SRC)/debug_log.c
 APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
-	$(SRC)/survey_session.h \
+	$(SRC)/survey_session.h $(SRC)/startup_session.h \
+	$(SRC)/startup_layout.h \
 	$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
 	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
@@ -265,19 +267,21 @@ check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 # runs in a temporary directory of its own and never touches surveys/.
 check-installation: $(TESTS)/installation_test.c $(TESTS)/check.h \
 		$(SRC)/installation.h $(SRC)/installation.c $(SRC)/config.c \
+		$(SRC)/debug_log.c $(SRC)/debug_log.h \
 		$(SRC)/site_history.h $(SRC)/site_history.c
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/installation_test \
 		$(TESTS)/installation_test.c $(SRC)/installation.c \
-		$(SRC)/config.c $(SRC)/site_history.c -lm
+		$(SRC)/config.c $(SRC)/site_history.c $(SRC)/debug_log.c -lm
 	$(Q)./$(BUILD)/installation_test
 
 check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
+		$(SRC)/debug_log.c $(SRC)/debug_log.h \
 		$(SRC)/config.h $(SRC)/sdr_dsp.h \
 		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/config_test \
-		$(TESTS)/config_test.c $(SRC)/config.c -lm
+		$(TESTS)/config_test.c $(SRC)/config.c $(SRC)/debug_log.c -lm
 	$(Q)./$(BUILD)/config_test
 
 # Naming a saved sweep, and escaping what goes in it. The write itself needs a
@@ -662,6 +666,24 @@ check-survey-sweep: $(TESTS)/survey_sweep_test.c $(TESTS)/check.h \
 		$(TESTS)/survey_sweep_test.c -lm
 	$(Q)./$(BUILD)/survey_sweep_test
 
+# The startup sequence: find a reference, measure the crystal against it, and
+# hold the answer at the gate. GSM first because only an FCCH-backed
+# calibration enables the drift re-check, and a band of GSM costs seconds
+# where a band of LTE costs minutes. The settle here is timed from the tuning
+# and not from the request, which is the fault no capture can reach -- nothing
+# in testfiles/ retunes (ADR-0012, ADR-0024).
+check-startup-session: $(TESTS)/startup_session_test.c $(TESTS)/check.h \
+		$(SRC)/startup_session.c $(SRC)/startup_session.h \
+		$(SRC)/scan_plan.h $(SRC)/lte_scan.h $(SRC)/calibration_gate.h \
+		$(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
+		$(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/startup_session_test \
+		$(TESTS)/startup_session_test.c $(SRC)/startup_session.c \
+		$(SRC)/gsm_dsp.c $(SRC)/lte_dsp.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(BUILD)/startup_session_test $(TEE)
+
 # The survey's own state machine: which block is stale, when a step is over,
 # what a confirmation pass asks about and concludes, what a watch reports.
 # Every one of those used to be reachable only by running the program against
@@ -727,7 +749,8 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
-	check-lte-session check-survey-session check-gsm-dsp check-rds \
+	check-lte-session check-survey-session check-startup-session \
+	check-gsm-dsp check-rds \
 	check-lte-scan check-tetra-dsp check-layout check-adsb-session \
 	check-sdr-dsp check-sample-format check-survey-store check-survey-record \
 	check-lte-transport check-lte-turbo check-options check-tetra-sync \
@@ -952,6 +975,19 @@ GUARD_SIGNAL?=150000
 # mix cannot follow a drifting carrier, so the standing fraction falls as the
 # observation lengthens.
 PAIRS_SIGNAL?=0
+# Every coherent tone in a GSM channel, and which of them is the FCCH.
+# signal_probe cannot answer this: inside an occupied 200 kHz carrier
+# everything is modulated energy, so it reports "a modulated carrier" wherever
+# it is pointed. The FCCH is the coherent thing, not the loudest, and this is
+# the detector that knows the difference -- swept, with a narrow search at
+# each step, because the shipping one picks one winner over 50 kHz.
+probe-fcch: scripts/fcch_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fcch_probe \
+		scripts/fcch_probe.c $(SRC)/gsm_dsp.c -lm
+	$(Q)./$(BUILD)/fcch_probe $(FILE_FCCH) $(RATE_FCCH) $(CARRIER_FCCH) \
+		$(SPAN_FCCH) $(STEP_FCCH) $(HALF_FCCH)
+
 probe-signal: scripts/signal_report.c $(SRC)/signal_probe.c \
 		$(SRC)/signal_probe.h
 	@mkdir -p $(BUILD)
@@ -1013,4 +1049,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean
+.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean

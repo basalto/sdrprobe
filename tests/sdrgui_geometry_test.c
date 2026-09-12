@@ -374,6 +374,41 @@ static void test_peak_marks(void) {
               SDRGUI_PEAK_EMPTY);
 }
 
+/*
+ * The calibration dot's hover.
+ *
+ * A hit test the widget used to make for itself, and the reason it is here is
+ * that it decides something -- whether the hover panel showing what the
+ * receiver is corrected by is drawn -- and a function that draws may not also
+ * decide (ADR-0012).
+ */
+static void test_the_pointer_is_on_the_dot(void) {
+    Vector2 centre = { 100.0f, 50.0f };
+    const float r = SDRGUI_HEALTH_DOT_RADIUS;
+
+    check_int("dead centre", sdrgui_point_in_circle(centre, r, 100.0f, 50.0f),
+              1);
+    check_int("just inside on the right",
+              sdrgui_point_in_circle(centre, r, 100.0f + r - 0.5f, 50.0f), 1);
+    check_int("on the edge counts",
+              sdrgui_point_in_circle(centre, r, 100.0f + r, 50.0f), 1);
+    check_int("just outside does not",
+              sdrgui_point_in_circle(centre, r, 100.0f + r + 0.5f, 50.0f), 0);
+    check_int("and above", sdrgui_point_in_circle(centre, r, 100.0f,
+                                                  50.0f - r - 0.5f), 0);
+    /*
+     * The corner of the bounding box is outside the circle, which is the
+     * whole reason this is not a rectangle test: r/sqrt(2) is about 0.707 r,
+     * so a point at (r, r) from the centre is 1.41 r away and must miss.
+     */
+    check_int("the corner of the box is not on the dot",
+              sdrgui_point_in_circle(centre, r, 100.0f + r, 50.0f + r), 0);
+    /* A dot with no radius is not hoverable rather than hoverable
+       everywhere, which is what an unguarded distance test would give. */
+    check_int("a zero radius is nothing",
+              sdrgui_point_in_circle(centre, 0.0f, 100.0f, 50.0f), 0);
+}
+
 int main(void) {
     test_the_plot_sits_inside_its_chart();
     test_a_tiny_chart();
@@ -387,5 +422,6 @@ int main(void) {
     test_drag_band();
 
     test_peak_marks();
+    test_the_pointer_is_on_the_dot();
     return check_report("chart geometry");
 }

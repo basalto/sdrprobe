@@ -39,6 +39,13 @@ static inline int view_lte_bands(const struct app *app, int *out) {
 /* Shared widgets and actions, defined in sdrprobe.c. */
 int clicked(Rectangle rectangle);
 void draw_button(Rectangle rectangle, const char *label, int primary);
+
+/* The startup form (overlay_startup.c, ADR-0024). It draws and reads input;
+   `startup_session.{c,h}` is what decides. */
+void open_startup(struct app *app);
+void update_startup(struct app *app, int have_block);
+void handle_startup_input(struct app *app);
+void draw_startup(struct app *app);
 void draw_button_enabled(Rectangle rectangle, const char *label, int enabled);
 /* Stop measuring and hand the receiver back, staying on the screen. Returns
    negative when the retune failed, in which case nothing changed. */

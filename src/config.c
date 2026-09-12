@@ -1,4 +1,5 @@
 #include "config.h"
+#include "debug_log.h"
 #include "sdr_dsp.h"
 
 #include <errno.h>
@@ -335,6 +336,15 @@ int config_load(struct config *config) {
     return 0;
 }
 
+/*
+ * The one funnel every config write goes through, which is why the log line
+ * is here and not at the four call sites.
+ *
+ * `installation_commit()` writes through this too, so a correction being
+ * overwritten -- the most destructive thing this program does to its own
+ * state -- leaves a record. Until now it said so only on stderr, which a
+ * windowed run does not capture.
+ */
 int config_save(const struct config *config) {
     char path[512], text[4096], *slash;
     FILE *file;
@@ -378,6 +388,10 @@ int config_save(const struct config *config) {
     }
     fwrite(text, 1, (size_t)length, file);
     fclose(file);
+    debug_log_write("config",
+                    "saved %s: site \"%s\" antenna \"%s\" calibrations %d "
+                    "sites %d", path, config->site, config->antenna,
+                    config->calibration_count, config->site_count);
     return 0;
 }
 

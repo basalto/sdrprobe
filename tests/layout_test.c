@@ -5,6 +5,7 @@
 #include "fm_layout.h"
 #include "row_list.h"
 #include "chrome_layout.h"
+#include "startup_layout.h"
 #include "version.h"
 #include "gsm_layout.h"
 #include "scope_layout.h"
@@ -189,6 +190,14 @@ static int overlaps(Rectangle a, Rectangle b) {
            a.y < b.y + b.height && a.y + a.height > b.y;
 }
 
+/* Whether a rectangle is wholly on screen. Off the edge is worse than absent:
+   a panel drawn past the bottom is invisible and looks like a fault in what
+   it was meant to report. */
+static int inside(Rectangle r, float width, float height) {
+    return r.x >= 0.0f && r.y >= 0.0f && r.x + r.width <= width &&
+           r.y + r.height <= height;
+}
+
 /*
  * The calibration overlay: everything in it, against everything else.
  *
@@ -331,6 +340,36 @@ static void check_chrome(void) {
         check_msg(fabsf(l.status_left - w->status_left) <= 0.01f,
                   "%.0fx%.0f status_left: got %.2f, expected %.2f\n", w->width,
                   w->height, l.status_left, w->status_left);
+        {
+            /*
+             * The two calibration banners, which the widget used to place
+             * itself -- both of them at the literal `22, 178`, two lines under
+             * the comment explaining why a widget must not choose its own
+             * position. They could not collide only because GSM's checking
+             * state requires the calibration overlay closed and LTE's
+             * requires it open, and that is an accident of two unrelated
+             * conditions rather than a rule.
+             */
+            check_msg(!overlaps(l.gsm_banner, l.lte_banner),
+                      "%.0fx%.0f the two calibration banners overlap\n",
+                      w->width, w->height);
+            check_msg(inside(l.gsm_banner, w->width, w->height),
+                      "%.0fx%.0f the GSM banner leaves the window\n",
+                      w->width, w->height);
+            check_msg(inside(l.lte_banner, w->width, w->height),
+                      "%.0fx%.0f the LTE banner leaves the window\n",
+                      w->width, w->height);
+            /* The hover panel says what the receiver is corrected by. It is
+               drawn over whatever is behind it, so it only has to stay on
+               screen and clear of the buttons it describes. */
+            check_msg(inside(l.hover, w->width, w->height),
+                      "%.0fx%.0f the calibration hover leaves the window\n",
+                      w->width, w->height);
+            check_msg(!overlaps(l.hover, l.settings_button) &&
+                          !overlaps(l.hover, l.calibration_button),
+                      "%.0fx%.0f the hover covers a chrome button\n",
+                      w->width, w->height);
+        }
         {
             /*
              * The tabs, all three of them, in order and not overlapping.
@@ -1629,8 +1668,89 @@ static void test_tetra_layout(void) {
     }
 }
 
+
+/*
+ * The startup form.
+ *
+ * ADR-0024, and the reason it gets the full treatment: it is the first screen
+ * an operator sees and the only one that is modal, so a control that lands
+ * off the panel is a session that cannot be started rather than a panel that
+ * looks wrong.
+ */
+static void check_startup(void) {
+    static const float sizes[][2] = { { 1100.0f, 720.0f }, { 1280.0f, 800.0f },
+                                      { 1920.0f, 1080.0f }, { 900.0f, 600.0f },
+                                      { 640.0f, 400.0f } };
+    unsigned c;
+
+    for (c = 0; c < sizeof(sizes) / sizeof(sizes[0]); c++) {
+        float w = sizes[c][0];
+        float h = sizes[c][1];
+        struct startup_layout l = startup_layout_for(w, h);
+        Rectangle all[16];
+        const char *names[16];
+        int n = 0, a, b, i;
+
+        for (i = 0; i < STARTUP_FIELD_COUNT; i++) {
+            all[n] = l.field[i];      names[n++] = "field";
+            all[n] = l.field_menu[i]; names[n++] = "field menu";
+        }
+        all[n] = l.gain_down;  names[n++] = "gain down";
+        all[n] = l.gain_value; names[n++] = "gain value";
+        all[n] = l.gain_up;    names[n++] = "gain up";
+        all[n] = l.band_down;  names[n++] = "band down";
+        all[n] = l.band_value; names[n++] = "band value";
+        all[n] = l.band_up;    names[n++] = "band up";
+        all[n] = l.report;     names[n++] = "report";
+        all[n] = l.skip;       names[n++] = "skip";
+        all[n] = l.cont;       names[n++] = "continue";
+
+        for (i = 0; i < n; i++) {
+            check_msg(inside(all[i], w, h),
+                      "%.0fx%.0f: startup %s leaves the window\n", w, h,
+                      names[i]);
+            /* And inside the panel, which is the stronger claim: a control
+               drawn on the dimmed background behind a modal form reads as
+               belonging to the screen underneath it. */
+            check_msg(all[i].x >= l.panel.x - 0.01f &&
+                          all[i].y >= l.panel.y - 0.01f &&
+                          all[i].x + all[i].width <=
+                              l.panel.x + l.panel.width + 0.01f &&
+                          all[i].y + all[i].height <=
+                              l.panel.y + l.panel.height + 0.01f,
+                      "%.0fx%.0f: startup %s leaves the panel\n", w, h,
+                      names[i]);
+        }
+        for (a = 0; a < n; a++)
+            for (b = a + 1; b < n; b++)
+                check_msg(!overlaps(all[a], all[b]),
+                          "%.0fx%.0f: startup %s overlaps %s\n", w, h,
+                          names[a], names[b]);
+
+        check_msg(inside(l.panel, w, h),
+                  "%.0fx%.0f: the startup panel leaves the window\n", w, h);
+        check_msg(inside(l.status, w, h),
+                  "%.0fx%.0f: the startup status line leaves the window\n",
+                  w, h);
+        /* Skip sits left of Continue and they do not touch. */
+        check_msg(l.skip.x + l.skip.width <= l.cont.x + 0.01f,
+                  "%.0fx%.0f: the startup buttons run together\n", w, h);
+        /* And the rows of the report panel, which is where adding three to a
+           capacity has to fail. */
+        check_panel_rows("startup report", l.report,
+                         STARTUP_REPORT_CAPTION_DROP,
+                         STARTUP_REPORT_ROW_HEIGHT,
+                         STARTUP_REPORT_FOOTER_HEIGHT,
+                         STARTUP_REPORT_GUTTER_FRACTION,
+                         STARTUP_REPORT_GUTTER_CAP, w, h);
+        check_msg(l.report_rows.capacity > 0,
+                  "%.0fx%.0f: the startup report holds no rows\n", w, h);
+    }
+}
+
 int main(void) {
     check_chrome();
+    check_startup();
     check_calibration_overlay();
     check_fm_view();
     check_adsb();

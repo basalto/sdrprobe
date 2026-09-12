@@ -12,6 +12,7 @@
 #include "calibration_layout.h"
 #include "calibration_nav.h"
 #include "lte_scan.h"
+#include "debug_log.h"
 
 /*
  * Time here is monotonic_seconds(), not raylib's GetTime(). Only differences
@@ -141,6 +142,40 @@ static int calibration_borrow(struct app *app, int *acquired) {
     return 0;
 }
 
+
+/*
+ * One line per residual, in the field names `--calibrate` already prints.
+ *
+ * The same names deliberately: `cal-measure` on stdout and `cal measure` in
+ * the log describe one measurement, and two vocabularies for it would mean a
+ * grep stops working at the seam between the window and the command line.
+ *
+ * Every residual rather than a summary, for the reason the headless report
+ * gives: the verdict is one bit, and the sequence is what shows whether the
+ * scatter is the estimator or the crystal. It is called once per
+ * calibration_tracker_observe(), so a block that records nothing logs
+ * nothing, and the whole thing costs nothing with the log closed.
+ */
+static void cal_log_measure(const struct app *app) {
+    if (!debug_log_active())
+        return;
+    debug_log_write("cal",
+                    "measure %d observed_ppm %.2f centre_ppm %.2f "
+                    "sem_ppm %.2f spread_ppm %.2f source %s quality %.2f",
+                    app->cal.track.measurements,
+                    app->cal.expected_hz
+                        ? app->cal.offset_hz / (double)app->cal.expected_hz *
+                              1e6
+                        : 0.0,
+                    app->cal.track.recent_center, app->cal.track.recent_sem,
+                    app->cal.track.recent_spread,
+                    app->cal.track.source == CALIBRATION_SOURCE_FCCH
+                        ? "fcch"
+                        : app->cal.track.source == CALIBRATION_SOURCE_LTE
+                              ? "lte" : "centroid",
+                    (double)app->cal.fcch_confidence);
+}
+
 static int start_lte_calibration(struct app *app) {
     int earfcn;
     uint32_t carrier;
@@ -183,6 +218,8 @@ static int start_lte_calibration(struct app *app) {
     app->cal.started_at = monotonic_seconds();
     app->cal.running = 1;
     app->cal.lte_earfcn = earfcn;
+    debug_log_write("cal", "begin lte earfcn %d expected_hz %u applied_ppm %d",
+                    earfcn, app->cal.expected_hz, app->applied.ppm);
     snprintf(app->cal.status, sizeof(app->cal.status),
              "Measuring LTE EARFCN %d at %.3f MHz", earfcn,
              carrier / 1000000.0);
@@ -247,6 +284,8 @@ int start_calibration(struct app *app) {
     }
     app->cal.started_at = monotonic_seconds();
     app->cal.running = 1;
+    debug_log_write("cal", "begin gsm arfcn %d expected_hz %u applied_ppm %d",
+                    arfcn, app->cal.expected_hz, app->applied.ppm);
     snprintf(app->cal.status, sizeof(app->cal.status),
              "Measuring GSM 900 ARFCN %d at %.3f MHz", arfcn,
              expected / 1000000.0);
@@ -302,6 +341,7 @@ static void update_lte_calibration(struct app *app) {
     observed_ppm = app->cal.offset_hz /
                    (double)app->cal.expected_hz * 1000000.0;
     calibration_tracker_observe(&app->cal.track, observed_ppm);
+    cal_log_measure(app);
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
         app->applied.ppm, app->cal.measured_hz,
         (double)app->cal.expected_hz);
@@ -446,6 +486,7 @@ void update_calibration_measurement(struct app *app) {
        uncertainty is the standard error of that centre, not the per-block
        spread. The tracker keeps both. */
     calibration_tracker_observe(&app->cal.track, observed_ppm);
+    cal_log_measure(app);
 
     app->cal.suggested_ppm = sdr_dsp_corrected_ppm(
         app->applied.ppm, app->cal.expected_hz *
@@ -555,6 +596,23 @@ void update_drift_check(struct app *app, int have_block) {
         /* Inconclusive (tone not found); keep the prior state, retry later. */
         app->cal.drift_health = app->cal.drift_health_prev;
     }
+    /*
+     * The verdict, every time, including the inconclusive one.
+     *
+     * This check runs unattended every five minutes and interrupts whichever
+     * screen is up, and until now it reported only by changing the colour of
+     * a dot -- so a session that drifted at three in the morning left nothing
+     * saying when, by how much, or how many times the tone was simply not
+     * found. `measurements` below is what tells a real "no drift" from a
+     * check that never measured anything.
+     */
+    debug_log_write("cal",
+                    "drift %+.2f ppm on arfcn %d, measurements %d, health %s",
+                    app->cal.drift_ppm, app->cal.gsm_arfcn,
+                    app->cal.drift_recent_count,
+                    app->cal.drift_health == CAL_HEALTH_DRIFT ? "drift"
+                        : app->cal.drift_health == CAL_HEALTH_GOOD ? "good"
+                        : "unknown");
 }
 
 /*
@@ -753,8 +811,23 @@ void handle_calibration_input(struct app *app) {
                      "Nothing to claim, or this receiver has no identity");
     }
     if (clicked(apply_ppm) && app->cal.track.stable) {
+        int was = app->applied.ppm;
         if (retune_receiver(app, app->cal.tune_hz,
                             app->cal.suggested_ppm) == 0) {
+            /* What was applied and what it replaced. Overwriting a measured
+               correction is the most destructive thing this program does to
+               its own state, and until this it happened with a line on a
+               stream a windowed run does not capture. */
+            debug_log_write("cal",
+                            "apply %+d ppm (was %+d) source %s measurements %d "
+                            "sem_ppm %.2f",
+                            app->cal.suggested_ppm, was,
+                            app->cal.track.source == CALIBRATION_SOURCE_FCCH
+                                ? "fcch"
+                                : app->cal.track.source == CALIBRATION_SOURCE_LTE
+                                      ? "lte" : "centroid",
+                            app->cal.track.measurements,
+                            app->cal.track.recent_sem);
             app->options.ppm = app->cal.suggested_ppm;
             if (app->cal.technology == 1) {
                 app->cal.lte_valid = 1;
@@ -1059,6 +1132,8 @@ void draw_health_indicator(const struct app *app) {
     struct chrome_layout chrome = chrome_layout_now();
     struct sdrgui_health_params gsm;
     struct sdrgui_health_params lte;
+    Vector2 pointer = GetMousePosition();
+    double now = monotonic_seconds();
 
     memset(&gsm, 0, sizeof(gsm));
     gsm.centre = chrome.gsm_dot;
@@ -1067,6 +1142,27 @@ void draw_health_indicator(const struct app *app) {
     gsm.channel_name = "ARFCN";
     gsm.channel = app->cal.gsm_arfcn;
     gsm.notice = app->cal.drift_notice;
+    gsm.banner = chrome.gsm_banner;
+    gsm.hover = chrome.hover;
+    /*
+     * The hit test is geometry and lives with the rest of it, so this asks
+     * rather than measuring a distance here (sdrgui_point_in_circle).
+     */
+    gsm.hovered = sdrgui_point_in_circle(chrome.gsm_dot,
+                                         SDRGUI_HEALTH_DOT_RADIUS, pointer.x,
+                                         pointer.y);
+    /*
+     * A green dot said nothing until this. The detail is what a reader wants
+     * from it: the correction applied, the reference that measured it, and
+     * how long ago -- so that "calibrated" can be told from "calibrated this
+     * morning, by something that has since gone off the air".
+     */
+    gsm.have_detail = app->cal.gsm_valid;
+    gsm.ppm = app->cal.gsm_ppm;
+    gsm.source = "FCCH tone";
+    gsm.measured_ago = app->cal.drift_last_check_at > 0.0
+                           ? now - app->cal.drift_last_check_at
+                           : -1.0;
     sdrgui_health_dot(&gsm);
 
     memset(&lte, 0, sizeof(lte));
@@ -1087,5 +1183,16 @@ void draw_health_indicator(const struct app *app) {
     lte.channel_name = "EARFCN";
     lte.channel = app->cal.lte_earfcn;
     lte.notice = NULL;
+    lte.banner = chrome.lte_banner;
+    lte.hover = chrome.hover;
+    lte.hovered = sdrgui_point_in_circle(chrome.lte_dot,
+                                         SDRGUI_HEALTH_DOT_RADIUS, pointer.x,
+                                         pointer.y);
+    lte.have_detail = app->cal.lte_valid;
+    lte.ppm = app->cal.lte_ppm;
+    lte.source = "4G cell";
+    /* No re-check behind it, so it cannot say when -- and says nothing
+       rather than borrowing the GSM check's clock. */
+    lte.measured_ago = -1.0;
     sdrgui_health_dot(&lte);
 }

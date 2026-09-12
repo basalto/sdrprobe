@@ -81,6 +81,24 @@ static inline int sdrgui_point_in(Rectangle rect, float x, float y) {
  * testing must agree on this or the two describe different bars; they share it
  * here so they cannot drift apart.
  */
+/*
+ * Whether a point is inside a circle of `radius` about `centre`.
+ *
+ * Here rather than as a distance test inside a draw call, for the same reason
+ * "which bar is under the pointer" is here: it decides something -- whether a
+ * hover panel is drawn -- and a function that draws may not also decide
+ * (ADR-0012). Squared throughout, so no square root and no tolerance.
+ */
+static inline int sdrgui_point_in_circle(Vector2 centre, float radius,
+                                         float x, float y) {
+    float dx = x - centre.x;
+    float dy = y - centre.y;
+
+    if (radius <= 0.0f)
+        return 0;
+    return dx * dx + dy * dy <= radius * radius;
+}
+
 static inline float sdrgui_bar_width(Rectangle plot, int count) {
     if (count <= 0)
         return 0.0f;
