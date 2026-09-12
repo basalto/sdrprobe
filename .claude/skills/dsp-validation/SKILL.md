@@ -89,6 +89,18 @@ are the same shape as the fault you are about to look for.
 - **Physical plausibility.** A tuning error is a property of the dongle, so it
   should be the same ppm at every frequency and within what the part can drift.
   An offset that changes with the answer is a symptom, not a measurement.
+- **An implementation that shares no code.** numpy is installed here for
+  this, and the boundary is in `AGENTS.md`: exploration and cross-checks only,
+  never where an answer lives. It earns its place on exactly the faults
+  nothing else catches -- where the arithmetic is right and the *sampling* is
+  wrong, which a reader re-reading the code re-makes. It found a DFT scan
+  returning a sidelobe (2 Hz steps over a record resolving 0.25 Hz) and it
+  cross-checked `sdr_dsp_spectrum()` against off-bin tones, two tones, noise
+  and a real capture -- agreement better than 0.01 dB above -100 dBFS, on a
+  transform whose only fixture put a tone on bin 37 exactly. Note what this
+  is *not*: a second C probe compiled from the same headers agrees by
+  construction and is worth nothing here. Use `/usr/bin/python3`; the `python3`
+  first on PATH is a mise shim without numpy.
 
 ## What a synthetic can and cannot stand in for
 
