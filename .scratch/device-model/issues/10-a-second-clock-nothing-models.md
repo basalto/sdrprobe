@@ -732,3 +732,79 @@ it was.
 
 **`--ppm` overwrites a stored calibration, and the campaign's own method uses
 it.** See `12-an-explicit-ppm-overwrites-a-measurement.md`.
+
+## The coupling path, and the comb's odd multiples -- 2026-09-12, later
+
+Two questions this ticket left open are answered, both by the same method:
+**max gain, antenna off, paired against max gain antenna on minutes apart.**
+The earlier passes in this ticket were at default gain, which is why they
+could not see either answer.
+
+### The family is radiated, not conducted
+
+R820T, uncorrected so a coherent tone reads its exact nominal, 2 MHz windows,
+max gain, the two passes separated by the time it takes to unscrew a whip:
+
+| nominal | antenna on | antenna off |
+| --- | --- | --- |
+| 75.000 | +488 Hz, -30.9 dBFS | **gone** |
+| 135.000 | +488 Hz, -45.9 | **gone** |
+| 150.000 | +488 Hz, -37.8 | **gone** |
+| 300.000 | +488 Hz, -29.0 | **gone** |
+| 540.000 | not up in either pass | -- |
+| 60.000 (ladder) | +488 Hz, -19.4 | **gone** |
+| 120.000 (ladder) | +488 Hz, -18.6 | +488 Hz, -59.4 |
+| 240.000 (ladder) | +488 Hz, -13.6 | +488 Hz, -61.5 |
+| 480.000 (ladder) | +488 Hz, -19.0 | +488 Hz, -50.4 |
+| 960.000 (ladder) | +488 Hz, -38.1 | +488 Hz, **-30.6** |
+
+**This ticket's last stated unknown is closed.** It said: "Nor whether it is
+inside the dongle. Everything above says the source shares this receiver's
+reference ... The unplug test still does that and nothing else does." It has
+been done. Every member of the unexplained family that was up -- 75, 135, 150
+and 300 -- **is generated inside and reaches the converter through the
+antenna**: it reads its exact nominal on an uncorrected receiver, which only a
+source clocked by this crystal does, and it is gone the moment the antenna is.
+
+It is therefore the second of `docs/receiver-artifacts.md`'s two kinds, and
+the consequence is the one already recorded for the ladder: a radiated
+artifact's **level is not a property of the part**, so nothing about these
+numbers will transfer to another enclosure, another cable or another desk.
+
+The ladder divides on the same axis rather than against it: 60 MHz radiated
+outright, 120, 240 and 480 predominantly radiated with a conducted residue 31
+to 48 dB down, and 960 conducted. **960 MHz is 7.5 dB louder with the antenna
+off**, which is now reproduced three times in one day (+7.3, +7.3, +7.5) and
+still has no mechanism offered.
+
+30 MHz is not in the table as a ladder member: at max gain with the antenna on
+its nearest candidate reads +3418 Hz, which is external, so whatever was
+measured there at default gain this morning is not established at this one.
+
+### Every odd multiple of 14.4 MHz survives the unplug
+
+The hypothesis in the comb section above -- "the subset made and heard
+entirely inside the receiver may be the 28.8 multiples specifically" -- is
+**refuted**. R820T, antenna off, max gain, fourteen multiples:
+
+| x2 | x3 | x4 | x5 | x6 | x7 | x8 | x9 | x10 | x11 | x12 | x13 | x14 | x15 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| -37.2 | -59.8 | -33.5 | -58.4 | -41.3 | -57.7 | -33.3 | -53.6 | -42.6 | -53.0 | -34.4 | -48.4 | -45.5 | -45.3 |
+
+All fourteen read **+488 Hz**, half a bin, exactly on nominal. Seven even and
+**seven odd**, every one of them inside.
+
+What the original sort was seeing is a level difference, not a difference in
+kind: the odd multiples average 15.4 dB below the even ones, and the gap
+narrows with frequency -- 22.6 dB at x2/x3, nothing by x14/x15. An unplug sort
+run at default gain sees the loud half and reports a pattern.
+
+So `survey_comb_spacing_hz()`'s `reference / 2` is right, and is now right on
+evidence gathered by trying to break it. The second board agrees in part: six
+of six even multiples and two of six odd, the odd ones again about 27 dB down
+and only visible with the antenna off (`docs/two-receivers-compared.md`).
+
+**What a survey cannot say, and probably should.** A receiver-like mark
+resting on an odd multiple is a weaker claim than one resting on an even one
+-- 15 dB weaker here, 27 on the other board, and near the detection bar in
+both. Nothing on screen distinguishes them.
