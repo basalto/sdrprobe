@@ -27,13 +27,16 @@ the carrier without settling it:
   band** -- which the published table omits entirely, and which is the reason
   its edges near 940-943 are not evidence.
 - ARFCN 69 at 948.8 MHz read MCC 268 MNC 03, so NOS is above 943.1 as listed.
-  That cell has since gone off the air with refarming, which is itself the
+  That cell is no longer audible from here, which is itself the
   likeliest explanation for an LTE carrier appearing at the band's low edge of
   NOS's holding.
 
-A live check of ARFCN 44 at 943.8 MHz found **nothing on air** -- consistent
-with NOS having refarmed that part of their block, and consistent with the
-carrier being theirs, but it identifies nobody.
+A live check of ARFCN 44 at 943.8 MHz found **nothing on air from here**. That
+is a measurement and it stands; the reading of it as "NOS have refarmed that
+part of their block" does not, and has been removed -- there is no GSM
+refarming here, and an absence at one receiving position is a fact about the
+position at least as much as about the network (ADR-0022). It is consistent
+with the carrier being theirs and it identifies nobody.
 
 ## What would settle it
 
