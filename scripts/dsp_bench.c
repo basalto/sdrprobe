@@ -75,7 +75,7 @@ static void load_block(const char *path, unsigned char *raw) {
 }
 
 int main(int argc, char **argv) {
-    g_probe_device = device_profile_rtlsdr("check", NULL, 0);
+    g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     static unsigned char raw[BLOCK_BYTES];
     static float i_samples[BLOCK_PAIRS];
     static float q_samples[BLOCK_PAIRS];
