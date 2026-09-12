@@ -535,3 +535,32 @@ Catch 135 or 540 **while present** and run the four-grid control and the
 antenna unplug on them. Everything else is waiting on that. The ladder needs
 no more work here; it needs a second receiver, which is
 `.scratch/device-model/issues/07-*`.
+
+## The comb's own evidence, closed 2026-09-12
+
+The research turned up a hole in this repository's *existing* model rather than
+in the open question, and it is the most useful thing it found.
+
+**The 14.4 MHz comb rested on one frequency.** 129.600159 is 14.4 x 9, and
+every other member ever cited here -- 489.6, 547.2, 604.8, 144.0 -- is an
+**even** multiple and therefore also a multiple of 28.8. "A tone every
+reference/2" had never been told apart from "a tone every reference".
+
+Five odd multiples swept, all present: **43.2 (9.5 dB), 72.0 (25.4), 100.8
+(13.7), 158.4 (15.1), 187.2 (10.2)**, three of the five within a bin of the
+coherent prediction. So the spacing is reference/2 and
+`survey_comb_spacing_hz()` models the right interval -- on five independent
+frequencies now instead of one.
+
+**Two things this does not establish.** Every multiple of 14.4 is a multiple of
+1.6, so it separates 14.4 from 28.8 and not from the fine comb; what does that
+is 131.2, 136.0, 270.4, 120, 240 and 480, which are 1.6 multiples and not 14.4
+multiples. And the antenna-unplug sort that originally established the coarse
+comb left 489.6, 547.2 and 604.8 standing -- 14.4 x 34, 38, 42, all even, so
+28.8 x 17, 19, 21. **The subset made and heard entirely inside the receiver may
+be the 28.8 multiples specifically**, which is finer than anything stated here
+and wants the unplug test re-run over the odd multiples.
+
+**195 and 255 MHz: absent.** Offered as a cheap test of whether the residue is
+a 60 MHz-spaced family offset by 15; it is not. Speculation tested and dead,
+which is what it was offered for.
