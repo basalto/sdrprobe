@@ -2807,16 +2807,56 @@ int main(int argc, char **argv) {
         int legacy = 0, profile = 0;
 
         /*
-         * An explicit --ppm outranks everything and is recorded against
-         * wherever and whatever we now are. Otherwise a profile for this
-         * receiver at this site is restored -- which is what "arriving
-         * somewhere the receiver has been calibrated restores that
-         * calibration" means once a correction knows whose crystal it is.
+         * An explicit --ppm outranks everything **for this run** and is
+         * written down only when asked. Otherwise a profile for this receiver
+         * at this site is restored -- which is what "arriving somewhere the
+         * receiver has been calibrated restores that calibration" means once
+         * a correction knows whose crystal it is.
+         *
+         * **It used to record unconditionally, and that destroyed
+         * measurements** (`.scratch/device-model/issues/12-*`). A correction
+         * is an on-air measurement against whatever reference a place offers;
+         * a flag on a command line is not. The two were the same act, so
+         * `--ppm 0` -- which every uncorrected sweep needs, because only
+         * uncorrected does a clock-coherent tone read its exact nominal, and
+         * which `scripts/tone_probe.sh` passes in its documented mode -- wrote
+         * 0 over a measured +32 twice in one afternoon. Zeroing it does not
+         * merely lose precision: `reading_origin_for()` refuses outright when
+         * the crystal error is zero, so every coherence verdict silently
+         * becomes `unexplained`, which is the flag the ticket doing the
+         * sweeping was about.
+         *
+         * `--claim-calibration` is the explicit act, and it already meant
+         * exactly this for a legacy value: make this correction mine. It is
+         * how a headless `--calibrate` result is stored, since the run that
+         * measures it only prints it.
          */
         if (app->options.ppm_seen) {
+            int stored = 0;
+            int had = installation_ppm(&app->installation, &stored);
+
             if (installation_record_ppm(&app->installation,
-                                        app->options.ppm) == 0)
-                installation_commit(&app->installation, &app->config);
+                                        app->options.ppm) == 0) {
+                if (installation_records_ppm(app->options.ppm_seen,
+                                             app->options.claim_calibration)) {
+                    if (installation_commit(&app->installation,
+                                            &app->config) == 0)
+                        fprintf(stderr,
+                                "Claimed %+d ppm for %s at \"%s\".\n",
+                                app->options.ppm, app->installation.receiver,
+                                app->installation.site);
+                } else if (had && stored != app->options.ppm) {
+                    /* The confusing case, and the only one worth a line: a
+                       stored calibration exists and this run is not using
+                       it. Silence here is what made the overwrite invisible. */
+                    fprintf(stderr,
+                            "Using %+d ppm for this run. %s at \"%s\" stays "
+                            "calibrated %+d ppm "
+                            "(--claim-calibration to replace it).\n",
+                            app->options.ppm, app->installation.receiver,
+                            app->installation.site, stored);
+                }
+            }
         } else if (installation_ppm(&app->installation, &profile)) {
             app->options.ppm = profile;
             if (app->receiver_mode &&
@@ -2852,7 +2892,7 @@ int main(int argc, char **argv) {
                         "--receiver-label.\n",
                         app->installation.site, legacy);
         }
-        if (app->options.claim_calibration) {
+        if (app->options.claim_calibration && !app->options.ppm_seen) {
             if (installation_claim_legacy(&app->installation) == 0 &&
                 installation_commit(&app->installation, &app->config) == 0)
                 fprintf(stderr, "Claimed %+d ppm for %s at \"%s\".\n",

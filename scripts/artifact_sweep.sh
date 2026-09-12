@@ -60,17 +60,6 @@ case "$NOMINALS" in
   @family) NOMINALS="75M 135M 150M 300M 540M" ;;
 esac
 
-# `--ppm 0` is recorded against this receiver and site permanently
-# (`issues/12-*`), and an uncorrected sweep is this tool's default, so it
-# would erase a measured calibration every run. Until that is fixed, keep the
-# writes in a scratch copy of the config.
-GUARD=$(mktemp -d)
-mkdir -p "$GUARD/.config/sdrprobe"
-[ -f "$HOME/.config/sdrprobe/config" ] &&
-    cp "$HOME/.config/sdrprobe/config" "$GUARD/.config/sdrprobe/config"
-trap 'rm -rf "$GUARD"' EXIT
-export HOME="$GUARD"
-
 printf 'artifact sweep  gain %s  ppm %s (%s)  span %s Hz  dwell %s%s\n' \
     "$GAIN" "$PPM" \
     "$([ "$PPM" = 0 ] && echo 'uncorrected: a coherent tone reads its exact nominal' || echo 'corrected')" \

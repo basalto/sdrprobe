@@ -1,6 +1,13 @@
 # 12 - An explicit --ppm overwrites a measured calibration
 
-Status: needs-triage
+Status: **resolved 2026-09-12.** `--ppm` applies for the run and writes
+nothing; `--claim-calibration` beside it stores the correction, which is what
+that flag already meant for a legacy value and is how a headless
+`--calibrate` result is saved. A run whose ppm differs from the stored one
+says so on stderr, because silence is what made the overwrite invisible. The
+decision is `installation_records_ppm()` rather than an `if` beside `main()`,
+and `check-installation` pins all four cases. v0.50.0: the command line's
+behaviour changed (ADR-0016).
 Found 2026-09-12, while running ticket 10's uncorrected sweeps.
 
 `--ppm 0` destroyed this site's calibration. Before:
@@ -79,3 +86,33 @@ Point `HOME` at a throwaway directory holding a copy of the config, which is
 what the 2026-09-12 passes did:
 
     export HOME=<scratch>/fakehome    # config copy lives under .config/sdrprobe
+
+
+## Comments
+
+**Resolved 2026-09-12, and the ticket's recommended fix was almost wrong.**
+
+It proposed "apply without recording unless `--claim-calibration` is given",
+which is what landed -- but the reasoning underneath it missed that **`--ppm`
+persisting was the only scriptable way to store a calibration at all**.
+`--calibrate` measures and prints; it does not commit, and the GUI overlay's
+Apply was the only writer besides this. Removing the write outright, which is
+what "a per-run override should not persist" invites, would have left a
+headless calibration with nowhere to go.
+
+So the fix is not "stop writing" but "write when asked", and
+`--claim-calibration` is the act because it already meant exactly this for an
+unowned legacy value: make this correction mine. The legacy claim is now
+skipped when a ppm is given, so the two jobs cannot both fire and disagree.
+
+Both paths verified on air rather than only in the unit:
+
+    --ppm 0                      Using +0 ppm for this run. <serial> at
+                                 "home-sala-estar" stays calibrated +32 ppm
+                                 (--claim-calibration to replace it).
+                                 -> config unchanged
+    --ppm 25 --claim-calibration Claimed +25 ppm for <serial> at "..."
+                                 -> config now 25
+
+And `scripts/artifact_sweep.sh` lost the `HOME` redirection it was born with,
+which existed only to survive this bug.

@@ -310,6 +310,34 @@ static inline int installation_history_path(const struct installation *inst,
 }
 
 /*
+ * May a run that names a correction write it down?
+ *
+ * **Only when the operator says so**, and the asymmetry is the point. A
+ * correction is an on-air measurement against whatever reference a place
+ * offers (ADR-0018); a number on a command line is a number on a command
+ * line, and for most of this program's life the two were the same act. So
+ * `--ppm 0` -- which every uncorrected sweep needs, since only uncorrected
+ * does a clock-coherent tone read its exact nominal, and which
+ * `scripts/tone_probe.sh` passes in its documented mode -- wrote 0 over a
+ * measured +32 twice in one afternoon before anybody noticed
+ * (`.scratch/device-model/issues/12-*`). What made it invisible is that
+ * zeroing a calibration does not look like damage: `reading_origin_for()`
+ * refuses when the crystal error is zero, so every coherence verdict simply
+ * becomes `unexplained`.
+ *
+ * `--claim-calibration` is the explicit act, which is what it already meant
+ * for an unowned legacy value, and it is how a headless `--calibrate` result
+ * is stored -- that run measures and prints, and writes nothing itself.
+ *
+ * A predicate rather than an `if` beside `main()`: ADR-0012 wants every
+ * decision reachable by a check, and this one decides whether a measurement
+ * survives.
+ */
+static inline int installation_records_ppm(int ppm_given, int claimed) {
+    return ppm_given && claimed;
+}
+
+/*
  * The file-touching half, in installation.c. Declared here rather than in a
  * second header because they are the same module; the split is only that these
  * cannot be checked without a filesystem.
