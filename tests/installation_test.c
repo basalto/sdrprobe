@@ -408,6 +408,26 @@ static void test_a_legacy_baseline_is_inert(void) {
     (void)rmdir(scratch);
 }
 
+/*
+ * A run that names a correction does not overwrite a measured one.
+ *
+ * This is the whole of `.scratch/device-model/issues/12-*`, and it is here
+ * rather than nowhere because the decision used to be an `if` beside `main()`
+ * -- the half ADR-0012 says no check reaches. It destroyed a measured +32 ppm
+ * twice in one afternoon, silently, because `--ppm 0` is what every
+ * uncorrected sweep passes and recording was unconditional.
+ */
+static void test_a_command_line_ppm_is_not_a_measurement(void) {
+    check_int("no ppm given, no claim: nothing is written",
+              installation_records_ppm(0, 0), 0);
+    check_int("a ppm given and not claimed: still nothing written",
+              installation_records_ppm(1, 0), 0);
+    check_int("claimed without a ppm is the legacy claim, not this one",
+              installation_records_ppm(0, 1), 0);
+    check_int("a ppm given and claimed: written",
+              installation_records_ppm(1, 1), 1);
+}
+
 int main(void) {
     test_the_history_path();
     test_a_legacy_baseline_is_inert();
@@ -419,5 +439,6 @@ int main(void) {
     test_the_history_key_is_the_whole_setup();
     test_an_incomplete_setup_has_no_key();
     test_identifiers_are_bounded();
+    test_a_command_line_ppm_is_not_a_measurement();
     return check_report("what a measurement belongs to");
 }
