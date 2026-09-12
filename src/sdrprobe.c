@@ -594,6 +594,29 @@ static struct receiver_runtime runtime_over(struct app *app) {
     return rt;
 }
 
+/*
+ * What the retune actually did.
+ *
+ * The request is logged before the attempt, deliberately -- a retune that
+ * fails is exactly the one worth having a record of -- and for a long time
+ * that was the whole of it, so the log showed a request and a reader could
+ * not tell a tuning that took from one that was refused and rolled back. The
+ * comment promised something the code did not do. This is the other half, and
+ * on a failure it quotes `receiver_error`, which by then holds the reason.
+ */
+static void tune_result_logged(const struct app *app, int result) {
+    if (!debug_log_active())
+        return;
+    if (result == 0)
+        debug_log_write("tune", "took, now %.6f MHz, %.3f MS/s, %+d ppm",
+                        app->applied.frequency_hz / 1e6,
+                        app->applied.sample_rate_hz / 1e6, app->applied.ppm);
+    else
+        debug_log_write("tune", "refused: %.140s",
+                        app->receiver_error[0] ? app->receiver_error
+                                               : "no reason given");
+}
+
 int retune_receiver_at_rate(struct app *app, uint32_t frequency,
                             uint32_t sample_rate, int ppm) {
     struct receiver_runtime rt = runtime_over(app);
@@ -604,6 +627,7 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
                     app->applied.frequency_hz / 1e6,
                     app->applied.sample_rate_hz / 1e6);
     result = receiver_runtime_tune_at_rate(&rt, frequency, sample_rate, ppm);
+    tune_result_logged(app, result);
     if (app->receiver_mode)
         signal_frame_invalidate(&app->frame);
     return result;
@@ -734,6 +758,7 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
     debug_log_write("tune", "%.6f MHz, %+d ppm (from %.6f MHz)",
                     frequency / 1e6, ppm, app->applied.frequency_hz / 1e6);
     result = receiver_runtime_tune(&rt, frequency, ppm);
+    tune_result_logged(app, result);
     /*
      * Every spectrum was measured across a different span and is now
      * meaningless, whether the move took or was rolled back. The waterfall's
@@ -1072,6 +1097,7 @@ static struct input_state input_state_now(const struct app *app) {
     struct input_state state;
 
     state.help_open = app->help.open;
+    state.startup_open = app->startup.open;
     state.settings_open = app->set.open;
     state.calibration_open = app->cal.open;
     state.scan_open = app->bandscan.open;
@@ -1090,7 +1116,9 @@ static struct input_state input_state_now(const struct app *app) {
                          freq_window_zoomed(&app->sv.window.freq);
     state.menu_open = app->survey.site_menu_open ||
                       app->survey.antenna_menu_open ||
-                      app->survey.band_menu_open;
+                      app->survey.band_menu_open ||
+                      app->startup.site_menu_open ||
+                      app->startup.antenna_menu_open;
     return state;
 }
 
@@ -1109,7 +1137,8 @@ static struct debug_screen debug_screen_now(const struct app *app) {
     s.calibration_open = app->cal.open;
     s.scan_open = app->bandscan.open;
     s.help_open = app->help.open;
-    s.menu_open = app->survey.site_menu_open || app->survey.antenna_menu_open;
+    s.menu_open = app->survey.site_menu_open || app->survey.antenna_menu_open ||
+                  app->startup.site_menu_open || app->startup.antenna_menu_open;
     s.analysis = app->adsb.analysis_mode || app->lte.analysis_mode ||
                  app->gsm.analysis_mode;
     return s;
@@ -1316,8 +1345,20 @@ static int run_gui(struct app *app) {
         break;
     case START_VIEW_SETTINGS:  open_settings(app); break;
     case START_VIEW_HELP:      open_help(app); break;
+    case START_VIEW_STARTUP:   open_startup(app); break;
     default: break;
     }
+
+    /*
+     * And the form itself, on a plain windowed receiver launch.
+     *
+     * `startup_form_wanted()` is the whole rule and it is in options.c, pure
+     * and checked: a scripted run must never be stopped by a form, and
+     * `check-pipelines`, every screenshot recipe and every --duration check
+     * depend on that being true by rule rather than by luck (ADR-0024).
+     */
+    if (startup_form_wanted(&app->options) && app->receiver_mode)
+        open_startup(app);
 
     /*
      * The charts rather than the data, for whichever decode view was opened.
@@ -1425,6 +1466,9 @@ static int run_gui(struct app *app) {
         } else switch (input_route(&input)) {
         case INPUT_TARGET_HELP:
             handle_help_input(app);
+            break;
+        case INPUT_TARGET_STARTUP:
+            handle_startup_input(app);
             break;
         case INPUT_TARGET_SETTINGS:
             if (IsKeyPressed(KEY_ESCAPE))
@@ -1661,7 +1705,16 @@ static int run_gui(struct app *app) {
          * already heard something is over on time alone, and waiting for one
          * more block to say so costs a block per step.
          */
-        if (app->tab == TAB_SURVEY && !app->cal.open)
+        /*
+         * The startup form's calibration, on the same terms and for the same
+         * reason: every frame, with `spectrum_updated` as a parameter rather
+         * than a guard, because a scan step is over on its own clock and
+         * waiting for one more block to notice costs a block per step.
+         *
+         * It is modal, so nothing else runs while it is up.
+         */
+        update_startup(app, spectrum_updated);
+        if (app->tab == TAB_SURVEY && !app->cal.open && !app->startup.open)
             update_survey(app, now, spectrum_updated);
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_ADSB && !app->cal.open)
@@ -1741,6 +1794,13 @@ static int run_gui(struct app *app) {
             if (app->set.open)
                 draw_settings(app);
         }
+        /*
+         * The form is over everything but Help, which matches where the
+         * router sends its keys. Drawn after the header so the tab bar is
+         * visibly behind it rather than reachable through it.
+         */
+        if (app->startup.open)
+            draw_startup(app);
         if (app->help.open)
             draw_help(app);
 
@@ -2038,6 +2098,15 @@ static void print_new_decodes(struct app *app, double now,
    the recording finishes, the duration elapses, or a signal arrives. Nothing
    here touches raylib, and nothing needs the frame loop -- recording tees off
    inside the acquisition thread, upstream of the display's block slot. */
+/* An integer as text, for one printf field that takes either an ARFCN or an
+   EARFCN. Two %d fields would mean two format strings for one line. */
+static const char *int_text(int value) {
+    static char buffer[16];
+
+    snprintf(buffer, sizeof(buffer), "%d", value);
+    return buffer;
+}
+
 static int run_headless(struct app *app) {
     /* raylib writes its own notices to stdout, and stdout here is a data
        stream someone is parsing. Nothing should reach raylib on this path,
@@ -2433,29 +2502,64 @@ static int run_headless(struct app *app) {
      * or in the crystal.
      */
     if (app->options.calibrate) {
+        /*
+         * The same walk the startup form runs, printed instead of drawn.
+         *
+         * `startup_session.{c,h}` owns the sequence and the vocabulary; this
+         * is one of its two adapters and `overlay_startup.c` is the other.
+         * The walk was written out twice before, once here and once there,
+         * which is how `--lte-chain` and `probe-lte-chain` drifted twice
+         * before `lte_chain_analysis` was extracted -- the same lesson,
+         * applied before the drift rather than after it
+         * (.scratch/startup-installation/issues/06-*).
+         *
+         * **No lease, on purpose**: a headless calibration exits when it is
+         * done, so there is nobody to give the receiver back to. The window's
+         * paths borrow because a screen outlives the measurement.
+         */
+        struct startup_session *session = &app->startup.session;
+        struct startup_session_event ev;
         double began = monotonic_seconds();
         double limit = app->options.calibrate_seconds > 0.0
                            ? app->options.calibrate_seconds : 90.0;
-        int reported = 0, locked = 0;
-        const char *why = "timeout";
+        int reported = 0;
+        int started;
+        uint32_t pending_hz = 0;
+        uint32_t pending_rate = 0;
+        int retune_pending = 0;
 
         sdr_dsp_init(&app->frame.dsp);
-        app->cal.open = 1;
-        app->cal.technology = app->options.calibrate == 1 ? 0 : 1;
-        if (app->options.calibrate == 1) {
-            snprintf(app->cal.channel, sizeof(app->cal.channel), "%d",
-                     app->options.arfcn);
-        } else if (app->options.earfcn) {
-            snprintf(app->cal.channel, sizeof(app->cal.channel), "%d",
-                     app->options.earfcn);
-        }
-        app->cal.channel_length = (int)strlen(app->cal.channel);
-        /* No lease here on purpose: a headless calibration exits when it is
-           done, so there is nobody to give the receiver back to. The window's
-           paths borrow because a screen outlives the measurement. */
 
-        if (app->options.calibrate == 2 && app->options.calibrate_band) {
-            /* Find something to calibrate against rather than being told. */
+        if (app->options.calibrate == 3) {
+            /*
+             * The machine's own search: GSM 900 first, an LTE band only if
+             * nothing there carried a broadcast carrier. `--calibrate-band`
+             * names the fall-back; without one the lowest band this tuner can
+             * reach is used, which is what the form's picker defaults to.
+             */
+            int bands[LTE_BANDS_MAX];
+            int count = view_lte_bands(app, bands);
+            const struct lte_band *band = NULL;
+
+            if (app->options.calibrate_band)
+                band = lte_band_for_number(app->options.calibrate_band);
+            else if (count > 0)
+                band = lte_band_for_number(bands[0]);
+            started = startup_session_begin(
+                session, (double)app->applied.sample_rate_hz,
+                app->applied.ppm,
+                app->device.tune_lower_hz <= SCAN_BAND_LOWER_HZ &&
+                    app->device.tune_upper_hz >= SCAN_BAND_UPPER_HZ,
+                band, began, &ev);
+            printf("calibrate searching, gsm first\n");
+        } else if (app->options.calibrate == 2 &&
+                   app->options.calibrate_band) {
+            /*
+             * Find something to calibrate against rather than being told --
+             * the decode view's own band scan, because a calibration scan
+             * that quietly did something simpler would find different cells
+             * than the view finds on the same band.
+             */
             printf("calibrate scanning band %d\n", app->options.calibrate_band);
             fflush(stdout);
             if (retune_receiver_at_rate(app, app->applied.frequency_hz,
@@ -2488,9 +2592,6 @@ static int run_headless(struct app *app) {
             }
             /* Strongest first, so the head of the list is the best reference
                the band has to offer. */
-            snprintf(app->cal.channel, sizeof(app->cal.channel), "%u",
-                     app->lte.scan.found[0].earfcn);
-            app->cal.channel_length = (int)strlen(app->cal.channel);
             printf("calibrate chose earfcn %u cell %d pss %.2f\n",
                    app->lte.scan.found[0].earfcn, app->lte.scan.found[0].pci,
                    (double)app->lte.scan.found[0].pss);
@@ -2499,24 +2600,77 @@ static int run_headless(struct app *app) {
                calibrate against: a band scan runs for minutes and would eat
                the whole of it before a single residual was measured. */
             began = monotonic_seconds();
+            started = startup_session_measure_lte(
+                session, app->lte.scan.found[0].earfcn, app->applied.ppm,
+                began, &ev);
+        } else if (app->options.calibrate == 2) {
+            started = startup_session_measure_lte(
+                session, (unsigned int)app->options.earfcn, app->applied.ppm,
+                began, &ev);
+        } else {
+            /*
+             * A named GSM channel, **with the centroid allowed**.
+             *
+             * This is the one place the two adapters genuinely differ, and it
+             * is a real difference rather than a convenience: the startup form
+             * files a correction unattended and refuses a centroid residual,
+             * while here an operator is reading every residual as it arrives
+             * and a reading that keeps moving between bursts is worth having.
+             * The gate already treats the centroid as the weakest source, and
+             * `calibration_track()` is the same state machine either way.
+             */
+            started = startup_session_measure_gsm(
+                session, app->options.arfcn, app->applied.ppm, 1, began, &ev);
         }
+        startup_session_set_budget(session, limit);
 
-        if (start_calibration(app) < 0) {
-            fprintf(stderr, "%s\n", app->cal.status);
+        if (started < 0) {
+            fprintf(stderr, "%s\n", session->status);
             return -1;
+        }
+        if (ev.retune_hz) {
+            pending_hz = ev.retune_hz;
+            pending_rate = ev.retune_rate_hz;
+            retune_pending = 1;
         }
         printf("calibrate technology %s channel %s expected_hz %u "
                "applied_ppm %d\n",
-               app->options.calibrate == 1 ? "gsm" : "lte", app->cal.channel,
-               app->cal.expected_hz, app->applied.ppm);
+               app->options.calibrate == 1 ? "gsm"
+                   : app->options.calibrate == 2 ? "lte" : "auto",
+               session->arfcn > 0 ? int_text(session->arfcn)
+                                  : int_text((int)session->earfcn),
+               session->expected_hz, app->applied.ppm);
         fflush(stdout);
 
         while (!signal_stop_requested) {
             struct timespec tick = { 0, 5 * 1000000L };
             struct slot_snapshot snapshot;
-            int have_new = consume_latest(&app->acq, &snapshot);
-            double now = monotonic_seconds();
+            struct startup_block block;
+            int have_new;
+            double now;
 
+            /* The tuning the machine asked for, obeyed here. The settle
+               starts when the tuner has moved and not when it was asked to,
+               which is the fault no capture can reach. */
+            if (retune_pending) {
+                int ok;
+
+                retune_pending = 0;
+                if (pending_rate)
+                    ok = retune_receiver_at_rate(app, pending_hz, pending_rate,
+                                                 app->applied.ppm) == 0;
+                else
+                    ok = retune_receiver(app, pending_hz,
+                                         app->applied.ppm) == 0;
+                if (ok)
+                    startup_session_retuned(session, monotonic_seconds());
+                else
+                    startup_session_retune_failed(session, pending_hz,
+                                                  app->receiver_error, &ev);
+            }
+
+            have_new = consume_latest(&app->acq, &snapshot);
+            now = monotonic_seconds();
             if (have_new)
                 process_block(app, now - began);
             if (snapshot.worker_failed) {
@@ -2524,38 +2678,67 @@ static int run_headless(struct app *app) {
                         snapshot.worker_error);
                 return -1;
             }
-            update_calibration_measurement(app);
-            if (app->cal.track.measurements > reported) {
-                reported = app->cal.track.measurements;
+
+            memset(&block, 0, sizeof(block));
+            block.i_samples = app->frame.i_samples;
+            block.q_samples = app->frame.q_samples;
+            block.pair_count = app->frame.pair_count;
+            block.spectrum = app->frame.spectrum_average;
+            block.scratch = app->cal.workspace;
+            block.centre_hz = (double)app->applied.frequency_hz;
+            block.sample_rate = (double)app->applied.sample_rate_hz;
+            startup_session_tick(session, &block,
+                                 have_new && app->frame.spectrum_ready, now,
+                                 &ev);
+            if (ev.scan_finished && session->arfcn > 0)
+                printf("calibrate checking arfcn %d fcch %.2f\n",
+                       session->arfcn, (double)session->arfcn_confidence);
+            if (ev.measure_began && session->verified)
+                printf("calibrate verified arfcn %d bsic %d\n",
+                       session->arfcn, session->bsic);
+            if (ev.scan_finished && session->earfcn > 0 &&
+                session->phase == STARTUP_MEASURE_LTE)
+                printf("calibrate chose earfcn %u cell %d pss %.2f\n",
+                       session->earfcn, session->pci, (double)session->pss);
+            if (ev.measure_began) {
+                printf("calibrate measuring expected_hz %u\n",
+                       session->expected_hz);
+                /* The budget is the measurement's, not the search's: a scan
+                   runs for minutes and would eat the whole of it before a
+                   single residual was measured. */
+                began = monotonic_seconds();
+                startup_session_set_budget(session, limit);
+            }
+            if (ev.retune_hz) {
+                pending_hz = ev.retune_hz;
+                pending_rate = ev.retune_rate_hz;
+                retune_pending = 1;
+            }
+            if (session->track.measurements > reported) {
+                reported = session->track.measurements;
                 /* Every measurement, not a summary: the sequence is what shows
                    whether the scatter is the estimator or the crystal. */
                 printf("cal-measure %d observed_ppm %.2f centre_ppm %.2f "
                        "sem_ppm %.2f spread_ppm %.2f source %s quality %.2f\n",
-                       reported, app->cal.offset_hz /
-                           (double)app->cal.expected_hz * 1e6,
-                       app->cal.track.recent_center, app->cal.track.recent_sem,
-                       app->cal.track.recent_spread,
-                       app->cal.track.source == CALIBRATION_SOURCE_FCCH
+                       reported, session->expected_hz
+                           ? session->offset_hz /
+                                 (double)session->expected_hz * 1e6
+                           : 0.0,
+                       session->track.recent_center, session->track.recent_sem,
+                       session->track.recent_spread,
+                       session->track.source == CALIBRATION_SOURCE_FCCH
                            ? "fcch"
-                           : app->cal.track.source == CALIBRATION_SOURCE_LTE
+                           : session->track.source == CALIBRATION_SOURCE_LTE
                                  ? "lte" : "centroid",
-                       (double)app->cal.fcch_confidence);
+                       (double)session->quality);
                 fflush(stdout);
             }
-            if (app->cal.track.stable) {
-                locked = 1;
-                why = "locked";
-                break;
-            }
-            if (now - began > limit) {
-                /* Say which clause is still unsatisfied, so a calibration that
-                   will not lock is a diagnosis rather than a shrug. */
-                if (app->cal.track.measurements < CALIBRATION_MIN_MEASUREMENTS)
-                    why = "too-few-measurements";
-                else if (app->cal.track.recent_sem > CALIBRATION_MAX_SEM_PPM)
-                    why = "sem-too-wide";
-                else
-                    why = "timeout";
+            if (ev.finished) {
+                if (session->references >= 2)
+                    printf("calibrate cross-check arfcn %d %+d ppm, "
+                           "arfcn %d %+d ppm\n", session->first_arfcn,
+                           session->first_ppm, session->second_arfcn,
+                           session->second_ppm);
                 break;
             }
             if (!have_new)
@@ -2563,9 +2746,11 @@ static int run_headless(struct app *app) {
         }
         printf("calibrate-result locked %d measurements %d centre_ppm %.2f "
                "sem_ppm %.2f spread_ppm %.2f suggested_ppm %d reason %s\n",
-               locked, app->cal.track.measurements, app->cal.track.recent_center,
-               app->cal.track.recent_sem, app->cal.track.recent_spread,
-               app->cal.suggested_ppm, why);
+               session->phase == STARTUP_LOCKED ? 1 : 0,
+               session->track.measurements, session->track.recent_center,
+               session->track.recent_sem, session->track.recent_spread,
+               session->suggested_ppm,
+               startup_reason_name(session->reason));
         fflush(stdout);
         if (stop_acquisition(app) < 0)
             return -1;
@@ -2652,6 +2837,13 @@ static int run_headless(struct app *app) {
 /* Filled in by main before the app is built, and copied into it. */
 static struct config loaded_config;
 
+/* getenv() with the const the pure reader wants: it returns `char *`, and a
+   lookup that hands out a mutable pointer into the environment invites a
+   caller to write through it. */
+static const char *environment(const char *name) {
+    return getenv(name);
+}
+
 int main(int argc, char **argv) {
     struct app *app;
     int result = 1;
@@ -2662,6 +2854,13 @@ int main(int argc, char **argv) {
         usage(argv[0]);
         return 1;
     }
+    /*
+     * The environment's say, after the flags and before anything reads the
+     * result -- a flag beats a variable beats the config file, one rule. It
+     * takes getenv as an argument so the parser stays pure and
+     * `check-options` can reach every case with a table.
+     */
+    options_apply_environment(&options, environment);
     if (options.show_version) {
         printf("sdrprobe %s\n%s\n", SDRPROBE_VERSION, SDRPROBE_CONTACT);
         return 0;
@@ -2771,7 +2970,9 @@ int main(int argc, char **argv) {
     if (options.debug_log && debug_log_open(options.debug_log) == 0) {
         /* From the options rather than from the app: the source has not been
            attached yet here, and the fields it fills in are still zero. */
-        debug_log_write("open", "sdrprobe, %s, %u S/s, %.6f MHz, %+d ppm",
+        debug_log_write("open",
+                        "sdrprobe %s, %s, %u S/s, %.6f MHz, %+d ppm",
+                        SDRPROBE_VERSION,
                         options.file_path ? options.file_path : "receiver",
                         options.sample_rate, options.frequency / 1e6,
                         options.ppm);
@@ -2803,6 +3004,32 @@ int main(int argc, char **argv) {
      */
     installation_load(&app->installation, &app->config, app->device.serial,
                       app->options.receiver_label);
+    if (debug_log_active()) {
+        /*
+         * What this run's measurements belong to.
+         *
+         * A second line rather than a longer `open` one, because it cannot be
+         * written earlier: ADR-0018 keys a correction by the receiver, and the
+         * receiver's serial is not known until it is open -- which happens
+         * after the log does. Without it a log can say what was tuned and
+         * never what installation it was tuned by, which is the one thing
+         * every measurement in this program is keyed by (ADR-0018, ADR-0022).
+         *
+         * The gain goes through the profile's own speller: an AD9361's
+         * receive gain is a table index that looks like a decibel, and
+         * logging `40 dB` for `index 40` would be a number nobody measured.
+         */
+        char gain[32];
+
+        device_gain_format(&app->device, app->applied_gain_tenths, gain,
+                           sizeof(gain));
+        debug_log_write("installation",
+                        "receiver %s site \"%s\" antenna \"%s\" gain %s",
+                        app->installation.receiver[0]
+                            ? app->installation.receiver : "none",
+                        app->installation.site, app->installation.antenna,
+                        app->applied_manual_gain ? gain : "auto");
+    }
     {
         int legacy = 0, profile = 0;
 

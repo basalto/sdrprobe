@@ -50,6 +50,11 @@ struct input_state {
     int settings_open;
     int calibration_open;
     int scan_open;      /* the scan overlay sits inside calibration */
+    /*
+     * The startup form, which is modal: it is up before any tab and the
+     * receiver is busy behind it (ADR-0024).
+     */
+    int startup_open;
     int tab;            /* enum active_tab */
     int view;           /* enum view_kind, when the Scope tab is up */
     int menu_open;      /* a combo list is down over the view */
@@ -82,7 +87,13 @@ enum input_target {
     INPUT_TARGET_SCAN,
     INPUT_TARGET_CALIBRATION,
     INPUT_TARGET_DECODE,
-    INPUT_TARGET_SCOPE
+    INPUT_TARGET_SCOPE,
+    /*
+     * The startup form. Last in the enum and second in precedence: adding it
+     * at the end keeps every existing value where it was, which matters
+     * because `check-debug-log` pins these names against the log's.
+     */
+    INPUT_TARGET_STARTUP
 };
 
 /*
@@ -91,12 +102,22 @@ enum input_target {
  * Help is outermost: it can be raised over a view or over calibration and
  * takes every key while it is up, because it is a reading surface and any key
  * reaching what is behind it acts on something the reader cannot see.
- * Settings comes next, then calibration -- with its scan overlay inside it --
- * and only then the tabs.
+ * The startup form comes next -- it is modal, and Settings is reached through
+ * it -- then Settings, then calibration with its scan overlay inside it, and
+ * only then the tabs.
  */
 static inline enum input_target input_route(const struct input_state *s) {
     if (s->help_open)
         return INPUT_TARGET_HELP;
+    /*
+     * The startup form outranks Settings because Settings is reached
+     * *through* it -- and it is under Help for the reason Help is over
+     * everything: a reading surface raised over a form is exactly where it is
+     * most wanted, and any key reaching the form behind it would act on
+     * fields the reader cannot see.
+     */
+    if (s->startup_open)
+        return INPUT_TARGET_STARTUP;
     if (s->settings_open)
         return INPUT_TARGET_SETTINGS;
     if (s->calibration_open)
@@ -118,7 +139,10 @@ static inline enum input_target input_route(const struct input_state *s) {
  * first.
  */
 static inline int input_takes_typing(const struct input_state *s) {
-    return s->settings_open || s->text_focus;
+    /* The startup form is nothing but fields, the same as the settings panel:
+       while it is up the letters belong to whichever one has focus, and a
+       stray `q` must not quit out of a half-typed site name. */
+    return s->settings_open || s->startup_open || s->text_focus;
 }
 
 /*

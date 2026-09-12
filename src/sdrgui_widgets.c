@@ -31,18 +31,50 @@ void sdrgui_health_dot(const struct sdrgui_health_params *params) {
     }
     DrawText(cap, (int)(cx - 12.0f - (float)MeasureText(cap, 16)),
              (int)cy - 8, 16, (Color){ 150, 170, 184, 255 });
-    DrawCircle((int)cx, (int)cy, 9.0f, color);
-    DrawCircleLines((int)cx, (int)cy, 9.0f, (Color){ 12, 19, 28, 255 });
+    DrawCircle((int)cx, (int)cy, SDRGUI_HEALTH_DOT_RADIUS, color);
+    DrawCircleLines((int)cx, (int)cy, SDRGUI_HEALTH_DOT_RADIUS,
+                    (Color){ 12, 19, 28, 255 });
 
     if (params->state == SDRGUI_HEALTH_CHECKING) {
         char text[96];
         snprintf(text, sizeof(text), "Checking %s drift on %s %d...",
                  cap, params->channel_name ? params->channel_name : "channel",
                  params->channel);
-        DrawText(text, 22, 178, 17, (Color){ 250, 190, 74, 255 });
+        DrawText(text, (int)params->banner.x, (int)params->banner.y, 17,
+                 (Color){ 250, 190, 74, 255 });
     } else if (params->state == SDRGUI_HEALTH_DRIFT && params->notice &&
                params->notice[0]) {
-        DrawText(params->notice, 22, 178, 17, (Color){ 255, 120, 120, 255 });
+        DrawText(params->notice, (int)params->banner.x, (int)params->banner.y,
+                 17, (Color){ 255, 120, 120, 255 });
+    }
+
+    /*
+     * The hover detail. Whether the pointer is on the dot is decided by the
+     * caller through sdrgui_point_in_circle(), so this only draws.
+     */
+    if (params->hovered && params->have_detail) {
+        char line[160];
+        char age[48];
+        Rectangle box = params->hover;
+
+        if (params->measured_ago < 0.0)
+            snprintf(age, sizeof(age), "%s", "");
+        else if (params->measured_ago < 90.0)
+            snprintf(age, sizeof(age), ", measured %.0f s ago",
+                     params->measured_ago);
+        else
+            snprintf(age, sizeof(age), ", measured %.0f min ago",
+                     params->measured_ago / 60.0);
+        snprintf(line, sizeof(line), "%+d ppm from %s %d (%s)%s", params->ppm,
+                 params->channel_name ? params->channel_name : "channel",
+                 params->channel, params->source ? params->source : "unknown",
+                 age);
+        DrawRectangleRec(box, (Color){ 18, 26, 36, 240 });
+        DrawRectangleLinesEx(box, 1.0f, (Color){ 60, 76, 92, 255 });
+        DrawText(cap, (int)box.x + 10, (int)box.y + 6, 15,
+                 (Color){ 150, 170, 184, 255 });
+        DrawText(line, (int)box.x + 10, (int)box.y + 23, 15,
+                 (Color){ 214, 226, 236, 255 });
     }
 }
 

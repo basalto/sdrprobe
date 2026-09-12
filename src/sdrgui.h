@@ -71,7 +71,37 @@ struct sdrgui_health_params {
     const char *channel_name;  /* "ARFCN", "EARFCN" -- for the banner */
     int channel;        /* for the "checking" banner */
     const char *notice; /* drift banner text (may be NULL/empty) */
+    /*
+     * Where the banner goes, from the layout rather than from inside the
+     * widget -- both dots used to write theirs to the same literal
+     * coordinates, two lines under the comment saying why `centre` is a
+     * parameter.
+     */
+    Rectangle banner;
+
+    /*
+     * What a calibrated receiver is calibrated *by*, drawn when the pointer
+     * is on the dot.
+     *
+     * A green dot on its own says a correction was applied and says nowhere
+     * by how much, from what, or when -- which is the question the indicator
+     * exists to answer. On hover rather than as a standing line, because a
+     * permanent one would sit on every screen for the rest of the session;
+     * and on the indicator rather than in a notice that erases itself,
+     * because a correction is a standing fact about the receiver and not an
+     * event (ADR-0024).
+     */
+    Rectangle hover;
+    int hovered;         /* the pointer is on the dot */
+    int have_detail;     /* there is a correction to describe */
+    int ppm;             /* what is applied */
+    const char *source;  /* "FCCH tone", "4G cell" -- what measured it */
+    double measured_ago; /* seconds since, or a negative for "unknown" */
 };
+
+/* How big the dot is. A constant rather than a literal in the drawing,
+   because the hit test for its hover has to agree with it. */
+#define SDRGUI_HEALTH_DOT_RADIUS 9.0f
 
 /* A status circle with its caption, plus an optional checking/drift banner. */
 void sdrgui_health_dot(const struct sdrgui_health_params *params);

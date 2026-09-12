@@ -13,7 +13,7 @@ Close the question with a table, in either direction. A change that shows no
 gain is worth writing down as showing no gain -- otherwise it comes back as a
 suggestion every year with no data attached.
 
-## The three ways an A/B here has gone wrong
+## The four ways an A/B here has gone wrong
 
 **Measuring where the answer cannot show.** A shaped RDS filter was compared
 against the rectangular one on a strong station and scored 153 aligned
@@ -21,6 +21,19 @@ syndrome hits against 153. That was not a wrong measurement, it was an
 uninformative one: a strong station decodes either way and a decibel cannot
 show against 20 dB of margin. **Measure where the thing being changed is the
 binding constraint.**
+
+**An instrument no finer than the effect.** A tool was written to sweep a tone
+detector across a channel and used one knob for both the sweep step and each
+probe's search width. Resolving a 2 kHz effect therefore meant stepping in
+2.5 kHz strides, so the answer came out quantised to the size of the thing
+being measured -- and it read a clean, monotonic 3.6 kHz trend across four
+recordings that was mostly the stride. Separating the two knobs moved every
+point by up to 800 Hz and halved the trend. **Before believing a difference,
+ask what the instrument's own resolution is and confirm it is well under the
+difference** -- and be most suspicious when the effect comes out close to a
+step, a bin width, or a window length, because that is what an artefact of the
+method looks like. A monotonic ordering is not protection: four points fall in
+order by chance one time in twelve.
 
 **Comparing at different gains.** The shaped filter's taps sum to half the
 rectangular one's energy, so without a root-two scaling it reads uniformly

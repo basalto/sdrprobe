@@ -20,6 +20,14 @@ static struct input_state state_of(int help, int settings, int calibration,
                                    int scan, int tab, int typing) {
     struct input_state s;
 
+    /*
+     * Zeroed first, and that is not tidiness. Every field used to be assigned
+     * by name here, so adding one to `struct input_state` left it holding
+     * whatever was on the stack -- and the sweep below reads every field of
+     * every combination, so an uninitialised flag makes the exhaustive test
+     * nondeterministic while still passing most runs.
+     */
+    memset(&s, 0, sizeof(s));
     s.help_open = help;
     s.settings_open = settings;
     s.calibration_open = calibration;
@@ -152,7 +160,7 @@ static void test_the_view_keys(void) {
 }
 
 /*
- * The whole state space, swept: 64 combinations, each routed to exactly one
+ * The whole state space, swept: 192 combinations, each routed to exactly one
  * target, with no combination reaching a target that contradicts its flags. A
  * new branch put in the wrong place shows up here rather than as a key that
  * quietly does the wrong thing.
@@ -160,44 +168,54 @@ static void test_the_view_keys(void) {
 static void test_every_combination_routes_somewhere_sensible(void) {
     int bad = 0;
 
-    /* Every overlay combination against every tab, which is 3 * 32 now that
-       the survey is a tab rather than a view inside Scope. */
-    for (int bits = 0; bits < 32 * TAB_COUNT; bits++) {
+    /* Every overlay combination against every tab: 3 * 64 now that the
+       startup form is a fifth overlay. */
+    for (int bits = 0; bits < 64 * TAB_COUNT; bits++) {
         struct input_state s = state_of(bits & 1, (bits >> 1) & 1,
                                         (bits >> 2) & 1, (bits >> 3) & 1,
-                                        bits / 32, (bits >> 4) & 1);
-        enum input_target target = input_route(&s);
+                                        bits / 64, (bits >> 4) & 1);
+        enum input_target target;
+
+        s.startup_open = (bits >> 5) & 1;
+        target = input_route(&s);
 
         switch (target) {
         case INPUT_TARGET_HELP:
             if (!s.help_open)
                 bad++;
             break;
+        case INPUT_TARGET_STARTUP:
+            /* Under Help and over everything else. */
+            if (!s.startup_open || s.help_open)
+                bad++;
+            break;
         case INPUT_TARGET_SETTINGS:
-            if (!s.settings_open || s.help_open)
+            if (!s.settings_open || s.help_open || s.startup_open)
                 bad++;
             break;
         case INPUT_TARGET_SCAN:
-            if (!s.scan_open || !s.calibration_open)
+            if (!s.scan_open || !s.calibration_open || s.help_open ||
+                s.settings_open || s.startup_open)
                 bad++;
             break;
         case INPUT_TARGET_CALIBRATION:
-            if (!s.calibration_open || s.scan_open)
+            if (!s.calibration_open || s.scan_open || s.help_open ||
+                s.settings_open || s.startup_open)
                 bad++;
             break;
         case INPUT_TARGET_SURVEY:
             if (s.tab != TAB_SURVEY || s.help_open || s.settings_open ||
-                s.calibration_open)
+                s.calibration_open || s.startup_open)
                 bad++;
             break;
         case INPUT_TARGET_DECODE:
             if (s.tab != TAB_DECODE || s.help_open || s.settings_open ||
-                s.calibration_open)
+                s.calibration_open || s.startup_open)
                 bad++;
             break;
         case INPUT_TARGET_SCOPE:
             if (s.tab != TAB_SCOPE || s.help_open || s.settings_open ||
-                s.calibration_open)
+                s.calibration_open || s.startup_open)
                 bad++;
             break;
         }
@@ -206,7 +224,7 @@ static void test_every_combination_routes_somewhere_sensible(void) {
         if (input_view_keys_live(&s) && target != INPUT_TARGET_SCOPE)
             bad++;
     }
-    check_int("all 64 flag combinations route consistently", bad, 0);
+    check_int("all 192 flag combinations route consistently", bad, 0);
 }
 
 /* A scan overlay flag left set while calibration is closed must not route

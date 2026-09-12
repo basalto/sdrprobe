@@ -27,7 +27,7 @@ void usage(const char *program) {
             "          [--debug-log FILE|-] [--analysis] [--fm-scan] [--fm-play]\n"
             "          [--survey-select n] [--survey-bands] [--survey-band n]\n"
             "          [--zoom from:to] [--fft points]\n"
-            "          [--antenna name] [--site name]\n"
+            "          [--antenna name] [--site name] [--no-startup]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
             "          [--dc-filter on|off]\n"
@@ -43,8 +43,11 @@ void usage(const char *program) {
             "                    printing what every stage produced per block\n"
             "  --lte-chain-band  scan this band and walk its strongest cell\n"
             "  --lte-chain-seconds  how long to walk it for\n"
-            "  --calibrate       gsm|lte: measure the receiver's frequency\n"
-            "                    error with no window and print every step\n"
+            "  --calibrate       gsm|lte|auto: measure the receiver's\n"
+            "                    frequency error with no window, printing\n"
+            "                    every step. auto looks for a GSM broadcast\n"
+            "                    carrier first and an LTE band only if there\n"
+            "                    is none\n"
             "  --calibrate-band  scan this LTE band and use its strongest cell\n"
             "  --calibrate-seconds  give up after this long if it never locks\n"
             "  --survey-watch    keep sweeping this many times, folding each\n"
@@ -62,6 +65,7 @@ void usage(const char *program) {
             "  --claim-calibration  store it: --ppm with this writes the\n"
             "                    correction down for this receiver at this\n"
             "                    site, and alone it claims a legacy one\n"
+            "  --no-startup      do not ask where this is at startup\n"
             "  --technology      what that recording is labelled; defaults to\n"
             "                    --view, or raw when there is no view\n"
             "  --duration        quit after n seconds\n"
@@ -88,6 +92,15 @@ void usage(const char *program) {
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
             program);
+    printf("\nThe environment answers the same four questions the startup\n"
+           "form asks, for a launcher or a unit file that cannot reach the\n"
+           "command line. A flag beats a variable beats the config file.\n"
+           "  SDRPROBE_SITE             as --site\n"
+           "  SDRPROBE_ANTENNA          as --antenna\n"
+           "  SDRPROBE_RECEIVER_LABEL   as --receiver-label\n"
+           "  SDRPROBE_NO_STARTUP       as --no-startup\n"
+           "An empty value is no value: it is ignored, rather than taken as\n"
+           "an answer.\n");
 }
 
 int parse_int(const char *text, int *value) {
@@ -228,7 +241,8 @@ int parse_view(const char *text, enum start_view *view) {
         { "tetra", START_VIEW_TETRA },
         { "calibration", START_VIEW_CALIBRATION },
         { "settings", START_VIEW_SETTINGS },
-        { "help", START_VIEW_HELP }
+        { "help", START_VIEW_HELP },
+        { "startup", START_VIEW_STARTUP }
     };
 
     if (!text)
@@ -347,6 +361,7 @@ int parse_options(int argc, char **argv, struct options *options) {
                 parse_view(argv[++i], &options->view) < 0)
                 return -1;
             view_seen = 1;
+            options->view_seen = 1;
         } else if (strcmp(option, "--survey-range") == 0) {
             /* LOW:HIGH, each in the same spellings --frequency takes. */
             if (options->survey_seen || i + 1 >= argc)
@@ -508,6 +523,11 @@ int parse_options(int argc, char **argv, struct options *options) {
                 options->calibrate = 1;
             else if (!strcmp(argv[i + 1], "lte"))
                 options->calibrate = 2;
+            else if (!strcmp(argv[i + 1], "auto"))
+                /* The startup form's own search: GSM 900 for a broadcast
+                   carrier, and an LTE band only if there is none. A new value
+                   rather than a change to what the two existing ones mean. */
+                options->calibrate = 3;
             else
                 return -1;
             i++;
@@ -548,6 +568,10 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->receiver_label || i + 1 >= argc || !*argv[i + 1])
                 return -1;
             options->receiver_label = argv[++i];
+        } else if (strcmp(option, "--no-startup") == 0) {
+            if (options->no_startup)
+                return -1;
+            options->no_startup = 1;
         } else if (strcmp(option, "--claim-calibration") == 0) {
             /* ADR-0018: claim a site-only correction for this receiver. The
                operator's explicit act, which is what the ADR requires instead
@@ -735,4 +759,88 @@ int parse_options(int argc, char **argv, struct options *options) {
         options->sample_rate = LTE_SAMPLE_RATE_HZ_U32;
     }
     return 0;
+}
+
+int options_apply_environment(struct options *options,
+                              const char *(*lookup)(const char *)) {
+    const char *value;
+    int applied = 0;
+
+    if (!options || !lookup)
+        return 0;
+
+    /*
+     * An empty variable is **not** a value.
+     *
+     * `SDRPROBE_SITE=` set by a unit file that forgot to fill it in must
+     * leave the config's site alone and must not suppress the form -- the
+     * alternative is a misconfigured launcher silently filing every sweep
+     * under whatever site was last used, which is exactly the silent,
+     * permanent mistake the form exists to prevent.
+     */
+    value = lookup("SDRPROBE_SITE");
+    if (value && *value && !options->site) {
+        options->site = value;
+        applied++;
+    }
+    value = lookup("SDRPROBE_ANTENNA");
+    if (value && *value && !options->antenna) {
+        options->antenna = value;
+        applied++;
+    }
+    value = lookup("SDRPROBE_RECEIVER_LABEL");
+    if (value && *value && !options->receiver_label) {
+        options->receiver_label = value;
+        applied++;
+    }
+    /* A flag is a presence rather than a value, so any non-empty setting is
+       the request. "0" is deliberately not a way to turn it back on: the flag
+       has no negation either, and inventing one here would make the
+       environment and the command line disagree about what they mean. */
+    value = lookup("SDRPROBE_NO_STARTUP");
+    if (value && *value && !options->no_startup) {
+        options->no_startup = 1;
+        applied++;
+    }
+    return applied;
+}
+
+int startup_form_wanted(const struct options *options) {
+    if (!options)
+        return 0;
+    /* Explicitly refused, by flag or by environment. */
+    if (options->no_startup)
+        return 0;
+    /* No window to draw it in, and no person to answer it. */
+    if (options->headless)
+        return 0;
+    /*
+     * A capture. Its correction is already in its samples and a recording
+     * does not carry its recorder's crystal, so there is nothing to measure
+     * and nothing the answers would be keyed to.
+     */
+    if (options->file_path)
+        return 0;
+    /* A timed run is a scripted run, and so is one that names its screen.
+       Both are how every screenshot recipe and every --duration check work,
+       and a form in front of them would break all of them at once. */
+    if (options->duration_seconds > 0.0)
+        return 0;
+    if (options->view_seen)
+        return 0;
+    /*
+     * The correction for this run has been stated. Measuring one anyway and
+     * offering to overwrite it is the --ppm / --claim-calibration confusion
+     * that `.scratch/device-model/issues/12-*` was written about, where
+     * `--ppm 0` wrote over a measured +32 twice in one afternoon.
+     */
+    if (options->ppm_seen)
+        return 0;
+    /*
+     * And the installation is already stated. The form's whole purpose is to
+     * find out where this is; a run that says so has answered it.
+     */
+    if (options->site)
+        return 0;
+    return 1;
 }

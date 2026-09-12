@@ -639,6 +639,153 @@ static void test_receiver_identity_flags(void) {
               parse_line("--receiver-label", &o), -1);
 }
 
+/* ------------------------------------------------------------------ */
+
+/*
+ * The startup form's bypass: who sees it, who does not, and how the
+ * environment says so.
+ *
+ * The negative half is what matters most. `check-pipelines`, every screenshot
+ * recipe and every --duration check run the program with a window or without
+ * one and expect it to get on with the job; a form in front of any of them
+ * would break all of them at once, so the skip conditions are a list here
+ * rather than a condition spread over main().
+ */
+static const char *g_env_site;
+static const char *g_env_antenna;
+static const char *g_env_label;
+static const char *g_env_no_startup;
+
+static const char *fake_env(const char *name) {
+    if (strcmp(name, "SDRPROBE_SITE") == 0)
+        return g_env_site;
+    if (strcmp(name, "SDRPROBE_ANTENNA") == 0)
+        return g_env_antenna;
+    if (strcmp(name, "SDRPROBE_RECEIVER_LABEL") == 0)
+        return g_env_label;
+    if (strcmp(name, "SDRPROBE_NO_STARTUP") == 0)
+        return g_env_no_startup;
+    return NULL;
+}
+
+static void clear_env(void) {
+    g_env_site = NULL;
+    g_env_antenna = NULL;
+    g_env_label = NULL;
+    g_env_no_startup = NULL;
+}
+
+static void test_who_sees_the_startup_form(void) {
+    struct options options;
+
+    check_int("a plain windowed receiver launch is asked",
+              parse_line("", &options), 0);
+    check_int("so the form opens", startup_form_wanted(&options), 1);
+
+    check_int("headless parses", parse_line("--headless", &options), 0);
+    check_int("and is never asked", startup_form_wanted(&options), 0);
+
+    check_int("a capture parses",
+              parse_line("--file testfiles/gsm_arfcn_69.bin", &options), 0);
+    check_int("and is never asked -- its correction is in its samples",
+              startup_form_wanted(&options), 0);
+
+    check_int("a timed run parses", parse_line("--duration 20", &options), 0);
+    check_int("and is not asked", startup_form_wanted(&options), 0);
+
+    check_int("a named screen parses", parse_line("--view gsm", &options), 0);
+    check_int("and is not asked", startup_form_wanted(&options), 0);
+    /* Including the screen it would have landed on anyway: naming it is what
+       makes the run scripted, not which one was named. */
+    check_int("--view survey parses", parse_line("--view survey", &options), 0);
+    check_int("and is still not asked", startup_form_wanted(&options), 0);
+
+    check_int("a stated correction parses", parse_line("--ppm 32", &options), 0);
+    check_int("and is not asked -- measuring one would offer to overwrite it",
+              startup_form_wanted(&options), 0);
+    /* --ppm 0 is the case that cost a measured +32 twice in one afternoon. */
+    check_int("--ppm 0 parses", parse_line("--ppm 0", &options), 0);
+    check_int("and is not asked either", startup_form_wanted(&options), 0);
+
+    check_int("a stated site parses", parse_line("--site roof", &options), 0);
+    check_int("and has answered the question", startup_form_wanted(&options),
+              0);
+
+    check_int("--no-startup parses", parse_line("--no-startup", &options), 0);
+    check_int("and refuses it", startup_form_wanted(&options), 0);
+    check_int("twice is a mistake", parse_line("--no-startup --no-startup",
+                                               &options), -1);
+
+    check_int("--view startup names the form itself",
+              parse_line("--view startup", &options), 0);
+    check_int("and it is reachable from the command line",
+              (int)options.view, (int)START_VIEW_STARTUP);
+}
+
+static void test_the_environment_answers_the_same_questions(void) {
+    struct options options;
+
+    clear_env();
+    parse_line("", &options);
+    check_int("an empty environment changes nothing",
+              options_apply_environment(&options, fake_env), 0);
+    check_int("and the form still opens", startup_form_wanted(&options), 1);
+
+    clear_env();
+    g_env_site = "field-hut";
+    g_env_antenna = "discone, roof";
+    g_env_label = "dongle-a";
+    parse_line("", &options);
+    check_int("three values are applied",
+              options_apply_environment(&options, fake_env), 3);
+    check_str("the site", options.site, "field-hut");
+    check_str("the antenna, commas and all", options.antenna, "discone, roof");
+    check_str("the label", options.receiver_label, "dongle-a");
+    check_int("and the form has nothing left to ask",
+              startup_form_wanted(&options), 0);
+
+    /* A flag beats a variable. One rule, in one direction. */
+    clear_env();
+    g_env_site = "from-the-environment";
+    parse_line("--site from-the-flag", &options);
+    options_apply_environment(&options, fake_env);
+    check_str("a flag outranks the environment", options.site,
+              "from-the-flag");
+
+    /*
+     * An empty variable is not a value. A unit file that forgot to fill one
+     * in must leave the config alone and must **not** suppress the form --
+     * the alternative files every sweep under whatever site was last used,
+     * which is silent and permanent.
+     */
+    clear_env();
+    g_env_site = "";
+    parse_line("", &options);
+    check_int("an empty variable applies nothing",
+              options_apply_environment(&options, fake_env), 0);
+    check_true("and leaves the site unset", options.site == NULL);
+    check_int("and does not suppress the form",
+              startup_form_wanted(&options), 1);
+
+    clear_env();
+    g_env_no_startup = "1";
+    parse_line("", &options);
+    check_int("the refusal is applied",
+              options_apply_environment(&options, fake_env), 1);
+    check_int("and the form does not open", startup_form_wanted(&options), 0);
+
+    clear_env();
+    g_env_no_startup = "";
+    parse_line("", &options);
+    check_int("an empty refusal is no refusal",
+              options_apply_environment(&options, fake_env), 0);
+    check_int("so the form still opens", startup_form_wanted(&options), 1);
+
+    check_int("a null lookup is survivable",
+              options_apply_environment(&options, NULL), 0);
+    clear_env();
+}
+
 int main(void) {
     test_receiver_identity_flags();
     test_defaults();
@@ -663,6 +810,9 @@ int main(void) {
     test_every_screen_is_reachable();
 
     test_version_flag();
+
+    test_who_sees_the_startup_form();
+    test_the_environment_answers_the_same_questions();
 
     return check_report("command line");
 }

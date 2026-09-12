@@ -175,7 +175,7 @@ const char *debug_key_name(int key) {
 const char *debug_target_name(int target) {
     static const char *NAMES[] = {
         "help", "survey", "settings", "scan", "calibration", "decode",
-        "scope"
+        "scope", "startup"
     };
 
     if (target < 0 || target >= (int)(sizeof(NAMES) / sizeof(NAMES[0])))

@@ -38,6 +38,24 @@ struct chrome_layout {
        their own position are two widgets that can overlap. */
     Vector2 gsm_dot;
     Vector2 lte_dot;
+    /*
+     * And where each dot's banner goes -- the "checking" line, the drift line,
+     * and the hover detail.
+     *
+     * Here for the same reason the centres are, and it was not: both dots
+     * wrote their banner to the literal `22, 178` inside the widget, two
+     * lines below the comment explaining why a widget must not choose its own
+     * position. They could not collide only because GSM's checking state
+     * requires the calibration overlay closed and LTE's requires it open,
+     * which is an accident of two unrelated conditions rather than a rule --
+     * and the startup sequence runs GSM then LTE within one walk.
+     */
+    Rectangle gsm_banner;
+    Rectangle lte_banner;
+    /* Where a dot's hover detail is drawn: what the correction is, what
+       measured it, and on which channel. A green dot says a receiver is
+       calibrated and, until this, said nowhere by how much. */
+    Rectangle hover;
     float status_left;     /* x where the buttons begin: text must stop here */
     /*
      * The signature, bottom right: who to write to and which build this is.
@@ -86,6 +104,13 @@ static inline struct chrome_layout chrome_layout_for(float width,
                                 118.0f, 36.0f };
     l.gsm_dot = (Vector2){ width - 152.0f, 33.0f };
     l.lte_dot = (Vector2){ width - 152.0f, 62.0f };
+    /* Stacked, so a GSM banner and an LTE one can be up at once without
+       drawing through each other. */
+    l.gsm_banner = (Rectangle){ 22.0f, 178.0f, width - 200.0f, 20.0f };
+    l.lte_banner = (Rectangle){ 22.0f, 200.0f, width - 200.0f, 20.0f };
+    /* Under the dots and right-aligned with them, so it reads as belonging to
+       what the pointer is on. */
+    l.hover = (Rectangle){ width - 420.0f, 98.0f, 404.0f, 42.0f };
     /* Status text stops a little short of the buttons rather than touching,
        and now short of the captions those dots carry too. */
     l.status_left = width - right_inset - 12.0f;

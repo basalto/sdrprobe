@@ -8,6 +8,7 @@
 #include "lte_layout.h"
 #include "lte_findings.h"
 #include "sdrgui.h"
+#include "debug_log.h"
 
 /*
  * The Decode tab's LTE screen: which cell is on this carrier, what it
@@ -195,7 +196,11 @@ int lte_scan_begin(struct app *app, int band_number, double now) {
     int count = view_lte_bands(app, bands);
     for (i = 0; i < count; i++)
         if (bands[i] == band_number) {
+            const struct lte_band *band = lte_band_for_number(band_number);
             app->lte.scan.band = i;
+            debug_log_write("lte-scan", "begin band %d, %d channels, ~%.0f s",
+                            band_number, lte_scan_count(band),
+                            lte_scan_seconds(band));
             return scan_start(app, now);
         }
     }
@@ -347,6 +352,11 @@ static void scan_confirm_step(struct app *app, double now, int have_block) {
     if (scan->confirm_index >= scan->found_count) {
         scan->confirming = 0;
         scan->running = 0;
+        /* `dropped` is the part worth logging: the sweep's gate is
+           deliberately loose, so what the confirmation pass took away is the
+           measure of how much of the list was never real. */
+        debug_log_write("lte-scan", "done, %d cells, %d dropped",
+                        scan->found_count, scan->confirm_dropped);
         if (scan->found_count > 0)
             scan_select(app, 0);
         return;
@@ -427,6 +437,7 @@ void update_lte_scan(struct app *app, double now, int have_block) {
             }
             return;
         }
+        debug_log_write("lte-scan", "done, no cells");
         scan->running = 0;
         return;
     }
