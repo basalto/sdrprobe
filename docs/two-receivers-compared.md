@@ -139,6 +139,20 @@ six odd ones.** So the spacing is `reference / 2` on this board as well as on
 the R820T, and `survey_comb_spacing_hz()` models the right interval. That is a
 result rather than a suspicion now: it was arrived at by trying to refute it.
 
+**The R820T, given the same treatment, is unanimous.** Antenna off, max gain,
+fourteen multiples from x2 to x15:
+
+| x2 | x3 | x4 | x5 | x6 | x7 | x8 | x9 | x10 | x11 | x12 | x13 | x14 | x15 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| -37.2 | -59.8 | -33.5 | -58.4 | -41.3 | -57.7 | -33.3 | -53.6 | -42.6 | -53.0 | -34.4 | -48.4 | -45.5 | -45.3 |
+
+Every one reads +488 Hz. Seven even and **seven odd**, so on the development
+receiver the comb is complete, and the odd members run 15.4 dB below the even
+ones with the gap narrowing to nothing by x15. The two boards therefore differ
+in **degree and not in kind**: same interval, same alternation, and the E4000
+is 12 dB harsher about it -- 27 dB down rather than 15, and four of its odd
+multiples below the bar rather than none.
+
 What is true, and is what the first pass was seeing, is that **the odd members
 are far weaker**. With the antenna off the six even multiples average about
 -31 dBFS and the two odd ones about -58 -- a gap of roughly 27 dB -- and they
