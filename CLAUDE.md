@@ -124,7 +124,17 @@ default and free when off.
 
 It answers the question a report of "the key did nothing" cannot: whether the
 program never received the key, received it and routed it elsewhere, or routed
-it correctly to a handler with nothing bound. Those are three different bugs
+it correctly to a handler with nothing bound. **There is a fourth cause and
+it is invisible to the log**: `GetCharPressed()` drains a queue, so whoever
+reads it first takes every character that frame. `chart_key_pressed()` empties
+it in a `while` loop and the frame loop calls it once, gated on
+`input_takes_typing()` -- and that gate used to be `text_focus`, which names
+only the survey's fields, the FM frequency and the Scope header. The settings
+panel's PPM field and the startup form's every field read characters of their
+own and were named nowhere, so **both had their input swallowed before their
+handlers ran**, reported as "the receiver label does not accept text input".
+A new surface that takes typed characters has to be true for
+`input_takes_typing()`, and `check-input` pins each one. Those are three different bugs
 that look identical from outside, and this repository has spent an hour
 telling them apart by bisection. **Keys cannot be injected here** — `wtype`
 synthesises a keysym on a scratch keycode while raylib reads physical ones, so
