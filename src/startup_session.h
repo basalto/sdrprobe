@@ -111,6 +111,24 @@ enum startup_phase {
      * about the same carrier rather than a louder version of the first.
      */
     STARTUP_VERIFY_GSM,
+    /*
+     * Asking the tone to prove it is a *signal* by moving the receiver.
+     *
+     * The SCH gate above proves a GSM base station is transmitting on the
+     * channel. It does not prove the line the tone detector locked onto is
+     * that station's FCCH: the search is +/-50 kHz wide and returns the
+     * strongest thing inside it, so on a channel whose FCCH is weak it
+     * returns traffic.
+     *
+     * A real line has an absolute frequency, and that cannot depend on where
+     * the receiver is tuned. An artefact of a search window can. Measured
+     * here over two tunings 200 kHz apart: ARFCN 63 repeated to **71 Hz**
+     * and ARFCN 113 to **272 Hz** over six recordings, while ARFCN 17 --
+     * whose "tone" sat at the very edge of the search window -- moved
+     * **3277 Hz** and was not an FCCH at all
+     * (`.scratch/startup-installation/issues/09-*`).
+     */
+    STARTUP_CONFIRM_TONE,
     STARTUP_MEASURE_GSM,
     STARTUP_SCAN_LTE,
     STARTUP_MEASURE_LTE,
@@ -207,6 +225,28 @@ const char *startup_phase_name(enum startup_phase phase);
  */
 #define STARTUP_AGREE_PPM 4.0
 
+/*
+ * How far the tone may appear to move when the receiver does, and how far to
+ * move it.
+ *
+ * Measured where it breaks, which is what choosing a constant here requires:
+ * two real lines repeated to 0.07 and 0.28 ppm across tunings, and the one
+ * artefact moved 3.5 ppm. One ppm sits a factor of 3.5 above the worst real
+ * case and 3.5 below the artefact -- the geometric middle of the gap, so it
+ * is not perched on either edge.
+ *
+ * The shift is 200 kHz because it has to be large enough to move the line
+ * well across the search window and small enough to keep the channel inside
+ * the span at 2 MS/s, where the carrier already sits 400 kHz off centre.
+ */
+#define STARTUP_TONE_REPEAT_PPM 1.0
+#define STARTUP_TONE_SHIFT_HZ 200000
+
+/* How many blocks each of the two looks gets. The estimate is a mean over
+   them, so this trades half a second against the scatter of a single block --
+   four is where the mean stops moving on the carriers measured here. */
+#define STARTUP_TONE_BLOCKS 4
+
 #define STARTUP_LTE_LOOKS LTE_SCAN_MIN_LOOKS
 #define STARTUP_LTE_AGREE LTE_SCAN_CONFIRMATIONS
 
@@ -258,6 +298,16 @@ struct startup_session {
      * --arfcn N` is an instruction to measure *that*, and going off to find a
      * second opinion would answer a question nobody asked.
      */
+    /*
+     * The tone-repeat check: the carrier each of the two looks estimated, how
+     * many blocks each has had, and which look is running.
+     */
+    double tone_first_hz;
+    double tone_second_hz;
+    int tone_blocks;
+    int tone_second_look;
+    double tone_moved_hz;       /* what the check measured, for the report */
+
     int cross_check;
     int references;             /* how many have been measured through */
     int first_ppm;              /* what the first one suggested */
@@ -266,6 +316,12 @@ struct startup_session {
     int second_ppm;             /* and the second, once there is one */
     int second_arfcn;
     int rejected[SCAN_ARFCN_LAST + 1];  /* channels a verify pass turned down */
+    int rejected_arfcn;         /* the most recent one, for the report */
+    /* And why, captured **before** the search moves on. Reading `status`
+       after a rejection gives the next candidate's line instead, which is
+       what the first trace of this printed: "rejected arfcn 63: Checking
+       ARFCN 17 is a GSM broadcast carrier". */
+    char rejected_why[200];   /* as wide as `status`, so nothing truncates */
 
     /* The LTE walk, when GSM had nothing. */
     const struct lte_band *band;
@@ -332,6 +388,10 @@ struct startup_session_event {
     uint32_t retune_hz;
     uint32_t retune_rate_hz;
     int scan_finished;      /* a search ended; `arfcn` or `earfcn` says what it found */
+    /* A candidate was turned down -- `rejected_arfcn` says which, and
+       `status` why. Worth an event because a trace that shows only what was
+       accepted cannot explain why a search took as long as it did. */
+    int candidate_rejected;
     int measure_began;
     int measured;           /* one new residual arrived */
     int finished;           /* LOCKED, FAILED or SKIPPED was reached */

@@ -269,12 +269,13 @@ The agreement gate's first on-air run measured a **third** channel, ARFCN 17
 (BSIC 10, 938.4 MHz), at +71 ppm -- against 63's +51 and 113's +35. Ordered by
 frequency and monotonic, about -1.8 ppm per megahertz.
 
-That reframes this ticket's conclusion. "ARFCN 63's transmitter is 15 ppm low"
-is still what the three instruments here measured, but three independent base
-stations do not drift together in a line ordered by tuning, and the receiver
-is the only thing common to all three measurements. `09-three-channels-three-
-answers.md` carries it, with the tuner's own LO resolution as the first
-hypothesis to test.
+That looked like it reframed this ticket's conclusion -- three base stations
+do not drift together in a line ordered by tuning, and the receiver is common
+to all three measurements. **It did not: issue 09 measured the receiver and
+exonerated it.** The trend was an artefact of the sweep that found it, ARFCN
+113 repeats to 272 Hz across 400 kHz of tuning, and ARFCN 63 repeats to 71 Hz.
+So "ARFCN 63's transmitter is 15 ppm low" stands as this ticket measured it,
+and ARFCN 17 turns out not to be an FCCH at all.
 
 The gate stands regardless: whatever the cause, no single-channel measurement
 can see it, and refusing two references that disagree is right in both

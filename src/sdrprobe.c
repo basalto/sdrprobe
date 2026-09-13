@@ -2693,9 +2693,13 @@ static int run_headless(struct app *app) {
             if (ev.scan_finished && session->arfcn > 0)
                 printf("calibrate checking arfcn %d fcch %.2f\n",
                        session->arfcn, (double)session->arfcn_confidence);
+            if (ev.candidate_rejected)
+                printf("calibrate rejected arfcn %d: %s\n",
+                       session->rejected_arfcn, session->rejected_why);
             if (ev.measure_began && session->verified)
-                printf("calibrate verified arfcn %d bsic %d\n",
-                       session->arfcn, session->bsic);
+                printf("calibrate verified arfcn %d bsic %d tone moved "
+                       "%+.0f Hz\n", session->arfcn, session->bsic,
+                       session->tone_moved_hz);
             if (ev.scan_finished && session->earfcn > 0 &&
                 session->phase == STARTUP_MEASURE_LTE)
                 printf("calibrate chose earfcn %u cell %d pss %.2f\n",
