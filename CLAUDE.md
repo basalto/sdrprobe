@@ -1593,15 +1593,33 @@ beside `scan_select_bcch()` and falls back to the loudest channel, which for a
 band full of carriers that are not GSM hands the calibration one with no tone
 in it.
 
+**A tone that follows the receiver is not a signal.** The SCH gate proves a
+base station is transmitting on the channel; it does not prove the line the
+detector locked onto is that station's FCCH, since the search is +/-50 kHz and
+returns the strongest thing inside it. So the receiver is moved
+`STARTUP_TONE_SHIFT_HZ` and the line asked again -- a real one has an absolute
+frequency and cannot follow the tuning. Measured: two real lines repeated to
+**0.07 and 0.28 ppm**, while ARFCN 17's moved **3.5 ppm** and was not an FCCH,
+so `STARTUP_TONE_REPEAT_PPM` sits at the geometric middle of that gap rather
+than on either edge.
+
+**The receiver is consistent, and that was worth measuring rather than
+assuming.** One transmitter recorded from five tunings across 400 kHz repeats
+to **272 Hz**, with 71 Hz between two recordings at one tuning. An earlier
+-1.8 ppm-per-MHz "trend" across three channels was an artefact of the sweep
+that found it -- `.scratch/startup-installation/issues/09-*` has both, and the
+conclusion: ARFCN 113 is a good reference, ARFCN 63 is a transmitter genuinely
+12 ppm low with *nothing* at its nominal FCCH position, and ARFCN 17's line is
+a search-window artefact. At this site `--calibrate auto` now rejects both and
+returns **+34 ppm**, where it used to lock on +57.
+
 **Two references, or none.** A search asks the band what to calibrate
 against, so it owes a second opinion: after one channel locks the gate the
 machine measures the next-best verified carrier and requires the two within
 `STARTUP_AGREE_PPM`. Disagreement is a **refusal** that applies nothing and
 reports both numbers -- `app.h` said so before it was built, and
-`.scratch/startup-installation/issues/08-*` is why it had to be. At this site
-three parity-verified GSM cells give **+71, +51 and +35 ppm** ordered by
-frequency, about -1.8 ppm per megahertz, and *no single-channel statistic
-separates them*: the spreads overlap, the tone coherence is flat across a
+`.scratch/startup-installation/issues/08-*` is why it had to be. Three channels here gave **+71, +51 and +35 ppm**, and *no single-channel
+statistic separates them*: the spreads overlap, the tone coherence is flat across a
 channel (see below), and the worst offender decodes 284 synchronisation bursts
 in 25 s. A caller that **names** the channel is not second-guessed --
 `--calibrate gsm --arfcn N` is an instruction, not a question.

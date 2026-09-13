@@ -30,6 +30,7 @@ const char *startup_phase_name(enum startup_phase phase) {
     switch (phase) {
     case STARTUP_SCAN_GSM:     return "scan-gsm";
     case STARTUP_VERIFY_GSM:   return "verify-gsm";
+    case STARTUP_CONFIRM_TONE: return "confirm-tone";
     case STARTUP_MEASURE_GSM:  return "measure-gsm";
     case STARTUP_SCAN_LTE:     return "scan-lte";
     case STARTUP_MEASURE_LTE:  return "measure-lte";
@@ -64,7 +65,7 @@ int startup_session_running(const struct startup_session *s) {
     if (!s)
         return 0;
     return s->phase == STARTUP_SCAN_GSM || s->phase == STARTUP_VERIFY_GSM ||
-           s->phase == STARTUP_MEASURE_GSM ||
+           s->phase == STARTUP_CONFIRM_TONE || s->phase == STARTUP_MEASURE_GSM ||
            s->phase == STARTUP_SCAN_LTE || s->phase == STARTUP_MEASURE_LTE;
 }
 
@@ -125,6 +126,12 @@ static void gsm_scan_finished(struct startup_session *s,
 static void lte_scan_begin_at(struct startup_session *s,
                               struct startup_session_event *out, double now);
 
+static void confirm_tone_begin(struct startup_session *s,
+                               struct startup_session_event *out, double now);
+
+static void verify_gsm_rejected(struct startup_session *s,
+                                struct startup_session_event *out, double now);
+
 static void measure_gsm_begin(struct startup_session *s,
                               struct startup_session_event *out, double now) {
     uint32_t channel_hz = 0;
@@ -178,6 +185,29 @@ static void verify_gsm_begin(struct startup_session *s,
     if (s->arfcn <= 0 ||
         !gsm_downlink_hz((unsigned int)s->arfcn, &channel_hz)) {
         s->arfcn = 0;
+        /*
+         * Out of candidates. What that means depends on whether anything has
+         * already been measured: with a reference in hand the band has simply
+         * run out of *second opinions*, and the answer stands uncorroborated
+         * -- going on to scan an LTE band would spend minutes replacing a
+         * GSM answer that was already good. Without one there is nothing to
+         * calibrate against here and the fall-back is the point.
+         *
+         * This was the fall-through, and it threw away a correct +34 ppm from
+         * ARFCN 113 on the first live run of the cross-check, reporting
+         * `no-cell` with 123 measurements behind it.
+         */
+        if (s->references >= 1) {
+            s->arfcn = s->first_arfcn;
+            s->suggested_ppm = s->first_ppm;
+            s->bsic = s->first_bsic;
+            finish(s, STARTUP_LOCKED, STARTUP_REASON_LOCKED, out);
+            snprintf(s->status, sizeof(s->status),
+                     "Calibrated %+d ppm from ARFCN %d. No second broadcast "
+                     "carrier here, so nothing checked it", s->first_ppm,
+                     s->first_arfcn);
+            return;
+        }
         lte_scan_begin_at(s, out, now);
         return;
     }
@@ -200,6 +230,10 @@ static void verify_gsm_rejected(struct startup_session *s,
     if (s->arfcn > 0 && s->arfcn <= SCAN_ARFCN_LAST) {
         s->rejected[s->arfcn] = 1;
         s->bcch_conf[s->arfcn] = 0.0f;
+        s->rejected_arfcn = s->arfcn;
+        snprintf(s->rejected_why, sizeof(s->rejected_why), "%s", s->status);
+        if (out)
+            out->candidate_rejected = 1;
     }
     verify_gsm_begin(s, out, now);
 }
@@ -305,9 +339,9 @@ static void verify_gsm_tick(struct startup_session *s,
         s->verified = 1;
         s->bsic = sch.bsic;
         snprintf(s->status, sizeof(s->status),
-                 "ARFCN %d is GSM: BSIC %d (NCC %d, BCC %d)", s->arfcn,
-                 sch.bsic, sch.ncc, sch.bcc);
-        measure_gsm_begin(s, out, now);
+                 "ARFCN %d is GSM: BSIC %d (NCC %d, BCC %d). Checking its "
+                 "tone holds still", s->arfcn, sch.bsic, sch.ncc, sch.bcc);
+        confirm_tone_begin(s, out, now);
         return;
     }
     if (s->verify_blocks >= STARTUP_VERIFY_BLOCKS) {
@@ -316,6 +350,109 @@ static void verify_gsm_tick(struct startup_session *s,
                  s->arfcn);
         verify_gsm_rejected(s, out, now);
     }
+}
+
+
+/* -------------------------------------------------------------------------
+ * Does the tone hold still when the receiver moves?
+ * ---------------------------------------------------------------------- */
+
+/*
+ * The SCH gate proves a base station is transmitting on the channel. It does
+ * not prove the line the tone detector locked onto is that station's FCCH:
+ * the search is +/-50 kHz wide and returns the strongest thing inside it, so
+ * on a channel whose FCCH is weak it returns traffic and calls it a tone.
+ *
+ * A real line has an absolute frequency and it cannot depend on where the
+ * receiver is tuned. So the receiver is moved and the line is asked again.
+ */
+static void confirm_tone_begin(struct startup_session *s,
+                               struct startup_session_event *out, double now) {
+    /* Neither is needed: the first look happens where the verification
+       already put the receiver, so nothing is retuned and no clock starts. */
+    (void)now;
+    (void)out;
+    s->phase = STARTUP_CONFIRM_TONE;
+    s->tone_first_hz = 0.0;
+    s->tone_second_hz = 0.0;
+    s->tone_blocks = 0;
+    s->tone_second_look = 0;
+    s->tone_moved_hz = 0.0;
+}
+
+/* The carrier this block's tone implies, or 0 when there is no tone. */
+static double tone_carrier_hz(const struct startup_session *s,
+                              const struct startup_block *block) {
+    struct gsm_fcch_result fcch;
+    double target = (double)s->expected_hz - block->centre_hz +
+                    GSM_FCCH_TONE_HZ;
+
+    if (!gsm_fcch_detect(block->i_samples, block->q_samples, block->pair_count,
+                         block->sample_rate, target, GSM_FCCH_SEARCH_HALF_HZ,
+                         &fcch))
+        return 0.0;
+    return block->centre_hz + fcch.tone_frequency_hz - GSM_FCCH_TONE_HZ;
+}
+
+static void confirm_tone_tick(struct startup_session *s,
+                              const struct startup_block *block,
+                              int have_block, double now,
+                              struct startup_session_event *out) {
+    double carrier;
+
+    if (!s->tuned || !have_block || !block || !block->pair_count)
+        return;
+    carrier = tone_carrier_hz(s, block);
+    if (carrier <= 0.0) {
+        /* No tone in this block. FCCH is intermittent, so this is ordinary --
+           the budget below is what ends a channel that never produces one. */
+        if (++s->tone_blocks > STARTUP_TONE_BLOCKS * 4) {
+            snprintf(s->status, sizeof(s->status),
+                     "ARFCN %d stopped producing a tone", s->arfcn);
+            verify_gsm_rejected(s, out, now);
+        }
+        return;
+    }
+
+    if (!s->tone_second_look) {
+        s->tone_first_hz += carrier;
+        if (++s->tone_blocks < STARTUP_TONE_BLOCKS)
+            return;
+        s->tone_first_hz /= (double)STARTUP_TONE_BLOCKS;
+        s->tone_second_look = 1;
+        s->tone_blocks = 0;
+        /* Move the receiver. The channel stays inside the span: the carrier
+           sits 400 kHz off centre to begin with, so 200 kHz either way keeps
+           it clear of both DC and the edge. */
+        want_tuning(s, (uint32_t)(block->centre_hz + STARTUP_TONE_SHIFT_HZ), 0,
+                    out);
+        return;
+    }
+
+    s->tone_second_hz += carrier;
+    if (++s->tone_blocks < STARTUP_TONE_BLOCKS)
+        return;
+    s->tone_second_hz /= (double)STARTUP_TONE_BLOCKS;
+
+    s->tone_moved_hz = s->tone_second_hz - s->tone_first_hz;
+    if (fabs(s->tone_moved_hz) <=
+        STARTUP_TONE_REPEAT_PPM * (double)s->expected_hz / 1e6) {
+        snprintf(s->status, sizeof(s->status),
+                 "ARFCN %d holds still (%+.0f Hz over %d kHz of tuning)",
+                 s->arfcn, s->tone_moved_hz, STARTUP_TONE_SHIFT_HZ / 1000);
+        measure_gsm_begin(s, out, now);
+        return;
+    }
+    /*
+     * It moved with the receiver, so it is not a line on the air -- it is
+     * whatever was strongest inside a search window, and the window moved.
+     * Measured here: a real FCCH repeats to 71 and 272 Hz, this case moved
+     * 3277.
+     */
+    snprintf(s->status, sizeof(s->status),
+             "ARFCN %d's tone moved %+.0f Hz when the receiver did; not an "
+             "FCCH", s->arfcn, s->tone_moved_hz);
+    verify_gsm_rejected(s, out, now);
 }
 
 /* -------------------------------------------------------------------------
@@ -720,6 +857,9 @@ void startup_session_tick(struct startup_session *s,
         break;
     case STARTUP_VERIFY_GSM:
         verify_gsm_tick(s, block, have_block, now, out);
+        break;
+    case STARTUP_CONFIRM_TONE:
+        confirm_tone_tick(s, block, have_block, now, out);
         break;
     case STARTUP_SCAN_LTE:
         lte_scan_tick(s, block, have_block, now, out);

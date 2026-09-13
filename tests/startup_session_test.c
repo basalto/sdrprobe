@@ -570,6 +570,8 @@ static void test_every_phase_and_reason_has_a_name(void) {
     check_str("scan-gsm", startup_phase_name(STARTUP_SCAN_GSM), "scan-gsm");
     check_str("measure-gsm", startup_phase_name(STARTUP_MEASURE_GSM),
               "measure-gsm");
+    check_str("confirm-tone", startup_phase_name(STARTUP_CONFIRM_TONE),
+              "confirm-tone");
     check_str("scan-lte", startup_phase_name(STARTUP_SCAN_LTE), "scan-lte");
     check_str("measure-lte", startup_phase_name(STARTUP_MEASURE_LTE),
               "measure-lte");
@@ -727,6 +729,13 @@ static void test_a_refused_candidate_lets_the_next_one_try(void) {
             startup_session_tick(&s, &block, 1, 1.0 + 0.065 * (double)i, &ev);
     }
     check_int("the loudest was turned down", s.rejected[40], 1);
+    /* And why, captured before the search moved on -- reading `status` after
+       a rejection gives the *next* candidate's line, which is what the first
+       trace of this printed. */
+    check_int("naming which", s.rejected_arfcn, 40);
+    check_true("with its own reason, not the next candidate's",
+               strstr(s.rejected_why, "40") != NULL &&
+               strstr(s.rejected_why, "63") == NULL);
     check_int("and the next best is being asked", s.arfcn, 63);
     check_int("still verifying", s.phase, STARTUP_VERIFY_GSM);
 
@@ -835,6 +844,52 @@ static void test_references_that_disagree_apply_nothing(void) {
     check_true("which is not a lock", s.phase != STARTUP_LOCKED);
 }
 
+/*
+ * A second candidate that exists but fails verification must still leave the
+ * first reference standing.
+ *
+ * This was a fall-through and it threw away a correct answer on the first
+ * live run of the cross-check: ARFCN 113 measured +34 ppm, the only other
+ * candidate failed its checks, and the machine went on to the LTE fall-back
+ * and reported `no-cell` with 123 measurements behind it. The band running
+ * out of *second opinions* is not the same as having nothing to calibrate
+ * against.
+ */
+static void test_a_failed_second_candidate_leaves_the_first_standing(void) {
+    struct startup_session s;
+    struct startup_session_event ev;
+    struct startup_block block;
+    int i;
+
+    startup_session_reset(&s);
+    s.cross_check = 1;
+    s.phase = STARTUP_MEASURE_GSM;
+    s.arfcn = 40;
+    s.expected_hz = 943000000U;
+    s.tuned = 1;
+    s.measure_budget = STARTUP_MEASURE_SECONDS;
+    s.power[40] = -10.0f; s.bcch_conf[40] = 0.99f;
+    s.power[63] = -20.0f; s.bcch_conf[63] = 0.95f;
+    /* No LTE band either, so a fall-through would end in `no-cell` -- which
+       is exactly what it did. */
+    s.band = NULL;
+
+    settle_reference(&s, 34.0, 1.0, &ev);
+    check_int("the second candidate is being verified", s.arfcn, 63);
+
+    /* It never produces a synchronisation burst. */
+    startup_session_retuned(&s, 2.0);
+    quiet_block(&block, (double)s.expected_hz - 400000.0);
+    for (i = 0; i < STARTUP_VERIFY_BLOCKS + 1; i++)
+        startup_session_tick(&s, &block, 1, 2.0 + 0.065 * (double)i, &ev);
+
+    check_int("the first reference still stands", s.phase, STARTUP_LOCKED);
+    check_int("with its answer", s.suggested_ppm, 34);
+    check_int("and its channel", s.arfcn, 40);
+    check_true("saying nothing checked it",
+               strstr(s.status, "nothing checked it") != NULL);
+}
+
 static void test_one_carrier_locks_and_says_it_was_alone(void) {
     struct startup_session s;
     struct startup_session_event ev;
@@ -879,6 +934,113 @@ static void test_a_named_channel_is_not_second_guessed(void) {
     check_int("having measured one reference", s.references, 0);
 }
 
+/*
+ * A tone pinned to a **baseband** offset rather than to a frequency on the
+ * air: whatever the receiver is tuned to, it appears at the same place in the
+ * block. That is what a detector artefact looks like -- the strongest thing
+ * inside a search window, where the window moves with the receiver.
+ */
+static void baseband_tone_block(struct startup_block *block, double centre_hz,
+                                int arfcn, double offset_from_nominal) {
+    double channel = GSM900_BASE_HZ + (double)arfcn * GSM900_ARFCN_SPACING_HZ;
+    /*
+     * Placed relative to where the detector will *look* -- the nominal tone
+     * offset for this tuning -- rather than to a frequency on the air. So it
+     * follows the search window, which is what the artefact does, and the
+     * carrier it implies is displaced by `offset_from_nominal`.
+     *
+     * The displacement has to stay inside GSM_FCCH_SEARCH_HALF_HZ or there is
+     * nothing to find and the case being modelled never arises. A first
+     * version moved it by the whole 200 kHz retune, which put it outside the
+     * window: the machine correctly reported no tone rather than a wrong one,
+     * and the test was measuring the wrong failure.
+     */
+    double tone = channel - centre_hz + GSM_FCCH_TONE_HZ + offset_from_nominal;
+    size_t i;
+
+    quiet_block(block, centre_hz);
+    for (i = 0; i < PAIRS; i++) {
+        double phase = 2.0 * M_PI * tone * (double)i / RATE;
+        g_i[i] = (float)(40.0 * cos(phase));
+        g_q[i] = (float)(40.0 * sin(phase));
+    }
+}
+
+/*
+ * A tone that holds still passes, and one that follows the receiver does not.
+ *
+ * `.scratch/startup-installation/issues/09-*`: the SCH gate proves a base
+ * station is on the channel, not that the line the tone detector locked onto
+ * is its FCCH -- the search is +/-50 kHz and returns the strongest thing in
+ * it. On air ARFCN 63 repeated to 71 Hz and ARFCN 113 to 272 over six
+ * recordings, while ARFCN 17's "tone" moved 3277 Hz and was not an FCCH.
+ */
+static void run_tone_check(struct startup_session *s, int arfcn, int moving) {
+    struct startup_session_event ev;
+    struct startup_block block;
+    double channel = GSM900_BASE_HZ + (double)arfcn * GSM900_ARFCN_SPACING_HZ;
+    double centre = channel - 400000.0;
+    int i;
+
+    s->phase = STARTUP_CONFIRM_TONE;
+    s->arfcn = arfcn;
+    s->expected_hz = (uint32_t)channel;
+    s->tuned = 1;
+    s->tone_first_hz = 0.0;
+    s->tone_second_hz = 0.0;
+    s->tone_blocks = 0;
+    s->tone_second_look = 0;
+
+    /* The first look, where the verification left the receiver. */
+    for (i = 0; i < STARTUP_TONE_BLOCKS; i++) {
+        fcch_block(&block, centre, arfcn, 0.0);
+        startup_session_tick(s, &block, 1, 0.1 * (double)i, &ev);
+    }
+    check_int("it asks for a second look elsewhere",
+              (int)(ev.retune_hz > 0), 1);
+    check_int("shifted by the amount it says", (int)ev.retune_hz,
+              (int)(centre + STARTUP_TONE_SHIFT_HZ));
+
+    /* The receiver moves, and the second look happens there. */
+    centre += STARTUP_TONE_SHIFT_HZ;
+    startup_session_retuned(s, 1.0);
+    for (i = 0; i < STARTUP_TONE_BLOCKS; i++) {
+        if (moving)
+            /* The 3277 Hz ARFCN 17 moved by, on air. */
+            baseband_tone_block(&block, centre, arfcn, 3277.0);
+        else
+            fcch_block(&block, centre, arfcn, 0.0);
+        startup_session_tick(s, &block, 1, 1.1 + 0.1 * (double)i, &ev);
+    }
+}
+
+static void test_a_tone_that_holds_still_is_measured(void) {
+    struct startup_session s;
+
+    startup_session_reset(&s);
+    run_tone_check(&s, 40, 0);
+    check_int("a line on the air passes", s.phase, STARTUP_MEASURE_GSM);
+    check_true("having barely moved", fabs(s.tone_moved_hz) < 200.0);
+    check_int("and nothing was rejected", s.rejected[40], 0);
+}
+
+static void test_a_tone_that_follows_the_receiver_is_refused(void) {
+    struct startup_session s;
+
+    startup_session_reset(&s);
+    /* A second candidate, so a refusal has somewhere to go. */
+    s.power[63] = -20.0f;
+    s.bcch_conf[63] = 0.95f;
+    run_tone_check(&s, 40, 1);
+
+    check_int("it is turned down", s.rejected[40], 1);
+    check_true("having moved with the receiver",
+               fabs(s.tone_moved_hz) > STARTUP_TONE_REPEAT_PPM *
+                                           943.0e6 / 1e6);
+    check_true("nothing was measured against it", s.track.measurements == 0);
+    check_int("and the next candidate is asked", s.arfcn, 63);
+}
+
 int main(void) {
     /* No sdr_dsp state is needed here: the scan reads a spectrum it is handed
        and the two detectors take raw I/Q, so nothing in this file transforms
@@ -901,9 +1063,12 @@ int main(void) {
     test_a_refused_tuning_moves_a_scan_on_but_ends_a_measurement();
     test_a_block_is_measured_once();
     test_the_centroid_is_the_callers_choice();
+    test_a_tone_that_holds_still_is_measured();
+    test_a_tone_that_follows_the_receiver_is_refused();
     test_two_references_must_agree();
     test_references_that_disagree_apply_nothing();
     test_one_carrier_locks_and_says_it_was_alone();
+    test_a_failed_second_candidate_leaves_the_first_standing();
     test_a_named_channel_is_not_second_guessed();
     test_every_phase_and_reason_has_a_name();
     return check_report("the startup sequence: scan, measure, gate, give up");

@@ -649,6 +649,13 @@ void draw_startup(struct app *app) {
         snprintf(text, sizeof(text), "%+d ppm", s->session.suggested_ppm);
         startup_report_row(&l, &row, "Correction", text);
     }
+    if (s->session.rejected_arfcn > 0)
+        startup_report_row(&l, &row, "Passed over", s->session.rejected_why);
+    if (s->session.tone_moved_hz != 0.0) {
+        snprintf(text, sizeof(text), "%+.0f Hz over %d kHz of tuning",
+                 s->session.tone_moved_hz, STARTUP_TONE_SHIFT_HZ / 1000);
+        startup_report_row(&l, &row, "Tone holds still", text);
+    }
     if (s->session.references >= 2) {
         /* Both numbers, always -- on agreement it is the evidence the
            correction rests on, and on a refusal it is the whole finding. */
