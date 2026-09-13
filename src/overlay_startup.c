@@ -468,9 +468,20 @@ void handle_startup_input(struct app *app) {
             s->band++;
     }
 
-    while (s->focus >= 0 && (character = GetCharPressed()) != 0) {
-        struct startup_text f = startup_field_at(s, s->focus);
+    /*
+     * Drained unconditionally and applied only when a field has focus.
+     *
+     * Guarding the `while` on the focus instead leaves characters sitting in
+     * raylib's queue while the form is up with nothing selected -- and the
+     * queue is short and keeps the oldest, so the next field to take focus
+     * receives whatever was typed at the panel minutes earlier.
+     */
+    while ((character = GetCharPressed()) != 0) {
+        struct startup_text f;
 
+        if (s->focus < 0)
+            continue;
+        f = startup_field_at(s, s->focus);
         if (f.text && character >= ' ' && character < 127 &&
             *f.length < f.capacity - 1) {
             f.text[(*f.length)++] = (char)character;

@@ -1437,10 +1437,27 @@ static int run_gui(struct app *app) {
            own handler's business. */
         struct input_state input = input_state_now(app);
 
-        /* Once a frame: GetCharPressed() drains a queue, so a second caller
-           would intermittently see nothing. */
-        enum chart_key chart_key = input.text_focus ? CHART_KEY_NONE
-                                                    : chart_key_pressed();
+        /*
+         * Once a frame: GetCharPressed() drains a queue, so a second caller
+         * would intermittently see nothing.
+         *
+         * And **`input_takes_typing()` is the gate, not `text_focus`** --
+         * chart_key_pressed() empties that queue in a `while` loop, so
+         * reading it while anything on screen is taking typed characters
+         * swallows every one of them before that handler runs. `text_focus`
+         * names only three of the surfaces: the survey's fields, the FM
+         * frequency and the Scope header. It does not name the settings panel
+         * or the startup form, both of which read characters of their own, so
+         * **typing into either was silently eaten here** -- reported against
+         * the startup form's receiver label, which is the one field that
+         * starts empty and so the one where nothing appearing is obvious.
+         *
+         * `input_takes_typing()` is the predicate that already means "some
+         * surface is taking typed input", and using it is what stops the next
+         * typing surface from having to remember to add itself.
+         */
+        enum chart_key chart_key = input_takes_typing(&input)
+                                       ? CHART_KEY_NONE : chart_key_pressed();
 
         int shortcuts = input_shortcuts_live(&input);
 

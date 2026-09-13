@@ -639,6 +639,46 @@ static void test_escape_unzooms(void) {
     }
 }
 
+/*
+ * Every surface that reads typed characters must say so.
+ *
+ * `chart_key_pressed()` empties raylib's character queue in a `while` loop
+ * and the frame loop calls it once, gated on this predicate. So a surface
+ * that takes typed input without being named here has every keystroke
+ * swallowed before its own handler runs -- which is what happened to the
+ * settings panel's PPM field and to the startup form's receiver label, the
+ * latter reported as "does not accept text input".
+ *
+ * `text_focus` is not that predicate: it names three surfaces and is not
+ * where a new one gets added. `input_takes_typing()` is, and this pins it.
+ */
+static void test_every_typing_surface_suppresses_the_chart_keys(void) {
+    struct input_state s = scope();
+
+    check_int("nothing typing, so the chart keys are read",
+              input_takes_typing(&s), 0);
+
+    s = scope();
+    s.settings_open = 1;
+    check_int("the settings panel takes typing", input_takes_typing(&s), 1);
+
+    s = scope();
+    s.startup_open = 1;
+    check_int("and the startup form", input_takes_typing(&s), 1);
+
+    s = scope();
+    s.text_focus = 1;
+    check_int("and a focused field in a view", input_takes_typing(&s), 1);
+
+    /* Raised over a form, Help does not un-suppress it: the form is still
+       there with a half-typed value in it. */
+    s = scope();
+    s.startup_open = 1;
+    s.help_open = 1;
+    check_int("help over the form still suppresses", input_takes_typing(&s),
+              1);
+}
+
 int main(void) {
     test_the_tabs();
     test_the_precedence();
@@ -646,6 +686,7 @@ int main(void) {
     test_typing_suppresses_shortcuts();
     test_help_does_not_reopen();
     test_the_view_keys();
+    test_every_typing_surface_suppresses_the_chart_keys();
     test_every_combination_routes_somewhere_sensible();
     test_a_stale_scan_flag();
     test_where_back_goes();
