@@ -1,6 +1,6 @@
 # 09 - Three GSM channels, three corrections, and they trend with frequency
 
-Status: needs-triage
+Status: resolved, 2026-09-13
 
 Found when the agreement gate from issue 08 fired on air for the first time.
 It refused, correctly, and in doing so measured a third channel -- which turns
@@ -118,3 +118,97 @@ numbers, and applies nothing. The first on-air run of it did exactly that --
 That is the right outcome and it is worth saying plainly: **the program is now
 correct about not knowing**, which is a better position than the confident
 `locked +57` it printed before the gate existed.
+
+
+## Resolved: the receiver is consistent, and the three channels are three different things
+
+### The receiver is not what moves
+
+One transmitter, ARFCN 113's FCCH, recorded from five tunings spanning 400 kHz
+with one tuning repeated, and measured with **the shipping detector's own
+single wide-search call** rather than a sweep -- that is the number the
+program acts on, and it has no sweep artefacts.
+
+| tuning | absolute FCCH | from nominal |
+| --- | --- | --- |
+| 957.0 MHz | 957664522.6 | -3185.7 Hz |
+| 957.1 MHz | 957664608.0 | -3100.3 Hz |
+| 957.2 MHz | 957664564.6 | -3143.7 Hz |
+| 957.2 MHz (repeat) | 957664636.0 | -3072.3 Hz |
+| 957.3 MHz | 957664725.6 | -2982.7 Hz |
+| 957.4 MHz | 957664453.2 | -3255.1 Hz |
+
+**272 Hz of spread across 400 kHz of tuning, with 71 Hz between two
+recordings at the same tuning, and no monotonic order** -- 957.4 gives the
+most negative and 957.3 the least. ARFCN 63 repeated to **71 Hz** across two
+tunings.
+
+So the tuner is consistent to about 0.3 ppm and the -1.8 ppm-per-MHz trend
+this ticket was opened about **was my own instrument**: the earlier sweep
+picked a peak from probes whose step was comparable to the effect. The
+hypothesis in the section above -- the R820T's LO resolution -- is refuted,
+and so is the "fixed frequency offset" reading.
+
+### The three channels are three different things
+
+| channel | two tunings agree to | from nominal | what it is |
+| --- | --- | --- | --- |
+| ARFCN 113 | 272 Hz (6 runs) | -3.1 kHz (-3.2 ppm) | the receiver's own residual: **a good reference** |
+| ARFCN 63 | 71 Hz | -14.8 kHz (-15.6 ppm) | **a transmitter genuinely off frequency** |
+| ARFCN 17 | **3277 Hz** | -38 to -42 kHz | **not an FCCH at all** |
+
+**ARFCN 63** has exactly one FCCH-like line, stable to 71 Hz, 14.77 kHz below
+where nominal puts it -- and a fine sweep finds **nothing whatever** at the
+nominal position. Taking the receiver's -3.2 ppm out leaves the transmitter
+12.3 ppm low. A macro base station is held to about 0.05 ppm, so this is not
+one: a repeater or a small cell on a poor reference are the candidates, and
+neither is ours to fix.
+
+**ARFCN 17**'s line sits at the very edge of the detector's +/-50 kHz search
+and moves 3277 Hz when the receiver moves 200 kHz. A line on the air cannot do
+that. It is whatever was strongest inside a search window, and the window
+moved.
+
+## What was built
+
+**A tone-repeat check** (`STARTUP_CONFIRM_TONE`). The SCH gate proves a base
+station is transmitting on the channel; it does not prove the line the
+detector locked onto is that station's FCCH. So after verification the
+receiver is moved `STARTUP_TONE_SHIFT_HZ` and the line asked again: a real one
+has an absolute frequency and cannot follow the receiver.
+
+`STARTUP_TONE_REPEAT_PPM` is 1.0 and was **measured where it breaks**: two
+real lines repeated to 0.07 and 0.28 ppm, the artefact moved 3.5 ppm, and one
+ppm is the geometric middle of that gap rather than a number perched on either
+edge.
+
+**And a fall-through that threw away a correct answer.** On the first live run
+of the cross-check, ARFCN 113 measured +34 ppm, the remaining candidates
+failed verification, and the machine went on to the LTE fall-back and reported
+`no-cell` with 123 measurements behind it. A band running out of *second
+opinions* is not the same as having nothing to calibrate against: with a
+reference in hand the answer now stands, uncorroborated and saying so.
+
+**The rejection reason is captured before the search moves on.** Reading
+`status` after a rejection gives the *next* candidate's line, which is what
+the first trace printed: `rejected arfcn 63: Checking ARFCN 17 is a GSM
+broadcast carrier`.
+
+## On air, after
+
+```
+calibrate rejected arfcn 17: ARFCN 17 carries a tone but no GSM synchronisation burst
+calibrate rejected arfcn 63: ARFCN 63 carries a tone but no GSM synchronisation burst
+calibrate verified arfcn 113 bsic 38 tone moved -366 Hz
+calibrate-result locked 1 measurements 123 centre_ppm -2.28 suggested_ppm 34 reason locked
+```
+
+**+34 ppm**, which is ARFCN 113's answer and agrees with this repository's own
+recorded history. Before this ticket the same command locked on +57, +51 or
++46 from a channel that should never have been chosen, or refused outright.
+
+## What is still not known, and does not block anything
+
+Why ARFCN 63's transmitter is 12 ppm low. It is a fact about somebody else's
+equipment, it is now measured rather than guessed, and nothing in this program
+depends on the answer -- the channel is refused before it can contribute.
