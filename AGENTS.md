@@ -8,7 +8,8 @@ LTE cell search, `src/adsb_dsp.c`/`.h` for
 Mode S / ADS-B message decoding), and its UI into an SDR component layer
 (`src/sdrgui.c`/`.h`) over vendored raygui widgets (see "Files" below). The
 window is organised into three top-level tabs — Survey, Scope (the four signal
-views, keys 1-4), and Decode (1 FM, 2 ADS-B, 3 GSM, 4 LTE, 5 TETRA) — recorded
+views, keys 1-4), and Decode (1 FM, 2 ADS-B, 3 GSM, 4 LTE, 5 TETRA, 6 SRD) —
+recorded
 in `docs/adr/0008-top-level-tab-navigation.md` and
 `docs/adr/0020-survey-is-a-top-level-tab.md`. Calibration remains a
 button-driven, global full-screen overlay orthogonal to the tabs. Interpreting
@@ -37,7 +38,8 @@ transmitted information lives in a second bounded context (see
   `check-sdr-dsp` (generic core),
   `check-gsm-dsp` (GSM module), `check-adsb-dsp` (Mode S / ADS-B module),
   `check-lte-dsp` (LTE cell search), `check-lte-mib` (the LTE broadcast
-  channel) and `check-band-plan` (the frequency allocation table); each can be
+  channel), `check-band-plan` (the frequency allocation table) and
+  `check-srd-dsp` (SRD 433-435 MHz OOK/Manchester); each can be
   built and run on its own.
 - The rest of the unit layer, one suite per module, each a `make check-*` of
   its own and all of them in `make check`:
@@ -225,7 +227,7 @@ transmitted information lives in a second bounded context (see
   live receiver when tuned elsewhere. A header line reports the decode funnel
   (preambles accepted, squitter-shaped attempts, CRC failures, decoded), which
   is what separates a silent band from frames that are arriving and failing, and
-  a View: Analysis toggle adds three charts of the last frame's trace (preamble
+  a "Show charts" toggle adds three charts of the last frame's trace (preamble
   score landscape, pulse-position bit confidence, magnitude envelope) with a
   bit-decision scatter beside the log. The trace latches the most recent
   attempt, pass or fail -- a frame that failed its CRC is the one worth seeing,
@@ -234,9 +236,41 @@ transmitted information lives in a second bounded context (see
   circle shows calibration health (grey uncalibrated, green FCCH-backed lock,
   amber checking, red drift); the optional Settings "Auto GSM drift check"
   periodically retunes to the calibrated ARFCN to re-verify and warns on drift
-  (see `docs/adr/0006-gsm-drift-indicator.md`). `h` opens the help overlay from
+  (see `docs/adr/0006-gsm-drift-indicator.md`). The Decode tab's SRD view (key 6)
+  surveys the 433-435 MHz short range device band: a waterfall of the tuned
+  span above a newest-first log of decoded frames (a `FULL` 80-bit frame --
+  header, 64-bit rolling payload, trailer -- or a 24-bit `REPEAT` keepalive),
+  headed `KIND`/`MOD` rather than borrowing ADS-B's `ICAO` column, which every
+  decode log used to draw regardless of what the technology actually put under
+  it. "Show charts" switches to the envelope, run-length and Manchester-decision
+  charts instead. A Record button beside a duration field (0.1-30 s, default 2 s)
+  saves raw I/Q the same way the other decode views do; an out-of-range or
+  unparsable duration is refused with the reason shown in place of the
+  transmission count, not silently clamped. Opening this view on a live
+  receiver retunes it to 434 MHz automatically, the way entering GSM or LTE
+  borrows the tuning -- unlike ADS-B and TETRA, whose fixed frequency is
+  offered rather than taken, a SRD remote control's button is pressed once and the
+  receiver has to already be listening when it happens, not after an
+  operator notices the waterfall is showing the wrong band and reaches for a
+  button. The previous tuning is restored on leaving. If a retune ever
+  fails, or the receiver is off 433-435 MHz (more than a megahertz from the
+  434 MHz centre) or sampling below 1 MS/s for some other reason, the header
+  falls back to offering "Retune to 434 MHz" for a manual retry -- the same
+  affordance the ADS-B view offers for 1090 MHz; a capture reads a fixed
+  line instead, since a file cannot be retuned. The decoder reports frame
+  structure and opaque payload bytes without assigning payload semantics.
+  `srd_classify_modulation()` also tells constant-envelope
+  2-FSK apart from on-off keying, from `signal_envelope_stats()`'s own
+  frequency-spread measurement -- the committed 2-FSK fixture
+  (`testfiles/srd_remote_control_fsk.bin`) frequency-hops between two channels instead of keying
+  on and off, and every one of its bursts classifies correctly. There is no
+  frame extractor for that shape yet: the chip period recovers cleanly but
+  the decoded bit stream carries a bit error rate the sync word search
+  cannot get past, and `.scratch/srd-434-decode/issues/07-*.md` has what was
+  tried. The log reports it as KIND `2FSK`, seen and not decoded, rather
+  than silence or a wrong answer. `h` opens the help overlay from
   any view and over the calibration and scan overlays (not over Settings, whose
-  fields are taking typed input): eleven topics on what each chart plots and how
+  fields are taking typed input): eighteen topics on what each chart plots and how
   to read it, opening on the topic for the screen underneath, with Left/Right to
   change topic and Up/Down or the wheel to scroll. Quit with `q`, Esc, or Ctrl-C.
 - Built binaries and the DSP check executables are gitignored (not tracked);
@@ -340,6 +374,13 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   circular buffer's selection for both directions, since a dematcher that
   disagreed with the matcher by one position reads noise with nothing to say
   why.
+- `src/srd_dsp.{c,h}` — Short Range Device (SRD) 433-435 MHz technology DSP module:
+  FFT-based whole-buffer transmission discovery, carrier refinement, envelope
+  demodulation to work rate, run-length extraction, chip-period recovery from
+  run lengths, and Manchester decoding (G.E. Thomas and IEEE 802.3). Prefix `srd_`.
+- `src/srd_frame.{c,h}` — the Decoder-context side of the SRD module: delimiter
+  detection (6 runs of 1.5 chips), 80-bit full-frame extraction (0x3F header, 64-bit
+  opaque payload, 0xD4 trailer), and 24-bit keepalive repeat frame extraction.
 - `src/acquisition.{c,h}` — the worker thread, the single overwriteable block
   slot it hands samples through (ADR-0002), and raw-I/Q recording. Owns its
   own state and knows nothing of `struct app`: the device handle, playback
@@ -491,6 +532,15 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   recorded — those are genuinely unknown, not zero.
 - `testfiles/adsb_modes1.bin` — raw 8-bit I/Q capture at 2 MS/s, for
   hardware-free testing; read by `sdrprobe --file`.
+- `testfiles/srd_remote_control_ook_a.bin` — a 5 s OOK SRD remote-control
+  capture at 434.417 MHz, tuned to 433.800 MHz. It is a committed fixture
+  required by the checks. `check-pipelines` requires the survey to find the
+  carrier near 434.417 MHz and the assembled decoder to recover full frames.
+  `docs/srd-remote-control-ook-capture-and-decode.md` carries its measured
+  protocol and regression contract.
+- **Every capture-driven group in `tests/pipelines.sh` is guarded by `have`**.
+  A missing capture is counted as a failed check because every fixture is
+  committed and required; a green suite cannot silently omit capture coverage.
 - `testfiles/gsm_arfcn_69.bin` — 2 s raw I/Q capture of GSM 900 ARFCN 69
   (948.8 MHz, tuned to expected − 400 kHz); the `check-gsm-dsp` SCH test decodes
   its BSIC (59, NCC 7 / BCC 3).
@@ -584,6 +634,27 @@ where nothing should be is what makes it evidence.
 `PAIRS_SIGNAL` limits the look, and the answer depends on it -- see
 `.scratch/standing-fraction-drifts/` for why, and for what has to be
 re-measured before that is fixed.
+
+**It used to be unable to answer "where in the capture", and that was not a
+small gap.** `probe-signal` read a prefix of the file and so did every function
+it called, so a transmitter that speaks once per button press was outside all
+three windows and came back `no carrier` with a confident wrong frequency
+attached. `signal_find_activity()` scans the whole buffer in 2 ms chunks and
+says where the band is busy; the tool narrows onto that window and prints a
+`looked at:` line in every case, so an absence is falsifiable. Neither fixed
+constant was raised -- the fix was to choose the window. See
+`.scratch/srd-434-decode/issues/01-*` for the measured threshold.
+
+`make probe-ook FILE_OOK=captures/x.bin` walks the *whole* capture, groups
+what it finds into transmissions, and then hands one to those same shipping
+measurements -- alongside an equal-length window at t = 0, which is the
+control and is what `probe-signal` used to report on. `probe-ook` remains the
+tool for *characterising* a signal: it groups a capture into **all** its
+transmissions where `probe-signal` narrows onto one. It also says what
+the modulation is: a bimodal envelope histogram is on-off keying, a unimodal
+instantaneous-frequency histogram over the ON samples refutes FSK, and the run
+lengths give the chip period, which on a bursty signal is the only trustworthy
+route to it. `docs/srd-remote-control-ook-capture-and-decode.md` is the worked example.
 
 ### Keeping the skills worth having
 

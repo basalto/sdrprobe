@@ -5,8 +5,10 @@
 #include <string.h>
 
 #include "view.h"
+#include "debug_log.h"
 #include "tetra_layout.h"
 #include "sdrgui.h"
+#include "sdrgui_geometry.h"
 
 /*
  * The Decode tab's TETRA screen: what the network says about itself, and how
@@ -53,6 +55,7 @@ static void remember(struct app *app, double now, int mcc, int mnc, int colour,
     t->log[0].broadcast = t->session.broadcast;
     if (t->log_count < TETRA_LOG_CAPACITY)
         t->log_count++;
+    debug_log_write("tetra", "mcc %d mnc %d colour %d la %d", mcc, mnc, colour, la);
 }
 
 
@@ -102,8 +105,20 @@ void handle_tetra_input(struct app *app) {
                                              (float)GetScreenHeight());
 
     if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
-        CheckCollisionPointRec(GetMousePosition(), l.view_toggle))
+        CheckCollisionPointRec(GetMousePosition(), l.view_toggle)) {
         app->tetra.analysis_mode = !app->tetra.analysis_mode;
+        return;
+    }
+    /* A row in the identity log. Selection only: a TETRA carrier is the one
+       the receiver is already on. */
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        int row = sdrgui_message_log_row_at(
+            app->tetra.analysis_mode ? l.log_split : l.log_full,
+            app->tetra.log_count, GetMousePosition());
+
+        if (row >= 0)
+            app->tetra.selected_log = row;
+    }
 }
 
 static void draw_identity(const struct app *app, Rectangle box) {
@@ -167,8 +182,8 @@ static void draw_identity(const struct app *app, Rectangle box) {
     }
 }
 
-static void draw_log(const struct app *app, Rectangle box) {
-    const struct tetra_view *t = &app->tetra;
+static void draw_log(struct app *app, Rectangle box) {
+    struct tetra_view *t = &app->tetra;
     struct sdrgui_message_log_params params;
     static struct sdrgui_message_log_row rows[TETRA_LOG_CAPACITY];
     static char at[TETRA_LOG_CAPACITY][16];
@@ -177,10 +192,8 @@ static void draw_log(const struct app *app, Rectangle box) {
     static char counts[TETRA_LOG_CAPACITY][40];
     int i;
 
-    /* The log component's columns were named for Mode S, which is where it
-       came from; what they mean here is when, whose, and what was said. A row
-       is one identity rather than one burst -- seventy a second all saying the
-       same thing is not a log, it is a stuck key. */
+    /* Rows are one identity rather than one burst -- seventy a second all
+       saying the same thing is not a log, it is a stuck key. */
     for (i = 0; i < t->log_count; i++) {
         snprintf(at[i], sizeof(at[i]), "%6.1fs", t->log[i].at);
         snprintf(who[i], sizeof(who[i]), "%d-%d", t->log[i].mcc,
@@ -190,7 +203,7 @@ static void draw_log(const struct app *app, Rectangle box) {
         snprintf(counts[i], sizeof(counts[i]), "%d burst / %d block / %d bcast",
                  t->log[i].bursts, t->log[i].blocks, t->log[i].broadcast);
         rows[i].time = at[i];
-        rows[i].icao = who[i];
+        rows[i].id = who[i];
         rows[i].label = "SYNC";
         rows[i].detail = detail[i];
         rows[i].raw = counts[i];
@@ -202,6 +215,10 @@ static void draw_log(const struct app *app, Rectangle box) {
     params.count = t->log_count;
     params.caption = "Identities";
     params.empty_notice = "nothing has decoded yet";
+    params.id_heading = "NETWORK";
+    params.label_heading = "TYPE";
+    params.selected_row = t->selected_log;
+    /* Drawn, and nothing more: selecting a row is handle_tetra_input()'s. */
     sdrgui_message_log(&params);
 }
 
@@ -237,9 +254,27 @@ void draw_tetra(struct app *app) {
                     (Color){ 150, 176, 202, 255 });
 
     draw_button(l.view_toggle,
-                t->analysis_mode ? "View: Analysis" : "View: Log", 0);
+                t->analysis_mode ? "Show log" : "Show charts", 0);
 
     if (!t->analysis_mode) {
+        struct sdrgui_waterfall_marker tetra_marker;
+        int m_cnt = 0;
+        char tetra_lbl[32];
+        if (t->session.have_identity) {
+            tetra_marker.frequency_hz = (double)app->applied.frequency_hz;
+            tetra_marker.bandwidth_hz = 25000.0; /* 25 kHz channel */
+            tetra_marker.age_seconds = 0.5;
+            tetra_marker.duration_seconds = 0.0566; /* 56.6 ms slot */
+            tetra_marker.id = 0;
+            tetra_marker.highlighted = 1;
+            tetra_marker.color = (Color){ 80, 220, 240, 220 };
+            snprintf(tetra_lbl, sizeof(tetra_lbl), "LA %d", t->session.la);
+            tetra_marker.label = tetra_lbl;
+            m_cnt = 1;
+        }
+
+        draw_waterfall_rect_with_markers(app, 0, l.waterfall, &t->window,
+                                         m_cnt ? &tetra_marker : NULL, m_cnt, NULL, NULL);
         draw_log(app, l.log_full);
         return;
     }
@@ -278,4 +313,9 @@ void draw_tetra(struct app *app) {
     }
     draw_identity(app, l.identity);
     draw_log(app, l.log_split);
+}
+
+Rectangle tetra_waterfall_rect(const struct app *app) {
+    (void)app;
+    return tetra_layout_for((float)GetScreenWidth(), (float)GetScreenHeight()).waterfall;
 }

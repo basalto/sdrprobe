@@ -21,11 +21,11 @@ evenings reads as `by hour` rather than `on/off`. Bursty and intermittent
 traffic is the thing a single sweep cannot see and this is how it is caught.
 
 **Remember.** Sweeps accumulate under `surveys/` as JSON, one per pass, with
-the site and the antenna recorded because levels only compare within one of
-each. `survey_tool.py` reports one, diffs two, and refuses outright to diff
-sweeps taken at different sites. The per-site history says what this place has
-heard before, so a new sweep is annotated `new`, `steady`, `on/off` or `gone`
-rather than being read cold.
+the receiver, site and antenna recorded because levels and baselines only
+compare within one receiving setup. `survey_tool.py` reports one, diffs two,
+and refuses outright to compare incompatible setups. The setup's history says
+what it has heard before, so a new sweep is annotated `new`, `steady`,
+`on/off` or `gone` rather than being read cold.
 
 **Decode.** Where a technology is understood, a decoder reads what the
 transmitter is *saying* rather than merely measuring it:
@@ -37,30 +37,51 @@ transmitter is *saying* rather than merely measuring it:
 | **Mode S / ADS-B** | aircraft address, altitude, and position from a CPR even/odd pair |
 | **LTE** | the cell identity, its Master Information Block, reference power and quality (RSRP, RSRQ, RS-SINR), the channel's delay and drift, and how many antennas it transmits on |
 | **TETRA** | the network's own identity from the broadcast layer: MCC, MNC, colour code, location area |
+| **SRD 433-435 MHz** | OOK/Manchester full and repeat frames; 2-FSK transmissions are detected and reported, not yet decoded |
 
 Every one of those ends in something a transmitter said about itself, which is
 the bar for a decoder here rather than a demodulator.
 
 ## What is on screen
 
-- **Survey first.** The tab the program opens on: the sweep, its candidate
+Three peer tabs organize the window: **Survey**, **Scope**, and **Decode**.
+Survey is the default; Scope's number keys select four ways to inspect the
+current tuning, while Decode's select six technology views. Settings,
+Calibration, Help, and the startup form are overlays over that navigation.
+
+- **Survey.** The tab the program opens on: the sweep, its candidate
   list with each maximum's width, shape and what this site has heard of it
   before, a band picker over the 54 allocations the tuner reaches, and
   **Save survey** and **Watch** beside the site and antenna fields.
 - **Four scope views** — magnitude over time, dBFS spectrum with average and
   peak hold, I/Q scatter, and a frequency/time waterfall. Cursor readouts
   everywhere; drag to zoom, `+`/`-`, `Left`/`Right` to pan, `0` to reset.
-- **A decode view per technology** — FM, ADS-B, GSM, LTE and TETRA, each with
-  two arrangements: the messages it has read, and the analysis behind them.
-  `--analysis` opens on the second.
+- **A decode view per technology** — FM, ADS-B, GSM, LTE, TETRA and SRD.
+  Each has data and analysis arrangements; `--analysis` opens on the second.
 - **A decode funnel on every one of them.** Two empty panels look identical
   whether nothing is transmitting or every message is failing parity, and the
   funnel is the difference: blocks → bursts → parity → messages.
 - **Signal-quality HUD** — noise floor, estimated SNR, clipping percentage and
   full-scale headroom, which is what gain selection needs.
 - **Receiver calibration** — against a GSM FCCH tone or an LTE cell, with a
-  median/MAD stability gate; the correction is kept per site, because it drifts
-  and is measured against whatever reference a place offers.
+  median/MAD stability gate. A correction belongs to one receiver at one site:
+  it compensates that receiver's crystal and records where the reference was
+  measured.
+- **Retrospective signal inspection** — acquisition keeps recent raw I/Q in a
+  ring. Right-click a waterfall to save the past two seconds or run a signal
+  report without interrupting reception.
+
+`--startup` asks for the site, antenna, and receiver identity while it looks
+for a calibration reference: GSM first, then a reachable LTE band when no GSM
+broadcast carrier is found. Those installation facts persist in
+`~/.config/sdrprobe/config`, so a receiver that has not moved keeps the
+correction it was given and the health indicator says what that is.
+
+It is opt-in because it costs a cold launch 12.8 s of GSM scanning where GSM
+900 is on air, and minutes of LTE band scan where it is not (ADR-0024, amended
+2026-09-15). A launcher that cannot reach the command line can use
+`SDRPROBE_STARTUP`; `--no-startup` still refuses, and beats a request from
+either route.
 
 ## Without a window
 
@@ -77,7 +98,11 @@ one that needs a person to click cannot be checked (ADR-0012):
 
 # Read a capture, or a live cell, with nothing to click
 ./sdrprobe --file testfiles/gsm_arfcn_69.bin --headless --arfcn 69 --decode --once
+# Walk every LTE identity on one carrier, not only the strongest
 ./sdrprobe --headless --lte-chain --earfcn 3475 --lte-chain-seconds 30
+# Find cells across a band, or find and measure a calibration reference
+./sdrprobe --headless --lte-scan 20
+./sdrprobe --headless --calibrate auto --site home
 ```
 
 ## Versioning
@@ -93,7 +118,8 @@ people's work can break against, not against C symbols nobody links to:
   `--lte-scan`, `--lte-chain`, `--calibrate`, and the `candidate` and `survey`
   record lines behind `scripts/survey_tool.py`;
 - **the files kept between runs** — `~/.config/sdrprobe/config`, the survey
-  JSON under `surveys/`, `surveys/history-<site>.txt`, and capture sidecars.
+  JSON under `surveys/`,
+  `surveys/history-<receiver>-<site>-<antenna>.txt`, and capture sidecars.
 
 MAJOR when one of those breaks, MINOR when one gains something backwards
 compatible, PATCH when behaviour is corrected without either. The screens are
@@ -118,7 +144,7 @@ On Arch‑based systems: `pacman -S rtl-sdr raylib pkgconf`.
 
 ```sh
 make                 # builds ./sdrprobe
-./sdrprobe           # live receiver, defaults to 1090 MHz / 2 MS/s / ~30 dB gain
+./sdrprobe           # live receiver; Survey opens after installation startup
 ./sdrprobe --file testfiles/adsb_modes1.bin   # hardware-free paced playback
 ```
 
@@ -126,12 +152,17 @@ make                 # builds ./sdrprobe
 ./sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
            [--gain max|auto|dB] [--ppm signed_integer] [--file capture.bin]
            [--device index]
-           [--view magnitude|spectrum|scatter|waterfall|survey|gsm|adsb]
-           [--survey-range low:high]
-           [--record-seconds n] [--technology gsm|adsb|raw] [--arfcn 1-124]
-           [--gsm-features list] [--dc-filter on|off] [--duration n] [--once]
-           [--headless] [--decode] [--list-devices]
+           [--view magnitude|spectrum|scatter|waterfall|survey|fm|adsb|gsm|lte|tetra|srd]
+           [--record-seconds n] [--technology fm|adsb|gsm|lte|tetra|srd|raw]
+           [--antenna name] [--site name] [--startup]
+           [--arfcn 1-124] [--earfcn n] [--lte-scan band]
+           [--survey-range low:high] [--survey-dwell seconds]
+           [--duration n] [--once] [--headless] [--decode]
 ```
+
+`./sdrprobe --help` is the built-in option reference. Scripted calibration,
+LTE chain analysis, screenshots, debug logging, analysis mode, Scope FFT size,
+and survey selection controls are catalogued in [`AGENTS.md`](AGENTS.md).
 
 Scripted use, no window and no clicking:
 
@@ -165,23 +196,30 @@ Keys and controls:
 
 | Input | Action |
 | --- | --- |
-| `1` `2` `3` `4` `5` | magnitude / spectrum / scatter / waterfall / band survey |
+| Survey / Scope / Decode tabs | switch the top-level activity |
+| Scope: `1` `2` `3` `4` | magnitude / spectrum / scatter / waterfall |
+| Decode: `1` ... `6` | FM / ADS-B / GSM / LTE / TETRA / SRD |
 | `Up` / `Down` | narrow / widen the active chart's scale |
 | `s` or Settings button | change frequency, gain, PPM, DC filter |
-| `c` or Calibration button | open GSM 900 calibration |
+| `c` or Calibration button | open GSM or LTE calibration |
 | `h` | help: what each chart plots and how to read it |
-| Record 2s button | save raw I/Q + sidecar to `captures/` (GSM and ADS-B views) |
+| Record button | save raw I/Q + sidecar to `captures/` from a decode view |
+| Right-click a waterfall | save or inspect recent raw I/Q from that point |
 | `q`, `Esc`, `Ctrl‑C` | quit |
 
 ## Calibrating the receiver
 
-1. Press **Calibration**, then **Scan** to sweep the band. Green bars are
-   BCCH channels (an FCCH tone was detected).
-2. Click a green channel — calibration retunes to it and starts measuring.
-3. Wait for **Stable lock (FCCH tone)**; the correction uncertainty falls below
-   1 PPM.
-4. Press **Apply PPM**. The top‑right circle turns green. Optionally enable
-   *Auto GSM drift check* in Settings to re‑verify periodically.
+The startup form (`--startup`) finds a reference automatically: it verifies a
+GSM broadcast carrier and measures its FCCH, falling back to an LTE band scan
+when GSM is unavailable. It asks for two independent references before applying an
+automatically selected correction. A named `--arfcn` or `--earfcn` remains an
+explicit instruction and is not second-guessed.
+
+For a manual run, press **Calibration**, choose 2G or 4G, select a channel or
+band, and wait for the stability gate. **Apply PPM** records the correction for
+this receiver and site. The top-right health indicators show which references
+remain valid; the optional GSM drift check periodically re-verifies an
+FCCH-backed correction.
 
 See [`docs/cellular-frequency-correction.md`](docs/cellular-frequency-correction.md)
 for the full procedure and the DSP details.
@@ -191,39 +229,49 @@ for the full procedure and the DSP details.
 Everything is checkable without a window, a receiver, or a person:
 
 ```sh
-make check           # all of the below, about a minute
+make check           # complete gate, no window or receiver
+make check-touched   # suites selected from the files changed
 ```
 
 ```sh
-make check-dsp         # generic core, GSM, Mode S, band plan
+make check-dsp         # generic core and technology DSP modules
 make check-options     # the command line: every flag, value, and rejection
-make check-survey      # the band survey's zoom, pan and sweep arithmetic
+make check-survey-session # sweep, confirmation, watch and measurement
 make check-calibration # when a frequency correction may be trusted
+make check-receiver-runtime # receiver transitions and rollback
+make check-signal-frame # one converted and measured sample block
 make check-layout      # view geometry at several window sizes
 make check-pipelines   # the built program over testfiles/, asserting on stdout
 ```
 
-The unit checks link only `-lm` (no raylib, no librtlsdr) and never touch the
-GUI. `check-pipelines` runs the real binary against the recorded captures in
-`testfiles/`: both GSM captures must decode their own BSIC, the ADS-B capture
-must resolve a position from an even/odd pair, and it must do so identically
-twice.
+The decision checks need no window, receiver, or person. DSP and domain suites
+keep raylib and librtlsdr out of their dependency boundary. `check-pipelines`
+runs the real binary against committed captures: GSM, ADS-B, LTE, TETRA, FM,
+survey, recording, and both supported sample containers must keep their
+end-to-end invariants.
 
 ## Project layout
 
 ```
-src/  sdrprobe.c            application: acquisition, tabs, the frame loop
-      acquisition.{c,h}     the receiver and file threads, and the block slot
+src/  sdrprobe.c            process lifecycle, tabs, frame and headless loops
+  device_backend.h      receiver/capture operations behind one seam
+  device_profile.h      format, full scale, reach, gain and reference clock
+  acquisition.{c,h}     worker, block slot, recording and retrospective I/Q
+  signal_frame.{c,h}    one converted and measured sample block
+  receiver_runtime.*    checked retune transaction and rollback
+  receiver_lease.h      nested temporary ownership of receiver settings
       view_*.c              one file per screen: survey, scope, fm, gsm, adsb,
-                            lte, tetra
-      survey_*.{c,h}        the sweep, its candidates, the carriers they group
-                            into, what resembles the receiver, the site history
+            lte, tetra, srd
+  survey_session.*      sweep, confirmation, watch and measurement machine
+  survey_record.*       immutable finished survey before text or JSON
+  startup_session.*     GSM-first, LTE-fallback installation calibration
       sdr_dsp.{c,h}         generic, technology-independent DSP core
       gsm_dsp.{c,h}  gsm_bcch.{c,h}     GSM: SCH, then System Information
       adsb_dsp.{c,h}                    Mode S: preamble, CRC-24, CPR
       fm_dsp.{c,h}   rds.{c,h}          FM: pilot, audio, and RDS groups
       lte_dsp.{c,h}  lte_mib.{c,h}      LTE: cell search, then the MIB
       tetra_dsp.{c,h} tetra_sync.{c,h}  TETRA: dibits, then the broadcast layer
+  srd_dsp.{c,h}  srd_frame.{c,h}    SRD: OOK/2-FSK shape, Manchester frames
       *_layout.h            where each screen puts things, as pure arithmetic
       sdrgui*.{c,h}         reusable chart components over vendored raygui
 tests/      one check per area, each hardware-free -- see `make check`
@@ -231,7 +279,7 @@ scripts/    survey_tool.py, and the white-box probes behind `make probe-*`
 vendor/     raygui.h        pinned immediate-mode widget toolkit
 docs/       ARCHITECTURE.md, adr/, band-surveys.md, ...
 testfiles/  test captures, one .json sidecar each
-surveys/    saved sweeps and per-site history (gitignored)
+surveys/    saved sweeps and receiving-setup history (gitignored)
 build/      compiled artifacts (gitignored)
 ```
 

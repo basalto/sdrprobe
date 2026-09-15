@@ -844,6 +844,26 @@ static void test_references_that_disagree_apply_nothing(void) {
     check_true("which is not a lock", s.phase != STARTUP_LOCKED);
 }
 
+static void test_single_cell_locks_immediately(void) {
+    struct startup_session s;
+    struct startup_session_event ev;
+
+    startup_session_reset(&s);
+    s.cross_check = 0;
+    s.phase = STARTUP_MEASURE_GSM;
+    s.arfcn = 40;
+    s.expected_hz = 943000000U;
+    s.tuned = 1;
+    s.measure_budget = STARTUP_MEASURE_SECONDS;
+    s.power[40] = -10.0f; s.bcch_conf[40] = 0.99f;
+
+    settle_reference(&s, 35.0, 1.0, &ev);
+    check_int("single reference locks immediately", s.phase, STARTUP_LOCKED);
+    check_int("suggested ppm is locked", s.suggested_ppm, 35);
+    check_int("session finished", ev.finished, 1);
+    check_true("status reports calibration", strstr(s.status, "Calibrated") != NULL);
+}
+
 /*
  * A second candidate that exists but fails verification must still leave the
  * first reference standing.
@@ -1067,6 +1087,7 @@ int main(void) {
     test_a_tone_that_follows_the_receiver_is_refused();
     test_two_references_must_agree();
     test_references_that_disagree_apply_nothing();
+    test_single_cell_locks_immediately();
     test_one_carrier_locks_and_says_it_was_alone();
     test_a_failed_second_candidate_leaves_the_first_standing();
     test_a_named_channel_is_not_second_guessed();

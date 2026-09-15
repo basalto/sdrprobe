@@ -623,13 +623,13 @@ static void test_the_envelope_of_a_bare_tone_does_not_vary(void) {
     clear();
     add_tone(70000.0, 0.5);
     check_int("a clean tone is measurable",
-              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, &e), 1);
+              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, 1.0, &e), 1);
     check_true("and its envelope does not vary", e.variation < 0.01);
     check_true("so its peak is its mean", e.peak_over_mean_db < 0.5);
     check_true("and its frequency does not move",
                e.frequency_spread_hz < 10.0);
     check_close("nor is it anywhere but where it was put",
-                e.mean_frequency_hz, 0.0, 5.0);
+                 e.mean_frequency_hz, 0.0, 5.0);
 
     /* Mixing to the wrong frequency leaves the residual, which is what
        mean_frequency_hz is for: it is the offset the isolation did not
@@ -637,9 +637,9 @@ static void test_the_envelope_of_a_bare_tone_does_not_vary(void) {
        far out it was. */
     clear();
     add_tone(70000.0, 0.5);
-    signal_envelope_stats(ir, qr, N, FS, 68000.0, 40000.0, &e);
+    signal_envelope_stats(ir, qr, N, FS, 68000.0, 40000.0, 1.0, &e);
     check_close("a carrier 2 kHz out reads 2 kHz of residual",
-                e.mean_frequency_hz, 2000.0, 50.0);
+                 e.mean_frequency_hz, 2000.0, 50.0);
 }
 
 static void test_noise_reads_rayleigh(void) {
@@ -656,9 +656,9 @@ static void test_noise_reads_rayleigh(void) {
     clear();
     add_noise(0.4);
     check_int("noise is measurable", 
-              signal_envelope_stats(ir, qr, N, FS, 0.0, 500000.0, &e), 1);
+              signal_envelope_stats(ir, qr, N, FS, 0.0, 500000.0, 1.0, &e), 1);
     check_close("and reads Rayleigh", e.variation,
-                SIGNAL_ENVELOPE_RAYLEIGH, 0.06);
+                 SIGNAL_ENVELOPE_RAYLEIGH, 0.06);
     check_true("which is above what a contained envelope reads",
                SIGNAL_ENVELOPE_RAYLEIGH > SIGNAL_ENVELOPE_CONTAINED);
     check_true("and below what a restless one does",
@@ -673,7 +673,7 @@ static void test_an_on_off_envelope_varies_more_than_noise(void) {
     clear();
     add_keyed(20000, 4000, 1500, 1.0);
     add_noise(0.02);
-    signal_envelope_stats(ir, qr, N, FS, 70000.0, 500000.0, &e);
+    signal_envelope_stats(ir, qr, N, FS, 70000.0, 500000.0, 1.0, &e);
     check_true("an on-off envelope varies more than noise",
                e.variation > SIGNAL_ENVELOPE_RESTLESS);
     check_true("and its peak stands far over its mean",
@@ -686,11 +686,11 @@ static void test_envelope_refusals(void) {
     clear();
     add_tone(70000.0, 0.5);
     check_int("a null destination is refused",
-              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, NULL), 0);
+              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, 1.0, NULL), 0);
     check_int("too few samples is refused",
-              signal_envelope_stats(ir, qr, 64, FS, 70000.0, 40000.0, &e), 0);
+              signal_envelope_stats(ir, qr, 64, FS, 70000.0, 40000.0, 1.0, &e), 0);
     check_int("a channel as wide as the sample rate is refused",
-              signal_envelope_stats(ir, qr, N, FS, 0.0, FS, &e), 0);
+              signal_envelope_stats(ir, qr, N, FS, 0.0, FS, 1.0, &e), 0);
     check_int("and a refusal leaves nothing behind", e.found, 0);
 
     /*
@@ -702,7 +702,34 @@ static void test_envelope_refusals(void) {
     clear();
     add_tone(70000.0, 0.0002);
     check_int("a signal in the quantiser's floor is refused",
-              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, &e), 0);
+              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, 1.0, &e), 0);
+    check_int("zero or negative full_scale is refused",
+              signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, 0.0, &e), 0);
+}
+
+/*
+ * The refusal must fire at the same fraction of full scale across containers,
+ * not at a fixed count.
+ */
+static void test_envelope_refusal_is_fraction_of_full_scale(void) {
+    struct signal_envelope e;
+    const double full_scales[2] = { 127.5, 2040.0 };
+
+    for (int c = 0; c < 2; c++) {
+        double fs_val = full_scales[c];
+
+        /* Well below 0.002 * full_scale: should refuse */
+        clear();
+        add_tone(70000.0, 0.001 * fs_val);
+        check_int("too weak for container's full_scale is refused",
+                  signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, fs_val, &e), 0);
+
+        /* Above 0.002 * full_scale: should measure */
+        clear();
+        add_tone(70000.0, 0.005 * fs_val);
+        check_int("sufficient above quantiser floor is accepted",
+                  signal_envelope_stats(ir, qr, N, FS, 70000.0, 40000.0, fs_val, &e), 1);
+    }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1054,6 +1081,150 @@ static void test_the_refinement_cannot_land_in_a_null(void) {
     }
 }
 
+/* ------------------------------------------------------------------ *
+ * Where in the buffer to look
+ * ------------------------------------------------------------------ */
+
+/* A tone present only between two sample indices, which is what a
+   transmitter that speaks once per button press looks like. */
+static void add_tone_between(double hz, double amplitude,
+                             size_t from, size_t to) {
+    size_t n;
+    for (n = from; n < to && n < (size_t)N; n++) {
+        double p = 2.0 * M_PI * hz * (double)n / FS;
+        ir[n] += (float)(amplitude * cos(p));
+        qr[n] += (float)(amplitude * sin(p));
+    }
+}
+
+/*
+ * The regression this exists for, in the smallest form that shows it.
+ *
+ * `signal_find_carrier()` reads `SIGNAL_COARSE_PAIRS` of whatever it is
+ * handed -- the first 32.8 ms at this rate, a third of this buffer. A tone
+ * confined to the second half is outside that, and what comes back is not a
+ * weak answer but a confident wrong one.
+ */
+static void test_a_transmission_after_the_prefix_is_found(void) {
+    struct signal_activity a;
+    struct signal_carrier whole, window;
+    int found_whole, found_window;
+
+    clear();
+    add_noise(0.02);
+    add_tone_between(120000.0, 1.0, N / 2, (size_t)(N * 0.9));
+
+    check_int("a buffer quiet then busy has activity in it",
+              signal_find_activity(ir, qr, N, FS, 120000.0, 100000.0, &a), 1);
+    check_int("and it is not level throughout", a.uniform, 0);
+    check_true("the window starts at the transmission, not at the buffer",
+               a.offset_pairs >= (size_t)(N * 0.4));
+    check_true("and ends with it", a.offset_pairs + a.pair_count
+                                       <= (size_t)(N * 0.95));
+    check_true("which stands well clear of the quiet quarter",
+               a.over_floor_db > 20.0);
+    check_close("the duty is the fraction that was transmitting", a.duty,
+                0.4, 0.06);
+    check_int("in one run", a.run_count, 1);
+
+    /* The two answers, same function, same buffer, different window. */
+    found_whole = signal_find_carrier(ir, qr, N, FS, 80000.0, 160000.0,
+                                      1000.0, 20000.0, &whole);
+    found_window = signal_find_carrier(ir + a.offset_pairs,
+                                       qr + a.offset_pairs, a.pair_count,
+                                       FS, 80000.0, 160000.0, 1000.0,
+                                       20000.0, &window);
+    check_int("handed the window, the carrier is found", found_window, 1);
+    check_close("at the frequency it was transmitted on", window.offset_hz,
+                120000.0, 200.0);
+    check_true("and it reads as a carrier",
+               window.carrier_over_noise_db > 10.0);
+    /*
+     * Asserted as a comparison and not as a failure: whether the prefix
+     * search returns nothing or returns noise depends on the noise, and
+     * pinning either spelling would be pinning this fixture's seed. What is
+     * certain is that it cannot do as well as the window, because the signal
+     * is not in what it read.
+     */
+    check_true("where the prefix cannot do as well",
+               !found_whole
+                   || whole.carrier_over_noise_db
+                          < window.carrier_over_noise_db - 10.0
+                   || fabs(whole.offset_hz - 120000.0) > 1000.0);
+}
+
+/*
+ * A carrier that never stops is the case the prefix was right about, and it
+ * must stay right about it: this reports the whole buffer and says the choice
+ * did not matter, which is a different statement from "there is nothing here".
+ */
+static void test_a_level_buffer_is_uniform(void) {
+    struct signal_activity a;
+
+    clear();
+    add_noise(0.05);
+    check_int("noise throughout is still something to report",
+              signal_find_activity(ir, qr, N, FS, 120000.0, 100000.0, &a), 1);
+    check_int("and it is level", a.uniform, 1);
+    check_size("so the window is the whole buffer", a.pair_count, (size_t)N);
+    check_size("from the start of it", a.offset_pairs, (size_t)0);
+    check_true("with the busiest chunk near the quietest",
+               a.over_floor_db < 12.0);
+
+    clear();
+    add_tone(120000.0, 1.0);
+    add_noise(0.02);
+    check_int("a carrier that never stops is found",
+              signal_find_activity(ir, qr, N, FS, 120000.0, 100000.0, &a), 1);
+    check_int("and is level too -- there is no better window",
+              a.uniform, 1);
+    check_size("so nothing is narrowed", a.pair_count, (size_t)N);
+}
+
+/*
+ * A single chunk is a true answer to "where is the energy" and a useless
+ * buffer to measure in. The window is padded around it, which is also what
+ * makes a false positive on noise cost nothing.
+ */
+static void test_a_short_transmission_is_padded(void) {
+    struct signal_activity a;
+    size_t from = (size_t)(N * 0.7), to = from + 3000;
+
+    clear();
+    add_noise(0.02);
+    add_tone_between(120000.0, 2.0, from, to);
+
+    check_int("a brief transmission is found",
+              signal_find_activity(ir, qr, N, FS, 120000.0, 100000.0, &a), 1);
+    check_int("and narrows the look", a.uniform, 0);
+    check_true("but not below what the coarse search will read",
+               a.pair_count >= (size_t)SIGNAL_COARSE_PAIRS);
+    check_true("the transmission is inside the window it chose",
+               a.offset_pairs <= from
+                   && a.offset_pairs + a.pair_count >= to);
+    check_true("and the window is inside the buffer",
+               a.offset_pairs + a.pair_count <= (size_t)N);
+}
+
+static void test_activity_refusals(void) {
+    struct signal_activity a;
+
+    check_int("no output, no answer",
+              signal_find_activity(ir, qr, N, FS, 0.0, 100000.0, NULL), 0);
+    check_int("no samples, no answer",
+              signal_find_activity(NULL, qr, N, FS, 0.0, 100000.0, &a), 0);
+    check_int("no buffer, no answer",
+              signal_find_activity(ir, qr, 0, FS, 0.0, 100000.0, &a), 0);
+    check_int("a band of nothing is refused",
+              signal_find_activity(ir, qr, N, FS, 0.0, 0.0, &a), 0);
+    /* A band the buffer cannot hold is a caller error, not a wide look. */
+    check_int("a band wider than the sample rate is refused",
+              signal_find_activity(ir, qr, N, FS, 0.0, FS, &a), 0);
+    check_int("and a buffer too short to hold chunks to compare",
+              signal_find_activity(ir, qr, 1000, FS, 0.0, 100000.0, &a), 0);
+    check_int("a refusal leaves nothing behind to read", a.found, 0);
+}
+
 int main(void) {
     test_a_pure_tone_is_all_line();
     test_only_in_channel_energy_counts();
@@ -1074,10 +1245,15 @@ int main(void) {
     test_noise_reads_rayleigh();
     test_an_on_off_envelope_varies_more_than_noise();
     test_envelope_refusals();
+    test_envelope_refusal_is_fraction_of_full_scale();
     test_a_real_bare_carrier();
     test_the_standing_fraction_does_not_depend_on_the_look();
     test_a_steady_carrier_reads_the_same_at_any_length();
     test_a_wider_channel_admits_more_of_the_noise();
     test_the_refinement_cannot_land_in_a_null();
+    test_a_transmission_after_the_prefix_is_found();
+    test_a_level_buffer_is_uniform();
+    test_a_short_transmission_is_padded();
+    test_activity_refusals();
     return check_report("where a carrier is, and whether anything rides it");
 }

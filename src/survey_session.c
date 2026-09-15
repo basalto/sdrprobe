@@ -776,6 +776,7 @@ static void survey_session_confirm_kind(struct survey_session *s,
     signal_envelope_stats(block->i_samples, block->q_samples,
                           block->pair_count, block->sample_rate,
                           s->confirm.carrier.offset_hz, channel,
+                          block->full_scale > 0.0f ? (double)block->full_scale : 127.5,
                           &s->confirm.envelope);
     s->confirm.kind_measured = 1;
 }
@@ -1156,7 +1157,9 @@ static void survey_session_measure_carrier(struct survey_session *s,
     if (s->carrier_valid)
         signal_envelope_stats(block->i_samples, block->q_samples,
                               block->pair_count, block->sample_rate,
-                              s->carrier.offset_hz, channel, &s->envelope);
+                              s->carrier.offset_hz, channel,
+                              block->full_scale > 0.0f ? (double)block->full_scale : 127.5,
+                              &s->envelope);
     else
         memset(&s->envelope, 0, sizeof(s->envelope));
 }

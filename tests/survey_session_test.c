@@ -71,6 +71,7 @@ static int block_from_capture(FILE *f, double centre_hz,
     out->sample_rate = RATE;
     out->reference_clock_hz = 0.0;   /* a capture has no crystal to blame */
     out->remove_dc = 1;
+    out->full_scale = profile->full_scale;
     return 1;
 }
 
@@ -238,6 +239,7 @@ static struct survey_block synthetic_block(double centre_hz) {
     block.centre_hz = centre_hz;
     block.sample_rate = RATE;
     block.reference_clock_hz = 0.0;
+    block.full_scale = 127.5f;
     return block;
 }
 

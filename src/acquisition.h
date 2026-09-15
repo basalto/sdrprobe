@@ -7,6 +7,7 @@
 
 #include "device_backend.h"
 #include "device_profile.h"
+#include "iq_ring.h"
 
 /*
  * Deliberately dump1090's block, so timing matches it -- and it is **131072
@@ -158,6 +159,7 @@ struct acquisition {
     char record_source[320];
     char record_tuner[32];
     char record_started_at[32];
+    struct iq_ring ring;
 
     /* Borrowed for the worker's lifetime; struct app owns these. Acquisition
        reads from them, settings and calibration retune them. */

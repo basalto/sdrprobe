@@ -37,6 +37,7 @@ enum start_view {
     START_VIEW_LTE,
     START_VIEW_FM,
     START_VIEW_TETRA,
+    START_VIEW_SRD,
     /* The calibration overlay. Not a view in the tab sense -- it is reachable
        only by clicking Calibration, which meant it could not be screenshotted
        and I shipped a screen with three overlapping panels because I never saw
@@ -184,8 +185,22 @@ struct options {
      * has nothing to be asked -- and every scripted shape of run skips it
      * anyway (startup_form_wanted()). This is the explicit refusal, for the
      * operator who would rather answer once in the config file.
+     *
+     * It outlived the default it was written against. The form is opt-in now
+     * (`--startup`, below), so this refuses something that is already not
+     * happening -- kept because a launcher or unit file carrying it must keep
+     * working, and because a refusal that stops meaning anything is better
+     * than one that starts meaning the opposite.
      */
     int no_startup;
+    /*
+     * And the request. The form asks where this is and calibrates against
+     * whatever the band offers, which is a cold launch's 12.8 s of GSM
+     * scanning at best and minutes of LTE band scan where GSM 900 is not on
+     * air -- so it is asked for rather than assumed (ADR-0024, amended
+     * 2026-09-15).
+     */
+    int startup;
     /* Whether --view was given at all, as opposed to the default landing on
        Survey. `startup_form_wanted()` needs the difference: a run that names
        its screen is a scripted one, and `--view survey` is naming it. */

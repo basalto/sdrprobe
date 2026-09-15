@@ -897,7 +897,112 @@ static void test_the_sizes_offered(void) {
               sdr_dsp_fft_choice_of(3000), -1);
 }
 
+/*
+ * What a retune does to a stored waterfall row.
+ *
+ * The history used to be thrown away whole on any retune, which was sound
+ * while nothing could retune from a decode screen. The SRD view's arrows step
+ * half a span across a ten-megahertz allocation, so half of every picture
+ * still overlaps the next one -- and discarding it left the waterfall blank
+ * with the detection labels standing over nothing, which is what this was
+ * reported as.
+ */
+static void test_a_retune_moves_a_row_rather_than_voiding_it(void) {
+    float row[16];
+    int i;
+
+    /*
+     * Direction first, because it is the half that is easy to get backwards:
+     * tuning *up* slides the old picture *left*, so a carrier that sat at the
+     * right edge is nearer the middle once you have tuned towards it.
+     */
+    check_int("tuning up slides the picture left",
+              sdr_dsp_retune_bin_shift(434e6, 435e6, 2e6, 16), -8);
+    check_int("tuning down slides it right",
+              sdr_dsp_retune_bin_shift(435e6, 434e6, 2e6, 16), 8);
+    check_int("staying put moves nothing",
+              sdr_dsp_retune_bin_shift(434e6, 434e6, 2e6, 16), 0);
+
+    /* Half a span is half the bins, which is what makes the arrows work. */
+    check_int("half a span is half the row",
+              sdr_dsp_retune_bin_shift(434e6, 435e6, 2e6, 1024), -512);
+
+    /* Past a whole span the two do not overlap and nothing is carried. */
+    check_int("a jump wider than the span saturates",
+              sdr_dsp_retune_bin_shift(434e6, 440e6, 2e6, 16), -16);
+    check_int("and in the other direction too",
+              sdr_dsp_retune_bin_shift(440e6, 434e6, 2e6, 16), 16);
+
+    check_int("no rate is no shift",
+              sdr_dsp_retune_bin_shift(434e6, 435e6, 0.0, 16), 0);
+    check_int("no bins is no shift",
+              sdr_dsp_retune_bin_shift(434e6, 435e6, 2e6, 0), 0);
+
+    /*
+     * And the move itself. A row of distinct values says exactly which bin
+     * each one landed in, where a row of zeros and ones could not.
+     */
+    for (i = 0; i < 16; i++)
+        row[i] = (float)i;
+    sdr_dsp_shift_row(row, 16, -4, SDR_DSP_UNMEASURED_DBFS);
+    check_close("a left shift brings the higher bins down", row[0], 4.0f, 1e-6);
+    check_close("and carries the top of the row with it", row[11], 15.0f, 1e-6);
+    check_close("what slides in is marked unmeasured", row[12],
+                SDR_DSP_UNMEASURED_DBFS, 1e-6);
+    check_close("all of it", row[15], SDR_DSP_UNMEASURED_DBFS, 1e-6);
+
+    for (i = 0; i < 16; i++)
+        row[i] = (float)i;
+    sdr_dsp_shift_row(row, 16, 4, SDR_DSP_UNMEASURED_DBFS);
+    check_close("a right shift is the mirror of it", row[15], 11.0f, 1e-6);
+    check_close("and the bottom of the row is unmeasured", row[0],
+                SDR_DSP_UNMEASURED_DBFS, 1e-6);
+    check_close("all of that too", row[3], SDR_DSP_UNMEASURED_DBFS, 1e-6);
+
+    /* A shift clear of the row leaves nothing behind. */
+    for (i = 0; i < 16; i++)
+        row[i] = (float)i;
+    sdr_dsp_shift_row(row, 16, 16, SDR_DSP_UNMEASURED_DBFS);
+    for (i = 0; i < 16; i++)
+        check_close("a shift past the row voids all of it", row[i],
+                    SDR_DSP_UNMEASURED_DBFS, 1e-6);
+
+    /*
+     * The two together, over a real step: half a span up, and the bin that
+     * held a carrier is where the carrier still is. This is the property the
+     * whole thing exists for, stated once rather than left implied by the two
+     * halves above.
+     */
+    {
+        const int bins = 64;
+        const double rate = 2e6, from = 434e6, to = 435e6;
+        float span[64];
+        int carrier_bin = 48;   /* +0.5 MHz of the old centre */
+        int shift, expected;
+
+        for (i = 0; i < bins; i++)
+            span[i] = -90.0f;
+        span[carrier_bin] = -20.0f;
+
+        shift = sdr_dsp_retune_bin_shift(from, to, rate, bins);
+        sdr_dsp_shift_row(span, bins, shift, SDR_DSP_UNMEASURED_DBFS);
+
+        /* Where that frequency sits in the new span, worked out from the
+           frequencies rather than from the shift, so the two cannot agree by
+           sharing a mistake. */
+        {
+            double carrier_hz = from - rate / 2.0 +
+                                (double)carrier_bin * rate / (double)bins;
+            expected = (int)((carrier_hz - (to - rate / 2.0)) *
+                             (double)bins / rate + 0.5);
+        }
+        check_close("the carrier is in the bin its frequency puts it in",
+                    span[expected], -20.0f, 1e-6);
+    }
+}
+
 int main(void) {
+    test_a_retune_moves_a_row_rather_than_voiding_it();
     g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     test_conversion();
     test_standard_block();

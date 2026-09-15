@@ -508,6 +508,62 @@ int signal_find_bursts(const float *i_samples, const float *q_samples,
                        double min_gap_seconds, struct signal_bursts *out);
 
 /* ------------------------------------------------------------------ *
+ * Where in the buffer to look
+ * ------------------------------------------------------------------ */
+
+/*
+ * Every other measurement here reads a prefix of the buffer it is handed:
+ * `SIGNAL_COARSE_PAIRS` is 32.8 ms at 2 MS/s and `SIGNAL_BURST_SAMPLES` is
+ * 131 ms. That is right for a signal that is always on and for one whose
+ * frames arrive every few milliseconds, which is everything this program
+ * decodes -- and wrong for a transmitter that speaks once when somebody
+ * presses a button.
+ *
+ * The cost of getting it wrong is not a weak answer, it is a **confident
+ * wrong one**: given 32.8 ms of noise the coarse search returns the bottom
+ * edge of its own search window and the refinement polishes that to a decimal
+ * place. A 434 MHz capture holding four transmissions at up to 57 dB over the
+ * floor was reported empty at every frequency asked about, and re-recorded
+ * for nothing.
+ *
+ * This finds the window to hand them. It is deliberately *not* built into
+ * `signal_find_carrier()`: a caller measuring a continuous carrier should not
+ * pay for a scan of the whole buffer, and a caller comparing a signal against
+ * a control needs to be able to say which window each answer came from.
+ *
+ * It watches a band rather than a channel, because the whole point is to find
+ * a transmission whose frequency is not yet known -- pass the width of the
+ * search window the carrier will be looked for in, not the channel it will
+ * finally be measured over.
+ */
+struct signal_activity {
+    int found;              /* 1 when a window stands out of the rest */
+    int uniform;            /* level throughout: any window is as good */
+    size_t offset_pairs;    /* where the busiest run starts */
+    size_t pair_count;      /* how long it is */
+    double over_floor_db;   /* the busiest chunk over the quietest quarter */
+    double duty;            /* fraction of the buffer that was busy, 0 to 1 */
+    int run_count;          /* separate busy runs seen in the whole buffer */
+};
+
+/*
+ * Returns 1 when `offset_pairs`/`pair_count` are worth using, which includes
+ * the uniform case -- there the window is the whole buffer and `uniform` says
+ * the choice did not matter.
+ *
+ * Returns 0 only when it could not look at all (no buffer, a band wider than
+ * the sample rate, fewer chunks than a comparison needs). **A quiet buffer is
+ * not a refusal**: it reports the loudest window it found and an
+ * `over_floor_db` near zero, because "I looked everywhere and it is all the
+ * same" is an answer, and the caller's own carrier verdict is what decides
+ * whether anything is there.
+ */
+int signal_find_activity(const float *i_samples, const float *q_samples,
+                         size_t pair_count, double sample_rate,
+                         double centre_hz, double band_hz,
+                         struct signal_activity *out);
+
+/* ------------------------------------------------------------------ *
  * Does the envelope carry anything, and does the frequency sit on levels?
  * ------------------------------------------------------------------ */
 
@@ -597,6 +653,7 @@ struct signal_envelope {
 int signal_envelope_stats(const float *i_samples, const float *q_samples,
                           size_t pair_count, double sample_rate,
                           double carrier_hz, double channel_hz,
+                          double full_scale,
                           struct signal_envelope *out);
 
 #endif

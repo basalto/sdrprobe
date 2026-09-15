@@ -282,3 +282,21 @@ _Avoid_: BSIC, physical cell identity, encryption key
 The TETRA broadcast information recovered after the synchronisation block has
 provided the network's extended colour code.
 _Avoid_: BCCH, synchronization block, traffic channel
+
+## Short-range-device frames
+
+**SRD frame**:
+A bounded sequence of bits recovered by decoding Manchester-coded modulation
+in an SRD transmission. It may match a recognised full or repeat structure or
+remain a generic frame whose meaning is unknown.
+_Avoid_: SRD transmission, undecoded burst, sample block
+
+**SRD full frame**:
+The recognised 80-bit SRD frame comprising a header, a 64-bit rolling payload,
+and a trailer, sent at the start of a remote-control action.
+_Avoid_: Long frame, key press, payload
+
+**SRD repeat frame**:
+The recognised 24-bit keepalive frame sent while a remote-control action is
+held, whose tag identifies the preceding SRD full frame it repeats.
+_Avoid_: Retransmission, duplicate full frame, short frame

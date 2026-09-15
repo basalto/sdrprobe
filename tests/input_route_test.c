@@ -1,4 +1,6 @@
 #include "input_route.h"
+#include "view_input.h"
+#include "srd_log.h"
 #include "calibration_nav.h"
 #include "check.h"
 
@@ -381,6 +383,11 @@ static void test_the_scale_keys_reach_every_chart(void) {
     s.decode = DECODE_KIND_ADSB;
     check_int("ADS-B has no waterfall", input_scale_keys(&s),
               INPUT_SCALE_NONE);
+    /* SRD now draws a waterfall too, so the claim this function was already
+       making about it -- that Up/Down scale one -- is true rather than a
+       promise about a chart nothing drew. */
+    s.decode = 5;   /* SRD */
+    check_int("SRD takes them", input_scale_keys(&s), INPUT_SCALE_WATERFALL);
 
     /* The calibration overlay draws one over whatever is underneath. */
     s = state_of(0, 0, 1, 0, TAB_SCOPE, 0);
@@ -679,6 +686,311 @@ static void test_every_typing_surface_suppresses_the_chart_keys(void) {
               1);
 }
 
+
+/*
+ * The step before the precedence: how `struct input_state` gets filled in.
+ *
+ * Everything above takes the struct as given. What follows takes what the
+ * views report and folds it, which is where the three faults this program has
+ * paid for actually were -- a typing surface that no predicate named, and a
+ * modal that reached the routing nowhere.
+ */
+
+static struct view_input plain_view(void) {
+    struct view_input v;
+
+    memset(&v, 0, sizeof(v));
+    v.tab = TAB_SCOPE;
+    /* Negative is "nothing has focus" for the survey, and its own _NONE for
+       the Scope -- two conventions, which is why each has a projection rather
+       than a comparison written out at the fold. */
+    v.survey_focused_field = -1;
+    v.scope_focused_field = VIEW_INPUT_SCOPE_FIELD_NONE;
+    return v;
+}
+
+/*
+ * Every typing surface, swept by the enum rather than by the five somebody
+ * thought of.
+ *
+ * This is the check the ticket was written for. A surface added to
+ * `enum typing_surface` and not wired into `view_input_set_typing()` or
+ * `view_input_typing_surfaces()` fails here -- where the old arrangement went
+ * *silent*, because `chart_key_pressed()` drains `GetCharPressed()` and a
+ * surface nothing reports has its characters taken before its handler runs.
+ *
+ * What it cannot see, and the ticket says so: a new typing field inside a
+ * `view_*.c` whose own predicate does not report it. That obligation moves,
+ * it does not vanish.
+ */
+static void test_every_typing_surface_reaches_the_fold(void) {
+    int surface;
+
+    for (surface = 0; surface < TYPING_SURFACE_COUNT; surface++) {
+        struct view_input v = plain_view();
+        struct input_state s;
+        unsigned mask;
+
+        view_input_set_typing(&v, (enum typing_surface)surface);
+        mask = view_input_typing_surfaces(&v);
+        s = view_input_state(&v);
+
+        check_msg(mask == TYPING_SURFACE_BIT(surface),
+                  "%s reports itself and nothing else (mask %u)",
+                  typing_surface_name((enum typing_surface)surface), mask);
+        check_msg(input_takes_typing(&s) == 1,
+                  "%s takes typing, so the chart keys yield",
+                  typing_surface_name((enum typing_surface)surface));
+        check_msg(input_shortcuts_live(&s) == 0,
+                  "%s suppresses the single-letter shortcuts",
+                  typing_surface_name((enum typing_surface)surface));
+    }
+
+    {
+        struct view_input v = plain_view();
+        struct input_state s = view_input_state(&v);
+
+        check_int("and nothing typing takes no typing",
+                  input_takes_typing(&s), 0);
+    }
+}
+
+/*
+ * `text_focus` still means what it meant: a field *outside* the two overlays.
+ *
+ * The distinction is load-bearing rather than tidy. `input_escape()` reads
+ * `text_focus` for LEAVE_FIELD, and the startup form with nothing focused must
+ * not claim a field to leave.
+ */
+static void test_text_focus_is_the_in_view_surfaces(void) {
+    int surface;
+
+    for (surface = 0; surface < TYPING_SURFACE_COUNT; surface++) {
+        struct view_input v = plain_view();
+        struct input_state s;
+        int in_view = (TYPING_IN_VIEW_MASK & TYPING_SURFACE_BIT(surface)) != 0;
+
+        view_input_set_typing(&v, (enum typing_surface)surface);
+        s = view_input_state(&v);
+        check_msg(s.text_focus == in_view,
+                  "%s %s text_focus",
+                  typing_surface_name((enum typing_surface)surface),
+                  in_view ? "sets" : "does not set");
+    }
+}
+
+/* The survey's fields are live on its own tab and nowhere else. */
+static void test_a_survey_focus_left_on_another_tab(void) {
+    struct view_input v = plain_view();
+    struct input_state s;
+
+    v.tab = TAB_SCOPE;
+    v.survey_focused_field = 2;
+    s = view_input_state(&v);
+    check_int("a survey focus does not take the Scope's digits",
+              s.text_focus, 0);
+
+    v.tab = TAB_SURVEY;
+    s = view_input_state(&v);
+    check_int("and does take its own tab's", s.text_focus, 1);
+}
+
+/* Both SRD fields, named one at a time. The second arrived on 2026-09-15 and
+   the only thing that made srd_editing() correct was that somebody
+   remembered; this is what remembers now. */
+static void test_both_srd_fields(void) {
+    struct view_input v = plain_view();
+    struct input_state s;
+
+    v.srd_typing = 1;
+    s = view_input_state(&v);
+    check_int("the record-duration field takes typing",
+              input_takes_typing(&s), 1);
+
+    v = plain_view();
+    v.srd_freq_typing = 1;
+    s = view_input_state(&v);
+    check_int("and so does the frequency field",
+              input_takes_typing(&s), 1);
+
+    check_int("srd_input_typing() agrees about neither",
+              srd_input_typing(0, 0), 0);
+    check_int("and about either", srd_input_typing(0, 1) &&
+              srd_input_typing(1, 0), 1);
+}
+
+/*
+ * Every list that is down over a view, including the waterfall's.
+ *
+ * Two lists of menus existed -- the routing's and the debug log's -- and they
+ * already disagreed: the survey's band menu was in one and not the other. The
+ * waterfall's right-click menu was in neither, so Escape quit the program
+ * rather than closing it.
+ */
+static void test_every_menu_closes_before_escape_leaves(void) {
+    struct view_input base = plain_view();
+    struct view_input v;
+    struct input_state s;
+
+    v = base; v.survey_site_menu_open = 1;
+    check_int("the survey's site list", view_input_menu_open(&v), 1);
+    v = base; v.survey_antenna_menu_open = 1;
+    check_int("its antenna list", view_input_menu_open(&v), 1);
+    v = base; v.survey_band_menu_open = 1;
+    check_int("its band list", view_input_menu_open(&v), 1);
+    v = base; v.startup_site_menu_open = 1;
+    check_int("the startup form's site list", view_input_menu_open(&v), 1);
+    v = base; v.startup_antenna_menu_open = 1;
+    check_int("its antenna list", view_input_menu_open(&v), 1);
+    v = base; v.waterfall_menu_open = 1;
+    check_int("and the waterfall's right-click menu",
+              view_input_menu_open(&v), 1);
+
+    s = view_input_state(&v);
+    check_int("which Escape closes rather than quitting",
+              input_escape(&s), INPUT_ESCAPE_CLOSE_MENU);
+
+    v = base;
+    check_int("nothing down, nothing to close", view_input_menu_open(&v), 0);
+}
+
+/*
+ * The retrospective signal report is modal, and `q` was live behind it.
+ *
+ * It takes no typing, so `input_takes_typing()` is not the predicate that
+ * covers it -- which is exactly how it was missed. The popup is a reading
+ * surface with a receiver running behind it, and the shortcuts stop at it for
+ * the reason they stop at Help.
+ */
+static void test_the_signal_report_stops_the_shortcuts(void) {
+    struct view_input v = plain_view();
+    struct input_state s;
+
+    v.waterfall_report_open = 1;
+    s = view_input_state(&v);
+
+    check_int("the report is open", s.report_open, 1);
+    check_int("it takes no typing", input_takes_typing(&s), 0);
+    check_int("and q does not quit from behind it",
+              input_shortcuts_live(&s), 0);
+    check_int("nor does h open help over it", input_help_opens(&s), 0);
+    check_int("its own handler owns Escape",
+              input_escape(&s), INPUT_ESCAPE_NOTHING);
+    check_int("and Up/Down do not reach the chart behind it",
+              input_scale_keys(&s), INPUT_SCALE_NONE);
+}
+
+/*
+ * The fold decides nothing the projections have not already decided.
+ *
+ * Read the other way: a `struct view_input` with every overlay flag copied
+ * through arrives as the same `struct input_state` the old hand-written
+ * composition produced, so the precedence above is unchanged.
+ */
+static void test_the_fold_only_copies(void) {
+    struct view_input v = plain_view();
+    struct input_state s;
+
+    v.help_open = 1;
+    v.settings_open = 1;
+    v.calibration_open = 1;
+    v.scan_open = 1;
+    v.startup_open = 1;
+    v.tab = TAB_DECODE;
+    v.view = VIEW_KIND_WATERFALL;
+    v.decode = DECODE_KIND_ADSB;
+    v.scope_zoomed = 1;
+    s = view_input_state(&v);
+
+    check_int("help", s.help_open, 1);
+    check_int("settings", s.settings_open, 1);
+    check_int("calibration", s.calibration_open, 1);
+    check_int("scan", s.scan_open, 1);
+    check_int("startup", s.startup_open, 1);
+    check_int("tab", s.tab, TAB_DECODE);
+    check_int("view", s.view, VIEW_KIND_WATERFALL);
+    check_int("decode", s.decode, DECODE_KIND_ADSB);
+    check_int("zoom", s.scope_zoomed, 1);
+    check_int("and Help still outranks all of it",
+              input_route(&s), INPUT_TARGET_HELP);
+
+    /* A NULL is the zero state rather than a crash: the frame loop cannot
+       hand one over, and a check sweeping the fold should not have to know
+       that. */
+    s = view_input_state(NULL);
+    check_int("a NULL folds to nothing", s.help_open || s.tab || s.text_focus,
+              0);
+}
+
+/*
+ * What clicking a row in the SRD log asks for.
+ *
+ * It used to happen inside `draw_log()`, which takes `const struct app *` and
+ * cast the const away to retune -- the only cast of its kind in that file.
+ */
+static void test_what_an_srd_row_click_asks_for(void) {
+    struct srd_row_intent intent;
+
+    /* The ordinary case: select it, and put the receiver where it was. */
+    intent = srd_log_row_intent(2, 8, 434417000.0, 1);
+    check_int("a live receiver tunes to the row",
+              intent.action, SRD_ROW_SELECT_AND_TUNE);
+    check_int("the row it clicked", intent.row, 2);
+    check_msg(intent.tune_hz == 434417000u,
+              "at the frequency the row carries (%u)", intent.tune_hz);
+
+    /* A capture holds one tuning, baked in. The row still selects: selection
+       is how a reader marks their place. */
+    intent = srd_log_row_intent(2, 8, 434417000.0, 0);
+    check_int("file playback selects without retuning",
+              intent.action, SRD_ROW_SELECT);
+    check_int("and still says which row", intent.row, 2);
+
+    /* An entry from before absolute_hz existed, and a zeroed one. */
+    intent = srd_log_row_intent(0, 8, 0.0, 1);
+    check_int("an entry with no frequency selects only",
+              intent.action, SRD_ROW_SELECT);
+
+    /* Off the end of the log, which is what an empty log's geometry gives. */
+    intent = srd_log_row_intent(-1, 8, 434417000.0, 1);
+    check_int("a click on no row asks for nothing",
+              intent.action, SRD_ROW_NONE);
+    check_int("and names no row", intent.row, -1);
+    intent = srd_log_row_intent(8, 8, 434417000.0, 1);
+    check_int("nor does one past the last", intent.action, SRD_ROW_NONE);
+    intent = srd_log_row_intent(0, 0, 434417000.0, 1);
+    check_int("nor one in an empty log", intent.action, SRD_ROW_NONE);
+
+    /* Rounded rather than truncated. 434417000.6 is nearer 434417001. */
+    intent = srd_log_row_intent(0, 1, 434417000.6, 1);
+    check_msg(intent.tune_hz == 434417001u,
+              "the tuning is rounded, not truncated (%u)", intent.tune_hz);
+}
+
+/*
+ * A burst's frequency belongs to the tuning that heard it.
+ *
+ * The waterfall placed its marker at `current tuning + offset` every frame,
+ * so once the SRD arrows could walk ten megahertz, one arrow press moved every
+ * historical label by a megahertz. This is one addition and it is checked
+ * because the fault was never the arithmetic -- it was which tuning went in.
+ */
+static void test_a_burst_keeps_the_frequency_it_was_heard_at(void) {
+    double heard = srd_log_absolute_hz(434000000u, 417000.0);
+
+    check_close("heard at 434.417 MHz", heard, 434417000.0, 1.0);
+
+    /* The receiver then moves half a span. The entry does not. */
+    check_close("and a retune does not move it",
+                heard, srd_log_absolute_hz(434000000u, 417000.0), 1.0);
+    check_close("where the current tuning would have said 435.417",
+                srd_log_absolute_hz(435000000u, 417000.0), 435417000.0, 1.0);
+
+    /* A negative offset is ordinary: the carrier can sit below the tuning. */
+    check_close("an offset below the tuning",
+                srd_log_absolute_hz(434000000u, -250000.0), 433750000.0, 1.0);
+}
+
 int main(void) {
     test_the_tabs();
     test_the_precedence();
@@ -697,5 +1009,15 @@ int main(void) {
 
     test_escape_unzooms();
 
-    return check_report("input precedence");
+    test_every_typing_surface_reaches_the_fold();
+    test_text_focus_is_the_in_view_surfaces();
+    test_a_survey_focus_left_on_another_tab();
+    test_both_srd_fields();
+    test_every_menu_closes_before_escape_leaves();
+    test_the_signal_report_stops_the_shortcuts();
+    test_the_fold_only_copies();
+    test_what_an_srd_row_click_asks_for();
+    test_a_burst_keeps_the_frequency_it_was_heard_at();
+
+    return check_report("input precedence, and what the views report into it");
 }

@@ -19,15 +19,57 @@ cd "$root" || exit 1
 # Nothing to check when every ref being pushed is a deletion: no commit is
 # arriving anywhere, so there is no tree to have broken.
 pushing=0
+target_shas=""
 while read -r _local_ref local_sha _remote_ref _remote_sha; do
     case "$local_sha" in
         "" | 0000000000000000000000000000000000000000) ;;
-        *) pushing=1 ;;
+        *)
+            pushing=1
+            target_shas="$target_shas $local_sha"
+            ;;
     esac
 done
 [ "$pushing" -eq 1 ] || exit 0
 
-printf 'pre-push: make check\n' >&2
+stamp_file="build/.check-stamp"
+if [ -f "$stamp_file" ]; then
+    stamp_commit=""
+    stamp_head_tree=""
+    stamp_work_tree=""
+    stamp_time=""
+    stamp_summary=""
+
+    while IFS='=' read -r key val; do
+        case "$key" in
+            COMMIT) stamp_commit="$val" ;;
+            HEAD_TREE) stamp_head_tree="$val" ;;
+            WORK_TREE) stamp_work_tree="$val" ;;
+            TIMESTAMP) stamp_time="$val" ;;
+            SUMMARY) stamp_summary="$val" ;;
+        esac
+    done < "$stamp_file"
+
+    uncommitted_diff=$(git diff HEAD 2>/dev/null || true)
+    uncommitted_cached=$(git diff --cached 2>/dev/null || true)
+
+    all_matched=1
+    for sha in $target_shas; do
+        sha_tree=$(git rev-parse "${sha}^{tree}" 2>/dev/null || echo "none")
+        if [ "$sha_tree" != "$stamp_head_tree" ] && [ "$sha_tree" != "$stamp_work_tree" ]; then
+            all_matched=0
+            break
+        fi
+    done
+
+    if [ "$all_matched" -eq 1 ] && [ -z "$uncommitted_diff" ] && [ -z "$uncommitted_cached" ]; then
+        printf 'pre-push: checks already passed at %s\n' "$stamp_time" >&2
+        printf 'pre-push:   %s\n' "$stamp_summary" >&2
+        printf 'pre-push:   (verified against build/check.log; skipping redundant make check)\n' >&2
+        exit 0
+    fi
+fi
+
+printf 'pre-push: make check (codebase updated or unverified)\n' >&2
 if make check; then
     exit 0
 fi

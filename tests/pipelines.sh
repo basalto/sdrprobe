@@ -8,6 +8,9 @@
 # recording path, or the flags that reach them fails here instead of on
 # someone's desk.
 #
+# A missing capture fails its group: every fixture is part of the repository's
+# executable contract.
+#
 #     make check-pipelines
 #
 set -u
@@ -27,6 +30,36 @@ fail() {
 
 checked() {
     checks=$((checks + 1))
+}
+
+# --- Capture availability -------------------------------------------------
+skips=0
+
+skip() {
+    printf '    SKIP  %s\n' "$1"
+    skips=$((skips + 1))
+}
+
+# Guard a group of assertions on the captures they need. Returns success when
+# every one is present; otherwise records one failure per missing capture and
+# returns failure, so the caller reads:
+#
+#     if have testfiles/foo.bin; then ... fi
+#
+# Assertions inside do not run when a prerequisite capture is missing; the
+# missing capture itself is counted as a failed check.
+have() {
+    have_missing=''
+    for have_f in "$@"; do
+        [ -f "$have_f" ] || have_missing="$have_missing $have_f"
+    done
+    [ -z "$have_missing" ] && return 0
+
+    for have_f in $have_missing; do
+        checked
+        fail "${have_f##*/} is missing: this tree is broken"
+    done
+    return 1
 }
 
 # One line per pipeline: what ran, and what it found.
@@ -55,6 +88,7 @@ check_gsm() {
     capture=$1
     arfcn=$2
     expected=$3
+    have "$capture" || return 0
     checked
     output=$(run --file "$capture" --headless --arfcn "$arfcn" --decode --once)
     decodes=$(printf '%s\n' "$output" | grep -c "^SCH ")
@@ -96,6 +130,8 @@ check_gsm testfiles/gsm_arfcn_69.bin 69 59
 # wrong way round -- the programme type lives in a different block of every
 # group and has nothing to do with the name, and TSF is a news station.
 printf '  FM RDS decode\n'
+check_fm() {
+have testfiles/fm_rds_tsf.bin || return 0
 checked
 fm=$(run --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
          --frequency 89.5M --headless --technology fm --decode --once)
@@ -132,8 +168,12 @@ if [ "$fm" != "$fm2" ]; then
     fail "fm_rds_tsf decoded differently the second time"
 fi
 report "run twice" "identical output"
+}
+check_fm
 
 printf '  LTE decode\n'
+check_lte() {
+have testfiles/lte_b20_pci28.bin || return 0
 checked
 lte=$(run --file testfiles/lte_b20_pci28.bin --headless --earfcn 6200 \
           --decode --once)
@@ -181,6 +221,8 @@ if run --lte-scan 20 --headless --file testfiles/lte_b20_pci28.bin |
 else
     fail "--lte-scan accepted a capture"
 fi
+}
+check_lte
 
 # --- TETRA: whose network is this -----------------------------------------
 printf '  TETRA decode\n'
@@ -199,6 +241,7 @@ for pair in "tetra_cc17.bin:17:4375" "tetra_cc32.bin:32:4658"; do
     rest=${pair#*:}
     colour=${rest%%:*}
     la=${rest#*:}
+    have "testfiles/$file" || continue
     checked
     tetra=$(decode_tetra "testfiles/$file")
     line=$(printf '%s\n' "$tetra" | grep "^TETRA  MCC" | head -1)
@@ -215,12 +258,14 @@ done
 
 # Byte for byte the same twice: the chain is stateless per block, so anything
 # that varies between runs is a bug rather than the air.
+if have testfiles/tetra_cc17.bin; then
 checked
 if [ "$(decode_tetra testfiles/tetra_cc17.bin)" != \
      "$(decode_tetra testfiles/tetra_cc17.bin)" ]; then
     fail "the same TETRA capture decoded differently the second time"
 else
     report "run twice" "identical output"
+fi
 fi
 
 # --- ADS-B: frames, and a position that needed two of them ----------------
@@ -229,6 +274,7 @@ decode_adsb() {
     run --file testfiles/adsb_cpr_pair.bin --headless --technology adsb \
         --decode --once
 }
+if have testfiles/adsb_cpr_pair.bin; then
 checked
 adsb=$(decode_adsb)
 frames=$(printf '%s\n' "$adsb" | grep -cE "^[0-9][0-9]:[0-9][0-9]:[0-9][0-9] ")
@@ -255,6 +301,7 @@ if [ "$again" -ne "$frames" ]; then
 else
     report "run twice" "$again frames again"
 fi
+fi
 
 # --- Past the SCH: what the cell is saying --------------------------------
 #
@@ -267,6 +314,7 @@ printf '  Broadcast\n'
 broadcast() {
     run --file testfiles/gsm_arfcn_69.bin --headless --arfcn 69 --decode --once
 }
+if have testfiles/gsm_arfcn_69.bin; then
 checked
 bcch=$(broadcast | grep "^BCCH ")
 blocks=$(printf '%s\n' "$bcch" | grep -c "^BCCH ")
@@ -299,11 +347,13 @@ if [ "$(broadcast | grep '^BCCH ')" != "$bcch" ]; then
 else
     report "run twice" "identical messages"
 fi
+fi
 
 # A second cell, recorded a year after the first two and from a different
 # operator. Its BCC is 6 where ARFCN 69's is 3, so the bursts are found by a
 # different training sequence -- which is what says the demodulator generalises
 # rather than fitting the one cell it was written against.
+if have testfiles/gsm_arfcn_113.bin; then
 checked
 other=$(run --file testfiles/gsm_arfcn_113.bin --headless --arfcn 113 --decode \
             --once | grep "^BCCH ")
@@ -312,6 +362,7 @@ if ! printf '%s\n' "$other" | grep -q "MCC 268 MNC 06 .*LAC 8420  CI 16134"; the
 else
     report "gsm_arfcn_113.bin" \
         "$(printf '%s\n' "$other" | grep -c "^BCCH ") blocks, MNC 06, CI 16134"
+fi
 fi
 
 # --- The survey, read by a program rather than clicked at -----------------
@@ -325,6 +376,7 @@ survey_gsm() {
     run --file testfiles/gsm_arfcn_69.bin --frequency 948.4M --headless \
         --survey --once
 }
+if have testfiles/gsm_arfcn_69.bin; then
 checked
 survey=$(survey_gsm)
 candidates=$(printf '%s\n' "$survey" | grep -c "^candidate ")
@@ -361,6 +413,7 @@ if [ "$(survey_gsm)" != "$survey" ]; then
 else
     report "run twice" "identical output"
 fi
+fi
 
 # A Mode S capture surveys to its carrier, and the reason it did not is worth
 # keeping. "Mode S is pulses: there is no carrier standing above anything" was
@@ -369,6 +422,7 @@ fi
 # its own in this capture and an unbounded extent walk left it with no floor
 # to measure (ADR-0017). Bounded, it is found at 1090 MHz, which the six
 # decoded frames from the same capture corroborate.
+if have testfiles/adsb_cpr_pair.bin; then
 checked
 adsb_survey=$(run --file testfiles/adsb_cpr_pair.bin --headless --survey --once)
 adsb_hz=$(printf '%s\n' "$adsb_survey" | grep "^candidate " | head -1 | cut -d' ' -f2)
@@ -379,12 +433,14 @@ elif [ "$adsb_hz" -lt 1089500000 ] || [ "$adsb_hz" -gt 1090500000 ]; then
 else
     report "adsb_cpr_pair.bin" "the 1090 MHz carrier at $adsb_hz Hz"
 fi
+fi
 
 # --- Recording: the file and the sidecar that explains it -----------------
 #
 # Recording tees off inside the acquisition thread, so a capture played back
 # through it exercises the same path a live one takes.
 printf '  Recording\n'
+if have testfiles/adsb_cpr_pair.bin; then
 checked
 before=$(ls captures/ 2>/dev/null | wc -l)
 run --file testfiles/adsb_cpr_pair.bin --headless --record-seconds 1 \
@@ -409,6 +465,7 @@ else
         report "$(basename "$recorded")" "$size bytes, sidecar complete"
     fi
     rm -f "$recorded" "$sidecar"
+fi
 fi
 
 # --- The flags that reach those paths -------------------------------------
@@ -435,10 +492,15 @@ fi
 # broadcast check below is what fails.
 check_wide_container() {
     corpus=build/testfiles16
-    if [ ! -f "$corpus/gsm_arfcn_69.bin" ]; then
-        report "16-bit corpus" "absent; run make check-sample-format"
+    if [ ! -d "$corpus" ]; then
+        skip "build/testfiles16 is absent; run make check-sample-format"
         return
     fi
+    # The corpus is generated from testfiles/, so a capture missing there is
+    # missing here too, and for the same reason.
+    have "$corpus/gsm_arfcn_69.bin" "$corpus/tetra_cc17.bin" \
+         "$corpus/lte_b20_pci28.bin" "$corpus/adsb_cpr_pair.bin" \
+         "$corpus/fm_rds_tsf.bin" || return 0
 
     checked
     output=$(run --file "$corpus/gsm_arfcn_69.bin" --headless --arfcn 69 \
@@ -515,7 +577,48 @@ has halved again"
 printf '  A wider container\n'
 check_wide_container
 
+# --- An SRD remote control at 434 MHz --------------------------------------
+#
+# The survey and decoder share no implementation path: the survey must place
+# the carrier near 434.417 MHz, then the assembled decoder must recover full
+# frames with the protocol header and trailer.
+printf '  An SRD remote control at 434 MHz\n'
+srd_remote_control_survey() {
+    run --file "$1" --frequency "$2" --headless --survey --once |
+        grep "^candidate " | sort -k3 -g -r | head -1 | cut -d' ' -f2
+}
+
+check_srd_remote_control() {
+    remote=testfiles/srd_remote_control_ook_a.bin
+    have "$remote" || return 0
+
+    checked
+    hz=$(srd_remote_control_survey "$remote" 433.8M)
+    if [ -z "$hz" ]; then
+        fail "${remote##*/} surveyed to no candidate at all"
+    elif [ "$hz" -lt 434367000 ] || [ "$hz" -gt 434467000 ]; then
+        fail "${remote##*/} put the SRD remote control at $hz Hz, not near 434.417 MHz"
+    else
+        report "${remote##*/}" "the SRD remote control at $hz Hz, tuned 433.8M"
+    fi
+
+    # Headless decode over the assembled program
+    checked
+    decode_a=$(run --file "$remote" --headless --technology srd --decode --once)
+    frames_a=$(printf '%s\n' "$decode_a" | grep -c "^SRD ")
+    if [ "$frames_a" -lt 4 ]; then
+        fail "expected at least 4 SRD frames in $remote, got $frames_a"
+    elif ! printf '%s\n' "$decode_a" | grep -Eq "3F( [0-9A-F][0-9A-F]){8} D4"; then
+        fail "expected a full frame with the known header and trailer in $remote"
+    else
+        report "srd_remote_control_ook_a.bin" "$frames_a frames decoded"
+    fi
+}
+
+check_srd_remote_control
+
 printf '  Flags\n'
+if have testfiles/adsb_cpr_pair.bin; then
 checked
 if ! run --file testfiles/adsb_cpr_pair.bin --headless --technology adsb \
         --decode --once | grep -q "End of capture."; then
@@ -523,7 +626,9 @@ if ! run --file testfiles/adsb_cpr_pair.bin --headless --technology adsb \
 else
     report "--once" "stops at the end"
 fi
+fi
 
+if have testfiles/gsm_arfcn_73.bin; then
 checked
 quiet=$(run --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode \
             --once --gsm-features none | grep -c "^SCH ")
@@ -534,13 +639,23 @@ if [ "$loud" -le "$quiet" ]; then
 else
     report "--gsm-features" "$loud bursts against $quiet without them"
 fi
+fi
 
 if [ -n "${CHECK_TALLY:-}" ]; then
     printf '%d %d\n' "$checks" "$failures" >> "$CHECK_TALLY"
 fi
+# The summary says what was skipped as well as what passed. A suite that ran
+# nothing and printed "ok" is the failure mode this whole mechanism creates, so
+# the count is never hidden: green with skips is a weaker claim than green
+# without them, and the reader is told which one they are holding.
+if [ "$skips" -ne 0 ]; then
+    tail=" ($skips skipped)"
+else
+    tail=""
+fi
 if [ "$failures" -ne 0 ]; then
-    printf '  %-34s %4d checks   %d FAILED\n' "assembled program" "$checks" \
-        "$failures" >&2
+    printf '  %-34s %4d checks   %d FAILED%s\n' "assembled program" "$checks" \
+        "$failures" "$tail" >&2
     exit 1
 fi
-printf '  %-34s %4d checks   ok\n' "assembled program" "$checks"
+printf '  %-56s %4d checks   ok%s\n' "assembled program" "$checks" "$tail"

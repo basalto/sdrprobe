@@ -59,7 +59,7 @@ struct fm_layout {
     Rectangle tune_button;
     Rectangle play_button;
     Rectangle scan_button;
-    Rectangle view_toggle;         /* View: Charts / View: Signal */
+    Rectangle view_toggle;         /* Show charts / Show signal */
     Rectangle waterfall;
     Rectangle scan_list;           /* the same place, while a scan has results */
     Rectangle signal_panel;        /* pilot, subcarrier, lock */

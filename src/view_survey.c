@@ -7,6 +7,7 @@
 #include <time.h>
 
 #include "view.h"
+#include "debug_log.h"
 #include "survey_layout.h"
 #include "row_list.h"
 #include "freq_window.h"
@@ -37,11 +38,6 @@
  * candidate list, and the receiver, which the session asks for and never
  * touches.
  */
-
-int survey_editing(const struct app *app) {
-    return app->tab == TAB_SURVEY &&
-           app->survey.focus >= 0;
-}
 
 static int survey_start(struct app *app);
 static void survey_keep_current(struct survey_view *s);
@@ -94,6 +90,7 @@ static struct survey_block survey_block_of(struct app *app) {
     b.reference_clock_hz = app->device.reference_clock_hz;
     b.clock = survey_reading_clock(app);
     b.remove_dc = app->remove_dc;
+    b.full_scale = app->device.full_scale;
     return b;
 }
 
@@ -165,9 +162,14 @@ static void survey_obey(struct app *app,
     struct survey_view *s = &app->survey;
     struct survey_session *ss = &s->session;
 
-    if (event->target_finished > 0 && s->confirm_printed)
-        survey_print_confirm_target(
-            &ss->confirm.target[event->target_finished - 1]);
+    if (event->target_finished > 0) {
+        struct survey_confirm_target *tgt = &ss->confirm.target[event->target_finished - 1];
+        debug_log_write("survey-confirm", "target %d/%d %.6f MHz: hits %d/%d, verdict %d",
+                        event->target_finished, ss->confirm.count,
+                        tgt->hz / 1e6, tgt->hits, tgt->looks, tgt->verdict);
+        if (s->confirm_printed)
+            survey_print_confirm_target(tgt);
+    }
     if (event->history_dirty && ss->history_loaded)
         installation_history_save(&app->installation, &ss->history);
     if (event->watch_swept && app->options.survey_watch > 0) {
@@ -1054,8 +1056,10 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
     int was_sweeping = survey_session_sweeping(ss);
 
     survey_session_tick(ss, &block, spectrum_updated, now, &event);
-    if (was_sweeping && event.sweep_finished)
+    if (was_sweeping && event.sweep_finished) {
+        debug_log_write("survey", "sweep done, %d peaks", ss->peak_count);
         survey_confirm_if_asked(app);
+    }
     survey_obey(app, &event);
     /*
      * And a script may ask for a candidate to be selected and measured.

@@ -13,6 +13,7 @@
 #include "scan_layout.h"
 #include "settings_layout.h"
 #include "survey_layout.h"
+#include "srd_layout.h"
 
 #include "check.h"
 
@@ -440,7 +441,7 @@ static void check_chrome(void) {
    square scatter. The 1000x540 case is the app's minimum window: the GSM
    layout's comment records that a panel that small pushes its own button out
    of itself, so hold_button is pinned there too. */
-#define ADSB_RECTS 10
+#define ADSB_RECTS 11
 
 struct adsb_case {
     float width, height;
@@ -458,7 +459,8 @@ static const struct adsb_case adsb_cases[] = {
         { "chart[0]", 82.00f, 156.00f, 320.00f, 224.28f },
         { "chart[1]", 416.00f, 156.00f, 320.00f, 224.28f },
         { "chart[2]", 750.00f, 156.00f, 320.00f, 224.28f },
-        { "log_full", 82.00f, 138.00f, 988.00f, 552.00f },
+        { "waterfall", 82.00f, 138.00f, 988.00f, 287.04f },
+        { "log_full", 82.00f, 439.04f, 988.00f, 250.96f },
         { "log_split", 82.00f, 396.28f, 670.28f, 293.72f },
         { "scatter", 776.28f, 396.28f, 293.72f, 293.72f },
     }, 22.00f, 798.00f },
@@ -470,7 +472,8 @@ static const struct adsb_case adsb_cases[] = {
         { "chart[0]", 82.00f, 156.00f, 380.00f, 257.88f },
         { "chart[1]", 476.00f, 156.00f, 380.00f, 257.88f },
         { "chart[2]", 870.00f, 156.00f, 380.00f, 257.88f },
-        { "log_full", 82.00f, 138.00f, 1168.00f, 632.00f },
+        { "waterfall", 82.00f, 138.00f, 1168.00f, 328.64f },
+        { "log_full", 82.00f, 480.64f, 1168.00f, 289.36f },
         { "log_split", 82.00f, 429.88f, 803.88f, 340.12f },
         { "scatter", 909.88f, 429.88f, 340.12f, 340.12f },
     }, 22.00f, 978.00f },
@@ -482,7 +485,8 @@ static const struct adsb_case adsb_cases[] = {
         { "chart[0]", 82.00f, 156.00f, 286.67f, 148.68f },
         { "chart[1]", 382.67f, 156.00f, 286.67f, 148.68f },
         { "chart[2]", 683.33f, 156.00f, 286.67f, 148.68f },
-        { "log_full", 82.00f, 138.00f, 888.00f, 372.00f },
+        { "waterfall", 82.00f, 138.00f, 888.00f, 193.44f },
+        { "log_full", 82.00f, 345.44f, 888.00f, 164.56f },
         { "log_split", 82.00f, 320.68f, 674.68f, 189.32f },
         { "scatter", 780.68f, 320.68f, 189.32f, 189.32f },
     }, 22.00f, 698.00f },
@@ -494,7 +498,7 @@ static void check_adsb(void) {
         struct adsb_layout l = adsb_layout_for(w->width, w->height);
         Rectangle got[ADSB_RECTS] = {
             l.record_button, l.retune_button, l.view_toggle, l.hold_button,
-            l.chart[0], l.chart[1], l.chart[2], l.log_full, l.log_split,
+            l.chart[0], l.chart[1], l.chart[2], l.waterfall, l.log_full, l.log_split,
             l.scatter
         };
         for (int i = 0; i < ADSB_RECTS; i++)
@@ -1643,6 +1647,8 @@ static void test_tetra_layout(void) {
         snprintf(name, sizeof(name), "%s: nothing under the toggle",
                  windows[w].name);
         check_true(name, !overlaps(l.view_toggle, l.log_full) &&
+                             !overlaps(l.view_toggle, l.waterfall) &&
+                             !overlaps(l.waterfall, l.log_full) &&
                              !overlaps(l.view_toggle, l.constellation) &&
                              !overlaps(l.view_toggle, l.profile));
 
@@ -1658,7 +1664,8 @@ static void test_tetra_layout(void) {
         /* Every panel has room to draw something. */
         snprintf(name, sizeof(name), "%s: every panel has positive size",
                  windows[w].name);
-        check_true(name, l.log_full.width > 0.0f && l.log_full.height > 0.0f &&
+        check_true(name, l.waterfall.width > 0.0f && l.waterfall.height > 0.0f &&
+                             l.log_full.width > 0.0f && l.log_full.height > 0.0f &&
                              l.identity.width > 0.0f &&
                              l.identity.height > 0.0f &&
                              l.profile.width > 0.0f &&
@@ -1748,6 +1755,187 @@ static void check_startup(void) {
     }
 }
 
+static void test_srd_layout(void) {
+    static const struct { float width, height; const char *name; } windows[] = {
+        { 936.0f, 1018.0f, "the default window" },
+        { 1920.0f, 1080.0f, "a wide one" },
+        { 800.0f, 600.0f, "a small one" },
+        { 640.0f, 480.0f, "smaller than anything sensible" }
+    };
+    size_t w;
+
+    for (w = 0; w < sizeof(windows) / sizeof(*windows); w++) {
+        struct srd_layout l = srd_layout_for(windows[w].width,
+                                             windows[w].height);
+        char name[96];
+
+        snprintf(name, sizeof(name), "srd %s: toggle on screen", windows[w].name);
+        check_true(name, l.view_toggle.x + l.view_toggle.width <= windows[w].width);
+
+        snprintf(name, sizeof(name), "srd %s: header stops before toggle", windows[w].name);
+        check_true(name, l.header_right <= l.view_toggle.x);
+
+        snprintf(name, sizeof(name), "srd %s: envelope clear of chips", windows[w].name);
+        check_true(name, !overlaps(l.envelope, l.chips));
+
+        snprintf(name, sizeof(name), "srd %s: identity clear of log", windows[w].name);
+        check_true(name, !overlaps(l.identity, l.log_split));
+
+        snprintf(name, sizeof(name), "srd %s: upper row clear of lower row", windows[w].name);
+        check_true(name, !overlaps(l.envelope, l.identity) &&
+                         !overlaps(l.chips, l.log_split));
+
+        /* The waterfall, record button and duration field: each on screen,
+           clear of the others, and clear of the widened toggle -- the three
+           controls added beside the log/analysis toggle. */
+        snprintf(name, sizeof(name), "srd %s: record field on screen",
+                 windows[w].name);
+        check_true(name, l.record_seconds.x >= 0.0f &&
+                         l.record_seconds.x + l.record_seconds.width <=
+                             windows[w].width);
+
+        snprintf(name, sizeof(name), "srd %s: record button on screen",
+                 windows[w].name);
+        check_true(name, l.record_button.x + l.record_button.width <=
+                             windows[w].width);
+
+        snprintf(name, sizeof(name),
+                 "srd %s: record field, button and toggle in order, clear of each other",
+                 windows[w].name);
+        check_true(name,
+                  l.record_seconds.x + l.record_seconds.width <=
+                      l.record_button.x + 0.01f &&
+                  l.record_button.x + l.record_button.width <=
+                      l.view_toggle.x + 0.01f);
+
+        snprintf(name, sizeof(name), "srd %s: header stops before record field",
+                 windows[w].name);
+        check_true(name, l.header_right <= l.record_seconds.x);
+
+        snprintf(name, sizeof(name), "srd %s: waterfall on screen",
+                 windows[w].name);
+        check_true(name, l.waterfall.x >= 0.0f && l.waterfall.y >= 0.0f &&
+                         l.waterfall.x + l.waterfall.width <=
+                             windows[w].width + 0.01f &&
+                         l.waterfall.y + l.waterfall.height <=
+                             windows[w].height + 0.01f);
+
+        snprintf(name, sizeof(name), "srd %s: waterfall clear of log_full",
+                 windows[w].name);
+        check_true(name, !overlaps(l.waterfall, l.log_full));
+
+        snprintf(name, sizeof(name), "srd %s: waterfall above log_full",
+                 windows[w].name);
+        check_true(name, l.waterfall.y + l.waterfall.height <= l.log_full.y);
+
+        /* The retune affordance: on screen, clear of the header text, and
+           shown on the same row the transmission count/error would occupy,
+           the way ADS-B's own retune button sits beside its header line. */
+        snprintf(name, sizeof(name), "srd %s: retune button on screen",
+                 windows[w].name);
+        check_true(name, l.retune_button.x >= 0.0f &&
+                         l.retune_button.x + l.retune_button.width <=
+                             windows[w].width);
+
+        /*
+         * Against Auto-save, which is the leftmost control on that row --
+         * not against `record_seconds`, which is what this compared with
+         * until 2026-09-15. Auto-save was added to record_seconds' left
+         * afterwards and the assertion did not follow, so a 220 px retune
+         * button at x=22 ran to 242 while Auto-save sat at 220: **an overlap
+         * at 640x480 with a green check-layout**, which is the exact fault
+         * check-layout exists to catch.
+         */
+        snprintf(name, sizeof(name),
+                 "srd %s: retune button clear of the record row",
+                 windows[w].name);
+        check_true(name, l.retune_button.width <= 0.0f ||
+                         l.retune_button.x + l.retune_button.width <=
+                             l.auto_save_button.x + 0.01f);
+
+        /*
+         * The tuning group: an arrow, a field and an arrow, in that order,
+         * clear of each other and of everything to their right.
+         */
+        snprintf(name, sizeof(name), "srd %s: tuning group is in order",
+                 windows[w].name);
+        check_true(name,
+                   l.freq_down.x + l.freq_down.width <= l.freq_field.x + 0.01f &&
+                   l.freq_field.x + l.freq_field.width <= l.freq_up.x + 0.01f);
+
+        snprintf(name, sizeof(name), "srd %s: tuning group is on screen",
+                 windows[w].name);
+        check_true(name, l.freq_down.x >= 0.0f &&
+                         l.freq_up.x + l.freq_up.width <= windows[w].width);
+
+        /*
+         * After the group *and* after the "MHz" that follows it. The unit
+         * label is part of the group's footprint even though it is text
+         * rather than a rectangle: drawn at a bare offset and left out of the
+         * layout, it ran straight into the transmission count -- a collision
+         * check-layout could not see, because nothing in the layout knew the
+         * label was there.
+         */
+        snprintf(name, sizeof(name),
+                 "srd %s: the second header line starts after the tuning group",
+                 windows[w].name);
+        check_true(name,
+                   l.header_right - l.header_second_left <= 0.01f ||
+                   l.header_second_left >=
+                       l.freq_up.x + l.freq_up.width + SRD_FREQ_UNIT_W);
+
+        snprintf(name, sizeof(name),
+                 "srd %s: tuning group clear of the record row",
+                 windows[w].name);
+        check_true(name, l.freq_up.x + l.freq_up.width <=
+                             l.auto_save_button.x + 0.01f);
+
+        snprintf(name, sizeof(name),
+                 "srd %s: the retune button starts after the tuning group",
+                 windows[w].name);
+        check_true(name, l.retune_button.width <= 0.0f ||
+                         l.retune_button.x >= l.freq_up.x + l.freq_up.width);
+
+        /*
+         * A button too narrow to read its own caption is not drawn. The rule
+         * is panel_rows.h's -- absent beats clipped -- and the frequency
+         * field beside it reaches 434 MHz in two keystrokes, so nothing
+         * becomes unreachable.
+         */
+        snprintf(name, sizeof(name),
+                 "srd %s: the retune button is readable or absent",
+                 windows[w].name);
+        check_true(name, l.retune_button.width <= 0.0f ||
+                         l.retune_button.width >= SRD_RETUNE_MIN_W);
+
+        /*
+         * It never runs past its own right edge -- at a narrow enough window
+         * it has no width at all and is not drawn, which is deliberate.
+         */
+        snprintf(name, sizeof(name),
+                 "srd %s: the second header line never overruns",
+                 windows[w].name);
+        check_true(name, l.header_second_left <= l.header_right + 0.01f);
+
+        /* And at any window somebody would actually use, it has room. */
+        if (windows[w].width >= 800.0f) {
+            snprintf(name, sizeof(name),
+                     "srd %s: the second header line has room to say something",
+                     windows[w].name);
+            check_true(name, l.header_right - l.header_second_left >= 120.0f);
+        }
+
+        /* The identity panel's field rows, the same walk the FM and TETRA
+           panels needed once their rows stopped being `y +=` between draw
+           calls -- and the reason to have this at all: it is what caught
+           both of those drawing past their own bottom edge with check-layout
+           reporting nothing wrong. */
+        check_panel_rows("srd identity", l.identity, SRD_PANEL_CAPTION_DROP,
+                         SRD_PANEL_ROW_HEIGHT, 0.0f, 0.0f, 0.0f,
+                         windows[w].width, windows[w].height);
+    }
+}
+
 int main(void) {
     check_chrome();
     check_startup();
@@ -1775,6 +1963,7 @@ int main(void) {
     check_scope_fields();
 
     test_tetra_layout();
+    test_srd_layout();
 
     return check_report("view layout");
 }

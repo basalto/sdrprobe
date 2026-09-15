@@ -19,10 +19,11 @@
 struct adsb_layout {
     Rectangle record_button;   /* Record 2s, beside the view toggle */
     Rectangle retune_button;   /* shown only when tuned away from 1090 MHz */
-    Rectangle view_toggle;     /* View: Log / View: Analysis */
+    Rectangle view_toggle;     /* Show log / Show charts */
     Rectangle hold_button;     /* Hold last good, inside the scatter panel */
     Rectangle chart[3];        /* landscape, bit confidence, envelope */
-    Rectangle log_full;        /* log mode: the whole panel */
+    Rectangle waterfall;       /* log mode: on top of the decoded messages table */
+    Rectangle log_full;        /* log mode: lower panel under waterfall */
     Rectangle log_split;       /* analysis mode: lower left */
     Rectangle scatter;         /* analysis mode: square, lower right */
     float header_left;         /* x where the header text starts, clear of
@@ -57,8 +58,17 @@ static inline struct adsb_layout adsb_layout_for(float width, float height) {
     l.header_left = 22.0f;
     l.header_right = l.record_button.x - 12.0f;
 
-    l.log_full = (Rectangle){ left, log_top, usable,
-                              height - log_top - bottom_margin };
+    float log_span = height - log_top - bottom_margin;
+    if (log_span < 160.0f)
+        log_span = 160.0f;
+    float waterfall_h = log_span * 0.52f;
+    float log_panel_y = log_top + waterfall_h + gap;
+    float log_panel_h = log_span - waterfall_h - gap;
+    if (log_panel_h < 90.0f)
+        log_panel_h = 90.0f;
+
+    l.waterfall = (Rectangle){ left, log_top, usable, waterfall_h };
+    l.log_full = (Rectangle){ left, log_panel_y, usable, log_panel_h };
 
     /* One vertical span for the analysis mode, split 0.42 / 0.58 between the
        chart row and the row under it, as the GSM view splits its own. */

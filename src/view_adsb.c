@@ -10,7 +10,9 @@
 
 #include "view.h"
 #include "adsb_layout.h"
+#include "debug_log.h"
 #include "sdrgui.h"
+#include "sdrgui_geometry.h"
 
 /*
  * The Decode tab's Mode S / ADS-B screen: the message log, and an analysis
@@ -27,6 +29,27 @@
 int adsb_tuned(const struct app *app) {
     return adsb_receiver_ready(app->applied.frequency_hz,
                                app->applied.sample_rate_hz, DEFAULT_FREQUENCY);
+}
+
+void view_adsb_defaults(struct app *app) {
+    if (!app)
+        return;
+    memset(&app->adsb, 0, sizeof(app->adsb));
+    app->adsb.selected_log = -1;
+}
+
+void enter_adsb(struct app *app) {
+    if (!app->receiver_mode)
+        return;
+    if (adsb_tuned(app)) {
+        receiver_borrow(app, &app->adsb.lease_token);
+        return;
+    }
+    receiver_borrow_at(app, &app->adsb.lease_token, DEFAULT_FREQUENCY, 0);
+}
+
+void leave_adsb(struct app *app) {
+    receiver_return(app, &app->adsb.lease_token);
 }
 
 static struct adsb_layout adsb_layout_now(void) {
@@ -111,6 +134,7 @@ void update_adsb(struct app *app, double now) {
 
         adsb_format(&app->adsb.session.messages[i], &entry, now);
         adsb_log_push(app->adsb.log, &app->adsb.log_count, &entry);
+        debug_log_write("adsb", "icao %s %s %s", entry.icao, entry.label, entry.detail);
     }
 }
 
@@ -139,6 +163,17 @@ void handle_adsb_input(struct app *app) {
     if (!adsb_tuned(app) && app->receiver_mode &&
         clicked(l.retune_button)) {
         retune_receiver(app, DEFAULT_FREQUENCY, app->applied.ppm);
+        return;
+    }
+    /* A row in the message log. Selection only -- Mode S is on 1090 MHz and
+       every row says so, so there is nothing here to retune to. */
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        int row = sdrgui_message_log_row_at(
+            adsb_analysis_showing(app) ? l.log_split : l.log_full,
+            app->adsb.log_count, GetMousePosition());
+
+        if (row >= 0)
+            app->adsb.selected_log = row;
     }
 }
 
@@ -302,7 +337,7 @@ void draw_adsb(struct app *app) {
     sdrgui_text_fit(text, header_x, 110, 16, l.header_right - l.header_left,
                     funnel_color);
 
-    draw_button(l.view_toggle, analysis ? "View: Log" : "View: Analysis", 0);
+    draw_button(l.view_toggle, analysis ? "Show log" : "Show charts", 0);
 
     if (!adsb_tuned(app)) {
         if (app->receiver_mode) {
@@ -328,25 +363,73 @@ void draw_adsb(struct app *app) {
     struct sdrgui_message_log_row rows[ADSB_LOG_CAPACITY];
     for (int i = 0; i < app->adsb.log_count; i++) {
         rows[i].time = app->adsb.log[i].stamp;
-        rows[i].icao = app->adsb.log[i].icao;
+        rows[i].id = app->adsb.log[i].icao;
         rows[i].label = app->adsb.log[i].label;
         rows[i].detail = app->adsb.log[i].detail;
         rows[i].raw = app->adsb.log[i].raw;
         rows[i].highlight = app->adsb.log[i].highlight;
+        /* Mode S names an aircraft, not a device class: the TYPE column here
+           is already the message type, and there is no second thing to say. */
+        rows[i].type = NULL;
     }
+    /*
+     * Named rather than positional. This was a positional initialiser, and
+     * adding one field to the params struct silently shifted `selected_row`
+     * into `type_heading` -- caught only because the types disagreed, which
+     * is luck rather than a safeguard.
+     */
     struct sdrgui_message_log_params params = {
-        analysis ? l.log_split : l.log_full, rows, app->adsb.log_count,
-        log_caption,
-        app->frame.have_samples ? "Listening for Mode S frames..."
-                          : "Waiting for samples..."
+        .plot = analysis ? l.log_split : l.log_full,
+        .rows = rows,
+        .count = app->adsb.log_count,
+        .caption = log_caption,
+        .empty_notice = app->frame.have_samples
+                            ? "Listening for Mode S frames..."
+                            : "Waiting for samples...",
+        .id_heading = "ICAO",
+        .label_heading = "TYPE",
+        .selected_row = app->adsb.selected_log
     };
+
+    if (!analysis) {
+        struct sdrgui_waterfall_marker markers[ADSB_LOG_CAPACITY];
+        int marker_count = 0;
+        double now_sec = GetTime();
+
+        for (int k = 0; k < app->adsb.log_count && k < ADSB_LOG_CAPACITY; k++) {
+            markers[k].frequency_hz = 1090000000.0;
+            markers[k].bandwidth_hz = 2000000.0;
+            markers[k].age_seconds = now_sec - app->adsb.log[k].time;
+            markers[k].duration_seconds = 0.000120;
+            markers[k].id = k;
+            markers[k].highlighted = (k == app->adsb.selected_log);
+            markers[k].color = (Color){ 80, 220, 240, 220 };
+            markers[k].label = app->adsb.log[k].icao;
+            marker_count++;
+        }
+
+        int clicked_marker = -1;
+        draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->adsb.window,
+                                         markers, marker_count, &clicked_marker, NULL);
+        if (clicked_marker >= 0)
+            app->adsb.selected_log = clicked_marker;
+
+        /* Drawn, and nothing more: selecting a row is handle_adsb_input()'s,
+           over the same geometry this log is laid out with. */
+        sdrgui_message_log(&params);
+        return;
+    }
+
     sdrgui_message_log(&params);
 
-    if (analysis) {
-        const struct adsb_frame_trace *trace = adsb_shown_trace(app);
-        draw_trace_caption(app, l.chart[0], trace, recording, record_path,
-                           record_bytes);
-        draw_trace_charts(&l, trace);
-        draw_decision_scatter(app, &l, trace);
-    }
+    const struct adsb_frame_trace *trace = adsb_shown_trace(app);
+    draw_trace_caption(app, l.chart[0], trace, recording, record_path,
+                       record_bytes);
+    draw_trace_charts(&l, trace);
+    draw_decision_scatter(app, &l, trace);
+}
+
+Rectangle adsb_waterfall_rect(const struct app *app) {
+    (void)app;
+    return adsb_layout_now().waterfall;
 }

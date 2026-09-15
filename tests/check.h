@@ -73,6 +73,25 @@ static inline void check_str(const char *name, const char *actual,
               "%s: got \"%s\", expected \"%s\"\n", name, actual, expected);
 }
 
+static int check_skips;
+
+/*
+ * A fixture that is absent by design, announced rather than passed over.
+ *
+ * `tests/pipelines.sh` learned this first and the reason is the same here: a
+ * suite that quietly does less when a file is missing still prints `ok`, and
+ * the count is the only thing that moves. Measured on this repository --
+ * `srd_dsp_test` includes mandatory real-capture checks against
+ * `testfiles/srd_remote_control_ook_a.bin`
+ * and **62 without**, and the seven that vanish are the only ones in the suite
+ * measured against a real signal rather than against a fixture built from the
+ * same assumptions as the code. Nothing in the output said so.
+ */
+static inline void check_skip(const char *why) {
+    check_skips++;
+    printf("    SKIP  %s\n", why);
+}
+
 /*
  * One line saying what the suite covers and how much it proved, and the
  * process's exit code. `make check` sums the counts through CHECK_TALLY; when
@@ -90,11 +109,15 @@ static inline int check_report(const char *suite) {
     }
     if (check_failures) {
         fflush(stdout);
-        fprintf(stderr, "  %-34s %4d checks   %d FAILED\n", suite, check_count,
+        fprintf(stderr, "  %-56s %4d checks   %d FAILED\n", suite, check_count,
                 check_failures);
         return 1;
     }
-    printf("  %-34s %4d checks   ok\n", suite, check_count);
+    if (check_skips)
+        printf("  %-56s %4d checks   ok, %d skipped\n", suite, check_count,
+               check_skips);
+    else
+        printf("  %-56s %4d checks   ok\n", suite, check_count);
     return 0;
 }
 

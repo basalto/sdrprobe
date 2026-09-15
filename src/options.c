@@ -21,13 +21,13 @@ void usage(const char *program) {
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
             "          [--view magnitude|spectrum|scatter|waterfall|survey|gsm|\n"
-            "          adsb|lte|fm|tetra|\n"
+            "          adsb|lte|fm|tetra|srd|\n"
             "                  calibration|settings|help]\n"
-            "          [--record-seconds n] [--technology gsm|adsb|lte|fm|tetra|raw]\n"
+            "          [--record-seconds n] [--technology gsm|adsb|lte|fm|tetra|srd|raw]\n"
             "          [--debug-log FILE|-] [--analysis] [--fm-scan] [--fm-play]\n"
             "          [--survey-select n] [--survey-bands] [--survey-band n]\n"
             "          [--zoom from:to] [--fft points]\n"
-            "          [--antenna name] [--site name] [--no-startup]\n"
+            "          [--antenna name] [--site name] [--startup]\n"
             "          [--arfcn 1-124] [--earfcn n] [--lte-scan band]\n"
             "          [--gsm-features list]\n"
             "          [--dc-filter on|off]\n"
@@ -65,7 +65,8 @@ void usage(const char *program) {
             "  --claim-calibration  store it: --ppm with this writes the\n"
             "                    correction down for this receiver at this\n"
             "                    site, and alone it claims a legacy one\n"
-            "  --no-startup      do not ask where this is at startup\n"
+            "  --startup         ask where this is at startup, and calibrate\n"
+            "  --no-startup      accepted and now the default; never asks\n"
             "  --technology      what that recording is labelled; defaults to\n"
             "                    --view, or raw when there is no view\n"
             "  --duration        quit after n seconds\n"
@@ -92,12 +93,14 @@ void usage(const char *program) {
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
             program);
-    printf("\nThe environment answers the same four questions the startup\n"
-           "form asks, for a launcher or a unit file that cannot reach the\n"
-           "command line. A flag beats a variable beats the config file.\n"
+    printf("\nThe environment answers the same questions the startup form\n"
+           "asks, and whether to ask them at all, for a launcher or a unit\n"
+           "file that cannot reach the command line. A flag beats a variable\n"
+           "beats the config file, and a refusal beats a request.\n"
            "  SDRPROBE_SITE             as --site\n"
            "  SDRPROBE_ANTENNA          as --antenna\n"
            "  SDRPROBE_RECEIVER_LABEL   as --receiver-label\n"
+           "  SDRPROBE_STARTUP          as --startup\n"
            "  SDRPROBE_NO_STARTUP       as --no-startup\n"
            "An empty value is no value: it is ignored, rather than taken as\n"
            "an answer.\n");
@@ -239,6 +242,7 @@ int parse_view(const char *text, enum start_view *view) {
         { "lte", START_VIEW_LTE },
         { "fm", START_VIEW_FM },
         { "tetra", START_VIEW_TETRA },
+        { "srd", START_VIEW_SRD },
         { "calibration", START_VIEW_CALIBRATION },
         { "settings", START_VIEW_SETTINGS },
         { "help", START_VIEW_HELP },
@@ -494,6 +498,7 @@ int parse_options(int argc, char **argv, struct options *options) {
                 strcmp(options->technology, "lte") != 0 &&
                 strcmp(options->technology, "tetra") != 0 &&
                 strcmp(options->technology, "fm") != 0 &&
+                strcmp(options->technology, "srd") != 0 &&
                 strcmp(options->technology, "raw") != 0)
                 return -1;
         } else if (strcmp(option, "--survey-save") == 0) {
@@ -572,6 +577,10 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->no_startup)
                 return -1;
             options->no_startup = 1;
+        } else if (strcmp(option, "--startup") == 0) {
+            if (options->startup)
+                return -1;
+            options->startup = 1;
         } else if (strcmp(option, "--claim-calibration") == 0) {
             /* ADR-0018: claim a site-only correction for this receiver. The
                operator's explicit act, which is what the ADR requires instead
@@ -802,14 +811,47 @@ int options_apply_environment(struct options *options,
         options->no_startup = 1;
         applied++;
     }
+    /* And the request, for the launcher that wants the form and cannot reach
+       the command line -- the same shape, and the same rule about "0" not
+       being a negation. */
+    value = lookup("SDRPROBE_STARTUP");
+    if (value && *value && !options->startup) {
+        options->startup = 1;
+        applied++;
+    }
     return applied;
 }
 
+/*
+ * Who sees the startup form.
+ *
+ * **Asked for, not assumed** (ADR-0024, amended 2026-09-15). It used to open
+ * on any plain windowed receiver launch, and the rule was a list of seven
+ * refusals whose job was to keep it away from every scripted run -- so the
+ * default cost a cold launch 12.8 s of GSM scanning before a view appeared,
+ * or minutes of LTE band scan where GSM 900 is not on air, and getting any
+ * one of those refusals wrong broke `check-pipelines`, every screenshot
+ * recipe and every `--duration` check at once.
+ *
+ * Opt-in inverts that: a scripted run is safe because nothing asked for the
+ * form, rather than because seven conditions each remembered to refuse it.
+ *
+ * Three refusals survive, and they are not the inference ones.
+ */
 int startup_form_wanted(const struct options *options) {
     if (!options)
         return 0;
-    /* Explicitly refused, by flag or by environment. */
+    /*
+     * An explicit refusal beats an explicit request. `--no-startup` no longer
+     * changes what happens by default, and a launcher still carrying it means
+     * what it always meant; giving `--startup` the last word would make the
+     * pair resolve by argument order, which is not something anybody should
+     * have to know.
+     */
     if (options->no_startup)
+        return 0;
+    /* Nobody asked. */
+    if (!options->startup)
         return 0;
     /* No window to draw it in, and no person to answer it. */
     if (options->headless)
@@ -821,26 +863,18 @@ int startup_form_wanted(const struct options *options) {
      */
     if (options->file_path)
         return 0;
-    /* A timed run is a scripted run, and so is one that names its screen.
-       Both are how every screenshot recipe and every --duration check work,
-       and a form in front of them would break all of them at once. */
-    if (options->duration_seconds > 0.0)
-        return 0;
-    if (options->view_seen)
-        return 0;
     /*
      * The correction for this run has been stated. Measuring one anyway and
      * offering to overwrite it is the --ppm / --claim-calibration confusion
      * that `.scratch/device-model/issues/12-*` was written about, where
      * `--ppm 0` wrote over a measured +32 twice in one afternoon.
+     *
+     * This one is a provenance guard rather than an inference, which is why
+     * it outranks the request where `--duration`, `--view` and `--site` no
+     * longer do: those three refused because nothing had asked, and now
+     * something has.
      */
     if (options->ppm_seen)
-        return 0;
-    /*
-     * And the installation is already stated. The form's whole purpose is to
-     * find out where this is; a run that says so has answered it.
-     */
-    if (options->site)
         return 0;
     return 1;
 }

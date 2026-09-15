@@ -87,6 +87,12 @@ _Avoid_: Reception quality, decode quality
 Signal energy observed above the noise floor that has not been demodulated or decoded by these probes.
 _Avoid_: Message, transmission detection
 
+**SRD transmission**:
+A bounded interval of signal activity observed in the short-range-device
+allocation, located in time and frequency but not necessarily decoded into
+bits or a frame.
+_Avoid_: SRD frame, message, decoded burst
+
 **ADS-B activity**:
 Signal activity observed using ADS-B-oriented tuning that may contain aircraft transmissions.
 _Avoid_: ADS-B message, aircraft detection

@@ -269,3 +269,26 @@ same machine, and it is not optional.
   a number nowhere. The alternative is a permanent header line, which is
   clutter on every screen for the rest of the session. Neither has been
   measured against an operator who is not the author.
+
+## Amended 2026-09-15: the form is opt-in
+
+Everything this spec built stands; **when it opens does not**. The form no
+longer appears on a plain windowed receiver launch -- `--startup` or
+`SDRPROBE_STARTUP` asks for it, and a launch that does not ask reaches a view
+immediately with whatever correction is already on file for that receiver and
+site.
+
+The bypass this spec's ticket 04b designed is therefore inverted. Its rule was
+seven refusals keeping the form away from scripted runs, and the guarantee
+"a scripted run never sees it" held only while all seven stayed right. Three
+refusals remain and none of them is an inference: `--no-startup` (a refusal
+beats a request, in either order), `--headless` and `--file` (the form cannot
+work -- no window, or no crystal to measure), and `--ppm` (the provenance guard
+from `.scratch/device-model/issues/12-*`). `--duration`, `--view` and `--site`
+no longer refuse.
+
+The reasoning is in ADR-0024's own amendment. The short version is that the
+Consequences section already named the cost -- 12.8 s of GSM scanning on a cold
+launch, minutes where GSM 900 is not on air -- and every interactive launch was
+paying it, including the ones whose receiver had not moved since the last
+calibration.

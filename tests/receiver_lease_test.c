@@ -296,6 +296,5 @@ int main(void) {
     test_a_failed_restore_is_retryable();
     test_commit_keeps_the_tuning();
     test_ppm_is_not_leased();
-    return check_report("the receiver lease: who borrowed the tuning, "
-                        "and in what order they give it back");
+    return check_report("the receiver lease: borrow, restore and return");
 }

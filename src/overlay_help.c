@@ -480,7 +480,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
 {
     "ADS-B analysis",
     "ADS-B frame analysis charts",
-    "Where: the Decode tab's ADS-B view with View: Analysis. Three charts of one "
+    "Where: the Decode tab's ADS-B view with Show charts pressed. Three charts of one "
     "Mode S frame, a bit-decision scatter, and the log kept beside them.\n"
     "\n"
     "Which frame: the most recent attempt -- a preamble that was accepted and "
@@ -530,6 +530,107 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "Every frame in the log passed its CRC, so the log alone cannot show you a "
     "marginal signal. These charts can: a frame whose bits sit near the centre "
     "of the scatter decoded this time and will not next time."
+},
+{
+    "TETRA",
+    "TETRA network identity, and how it was read",
+    "Where: the Decode tab's TETRA view. One 25 kHz carrier at 18000 symbols "
+    "a second, differentially modulated pi/4-DQPSK -- the four legal phase "
+    "steps are 90 degrees apart, so a residual frequency offset rotates the "
+    "whole constellation without blurring it, and turns every dibit cleanly "
+    "into a different one.\n"
+    "\n"
+    "Lock is how confidently the burst grid was found from the symbols "
+    "alone, before anything about the standard is assumed: some symbol "
+    "positions repeat every 255-symbol timeslot and the rest do not, and lock "
+    "is how sharply that pattern stands out. On air it reads about 0.80; "
+    "empty spectrum and an FM station both read under 0.04.\n"
+    "\n"
+    "The log's NETWORK column carries the mobile country and network code "
+    "read from the broadcast block once a synchronisation burst has been "
+    "read first -- the broadcast block is scrambled with the network's own "
+    "colour code, which only the synchronisation block gives up. TYPE says "
+    "which kind of burst produced the row. This is why the column is called "
+    "NETWORK and not ICAO: nothing here is Mode S, and the field is not an "
+    "aircraft address.\n"
+    "\n"
+    "Show charts adds the phase-step histogram and the burst-repeat "
+    "correlation the lock figure above is computed from, for the same reason "
+    "the ADS-B and SRD analysis views exist: a burst that fails its parity is "
+    "worth seeing, not just counting. The funnel line above them is the "
+    "diagnosis -- bursts found but no parity is a coding fault, no bursts at "
+    "all is tuning or band."
+},
+{
+    "SRD log & waterfall",
+    "Short Range Devices: the log and the waterfall",
+    "Where: the Decode tab's SRD view. 430-440 MHz on-off keying, "
+    "Manchester-coded at 1000 bit/s (a 500 microsecond chip), the band remote "
+    "keys, weather stations and simple sensors share.\n"
+    "\n"
+    "The waterfall on top is the same chart the Scope tab draws, scaled to "
+    "this band: it is what a transmission looks like before anything has "
+    "tried to demodulate it, and a mark on it with nothing in the log below "
+    "is the fastest way to tell a decoder failing from a quiet band. Zoom, "
+    "pan and drag it the way every other decode waterfall works.\n"
+    "\n"
+    "The log's KIND column names the frame shape found after the delimiter: "
+    "FULL is an 80-bit frame -- a header, a 64-bit rolling payload and a "
+    "trailer -- and REPEAT is a 24-bit keepalive some fobs send between "
+    "presses. A third KIND, 2FSK, means a transmission classified as "
+    "constant-envelope 2-FSK rather than on-off keying (a different remote "
+    "key's shape, not this band's own -- some fobs frequency-hop between two "
+    "channels instead); it is reported as seen and nothing more; no frame "
+    "extractor exists for it yet, and .scratch/srd-434-decode/issues/07-*.md "
+    "has the reasons it isn't reliable enough to add one. MOD names the "
+    "modulation `srd_classify_modulation()` measured; the column exists "
+    "because the widget is shared with ADS-B and TETRA, and naming it for "
+    "what it holds is what stopped an SRD frame from being labelled ICAO.\n"
+    "\n"
+    "The payload remains opaque. What this view reports is the frame's "
+    "shape and raw bytes, not an interpretation of their meaning.\n"
+    "\n"
+    "The band is 430-440 MHz, wider than any one tuning can hear. Opening this "
+    "view on a live receiver retunes it there automatically -- unlike "
+    "ADS-B and TETRA, which only offer a button, a SRD remote control's button is "
+    "pressed once and the receiver must already be listening. More than a "
+    "megahertz off 434 MHz, or sampling below 1 MS/s, for any other reason "
+    "the header falls back to Retune to 434 MHz for a manual retry rather "
+    "than showing a waterfall of whatever band happened to be tuned and a "
+    "log with nothing in it; a capture reads a fixed line instead, since a "
+    "file cannot be retuned.\n"
+    "\n"
+    "Record writes seconds of raw I/Q to captures/ with a sidecar recording "
+    "the tuning, the same as every other decode view's Record button; the "
+    "field beside it accepts 0.1 to 30 seconds and refuses anything else "
+    "rather than silently clamping it -- type a number and press Record, or "
+    "leave it and it defaults to 2 seconds."
+},
+{
+    "SRD analysis",
+    "SRD envelope and chip analysis charts",
+    "Where: the Decode tab's SRD view with Show charts pressed -- the button "
+    "then reads Show log, since pressing it again goes back. Two charts of "
+    "the most recent transmission, and the parameters panel beside them.\n"
+    "\n"
+    "Demodulated Envelope (Work Rate) is the transmission's amplitude after "
+    "mixing to baseband and decimating to the work rate, which is what the "
+    "run-length and Manchester decoders actually see. On-off keying reads as "
+    "exactly that: flat high runs and flat low runs, at multiples of one "
+    "chip period.\n"
+    "\n"
+    "Discretised Chips is the same transmission turned into a 0/1 sequence "
+    "one chip at a time, with the delimiter's six runs picked out from the "
+    "data that follows. This is the chart to read when a frame fails to "
+    "extract: a chip boundary drawn in the wrong place here is a chip period "
+    "measured wrong, and every bit after it inherits that.\n"
+    "\n"
+    "The Parameters panel states what the transmission measured to: the "
+    "modulation and line code (Manchester has two conventions, Thomas and "
+    "IEEE 802.3, and the panel says which this transmission matched), the "
+    "recovered chip period and rate, the carrier offset and how far above "
+    "its floor it stood, and the framing found -- how many delimiter runs, "
+    "and whether the frame was 80 or 24 bits."
 },
 {
     "LTE cell search",
@@ -719,6 +820,10 @@ static int help_topic_for_screen(const struct app *app) {
     if (app->tab == TAB_DECODE) {
         if (app->decode == DECODE_ADSB)
             return app->adsb.analysis_mode ? HELP_ADSB_ANALYSIS : HELP_ADSB;
+        if (app->decode == DECODE_TETRA)
+            return HELP_TETRA;
+        if (app->decode == DECODE_SRD)
+            return app->srd.analysis_mode ? HELP_SRD_ANALYSIS : HELP_SRD;
         if (app->decode == DECODE_LTE)
             return HELP_LTE;
         if (app->decode == DECODE_FM)

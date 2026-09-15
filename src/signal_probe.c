@@ -822,6 +822,200 @@ int signal_find_bursts(const float *i_samples, const float *q_samples,
 }
 
 /* ------------------------------------------------------------------ *
+ * Where in the buffer to look
+ * ------------------------------------------------------------------ */
+
+/*
+ * Chunks, not samples: the question is which tenth of a second to hand the
+ * measurements, so the resolution that matters is a burst and not a symbol.
+ * 2 ms is short against the 849 ms transmissions this was built for and long
+ * enough that 30 s at 2 MS/s still fits the array below.
+ */
+#define SIGNAL_ACTIVITY_CHUNK_SECONDS 0.002
+#define SIGNAL_ACTIVITY_MAX_CHUNKS 65536
+
+/*
+ * How far over the quiet quarter a chunk has to stand before the buffer is
+ * called bursty rather than level, and the bar a chunk then has to clear to
+ * be part of the busy run.
+ *
+ * Measured from both ends rather than chosen. Over a 100 kHz band:
+ *
+ *   the two SRD remote control captures, on the transmission   32.1 and 35.9 dB
+ *   a bare carrier and three GSM bands             2.9 to 3.9 dB   (level)
+ *   three genuinely empty control frequencies      6.8, 7.0, 7.7 dB
+ *
+ * The empty controls are the ones that matter: noise in a few thousand chunks
+ * reaches 7.7 dB over its own quartile, so a 6 dB bar -- which is what this
+ * had first -- narrows an empty band to a 2 ms sliver of noise and the
+ * envelope statistics then refuse for want of samples. That is a worse
+ * control than the one it replaced. 12 dB sits 4.3 dB above the loudest
+ * measured noise and 20 dB under the quietest real transmission.
+ *
+ * The asymmetry is deliberate and the padding below is why it costs nothing:
+ * a false positive here lands on an arbitrary window of noise, which is what
+ * the prefix was anyway, while a false negative returns the whole bug.
+ */
+#define SIGNAL_ACTIVITY_BUSY_DB 12.0
+
+/*
+ * No window shorter than the coarse carrier search will read of it.
+ *
+ * A single 2 ms chunk is a legitimate answer to "where is the energy" and a
+ * useless buffer to hand `signal_find_carrier()`, whose own look is
+ * `SIGNAL_COARSE_PAIRS`. Padding around the busy run keeps a short burst
+ * findable while giving every measurement below at least the samples it
+ * expects, and it is what makes a false positive harmless.
+ */
+#define SIGNAL_ACTIVITY_MIN_PAIRS SIGNAL_COARSE_PAIRS
+
+int signal_find_activity(const float *i_samples, const float *q_samples,
+                         size_t pair_count, double sample_rate,
+                         double centre_hz, double band_hz,
+                         struct signal_activity *out) {
+    static double power[SIGNAL_ACTIVITY_MAX_CHUNKS];
+    static double sorted[SIGNAL_ACTIVITY_MAX_CHUNKS];
+    double w, step_re, step_im, pr = 1.0, pi = 0.0;
+    double block_re = 0.0, block_im = 0.0, chunk_sum = 0.0;
+    double floor_power, best, threshold;
+    size_t n, decimate, chunk_pairs, in_block = 0, in_chunk = 0;
+    size_t chunks = 0, best_chunk = 0, first, last, k;
+    size_t busy = 0, runs = 0;
+    int in_run = 0;
+
+    if (!out)
+        return 0;
+    memset(out, 0, sizeof(*out));
+    if (!i_samples || !q_samples || !pair_count || !(sample_rate > 0.0))
+        return 0;
+    if (!(band_hz > 0.0) || band_hz >= sample_rate)
+        return 0;
+
+    decimate = (size_t)(sample_rate / band_hz);
+    if (decimate < 1)
+        decimate = 1;
+    chunk_pairs = (size_t)(sample_rate * SIGNAL_ACTIVITY_CHUNK_SECONDS);
+    /* A whole number of filtered samples, and never zero of them. */
+    chunk_pairs -= chunk_pairs % decimate;
+    if (chunk_pairs < decimate)
+        chunk_pairs = decimate;
+    /* A long capture gets longer chunks rather than a truncated look: the
+       whole fault this exists to fix is a measurement that silently stopped
+       early. */
+    while (pair_count / chunk_pairs >= SIGNAL_ACTIVITY_MAX_CHUNKS)
+        chunk_pairs *= 2;
+    if (pair_count / chunk_pairs < 8)
+        return 0;   /* too few chunks to say one stands out of the others */
+
+    /* The band, mixed to zero and boxcar-decimated to its own width -- the
+       same isolation channel_samples() does, accumulated into a power per
+       chunk instead of kept, because nothing here reads the samples. */
+    w = -2.0 * M_PI * centre_hz / sample_rate;
+    step_re = cos(w);
+    step_im = sin(w);
+    for (n = 0; n < pair_count && chunks < SIGNAL_ACTIVITY_MAX_CHUNKS; n++) {
+        double next = pr * step_re - pi * step_im;
+        block_re += (double)i_samples[n] * pr - (double)q_samples[n] * pi;
+        block_im += (double)i_samples[n] * pi + (double)q_samples[n] * pr;
+        pi = pi * step_re + pr * step_im;
+        pr = next;
+        if ((n & 0xffff) == 0xffff) {
+            double m = sqrt(pr * pr + pi * pi);
+            if (m > 0.0) { pr /= m; pi /= m; }
+        }
+        if (++in_block == decimate) {
+            double re = block_re / (double)decimate;
+            double im = block_im / (double)decimate;
+            chunk_sum += re * re + im * im;
+            block_re = block_im = 0.0;
+            in_block = 0;
+        }
+        if (++in_chunk == chunk_pairs) {
+            power[chunks++] = chunk_sum;
+            chunk_sum = 0.0;
+            in_chunk = 0;
+        }
+    }
+    if (chunks < 8)
+        return 0;
+
+    /*
+     * The floor is the 25th percentile and not the minimum or the mean: a
+     * minimum is one quiet chunk and a mean is dragged up by the very
+     * transmission being looked for -- the same reason the survey's
+     * prominence reads against a median.
+     */
+    memcpy(sorted, power, chunks * sizeof *sorted);
+    qsort(sorted, chunks, sizeof *sorted, cmp_double);
+    floor_power = sorted[chunks / 4];
+    best = sorted[chunks - 1];
+    for (k = 0; k < chunks; k++)
+        if (power[k] == best) { best_chunk = k; break; }
+
+    out->over_floor_db = (floor_power > 0.0 && best > 0.0)
+                             ? 10.0 * log10(best / floor_power) : 0.0;
+
+    if (out->over_floor_db < SIGNAL_ACTIVITY_BUSY_DB) {
+        /* Level throughout. The window is the whole buffer and the caller is
+           told the choice did not matter, which is a different statement from
+           "there is nothing here" -- a bare carrier lands exactly here. */
+        out->uniform = 1;
+        out->found = 1;
+        out->offset_pairs = 0;
+        out->pair_count = pair_count;
+        out->duty = 1.0;
+        out->run_count = 1;
+        return 1;
+    }
+
+    threshold = floor_power * pow(10.0, SIGNAL_ACTIVITY_BUSY_DB / 10.0);
+    for (k = 0; k < chunks; k++) {
+        if (power[k] >= threshold) {
+            busy++;
+            if (!in_run) { runs++; in_run = 1; }
+        } else {
+            in_run = 0;
+        }
+    }
+
+    /* The run holding the loudest chunk, out to where it drops under the
+       bar on either side. Extending from the peak rather than taking the
+       longest run is what keeps the answer about the strongest transmission
+       when a capture holds several. */
+    first = best_chunk;
+    while (first > 0 && power[first - 1] >= threshold)
+        first--;
+    last = best_chunk;
+    while (last + 1 < chunks && power[last + 1] >= threshold)
+        last++;
+
+    out->offset_pairs = first * chunk_pairs;
+    out->pair_count = (last - first + 1) * chunk_pairs;
+
+    /* Pad around the run, and clamp to the buffer rather than running off
+       either end -- the padding is for the measurements' benefit and must not
+       hand them samples that are not there. */
+    if (out->pair_count < SIGNAL_ACTIVITY_MIN_PAIRS) {
+        size_t want = SIGNAL_ACTIVITY_MIN_PAIRS;
+        size_t grow = (want - out->pair_count) / 2;
+
+        if (want > pair_count)
+            want = pair_count;
+        out->offset_pairs = out->offset_pairs > grow
+                                ? out->offset_pairs - grow : 0;
+        out->pair_count = want;
+        if (out->offset_pairs + out->pair_count > pair_count)
+            out->offset_pairs = pair_count - out->pair_count;
+    }
+
+    out->found = 1;
+    out->uniform = 0;
+    out->duty = (double)busy / (double)chunks;
+    out->run_count = (int)runs;
+    return 1;
+}
+
+/* ------------------------------------------------------------------ *
  * Does the envelope carry anything, and does the frequency sit on levels?
  * ------------------------------------------------------------------ */
 
@@ -878,6 +1072,7 @@ static size_t channel_samples(const float *i_samples, const float *q_samples,
 int signal_envelope_stats(const float *i_samples, const float *q_samples,
                           size_t pair_count, double sample_rate,
                           double carrier_hz, double channel_hz,
+                          double full_scale,
                           struct signal_envelope *out) {
     static double re[SIGNAL_CHANNEL_MAX], im[SIGNAL_CHANNEL_MAX];
     static double magnitude[SIGNAL_CHANNEL_MAX];
@@ -889,7 +1084,8 @@ int signal_envelope_stats(const float *i_samples, const float *q_samples,
     if (!out)
         return 0;
     memset(out, 0, sizeof(*out));
-    if (!i_samples || !q_samples || pair_count < 1024 || !(sample_rate > 0.0))
+    if (!i_samples || !q_samples || pair_count < 1024 || !(sample_rate > 0.0) ||
+        !(full_scale > 0.0))
         return 0;
     if (!(channel_hz > 0.0) || channel_hz >= sample_rate)
         return 0;
@@ -910,7 +1106,7 @@ int signal_envelope_stats(const float *i_samples, const float *q_samples,
         sum_sq += magnitude[n] * magnitude[n];
     }
     mean = sum / (double)count;
-    if (sqrt(sum_sq / (double)count) < SIGNAL_ENVELOPE_MIN_RMS)
+    if (sqrt(sum_sq / (double)count) < SIGNAL_ENVELOPE_MIN_RMS * full_scale)
         return 0;   /* measuring the quantiser, not the modulation */
     variance = sum_sq / (double)count - mean * mean;
     if (variance < 0.0)

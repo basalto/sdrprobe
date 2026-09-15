@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "app.h"
+#include "debug_log.h"
 #include "view.h"
 #include "survey_session.h"
 #include "survey_sweep.h"
@@ -74,6 +75,7 @@ static struct survey_block survey_block_now(struct app *app) {
     block.reference_clock_hz = app->device.reference_clock_hz;
     block.clock = survey_reading_clock(app);
     block.remove_dc = app->remove_dc;
+    block.full_scale = app->device.full_scale;
     return block;
 }
 
@@ -112,9 +114,13 @@ static void survey_obey_headless(struct app *app,
                                  int printing) {
     struct survey_session *ss = &app->survey.session;
 
-    if (printing && event->target_finished > 0)
-        survey_print_confirm_target(
-            &ss->confirm.target[event->target_finished - 1]);
+    if (printing && event->target_finished > 0) {
+        struct survey_confirm_target *tgt = &ss->confirm.target[event->target_finished - 1];
+        debug_log_write("survey-confirm", "target %d/%d %.6f MHz: hits %d/%d, verdict %d",
+                        event->target_finished, ss->confirm.count,
+                        tgt->hz / 1e6, tgt->hits, tgt->looks, tgt->verdict);
+        survey_print_confirm_target(tgt);
+    }
     if (event->history_dirty && ss->history_loaded)
         installation_history_save(&app->installation, &ss->history);
     if (event->watch_swept) {

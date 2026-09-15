@@ -41,7 +41,7 @@ struct lte_layout {
     Rectangle band_button[LTE_LAYOUT_BANDS];
     int band_count;   /* how many of them this receiver earns */
     Rectangle scan_button;       /* "Scan band" / "Stop" share this spot */
-    Rectangle view_toggle;       /* View: Charts / View: Signal */
+    Rectangle view_toggle;       /* Show charts / Show signal */
     Rectangle record_button;
     Rectangle waterfall;
     Rectangle found_panel;       /* what the scan found, left column */

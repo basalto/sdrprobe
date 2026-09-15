@@ -154,6 +154,7 @@ void publish_block(struct acquisition *acq, const unsigned char *data,
     latest->ready = 1;
     pthread_mutex_unlock(&latest->mutex);
 
+    iq_ring_push(&acq->ring, data, valid_len, 0.0);
     record_capture(acq, data, valid_len);
 }
 
@@ -514,6 +515,7 @@ int acquisition_init(struct acquisition *acq) {
         pthread_mutex_destroy(&acq->record_mutex);
         return result;
     }
+    iq_ring_init(&acq->ring, IQ_RING_DEFAULT_SECONDS);
     acq->mutex_ready = 1;
     return 0;
 }
@@ -523,6 +525,7 @@ int acquisition_destroy(struct acquisition *acq) {
     int failed;
 
     acquisition_stop_recording(acq);
+    iq_ring_free(&acq->ring);
     if (!acq->mutex_ready)
         return pthread_mutex_destroy(&acq->record_mutex);
     if ((failed = pthread_cond_destroy(&acq->latest.drained)) != 0)
@@ -566,5 +569,7 @@ int acquisition_attach_source(struct acquisition *acq,
     acq->bytes_per_pair = bytes_per_pair;
     acq->capture_path = capture_path;
     acq->capture_loop = capture_loop;
+    iq_ring_configure(&acq->ring, sample_rate, SAMPLE_FORMAT_U8, 127.5f,
+                      0, 0, 0, 0, NULL, NULL);
     return 0;
 }

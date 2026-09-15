@@ -200,10 +200,10 @@ def _self_test():
         with open(tally, "a") as handle:
             handle.write("%d %d\n" % (total, failures))
     if failures:
-        print("  %-34s %4d checks   %d FAILED"
+        print("  %-56s %4d checks   %d FAILED"
               % ("add_argument", total, failures))
         return 1
-    print("  %-34s %4d checks   ok" % ("add_argument", total))
+    print("  %-56s %4d checks   ok" % ("add_argument", total))
     return 0
 
 

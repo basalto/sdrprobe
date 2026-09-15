@@ -34,6 +34,8 @@ make check-gsm-continuity # whether consecutive SCH decodes hang together
 make check-gsm-bcch   # four bursts to a System Information message
 make check-lte-transport # CRC-24A, the fillers, and the circular buffer
 make check-tetra-dsp  # a TETRA carrier to dibits
+make check-srd-dsp    # SRD 430-440 MHz OOK/Manchester DSP
+make check-srd-frame  # SRD 430-440 MHz frame extraction
 make check-tetra-sync # descramble, depuncture, Viterbi, and the parity
 make check-acquisition # the block slot, both its modes, and its shutdown
 make check-sample-format # the same signal in an 8- and a 16-bit container
@@ -200,6 +202,19 @@ panel drew **101 pixels past its bottom edge at 640x400** and TETRA's identity
 panel 56. `check_panel_rows()` in the layout check now walks all of them, and
 adding three to a capacity fails it sixty-three times.
 
+**The same fault one level further in is a table's columns**, and
+`sdrgui_message_log_columns()` in `sdrgui_geometry.h` owns those. The five
+columns of a decode log were five constants added up inside the drawing, and
+the *headings* were clipped to fit while three of the five *values* were drawn
+with a bare `DrawText` -- beside a comment claiming every field went through
+`sdrgui_text_fit`. The SRD log's KIND column is 84 px, its longest value is
+`UNDECODED`, and the two columns came out on top of each other as
+`UNDECOD2BSK`. Nothing left its panel, so `check-layout` saw nothing. The
+widths follow the content now: the drawing measures its widest identifier
+(`MeasureText` needs a font, which needs a window) and the header decides what
+to do with it, which is this file's own split and the reason a check can reach
+it at all.
+
 `check-layout` is necessary and nowhere near sufficient. It compares
 rectangles, so it cannot see two panels drawing into the *same* rectangle, a
 picker offering bands the receiver cannot tune, a field reading "N/A" under a
@@ -278,6 +293,10 @@ make probe-lte-chain FILE_LTE=testfiles/lte_b20_pci28.bin
 make probe-periodicity FILE_PERIODICITY=captures/x.bin   # LTE or NR? which grid?
 make probe-signal FILE_SIGNAL=captures/x.bin AT_SIGNAL=300000 \
     CONTROLS_SIGNAL=-200000,600000                      # on air, or noise?
+make probe-ook FILE_OOK=captures/x.bin       # where are the transmissions,
+                                             # and what modulation are they?
+make probe-srd FILE_SRD=captures/x.bin       # and what do they say? runs,
+                                             # chips, violations, frames
 make probe-fm-filter FILE_FM_FILTER=testfiles/fm_rds_tsf.bin  # RDS: which biphase filter?
 make probe-two-cell                          # two cells on one carrier: how often?
 make probe-fcch FILE_FCCH=captures/x.bin RATE_FCCH=2000000 CARRIER_FCCH=400000
@@ -357,6 +376,94 @@ rather than kept**: every negative in the corpus rose (the highest is now
 Mode S at 0.327 against FM's 0.145), 0.80 still sits 0.12 under the lowest
 positive and 0.47 above the highest negative, and on the one block both
 shipped callers hand it every verdict is unchanged.
+
+`probe-ook` groups a capture into **all** its transmissions and says what the
+modulation is; `probe-signal` narrows onto **one** busy window and measures it.
+Both now find a bursty transmitter, and the reason they both can is
+`signal_find_activity()`.
+
+`probe-srd` carries on where `probe-ook` stops: the same transmissions, but
+through the shipping decode chain -- slicer, runs, run-length histogram, chip
+period, chips, Manchester violations, frames -- so a decode can be read stage
+by stage. **The chip-period sweep is the part that earns it**, and it is a
+sweep rather than a measurement for a reason: `srd_chip_period()` finds the
+first significant mode of a histogram and returns one number whether or not it
+is right, and only the neighbouring candidates say whether that number is a
+minimum of anything. It is what showed that `srd_dsp.h`'s recorded "10-13% bit
+errors" on the 2-FSK SRD remote control 2-FSK bursts was a transcript rather than a measurement:
+the bursts violate the code 8 or 9 times in 378 chips and decode 164
+consecutive bits cleanly. The real fault was that `srd_extract_frames()` kept
+only the **longest** unbroken stretch and `srd_session_feed()` glued every
+transmission of a press into one run stream -- the assembled program reported
+1 frame over a capture holding 15.
+
+The sweep then paid for itself twice, because it is also what showed
+`srd_chip_period()` answering **23 us for a transmitter whose runs sit at 500
+and 1000**. Its guard against noise was an absolute 20 us floor -- a
+twenty-fifth of a chip for the OOK remote control, a third of one for the 2-FSK remote --
+and excluding the runs under it leaves the *tail* of the noise population as
+the first significant mode. **The fix is not a better floor.** Every mode is a
+candidate now and `srd_chip_coverage()` chooses between them: the fraction of
+a run stream's **time** spent in one- or two-chip runs, which is all a
+Manchester coder can emit. Time and not count is the whole of it -- a
+threshold crossing on noise is a short run and there can be thousands, so by
+count they are the population and by duration a rounding error. Measured over
+39 real transmissions, 38 score 91.1% to 99.8% at their own period and the
+one this was written for scores 24.1%, so the threshold sits at the geometric
+middle. **A period that explains nothing is refused**, which matters only
+since the extractor started reporting every legal stretch: before that a
+wrong period read as silence, and after it, as three frames of nothing.
+
+**`probe-signal` used to read a fixed prefix and so did every function it
+calls** -- `SIGNAL_COARSE_PAIRS` is 32.8 ms, `SIGNAL_BURST_SAMPLES` 131 ms, and
+`signal_report.c`'s own `MAX_PAIRS` was 2.00 s -- so a transmitter that speaks
+once per button press was outside all three windows, and the answer came back
+`no carrier` with a confident wrong frequency attached: given 32.8 ms of noise
+the coarse search returns the **bottom edge of its own search window** and the
+fine stage refines that. A 434 MHz capture holding four transmissions at 47-57
+dB over the floor was reported empty and re-recorded for nothing.
+
+**Neither constant was raised.** `signal_find_activity()` scans the whole
+buffer in 2 ms chunks, keeping no samples, and says where the band is busy;
+the caller then measures that window. Raising the caps instead would slow
+every shipping measurement to serve a case most callers do not have, and the
+burst cap's stated justification -- *a burst pattern is a property of the
+signal that a longer look does not change* -- remains correct for the signals
+it was written about. It is deliberately **not** inside
+`signal_find_carrier()`: a caller measuring a continuous carrier should not pay
+for a whole-buffer scan, and a caller comparing a signal against its controls
+has to be able to say which window each answer came from.
+
+**The `looked at:` line is the actual fix**, and it is printed in every case.
+The old output could not tell "measured, and there is nothing" from "did not
+look where it is", which is what made a wrong answer a confident one; an
+absence is falsifiable now. `SIGNAL_ACTIVITY_BUSY_DB` is **12.0** and was
+measured from both ends: SRD remote control transmissions read 32.1 and 35.9 dB over the
+buffer's 25th percentile, genuinely empty controls 6.8 to 7.7, Mode S 8.8 to
+10.0 and a bare carrier 2.9 to 3.9 -- so every existing caller stays `uniform`
+and bit-for-bit unchanged. **6.0 dB was tried and was wrong**: it narrowed
+empty controls onto a 2 ms sliver of noise whose envelope statistics then
+refused for want of samples, a *worse* control than the bug. A window shorter
+than `SIGNAL_COARSE_PAIRS` is padded around its centre and clamped, which is
+what makes the asymmetry safe -- a false positive lands on an arbitrary
+32.8 ms of noise, which is what the prefix was anyway. `MAX_PAIRS` is a
+ceiling rather than a default now, sized from the file and reported if it
+bites.
+
+Its contribution is finding the window, not measuring it. Having grouped the
+capture into transmissions it hands one to the *shipping*
+`signal_find_carrier()`, `signal_find_bursts()` and `signal_envelope_stats()`,
+and then repeats all three on an equal-length window at t = 0 -- the control,
+and what `probe-signal` is really reporting on. Same file, same code, same
+window length, **58 dB apart**. It then answers what the modulation is: a
+bimodal envelope histogram is on-off keying, a unimodal instantaneous-frequency
+histogram over the ON samples refutes FSK, and a run-length histogram gives the
+chip period directly, which on a bursty signal is the only trustworthy route to
+it -- a blind symbol-rate search cannot tell a symbol rate from a frame rate,
+as `signal_probe.h` already records.
+
+`docs/srd-remote-control-ook-capture-and-decode.md` is the worked example end to end, and
+`.scratch/srd-434-decode/issues/01-*` is the `signal_probe` fix it drove, now done.
 
 `probe-tone` asks whether a clock-coherent tone is at one frequency, and whose
 clock it is. It was a shell one-liner written about a dozen times in one
@@ -1354,6 +1461,51 @@ Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
   four in the offset order is the gate and `rds_sync_odds_per_million()` is
   the number behind it. On `testfiles/fm_rds_tsf.bin` it reads 0x8343, `TSF`,
   news.
+- `src/srd_dsp.{c,h}` (`srd_`) — Short Range Device (SRD) 433-435 MHz technology DSP module:
+  discovery of transmissions in a whole capture via chunked FFT spectra, carrier refinement,
+  envelope extraction, run lengths, chip-period recovery from run lengths --
+  by coverage rather than by the first histogram mode, and refusing rather
+  than guessing (`SRD_CHIP_COVERAGE_MIN`) -- and
+  Manchester decoding (Thomas and IEEE 802.3). Prefix `srd_`. Tests behind `make check-srd-dsp`.
+- `src/srd_frame.{c,h}` — the Decoder side of SRD: delimiter discovery (6 runs of 1.5 chips),
+  extraction of 80-bit full frames (0x3F header, 64-bit rolling payload, 0xD4 trailer)
+  and 24-bit keepalive repeat frames (0x1F header, tag byte, 0xD4 trailer). Tests behind `make check-srd-frame`.
+  `srd_device_type_of()` names the device, and **only where the frame proves
+  it** — a full or repeat frame has matched a header and a trailer at known
+  offsets in a Manchester stream decoded without a violation, which repetition
+  cannot manufacture, so it is a keyless-entry remote. Everything a decode
+  does not establish reads `unknown`, including every burst with no frame
+  whatever its modulation and chip period. This is the line `signal_findings.h`
+  draws, standing on stronger evidence: a measurement may not become a verdict,
+  and a decode already is one.
+  **The waterfall's history moves with a retune rather than being thrown
+  away** (`sdr_dsp_retune_bin_shift()`, `sdr_dsp_shift_row()`). A row is dBFS
+  spread evenly across the received span, so moving the centre changes which
+  bin holds a frequency and nothing else: the row slides by
+  `(old - new) * bins / rate` and what slides in is marked unmeasured. Tuning
+  *up* slides the picture *left*, which is the half easiest to get backwards
+  and the one a mutation check pins. Discarding the history was right while
+  nothing could retune from a decode screen; once the SRD arrows walked a ten
+  megahertz allocation half a span at a time it left the waterfall blank with
+  the detection labels standing over nothing — measured on an FM scan
+  retuning every half second, **7 rows of history carried before and 14
+  after**, and half the picture for a single arrow press.
+
+  **The SRD header has a tuning group** — an arrow either side of a typed
+  centre frequency — because the allocation is ten megahertz and a receiver
+  hears two, so reaching the far end by panning is a great many presses, and
+  until it existed no decode view could say a frequency at all (the Scope's
+  centre field is reachable only from the Scope tab). An arrow is
+  `srd_tune_step()`: **half a span**, so consecutive tunings overlap by half
+  and a transmission on a seam is whole in one of them, and clamped to the
+  allocation — the arrows walk the band and the field is what leaves it. Ten
+  presses cover 430 to 440.
+  **The allocation is 430-440 MHz**, the band plan's own "70 cm amateur / 433
+  ISM" row to the hertz. `srd_receiver_ready()` asks whether the receiver is
+  *inside* it, not whether the whole of it fits — ten megahertz needs 10 MS/s
+  and nothing here samples that fast. It used to demand a tuning within a
+  megahertz of 434, which refused eight megahertz of the allocation including
+  frequencies this receiver has recorded transmissions on.
 
 A technology DSP module exposes the operations its standard needs and reuses
 the generic core where those primitives fit (ADR-0023); modules share dependency
@@ -1655,6 +1807,23 @@ every *test* was updated because tests are in `CHECK_UNITS`; `gsm_chain_probe`,
 was found only by reaching for one mid-diagnosis. Same shape as
 `check-signal-probe` existing and never being gated.
 
+**A probe that stops compiling is the benign case.** Both reporters carried
+their own byte-to-float conversion until `.scratch/srd-434-decode/issues/05-*`
+put them through `sdr_dsp_convert_iq()`, and getting that seam wrong twice
+produced no error at all -- it produced **confident empty reports**, which is
+the worst failure available to a tool whose job is to say whether a band is
+empty. `sdr_dsp_convert_iq()` **requires `magnitude_out`** and returns 0 pairs
+for a NULL rather than skipping the work, so `probe-ook` announced "no
+transmission anywhere in this capture" about a capture holding four; and
+`sdr_dsp_spectrum()` takes a **`full_scale`** that was left at `1.0f` while
+the samples moved to counts, putting every bin 42 dB high until peak and
+median met, which prints the same sentence for an unrelated reason. What
+caught both was diffing the *whole* report across the change and requiring it
+to be identical -- every statistic in these tools is a ratio, so the one line
+that legitimately moved (a peak, now labelled in counts) moved by exactly
+127.5. Do that on any change to a diagnostic's loader; there is no check that
+will.
+
 **A tone is not a broadcast carrier, and the scan takes the loudest.**
 `GSM_FCCH_SEARCH_HALF_HZ` is 50 kHz, so the detector reports any coherent line
 within that of where an FCCH would be -- so the chosen channel has to produce
@@ -1684,11 +1853,24 @@ correction, the reference and how long ago. Nothing here dismisses itself on a
 timer: a correction is a standing fact about the receiver, and a surface that
 erased itself could not answer "what am I corrected by?" a minute later.
 
-**A scripted run never sees it**, and that is a rule rather than luck --
-`startup_form_wanted()` is pure and `check-options` covers every case.
-`--headless`, `--file`, `--duration`, `--view`, `--ppm`, `--site` and
-`--no-startup` each skip it; `--view startup` opens it anyway, so it can be
-screenshotted. The environment answers the same four questions for a launcher
+**The form is opt-in, and a scripted run never sees it because nothing asked**
+-- ADR-0024 amended 2026-09-15. `--startup` (or `SDRPROBE_STARTUP`) opens it;
+a plain windowed launch reaches a view immediately and keeps the correction
+already on file for that receiver and site. That inverted a rule which had
+been seven refusals whose completeness `check-pipelines`, every screenshot
+recipe and every `--duration` check rested on -- opt-in makes the same
+guarantee structural rather than maintained.
+
+`startup_form_wanted()` is still the whole rule, pure, and `check-options`
+covers every case. Three refusals outrank the request and the reason differs
+for each: `--no-startup` because **a refusal beats a request in either order**,
+so the pair never resolves by argument position; `--headless` and `--file`
+because the form cannot work at all -- no window, or a capture with no crystal
+to measure; and `--ppm` because it is a **provenance** guard rather than an
+inference, the `--ppm 0` case that wrote over a measured +32 twice in one
+afternoon. `--duration`, `--view` and `--site` no longer refuse: each only ever
+inferred that nobody had asked. `--view startup` opens it whatever the rule
+says, so it can be screenshotted with no flag. The environment answers the same four questions for a launcher
 that cannot reach the command line -- `SDRPROBE_SITE`, `SDRPROBE_ANTENNA`,
 `SDRPROBE_RECEIVER_LABEL`, `SDRPROBE_NO_STARTUP` -- read through a lookup
 passed to `options_apply_environment()` rather than `getenv()` inside the
@@ -1851,6 +2033,17 @@ share the header -- which is exactly what makes it hard to notice.
   apart would report it as though it had. Those real-signal
   invariants are the only checks a wrong SCH field layout cannot satisfy: the
   synthetic round trip passes against any layout the encoder shares.
+- **`testfiles/srd_remote_control_ook_a.bin` and
+  `srd_remote_control_fsk.bin` are committed fixtures.** Their names and
+  sidecars describe the SRD protocol and receiving setup. A missing fixture is
+  a broken checkout.
+- **`check-pipelines` and the SRD unit suites always exercise them.** Every
+  capture-driven group in `tests/pipelines.sh` is guarded by `have`, which
+  counts a missing capture as a failure rather than silently omitting coverage.
+  The OOK group requires the band survey to place the transmitter near
+  434.417 MHz and the assembled decoder to recover full frames. `make
+  probe-ook` reaches the same carrier by a route sharing no code with the
+  survey.
 
 ## Working in this repo
 
@@ -1886,5 +2079,8 @@ share the header -- which is exactly what makes it hard to notice.
   `docs/agents/issue-tracker.md`.
 - Deep-dive references: `docs/ARCHITECTURE.md` (this program's layers and state),
   `docs/dump1090-reference.md` (dump1090 internals — that source is *not* in
-  this repo), `docs/cellular-frequency-correction.md`,
+  this repo), `docs/srd-remote-control-ook-capture-and-decode.md` (a 434 MHz SRD remote control
+  captured and characterised end to end, and the three fixed windows that made
+  `probe-signal` call a capture of it empty),
+  `docs/cellular-frequency-correction.md`,
   `docs/sch-frame-number-decode.md`, `docs/sdrprobe-implementation.md`.
