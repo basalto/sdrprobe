@@ -25,6 +25,7 @@
 #include "version.h"
 #include "chrome_layout.h"
 #include "sdrgui.h"
+#include "view_input.h"
 #include "view.h"
 #include "tetra_dsp.h"
 #include "tetra_sync.h"
@@ -33,6 +34,7 @@
 #include "lte_stats.h"
 #include "lte_findings.h"
 #include "debug_log.h"
+#include "overlay_signal_report.h"
 
 /* input_route.h mirrors this so it can stay standalone; if that enum is
    reordered this stops the build rather than misrouting a key. */
@@ -42,6 +44,10 @@ typedef char input_route_spectrum_matches[
     (VIEW_KIND_SPECTRUM == (int)VIEW_SPECTRUM) ? 1 : -1];
 typedef char input_route_waterfall_matches[
     (VIEW_KIND_WATERFALL == (int)VIEW_WATERFALL) ? 1 : -1];
+/* And view_input.h mirrors the Scope's "no field has focus" for the same
+   reason: it decides whether the header is taking typed characters. */
+typedef char view_input_scope_field_none_matches[
+    (VIEW_INPUT_SCOPE_FIELD_NONE == SCOPE_FIELD_NONE) ? 1 : -1];
 #include "raygui.h"
 
 
@@ -528,6 +534,11 @@ int start_acquisition(struct app *app) {
                  "Could not attach the source to the acquisition worker");
         return -1;
     }
+    iq_ring_configure(&app->acq.ring, app->applied.sample_rate_hz,
+                      app->device.format, app->device.full_scale,
+                      app->applied.frequency_hz, app->applied_gain_tenths,
+                      app->applied_manual_gain, app->applied.ppm,
+                      app->source_label, app->tuner_label);
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
         app->receiver_mode ? receiver_worker : file_worker, &app->acq);
@@ -628,6 +639,13 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
                     app->applied.sample_rate_hz / 1e6);
     result = receiver_runtime_tune_at_rate(&rt, frequency, sample_rate, ppm);
     tune_result_logged(app, result);
+    if (result == 0) {
+        iq_ring_configure(&app->acq.ring, app->applied.sample_rate_hz,
+                          app->device.format, app->device.full_scale,
+                          app->applied.frequency_hz, app->applied_gain_tenths,
+                          app->applied_manual_gain, app->applied.ppm,
+                          app->source_label, app->tuner_label);
+    }
     if (app->receiver_mode)
         signal_frame_invalidate(&app->frame);
     return result;
@@ -926,6 +944,10 @@ void set_tab(struct app *app, int new_tab) {
         leave_gsm(app);
     if (app->tab == TAB_DECODE && app->decode == DECODE_LTE)
         leave_lte(app);
+    if (app->tab == TAB_DECODE && app->decode == DECODE_SRD)
+        leave_srd(app);
+    if (app->tab == TAB_DECODE && app->decode == DECODE_ADSB)
+        leave_adsb(app);
     /* Leaving the survey puts the receiver back where it was before a sweep
        walked it away. */
     if (app->tab == TAB_SURVEY)
@@ -940,6 +962,10 @@ void set_tab(struct app *app, int new_tab) {
         enter_fm(app);
     if (new_tab == TAB_DECODE && app->decode == DECODE_LTE)
         enter_lte(app);
+    if (new_tab == TAB_DECODE && app->decode == DECODE_SRD)
+        enter_srd(app);
+    if (new_tab == TAB_DECODE && app->decode == DECODE_ADSB)
+        enter_adsb(app);
 }
 
 /*
@@ -958,6 +984,10 @@ void set_decode(struct app *app, int kind) {
         leave_gsm(app);
     if (showing && app->decode == DECODE_LTE)
         leave_lte(app);
+    if (showing && app->decode == DECODE_SRD)
+        leave_srd(app);
+    if (showing && app->decode == DECODE_ADSB)
+        leave_adsb(app);
     app->decode = kind;
     if (showing && kind == DECODE_GSM)
         enter_gsm(app);
@@ -965,6 +995,10 @@ void set_decode(struct app *app, int kind) {
         enter_lte(app);
     if (showing && kind == DECODE_FM)
         enter_fm(app);
+    if (showing && kind == DECODE_SRD)
+        enter_srd(app);
+    if (showing && kind == DECODE_ADSB)
+        enter_adsb(app);
 }
 
 /* One row of numbered mode options, the active one highlighted. */
@@ -1042,8 +1076,8 @@ static void draw_header(const struct app *app) {
     static const char *scope_opts[4] = {
         "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall"
     };
-    static const char *decode_opts[5] = { "1 FM", "2 ADS-B", "3 GSM",
-                                          "4 LTE", "5 TETRA" };
+    static const char *decode_opts[6] = { "1 FM", "2 ADS-B", "3 GSM",
+                                          "4 LTE", "5 TETRA", "6 SRD" };
 
     DrawText("sdrprobe signal visualizer", 22, 14, 24,
              (Color){ 225, 236, 245, 255 });
@@ -1067,7 +1101,7 @@ static void draw_header(const struct app *app) {
                             : "+/- scale   h help   Esc quit",
                         "h help  Esc quit");
     } else {
-        draw_option_row((int)app->decode, decode_opts, 5,
+        draw_option_row((int)app->decode, decode_opts, 6,
                         app->decode == DECODE_ADSB
                             ? "h help   Esc scope"
                             : "drag/Up/Down zoom  Left/Right pan  +/- scale"
@@ -1092,34 +1126,67 @@ static void draw_header(const struct app *app) {
     draw_health_indicator(app);
 }
 
+/*
+ * What each view is doing, read out of `struct app` and nowhere decided.
+ *
+ * Every field here is a copy. What any of them *means* -- whether a focus
+ * counts as typing, which lists suppress Escape, what the whole of it makes
+ * of the routing -- is view_input.h's, where a check with no window can reach
+ * it. This function used to compose thirteen fields out of predicates living
+ * in raylib-linked files, so neither they nor the composition was reachable
+ * and a typing surface left out of one of them went silent rather than wrong
+ * (`.scratch/testability/issues/09-*`).
+ */
+static struct view_input view_input_now(const struct app *app) {
+    struct view_input v;
+
+    memset(&v, 0, sizeof(v));
+    v.help_open = app->help.open;
+    v.startup_open = app->startup.open;
+    v.settings_open = app->set.open;
+    v.calibration_open = app->cal.open;
+    v.scan_open = app->bandscan.open;
+
+    v.tab = app->tab;
+    v.view = (int)app->view;
+    v.decode = (int)app->decode;
+
+    /*
+     * What each view holds, in the view's own spelling -- the raw field, not
+     * a predicate over it, because deciding what a focus *means* is
+     * view_input.h's and that is the whole point of the split.
+     *
+     * survey_editing() and srd_editing() are gone: they existed to answer
+     * this one question, this is where it was asked, and a predicate with no
+     * caller is the deletion test answering itself. fm_editing() survives
+     * because the FM view asks it of itself.
+     */
+    v.survey_focused_field = app->survey.focus;
+    v.scope_focused_field = app->sv.field_focus;
+    v.fm_typing = app->fm.typing;
+    v.srd_typing = app->srd.typing;
+    v.srd_freq_typing = app->srd.freq_typing;
+
+    v.survey_site_menu_open = app->survey.site_menu_open;
+    v.survey_antenna_menu_open = app->survey.antenna_menu_open;
+    v.survey_band_menu_open = app->survey.band_menu_open;
+    v.startup_site_menu_open = app->startup.site_menu_open;
+    v.startup_antenna_menu_open = app->startup.antenna_menu_open;
+    v.waterfall_menu_open = app->wf_menu.menu_open;
+    v.waterfall_report_open = app->wf_menu.popup_open;
+
+    v.scope_zoomed = app->tab == TAB_SCOPE &&
+                     (app->view == VIEW_SPECTRUM ||
+                      app->view == VIEW_WATERFALL) &&
+                     freq_window_zoomed(&app->sv.window.freq);
+    return v;
+}
+
 /* The flags the precedence chain in input_route.h reads, and nothing else. */
 static struct input_state input_state_now(const struct app *app) {
-    struct input_state state;
+    struct view_input v = view_input_now(app);
 
-    state.help_open = app->help.open;
-    state.startup_open = app->startup.open;
-    state.settings_open = app->set.open;
-    state.calibration_open = app->cal.open;
-    state.scan_open = app->bandscan.open;
-    state.tab = app->tab;
-    state.view = (int)app->view;
-    state.decode = (int)app->decode;
-    /* Text focus outside the settings panel: the survey's range and dwell
-       fields, and the FM view's frequency. Both take digits, and a digit that
-       reaches the view switcher instead of the field it was typed into is a
-       screen change nobody asked for. */
-    state.text_focus = survey_editing(app) || fm_editing(app) ||
-                       app->sv.field_focus != SCOPE_FIELD_NONE;
-    state.scope_zoomed = app->tab == TAB_SCOPE &&
-                         (app->view == VIEW_SPECTRUM ||
-                          app->view == VIEW_WATERFALL) &&
-                         freq_window_zoomed(&app->sv.window.freq);
-    state.menu_open = app->survey.site_menu_open ||
-                      app->survey.antenna_menu_open ||
-                      app->survey.band_menu_open ||
-                      app->startup.site_menu_open ||
-                      app->startup.antenna_menu_open;
-    return state;
+    return view_input_state(&v);
 }
 
 /*
@@ -1137,8 +1204,14 @@ static struct debug_screen debug_screen_now(const struct app *app) {
     s.calibration_open = app->cal.open;
     s.scan_open = app->bandscan.open;
     s.help_open = app->help.open;
-    s.menu_open = app->survey.site_menu_open || app->survey.antenna_menu_open ||
-                  app->startup.site_menu_open || app->startup.antenna_menu_open;
+    /* The same question the routing asks, from the same answer -- these were
+       two lists and they already disagreed: the survey's band menu was in one
+       and not the other, and the waterfall's was in neither. */
+    {
+        struct view_input v = view_input_now(app);
+
+        s.menu_open = view_input_menu_open(&v);
+    }
     s.analysis = app->adsb.analysis_mode || app->lte.analysis_mode ||
                  app->gsm.analysis_mode;
     return s;
@@ -1217,6 +1290,82 @@ static void cli_record_labels(const struct options *options,
         *basename = "raw";
         *technology = "raw";
     }
+}
+
+static void check_waterfall_right_click(struct app *app) {
+    if (!IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+        return;
+
+    Rectangle rect = { 0, 0, 0, 0 };
+    const struct chart_window *win = NULL;
+    const char *tech = "raw";
+
+    if (app->tab == TAB_SCOPE && app->view == VIEW_WATERFALL) {
+        rect = app->plot;
+        win = &app->sv.window;
+        tech = "scope";
+    } else if (app->tab == TAB_DECODE) {
+        if (app->decode == DECODE_SRD && !app->srd.analysis_mode) {
+            rect = srd_waterfall_rect(app);
+            win = &app->srd.window;
+            tech = "srd";
+        } else if (app->decode == DECODE_ADSB && !app->adsb.analysis_mode) {
+            rect = adsb_waterfall_rect(app);
+            win = &app->adsb.window;
+            tech = "adsb";
+        } else if (app->decode == DECODE_GSM && !app->gsm.analysis_mode) {
+            rect = gsm_waterfall_rect();
+            win = &app->gsm.window;
+            tech = "gsm";
+        } else if (app->decode == DECODE_LTE) {
+            rect = lte_waterfall_rect(app);
+            win = &app->lte.window;
+            tech = "lte";
+        } else if (app->decode == DECODE_FM) {
+            rect = fm_waterfall_rect(app);
+            win = &app->fm.window;
+            tech = "fm";
+        } else if (app->decode == DECODE_TETRA && !app->tetra.analysis_mode) {
+            rect = tetra_waterfall_rect(app);
+            win = &app->tetra.window;
+            tech = "tetra";
+        }
+    }
+
+    if (rect.width <= 0 || rect.height <= 0)
+        return;
+
+    Rectangle plot = sdrgui_waterfall_area(rect);
+    Vector2 mouse = GetMousePosition();
+    if (mouse.x < plot.x || mouse.x > plot.x + plot.width ||
+        mouse.y < plot.y || mouse.y > plot.y + plot.height)
+        return;
+
+    float x_frac = (mouse.x - plot.x) / plot.width;
+    float y_frac = (mouse.y - plot.y) / plot.height;
+
+    double center_hz = (double)app->applied.frequency_hz;
+    double span_hz = (double)app->applied.sample_rate_hz;
+    double lower_hz = center_hz - span_hz / 2.0;
+    double upper_hz = center_hz + span_hz / 2.0;
+
+    if (win) {
+        double zoom_c = 0.0, zoom_hw = 0.0;
+        chart_window_zoom_of(win, &zoom_c, &zoom_hw);
+        if (zoom_hw > 0.0) {
+            lower_hz = zoom_c - zoom_hw;
+            upper_hz = zoom_c + zoom_hw;
+        }
+    }
+
+    double freq = lower_hz + (double)x_frac * (upper_hz - lower_hz);
+    double row_seconds = app->frame.pair_count > 0
+                             ? (double)app->frame.pair_count / (double)app->applied.sample_rate_hz
+                             : (double)SAMPLE_BLOCK_PAIRS / (double)app->applied.sample_rate_hz;
+    double visible_seconds = app->sv.waterfall_rows * row_seconds;
+    double age = (double)y_frac * visible_seconds;
+
+    waterfall_context_menu_open(app, mouse, freq, age, tech);
 }
 
 static int run_gui(struct app *app) {
@@ -1334,6 +1483,8 @@ static int run_gui(struct app *app) {
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_TETRA:     set_decode(app, DECODE_TETRA);
                                set_tab(app, TAB_DECODE); break;
+    case START_VIEW_SRD:       set_decode(app, DECODE_SRD);
+                               set_tab(app, TAB_DECODE); break;
     case START_VIEW_LTE:       set_decode(app, DECODE_LTE);
                                set_tab(app, TAB_DECODE); break;
     case START_VIEW_CALIBRATION:
@@ -1350,12 +1501,14 @@ static int run_gui(struct app *app) {
     }
 
     /*
-     * And the form itself, on a plain windowed receiver launch.
+     * And the form itself, where a run asked for it with `--startup`.
      *
      * `startup_form_wanted()` is the whole rule and it is in options.c, pure
-     * and checked: a scripted run must never be stopped by a form, and
-     * `check-pipelines`, every screenshot recipe and every --duration check
-     * depend on that being true by rule rather than by luck (ADR-0024).
+     * and checked. It used to open on any plain windowed receiver launch and
+     * keep out of scripted runs by a list of refusals; asking for it makes
+     * that structural instead, which is what `check-pipelines`, every
+     * screenshot recipe and every --duration check rest on
+     * (ADR-0024, amended 2026-09-15).
      */
     if (startup_form_wanted(&app->options) && app->receiver_mode)
         open_startup(app);
@@ -1404,6 +1557,7 @@ static int run_gui(struct app *app) {
     app->lte.analysis_mode = app->options.analysis;
     app->tetra.analysis_mode = app->options.analysis;
     app->gsm.analysis_mode = app->options.analysis;
+    app->srd.analysis_mode = app->options.analysis;
 
     /* A recording asked for on the command line starts as soon as the worker
        is up, exactly as the button's does. */
@@ -1478,9 +1632,13 @@ static int run_gui(struct app *app) {
         if (shortcuts && IsKeyPressed(KEY_Q))
             break;
 
-        if (input_help_opens(&input) && IsKeyPressed(KEY_H)) {
+        if (handle_waterfall_context_input(app)) {
+            /* Handled by right-click menu or popup */
+        } else if (input_help_opens(&input) && IsKeyPressed(KEY_H)) {
             open_help(app);
-        } else switch (input_route(&input)) {
+        } else {
+            check_waterfall_right_click(app);
+            switch (input_route(&input)) {
         case INPUT_TARGET_HELP:
             handle_help_input(app);
             break;
@@ -1541,6 +1699,10 @@ static int run_gui(struct app *app) {
                        (shortcuts && IsKeyPressed(KEY_C))) {
                 if (app->tab == TAB_DECODE && app->decode == DECODE_GSM)
                     leave_gsm(app);
+                if (app->tab == TAB_DECODE && app->decode == DECODE_SRD)
+                    leave_srd(app);
+                if (app->tab == TAB_DECODE && app->decode == DECODE_ADSB)
+                    leave_adsb(app);
                 open_calibration(app);
             } else if (input.tab == TAB_DECODE) {
                 if (input_decode_keys_live(&input)) {
@@ -1554,6 +1716,8 @@ static int run_gui(struct app *app) {
                         set_decode(app, DECODE_LTE);
                     else if (IsKeyPressed(KEY_FIVE))
                         set_decode(app, DECODE_TETRA);
+                    else if (IsKeyPressed(KEY_SIX))
+                        set_decode(app, DECODE_SRD);
                 }
                 if (app->decode == DECODE_GSM)
                     handle_gsm_input(app);
@@ -1563,6 +1727,8 @@ static int run_gui(struct app *app) {
                     handle_fm_input(app);
                 else if (app->decode == DECODE_TETRA)
                     handle_tetra_input(app);
+                else if (app->decode == DECODE_SRD)
+                    handle_srd_input(app);
                 else
                     handle_lte_input(app);
                 /*
@@ -1586,6 +1752,15 @@ static int run_gui(struct app *app) {
                     } else if (app->decode == DECODE_LTE) {
                         win = &app->lte.window;
                         rect = lte_waterfall_rect(app);
+                    } else if (app->decode == DECODE_SRD) {
+                        win = &app->srd.window;
+                        rect = srd_waterfall_rect(app);
+                    } else if (app->decode == DECODE_ADSB) {
+                        win = &app->adsb.window;
+                        rect = adsb_waterfall_rect(app);
+                    } else if (app->decode == DECODE_TETRA && !app->tetra.analysis_mode) {
+                        win = &app->tetra.window;
+                        rect = tetra_waterfall_rect(app);
                     }
                     if (win)
                         view_window_input(app, win, rect, chart_key, spacing,
@@ -1601,6 +1776,7 @@ static int run_gui(struct app *app) {
                     break_requested = 1;
             }
             break;
+            }
         }
         if (break_requested)
             break;
@@ -1745,6 +1921,9 @@ static int run_gui(struct app *app) {
         if (have_new && app->tab == TAB_DECODE &&
             app->decode == DECODE_TETRA && !app->cal.open)
             update_tetra(app, now);
+        if (have_new && app->tab == TAB_DECODE &&
+            app->decode == DECODE_SRD && !app->cal.open)
+            update_srd(app, now);
         if (app->tab == TAB_DECODE && app->decode == DECODE_LTE &&
             !app->cal.open) {
             /* The scan drives the tuning, so it runs every frame and not only
@@ -1791,6 +1970,8 @@ static int run_gui(struct app *app) {
                     draw_fm(app);
                 else if (app->decode == DECODE_TETRA)
                     draw_tetra(app);
+                else if (app->decode == DECODE_SRD)
+                    draw_srd(app);
                 else
                     draw_lte(app);
             } else if (app->tab == TAB_SURVEY) {
@@ -1820,6 +2001,7 @@ static int run_gui(struct app *app) {
             draw_startup(app);
         if (app->help.open)
             draw_help(app);
+        draw_waterfall_context(app);
 
         if (last_frame) {
             /*
@@ -2035,6 +2217,70 @@ static void print_new_decodes(struct app *app, double now,
 {
     if (decoder == DECODE_TETRA) {
         print_tetra(app, now);
+        return;
+    }
+    if (decoder == DECODE_SRD) {
+        struct srd_session_event event;
+        double sample_rate = (double)app->applied.sample_rate_hz;
+        float full_scale = app->device.full_scale > 0.0f ? app->device.full_scale : 127.5f;
+
+        srd_session_feed(&app->srd.session, app->frame.i_samples, app->frame.q_samples,
+                         app->frame.pair_count, sample_rate, full_scale,
+                         app->srd.polarity, now, &event);
+
+        for (int i = 0; i < event.undecoded_count; i++) {
+            struct srd_session_undecoded_event *ue = &event.undecoded[i];
+
+            /*
+             * The kind is the session's, not this adapter's. It used to call
+             * every 2-FSK burst a WAKEUP and print "preamble 0 chips" for
+             * one that had no chip period at all, while the window called
+             * the same event UNDECODED.
+             */
+            if (ue->kind == SRD_FRAME_FSK_DETECTED) {
+                printf("SRD  2FSK    WAKEUP   %6.1fs  %+.1f kHz  preamble %zu chips (%.0fus)  ",
+                       ue->at, ue->carrier_hz / 1e3, ue->chip_count, ue->chip_us);
+                uint8_t packed[8] = {0};
+                size_t pb = srd_pack_bits(ue->raw_chips, ue->chip_count > 64 ? 64 : ue->chip_count, packed, 8);
+                for (size_t b = 0; b < pb; b++)
+                    printf("%02X ", packed[b]);
+                printf("\n");
+            } else {
+                printf("SRD  %s  UNDECODED  %6.1fs  %+.1f kHz  "
+                       "detected burst (no frame)\n",
+                       ue->modulation == SRD_MOD_FSK2 ? "2FSK" : "OOK ",
+                       ue->at, ue->carrier_hz / 1e3);
+            }
+        }
+
+        for (int i = 0; i < event.frame_count; i++) {
+            struct srd_session_frame_event *fe = &event.frames[i];
+            const struct srd_frame *f = &fe->frame;
+            enum srd_device_type device =
+                srd_device_type_of(f->kind, f->bytes, f->byte_count);
+
+            printf("SRD  %s  %s  %6.1fs  %+.1f kHz  %-14s  ",
+                   f->modulation == SRD_MOD_FSK2 ? "2FSK" : "OOK ",
+                   f->kind == SRD_FRAME_FULL ? "FULL   " :
+                   f->kind == SRD_FRAME_REPEAT ? "REPEAT " : "GENERIC",
+                   fe->at, fe->carrier_hz / 1e3,
+                   srd_device_type_name(device));
+            /* The prefix test lives in srd_frame.c; this asks it rather than
+               spelling it out a third time. */
+            if (device == SRD_DEVICE_REMOTE_FSK) {
+                uint32_t id = ((uint32_t)f->bytes[4] << 24) |
+                              ((uint32_t)f->bytes[5] << 16) |
+                              ((uint32_t)f->bytes[6] << 8) |
+                              (uint32_t)f->bytes[7];
+                uint16_t seq = ((uint16_t)f->bytes[8] << 8) | f->bytes[9];
+                uint8_t flags = f->bytes[3];
+                printf("id %08X seq %04X flg %02X  ", id, seq, flags);
+            }
+            for (size_t b = 0; b < f->byte_count; b++)
+                printf("%02X ", f->bytes[b]);
+            printf("\n");
+        }
+        fflush(stdout);
         return;
     }
     if (decoder == DECODE_LTE) {
@@ -2803,6 +3049,9 @@ static int run_headless(struct app *app) {
     else if (app->options.technology &&
              strcmp(app->options.technology, "tetra") == 0)
         decoder = DECODE_TETRA;
+    else if (app->options.technology &&
+             strcmp(app->options.technology, "srd") == 0)
+        decoder = DECODE_SRD;
     if (app->options.decode)
         sdr_dsp_init(&app->frame.dsp);
 
@@ -2977,6 +3226,8 @@ int main(int argc, char **argv) {
     view_fm_defaults(app);
     view_scope_defaults(app);
     view_survey_defaults(app);
+    view_srd_defaults(app);
+    view_adsb_defaults(app);
     if (options.gsm_features_seen) {
         /* The mask straight through: --gsm-features already speaks in
            GSM_OPT_* and the session does too, so nothing unpacks it. */
@@ -2988,7 +3239,11 @@ int main(int argc, char **argv) {
         app->gsm.selected_hz = (double)options.frequency + 400000.0;
     }
 
-    if (options.debug_log && debug_log_open(options.debug_log) == 0) {
+    const char *log_target = options.debug_log ? options.debug_log : environment("SDRPROBE_DEBUG_LOG");
+    if (!log_target && app->receiver_mode)
+        log_target = "sdrprobe.log";
+
+    if (log_target && debug_log_open(log_target) == 0) {
         /* From the options rather than from the app: the source has not been
            attached yet here, and the fields it fills in are still zero. */
         debug_log_write("open",

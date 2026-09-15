@@ -741,11 +741,9 @@ int startup_session_begin(struct startup_session *s, double sample_rate,
     s->measure_budget = STARTUP_MEASURE_SECONDS;
     s->step_started_at = now;
     /*
-     * A search asks the band what to calibrate against, so it owes the
-     * operator a second opinion (issue 08). A caller that names the channel
-     * does not: that is an instruction to measure *that* one.
+     * Calibrate against the first verified reference (1 cell).
      */
-    s->cross_check = 1;
+    s->cross_check = 0;
 
     status = scan_plan_make(sample_rate, &s->plan);
     if (!gsm_reachable || status != SCAN_PLAN_OK) {

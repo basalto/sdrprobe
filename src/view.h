@@ -7,6 +7,8 @@
 #include "survey_record.h"
 #include "lte_dsp.h"
 
+struct sdrgui_waterfall_marker;
+
 /*
  * The bands this receiver can sweep, for whichever panel is drawing the row.
  *
@@ -139,7 +141,9 @@ void update_fm_flush(struct app *app, double now, int flush);
 void view_fm_defaults(struct app *app);
 /* Retune and start over: everything in the view belongs to one carrier. */
 void fm_tune(struct app *app, double hz);
-/* Whether the FM view's frequency field has focus. */
+/* Whether the FM view's frequency field has focus. Asked by the view itself;
+   the frame loop reads the raw field and lets view_input.h decide what it
+   means, which is where survey_editing() and srd_editing() went. */
 int fm_editing(const struct app *app);
 /* Walking band II: a coarse sweep, then the carriers it found. */
 void fm_scan_begin(struct app *app);
@@ -178,6 +182,10 @@ void draw_adsb(struct app *app);
 void handle_adsb_input(struct app *app);
 void update_adsb(struct app *app, double now);
 int adsb_tuned(const struct app *app);
+Rectangle adsb_waterfall_rect(const struct app *app);
+void enter_adsb(struct app *app);
+void leave_adsb(struct app *app);
+void view_adsb_defaults(struct app *app);
 
 
 /* Scope tab: the four signal views, and the GPU resources two of them keep
@@ -291,6 +299,12 @@ void view_window_input(struct app *app, struct chart_window *win,
 
 void draw_waterfall_rect(const struct app *app, int calibration_mode,
                          Rectangle rect, const struct chart_window *win);
+void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mode,
+                                      Rectangle rect, const struct chart_window *win,
+                                      const struct sdrgui_waterfall_marker *markers,
+                                      int marker_count,
+                                      int *out_clicked_marker_id,
+                                      int *out_hovered_marker_id);
 void draw_waterfall(const struct app *app);
 void draw_base_hud(const struct app *app, const struct slot_snapshot *snapshot);
 void draw_magnitude(const struct app *app);
@@ -342,9 +356,27 @@ void draw_survey(struct app *app);
 void update_tetra(struct app *app, double now);
 void draw_tetra(struct app *app);
 void handle_tetra_input(struct app *app);
-/* True while a range field is taking typed input, so the frame loop leaves the
-   number keys and Esc to the field rather than switching views or quitting. */
-int survey_editing(const struct app *app);
+Rectangle tetra_waterfall_rect(const struct app *app);
+
+/* SRD 433-435 MHz (Decode tab): Short Range Devices OOK / Manchester. */
+void update_srd(struct app *app, double now);
+void draw_srd(struct app *app);
+void handle_srd_input(struct app *app);
+void view_srd_defaults(struct app *app);
+/* Whether the receiver is tuned within the SRD band and fast enough to see
+   it, the same shape as adsb_tuned() above -- off it, the view offers a
+   retune affordance instead of decoding silence. */
+int srd_tuned(const struct app *app);
+/* The log mode's waterfall rectangle, or a zero rect in analysis mode, so a
+   caller that dispatches Up/Down and drag to it does nothing there. */
+Rectangle srd_waterfall_rect(const struct app *app);
+/* Entering the view retunes the receiver to 434 MHz when it is not already
+   within the SRD band -- the same shape as enter_gsm()/enter_lte(), because
+   a manual "Retune to 434 MHz" click depends on a click landing correctly,
+   and the whole point of opening this view is to be listening in the right
+   place. leave_srd() gives the borrowed tuning back. */
+void enter_srd(struct app *app);
+void leave_srd(struct app *app);
 
 /* Help overlay: what each chart plots and how to read it. Orthogonal to the
    tabs like calibration is, reachable with `h` from every view. */

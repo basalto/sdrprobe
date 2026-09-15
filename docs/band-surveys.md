@@ -10,11 +10,10 @@ the more useful question and the only one that needs the files to accumulate.
 
 ## From the survey window
 
-The survey is where the application opens, and the **Survey** button at the
-left of the Scope tab returns to it. It is a button rather than a fifth
-numbered view because it is not a fifth way of looking at the current tuning:
-the other four draw whatever the receiver is pointed at, and this one walks the
-receiver across a band.
+The survey is where the application opens, and **Survey** is a top-level tab
+beside Scope and Decode. It is not a fifth numbered Scope view: the four Scope
+views draw whatever the receiver is pointed at, while Survey walks the receiver
+across a band (ADR-0020).
 
 The view carries the same thing as the command line: a **site** and an
 **antenna** field on the row under the range, and a **Save survey** button. The
@@ -32,13 +31,15 @@ or one antenna -- two ways makes it two of them, and nothing downstream can
 tell. The antenna defaults to `telescopic`, which is what a dongle ships with,
 and that name is in the list from the start so the picker is never empty.
 
-**The tuning correction is kept per site**, and shown beside each name in the
-list. It belongs to the receiver rather than the room, but it is measured
-against whatever reference the room offers and it drifts -- so calibrating at
-one place and carrying the dongle to another arrives with a number that was
-true somewhere else. Picking a site applies the correction recorded there, and
-`Apply PPM` in the calibration overlay records a new one against wherever you
-are. `--ppm` still wins for one run, and is recorded against the current site.
+**The tuning correction is kept per receiver and site**, and shown beside each
+name in the list. It compensates one receiver's crystal, but is measured
+against whatever reference the site offers and it drifts -- so neither another
+receiver at the same place nor the same receiver carried elsewhere inherits
+it. Picking a site applies the correction recorded for that receiver there,
+and `Apply PPM` in the calibration overlay records a new one against both.
+`--ppm` still wins for one run; `--claim-calibration` is the explicit act that
+stores it. Survey history is narrower still: receiver, site, and antenna,
+because changing the antenna changes what can be heard (ADR-0018, ADR-0022).
 
 ## Maxima and signals
 

@@ -237,8 +237,12 @@ void view_window_input(struct app *app, struct chart_window *win,
  * set their window when they select a channel, so there is one answer to
  * "what is on screen" and dragging it is the same gesture everywhere.
  */
-void draw_waterfall_rect(const struct app *app, int calibration_mode,
-                         Rectangle rect, const struct chart_window *win) {
+void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mode,
+                                      Rectangle rect, const struct chart_window *win,
+                                      const struct sdrgui_waterfall_marker *markers,
+                                      int marker_count,
+                                      int *out_clicked_marker_id,
+                                      int *out_hovered_marker_id) {
     Rectangle plot = sdrgui_waterfall_area(rect);
     struct sdrgui_waterfall_params params = {
         rect, app->sv.waterfall, (double)app->applied.frequency_hz,
@@ -249,7 +253,8 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
-        0, 0.0, 0.0
+        0, 0.0, 0.0,
+        markers, marker_count, out_clicked_marker_id, out_hovered_marker_id
     };
 
     chart_window_zoom_of(win, &params.zoom_center_hz,
@@ -257,6 +262,12 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
     params.drag_active = chart_window_drag_of(win, plot, &params.drag_lower_hz,
                                               &params.drag_upper_hz);
     sdrgui_waterfall(&params);
+}
+
+void draw_waterfall_rect(const struct app *app, int calibration_mode,
+                         Rectangle rect, const struct chart_window *win) {
+    draw_waterfall_rect_with_markers(app, calibration_mode, rect, win,
+                                     NULL, 0, NULL, NULL);
 }
 
 /*
@@ -282,7 +293,8 @@ void draw_waterfall(const struct app *app) {
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
-        0, 0.0, 0.0
+        0, 0.0, 0.0,
+        NULL, 0, NULL, NULL
     };
 
     /* The component already knows how to draw part of its span -- the
@@ -563,6 +575,41 @@ void view_scope_defaults(struct app *app) {
     app->waterfall_lower_dbfs = SDR_DSP_DBFS_FLOOR;
 }
 
+/*
+ * Carry the waterfall's history across a retune.
+ *
+ * Every stored row still describes the frequencies it was measured at; only
+ * which bin holds them has changed. Slide each one by
+ * sdr_dsp_retune_bin_shift() and fill what slides in with "not measured".
+ * Where the two spans do not overlap at all nothing survives, which is the
+ * same picture clearing gave and arrives by the same code path.
+ *
+ * This is what makes the arrows usable: they step half a span, so half the
+ * picture is carried and a reader walking the band builds one up instead of
+ * watching it blank every press.
+ */
+static void waterfall_carry_across_retune(struct app *app) {
+    int bins = app->frame.spectrum_bins > 0 ? app->frame.spectrum_bins
+                                            : SDR_DSP_FFT_SIZE;
+    int rows = app->sv.waterfall_rows < app->sv.waterfall_height
+                   ? app->sv.waterfall_rows
+                   : app->sv.waterfall_height;
+    int shift = sdr_dsp_retune_bin_shift((double)app->sv.waterfall_tuned_hz,
+                                         (double)app->applied.frequency_hz,
+                                         (double)app->applied.sample_rate_hz,
+                                         bins);
+    int y;
+
+    if (bins > SDR_DSP_FFT_MAX)
+        bins = SDR_DSP_FFT_MAX;
+    for (y = 0; y < rows; y++)
+        sdr_dsp_shift_row(app->sv.waterfall_dbfs + (size_t)y * SDR_DSP_FFT_MAX,
+                          bins, shift, SDR_DSP_UNMEASURED_DBFS);
+
+    app->sv.waterfall_tuned_hz = app->applied.frequency_hz;
+    render_waterfall(app);
+}
+
 /* The scatter render texture and the waterfall texture track the plot
    rectangle, so they are rebuilt when it changes. The frame loop used to
    compare their dimensions itself, which meant it had to know that the
@@ -579,9 +626,13 @@ int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
         /* Retuning does not rebuild the waterfall itself -- tuning a receiver
            is not a drawing operation, and it happens on paths that have no
            window at all. What it leaves behind is a history gathered at
-           another frequency, which the view throws away here. */
-        if (app->sv.waterfall_tuned_hz != app->applied.frequency_hz)
-            return recreate_waterfall(app, plot, 1);
+           another frequency, which the view *moves* here rather than throwing
+           away: the rows still describe the frequencies they were measured
+           at, and where the old span and the new one overlap that is a
+           picture worth keeping. */
+        if (app->sv.waterfall_tuned_hz != app->applied.frequency_hz &&
+            app->sv.waterfall_ready)
+            waterfall_carry_across_retune(app);
         return 0;
     }
     if (recreate_scatter(app, plot) < 0)

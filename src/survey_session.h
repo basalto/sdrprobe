@@ -75,6 +75,7 @@ struct survey_block {
      */
     struct reading_clock clock;
     int remove_dc;
+    float full_scale;
 };
 
 enum survey_session_state {

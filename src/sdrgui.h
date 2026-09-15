@@ -165,6 +165,23 @@ void sdrgui_scatter(const struct sdrgui_scatter_params *params);
    8 of that. */
 #define SDRGUI_WATERFALL_FOOTER_H 44.0f
 
+struct sdrgui_waterfall_marker {
+    double frequency_hz;        /* detection center frequency */
+    double bandwidth_hz;        /* estimated bandwidth */
+    double age_seconds;         /* age in the past (0 = now = top of waterfall) */
+    double duration_seconds;    /* duration of burst in time */
+    /*
+     * Tag / packet summary, or NULL for a marker that has nothing to add
+     * beyond being there -- which draws brackets and a dot and no pill.
+     * On a busy band most detections are of that kind, and a box saying
+     * the same word forty times hides the few that say something else.
+     */
+    const char *label;
+    int highlighted;            /* 1 if selected/hovered in table */
+    int id;                     /* entry identifier */
+    Color color;                /* custom color (or default if 0) */
+};
+
 struct sdrgui_waterfall_params {
     Rectangle plot;
     Texture2D texture;          /* full-span waterfall history (app-owned) */
@@ -193,6 +210,11 @@ struct sdrgui_waterfall_params {
     int drag_active;
     double drag_lower_hz;
     double drag_upper_hz;
+    /* Detection markers plotted directly over the waterfall */
+    const struct sdrgui_waterfall_marker *markers;
+    int marker_count;
+    int *out_clicked_marker_id;
+    int *out_hovered_marker_id;
 };
 
 /* Frequency/time waterfall with a frequency or channel x-axis and a cursor. */
@@ -392,11 +414,19 @@ double sdrgui_survey_chart_hz_at(Rectangle outer,
 
 struct sdrgui_message_log_row {
     const char *time;    /* decode timestamp, e.g. "14:32:07" */
-    const char *icao;    /* transmitter id, e.g. "4840D6" */
+    const char *id;      /* row identity: an ICAO for ADS-B, a network for
+                             TETRA, a frame kind for SRD -- whatever the
+                             caller's id_heading names it */
     const char *label;   /* short message-kind tag, e.g. "ID", "POS", "VEL" */
     const char *detail;  /* decoded summary text */
     const char *raw;     /* raw hexadecimal frame */
     int highlight;       /* newest / just-updated row */
+    /* What kind of device sent this, when the caller can say. NULL or empty
+       in every row means the column is not drawn at all. */
+    const char *type;
+    /* Where it was, as the caller wants it spelled. Same rule: NULL
+       everywhere means no column. */
+    const char *freq;
 };
 
 struct sdrgui_message_log_params {
@@ -405,9 +435,27 @@ struct sdrgui_message_log_params {
     int count;
     const char *caption;      /* top-of-panel caption (may be NULL) */
     const char *empty_notice; /* shown when count == 0 */
+    /* Column headings for the id and label fields above. NULL falls back to
+       "ID" / "TYPE" rather than a literal "ICAO" -- this widget is shared by
+       ADS-B, TETRA and SRD, and a hardcoded Mode S term is exactly the
+       vocabulary leak CONTEXT.md warns against (a TETRA identity is not an
+       ICAO, and an SRD frame kind is not either). */
+    const char *id_heading;
+    const char *label_heading;
+    /* Heading for the optional type column. NULL omits it entirely. */
+    const char *type_heading;
+    /* Heading for the optional frequency column. NULL omits it entirely. */
+    const char *freq_heading;
+    int selected_row;         /* index of selected row (-1 for none) */
+    /*
+     * There is deliberately no clicked-row out-parameter. A caller that wants
+     * to act on a click asks sdrgui_message_log_row_at() during its input
+     * phase: reporting a click out of the drawing is what let the SRD view
+     * retune the receiver from inside a draw.
+     */
 };
 
-/* Scrolling, newest-first table of decoded messages (ICAO | kind | detail). */
+/* Scrolling, newest-first table of decoded messages (id | kind | detail). */
 void sdrgui_message_log(const struct sdrgui_message_log_params *params);
 
 /* --- Symbol constellation --- */

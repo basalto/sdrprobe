@@ -96,7 +96,8 @@ enum decode_kind {
     DECODE_ADSB,
     DECODE_GSM,
     DECODE_LTE,
-    DECODE_TETRA
+    DECODE_TETRA,
+    DECODE_SRD
 };
 /* What the ADS-B view decides -- the log row, which frame the charts are
    drawn from, and the funnel -- is in a header the checks can reach. */
@@ -107,6 +108,9 @@ enum decode_kind {
 #include "fm_dsp.h"
 #include "fm_scan.h"
 #include "rds.h"
+#include "srd_dsp.h"
+#include "srd_frame.h"
+#include "srd_session.h"
 
 /*
  * Walking band II.
@@ -499,6 +503,9 @@ struct adsb_view {
        the last frame that passed. Both are about looking, not decoding. */
     int analysis_mode;
     int hold_last_good;
+    int selected_log;
+    struct receiver_lease_token lease_token;
+    struct chart_window window;
 };
 
 /*
@@ -536,6 +543,81 @@ struct tetra_view {
     int profile_fixed;
     struct tetra_log_entry log[TETRA_LOG_CAPACITY];   /* newest first */
     int log_count;
+    int selected_log;
+    struct chart_window window;
+};
+
+#define SRD_LOG_CAPACITY 64
+
+struct srd_log_entry {
+    double at;
+    enum srd_frame_kind kind;
+    enum srd_modulation modulation;
+    uint8_t bytes[32];
+    size_t byte_count;
+    size_t bit_count;
+    double carrier_hz;          /* offset from the tuning that heard it */
+    /*
+     * Where this actually was, in absolute hertz, fixed when the entry was
+     * written.
+     *
+     * The waterfall used to place a marker at `applied.frequency_hz +
+     * carrier_hz` **every frame**, with the *current* tuning -- so retuning
+     * dragged every historical label along with it and a burst recorded at
+     * 434.42 MHz would be drawn at 435.42 after a one-megahertz step. An
+     * offset only means anything beside the tuning it was measured against,
+     * and once the receiver can move from this screen it does not stay
+     * beside it.
+     */
+    double absolute_hz;
+    double chip_us;
+    size_t error_count;
+};
+
+struct srd_view {
+    int analysis_mode;
+    int auto_save_staging;
+    int selected_log;
+    double last_auto_save_time;
+    enum srd_manchester_polarity polarity;
+    struct srd_session session;
+    struct srd_log_entry log[SRD_LOG_CAPACITY];
+    int log_count;
+
+    /* What the waterfall draws: the reader's zoom and pan over the received
+       span, shared with every other decode view's waterfall
+       (chart_window.h). */
+    struct chart_window window;
+
+    /* The record-duration field, the same shape as the FM view's frequency
+       field: typed digits and a dot, parsed by srd_record_seconds() only
+       when Record is clicked rather than on every keystroke. */
+    char record_seconds[8];
+    int record_seconds_length;
+    int typing;
+    char record_error[64];      /* set when the typed duration is refused */
+
+    /*
+     * The centre frequency, in MHz, with an arrow either side of it.
+     *
+     * A field rather than only a pan, because the allocation is ten
+     * megahertz and a receiver hears two: reaching the far end by panning is
+     * a great many presses, and until this existed there was no way to say a
+     * frequency from this screen at all -- the Scope's centre field is
+     * reachable only from the Scope tab.
+     *
+     * Rewritten from the receiver whenever it is not being typed into, the
+     * way scope_header_sync() keeps its own three fields honest: a field
+     * showing a number the receiver is not on is worse than no field.
+     */
+    char freq_text[16];
+    int freq_typing;
+
+    /* Held while this view has borrowed the receiver's tuning, the same
+       shape as struct gsm_view's and struct lte_view's -- so entering and
+       leaving the view can retune to 434 MHz and restore what was there
+       before without another view's return refusing out of turn. */
+    struct receiver_lease_token lease_token;
 };
 
 /*
@@ -936,6 +1018,28 @@ struct survey_view {
 typedef char signal_frame_is_one_block[
     (SIGNAL_FRAME_PAIRS == SAMPLE_BLOCK_PAIRS) ? 1 : -1];
 
+struct waterfall_signal_context {
+    int menu_open;
+    int popup_open;
+    Vector2 mouse_pos;
+    double clicked_freq_hz;
+    double clicked_age_seconds;
+    char technology[16];
+
+    double report_freq_hz;
+    double report_offset_hz;
+    double report_age_seconds;
+    double report_duration_seconds;
+    double report_prominence_db;
+    double report_standing_fraction;
+    double report_envelope_variation;
+    double report_peak_mean_db;
+    char report_modulation[64];
+    char report_technology[96];
+    char notice[384];
+    double notice_time;
+};
+
 struct app {
     struct scope_view sv;
     struct survey_view survey;
@@ -944,6 +1048,8 @@ struct app {
     struct tetra_view tetra;
     struct lte_view lte;
     struct fm_view fm;
+    struct srd_view srd;
+    struct waterfall_signal_context wf_menu;
     struct settings_panel set;
     struct help_overlay help;
     struct calibration cal;

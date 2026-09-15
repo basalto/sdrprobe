@@ -314,44 +314,104 @@ void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
        the box, so a log packed beside a chart looked shorter than its
        neighbour by exactly the strip the neighbour reserved. */
     Rectangle outer = params->plot;
-    Rectangle plot = sdrgui_chart_area(outer, 0.0f, 25.0f);
+    /* The row band, from the header that also answers which row a pointer is
+       over -- so the drawing and the hit test cannot come to disagree about
+       where a row is. */
+    struct sdrgui_log_rows band = sdrgui_message_log_rows(outer);
+    Rectangle plot = band.plot;
     DrawRectangleRec(plot, (Color){ 6, 10, 17, 255 });
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
 
-    const int pad = 12;
-    const int row_height = 24;
-    int x_time = (int)plot.x + pad;
-    int x_icao = x_time + 96;
-    int x_label = x_icao + 84;
-    int x_detail = x_label + 64;
-    int x_raw = x_detail + 430;
+    const int pad = SDRGUI_LOG_PAD;
+    const int row_height = band.row_height;
     int right = (int)(plot.x + plot.width) - pad;
     int y = (int)plot.y + pad;
+    const char *id_heading = params->id_heading ? params->id_heading : "ID";
+    const char *label_heading = params->label_heading ? params->label_heading
+                                                       : "TYPE";
 
-    /* The raw column sits at a fixed offset, which is fine in a full-width
-       panel and not fine in a narrow one: it used to draw past the panel's own
-       right edge and over whatever sat beside it. Give it up when there is no
-       room, and let the decoded text take the space instead -- every field is
-       drawn through sdrgui_text_fit now, so a column that does not fit is
-       shortened rather than spilled. */
-    const int raw_minimum = 170;
-    int show_raw = x_raw + raw_minimum <= right;
-    int detail_width = (show_raw ? x_raw - 12 : right) - x_detail;
+    /*
+     * Measure the widest identifier and label this log is about to draw, and
+     * let sdrgui_message_log_columns() decide what to do about them.
+     * MeasureText needs a font and a font needs a window, so the measuring
+     * has to happen here; the arithmetic over the answer does not, and it is
+     * in sdrgui_geometry.h where check-geometry can reach it.
+     *
+     * The values are measured at 18 and the headings at 16, which is what
+     * each is drawn at.
+     */
+    const char *type_heading = params->type_heading;
+    const char *freq_heading = params->freq_heading;
+    struct sdrgui_log_widths widths;
+    struct sdrgui_log_columns col;
+    int x_time, x_id, x_label, x_detail, x_raw, show_raw, detail_width;
+    int i;
+
+    widths.id = MeasureText(id_heading, 16);
+    widths.label = MeasureText(label_heading, 16);
+    widths.type = type_heading ? MeasureText(type_heading, 16) : 0;
+    widths.freq = freq_heading ? MeasureText(freq_heading, 16) : 0;
+
+    for (i = 0; i < params->count; i++) {
+        int w;
+
+        if (params->rows[i].id) {
+            w = MeasureText(params->rows[i].id, 18);
+            if (w > widths.id)
+                widths.id = w;
+        }
+        if (params->rows[i].label) {
+            w = MeasureText(params->rows[i].label, 18);
+            if (w > widths.label)
+                widths.label = w;
+        }
+        if (type_heading && params->rows[i].type) {
+            w = MeasureText(params->rows[i].type, 18);
+            if (w > widths.type)
+                widths.type = w;
+        }
+        if (freq_heading && params->rows[i].freq) {
+            w = MeasureText(params->rows[i].freq, 18);
+            if (w > widths.freq)
+                widths.freq = w;
+        }
+    }
+
+    col = sdrgui_message_log_columns((int)plot.x + pad, right, widths);
+    x_time = col.time_x;
+    x_id = col.id_x;
+    x_label = col.label_x;
+    x_detail = col.detail_x;
+    x_raw = col.raw_x;
+    show_raw = col.show_raw;
+    detail_width = col.detail_width;
 
     if (params->caption && params->caption[0])
         sdrgui_text_fit(params->caption, (int)plot.x, (int)outer.y, 16,
                         (float)(right - (int)plot.x),
                         (Color){ 151, 174, 188, 255 });
 
-    /* Column header. */
-    DrawText("TIME", x_time, y, 16, (Color){ 126, 151, 166, 255 });
-    DrawText("ICAO", x_icao, y, 16, (Color){ 126, 151, 166, 255 });
-    DrawText("TYPE", x_label, y, 16, (Color){ 126, 151, 166, 255 });
+    /* Column header. Both headings are drawn through sdrgui_text_fit,
+       bounded by the next column's x, because a caller's heading (e.g.
+       "NETWORK") can be longer than the four characters "ICAO" always was. */
+    sdrgui_text_fit("TIME", x_time, y, 16, (float)col.time_width,
+                    (Color){ 126, 151, 166, 255 });
+    if (col.show_freq)
+        sdrgui_text_fit(freq_heading, col.freq_x, y, 16, (float)col.freq_width,
+                        (Color){ 126, 151, 166, 255 });
+    sdrgui_text_fit(id_heading, x_id, y, 16, (float)col.id_width,
+                    (Color){ 126, 151, 166, 255 });
+    sdrgui_text_fit(label_heading, x_label, y, 16, (float)col.label_width,
+                    (Color){ 126, 151, 166, 255 });
+    if (col.show_type)
+        sdrgui_text_fit(type_heading, col.type_x, y, 16, (float)col.type_width,
+                        (Color){ 126, 151, 166, 255 });
     sdrgui_text_fit("DECODED MESSAGE", x_detail, y, 16, (float)detail_width,
                     (Color){ 126, 151, 166, 255 });
     if (show_raw)
-        DrawText("RAW (hex)", x_raw, y, 16, (Color){ 126, 151, 166, 255 });
-    y += 22;
+        sdrgui_text_fit("RAW (hex)", x_raw, y, 16, (float)col.raw_width,
+                        (Color){ 126, 151, 166, 255 });
+    y = band.first_y;
     DrawLine(x_time, y - 4, (int)(plot.x + plot.width) - pad, y - 4,
              (Color){ 82, 109, 126, 160 });
 
@@ -361,26 +421,57 @@ void sdrgui_message_log(const struct sdrgui_message_log_params *params) {
         return;
     }
 
-    int usable = (int)(plot.y + plot.height) - pad - y;
-    int max_rows = usable / row_height;
-    int rows = params->count < max_rows ? params->count : max_rows;
+    int rows = params->count < band.capacity ? params->count : band.capacity;
+    /*
+     * Which row is under the pointer comes from the geometry header, not from
+     * a rectangle built here: the hover highlight and the input phase's hit
+     * test have to agree, and they did not while each had its own arithmetic.
+     */
+    int hovered = sdrgui_message_log_row_at(outer, params->count,
+                                            GetMousePosition());
     for (int i = 0; i < rows; i++) {
         const struct sdrgui_message_log_row *row = &params->rows[i];
         int row_y = y + i * row_height;
-        if (i % 2 == 1)
+        Rectangle r_row = { (float)(band.left - 4), (float)(row_y - 2),
+                            (float)band.width, (float)row_height };
+        int is_hover = (hovered == i);
+        int is_selected = (params->selected_row == i);
+
+        if (is_selected) {
+            DrawRectangleRec(r_row, (Color){ 255, 202, 105, 32 });
+            DrawRectangleLinesEx(r_row, 1.0f, (Color){ 255, 202, 105, 140 });
+        } else if (is_hover) {
+            DrawRectangleRec(r_row, (Color){ 255, 255, 255, 18 });
+        } else if (i % 2 == 1) {
             DrawRectangle(x_time - 4, row_y - 2,
                           (int)plot.width - 2 * pad + 8, row_height,
                           (Color){ 255, 255, 255, 8 });
-        Color id_color = row->highlight ? (Color){ 255, 202, 105, 255 }
-                                        : (Color){ 235, 242, 246, 255 };
-        DrawText(row->time, x_time, row_y, 18, (Color){ 160, 178, 190, 255 });
-        DrawText(row->icao, x_icao, row_y, 18, id_color);
-        DrawText(row->label, x_label, row_y, 18, (Color){ 149, 205, 232, 255 });
+        }
+
+        Color id_color = (is_selected || row->highlight)
+                             ? (Color){ 255, 202, 105, 255 }
+                             : (Color){ 235, 242, 246, 255 };
+        /* Every field, bounded by its own column. Three of these were bare
+           DrawText calls, which is how "UNDECODED" came to be drawn through
+           the column beside it. */
+        sdrgui_text_fit(row->time, x_time, row_y, 18, (float)col.time_width,
+                        (Color){ 160, 178, 190, 255 });
+        if (col.show_freq)
+            sdrgui_text_fit(row->freq ? row->freq : "", col.freq_x, row_y, 18,
+                            (float)col.freq_width,
+                            (Color){ 186, 206, 220, 255 });
+        sdrgui_text_fit(row->id, x_id, row_y, 18, (float)col.id_width,
+                        id_color);
+        sdrgui_text_fit(row->label, x_label, row_y, 18, (float)col.label_width,
+                        (Color){ 149, 205, 232, 255 });
+        if (col.show_type)
+            sdrgui_text_fit(row->type ? row->type : "", col.type_x, row_y, 18,
+                            (float)col.type_width,
+                            (Color){ 168, 190, 202, 255 });
         sdrgui_text_fit(row->detail, x_detail, row_y, 18,
                         (float)detail_width, (Color){ 213, 226, 234, 255 });
         if (show_raw)
-            sdrgui_text_fit(row->raw, x_raw, row_y, 18,
-                            (float)(right - x_raw),
+            sdrgui_text_fit(row->raw, x_raw, row_y, 18, (float)col.raw_width,
                             (Color){ 130, 150, 162, 255 });
     }
 }

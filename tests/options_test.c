@@ -655,6 +655,7 @@ static const char *g_env_site;
 static const char *g_env_antenna;
 static const char *g_env_label;
 static const char *g_env_no_startup;
+static const char *g_env_startup;
 
 static const char *fake_env(const char *name) {
     if (strcmp(name, "SDRPROBE_SITE") == 0)
@@ -665,6 +666,8 @@ static const char *fake_env(const char *name) {
         return g_env_label;
     if (strcmp(name, "SDRPROBE_NO_STARTUP") == 0)
         return g_env_no_startup;
+    if (strcmp(name, "SDRPROBE_STARTUP") == 0)
+        return g_env_startup;
     return NULL;
 }
 
@@ -673,53 +676,100 @@ static void clear_env(void) {
     g_env_antenna = NULL;
     g_env_label = NULL;
     g_env_no_startup = NULL;
+    g_env_startup = NULL;
 }
 
+/*
+ * Who sees the startup form, now that it is asked for rather than assumed.
+ *
+ * The old rule opened it on any plain windowed launch and kept it out of
+ * scripted runs with seven refusals -- so a scripted run was safe only while
+ * every one of them was right. Opt-in makes that safety structural: nothing
+ * asked, so nothing opens, and the refusals that remain are the ones that are
+ * about something other than inference.
+ */
 static void test_who_sees_the_startup_form(void) {
     struct options options;
 
-    check_int("a plain windowed receiver launch is asked",
+    check_int("a plain windowed receiver launch parses",
               parse_line("", &options), 0);
-    check_int("so the form opens", startup_form_wanted(&options), 1);
+    check_int("and is no longer asked -- a cold launch reaches a view",
+              startup_form_wanted(&options), 0);
 
-    check_int("headless parses", parse_line("--headless", &options), 0);
-    check_int("and is never asked", startup_form_wanted(&options), 0);
+    check_int("--startup parses", parse_line("--startup", &options), 0);
+    check_int("and is what opens the form", startup_form_wanted(&options), 1);
+    check_int("twice is a mistake",
+              parse_line("--startup --startup", &options), -1);
 
-    check_int("a capture parses",
-              parse_line("--file testfiles/gsm_arfcn_69.bin", &options), 0);
+    /* The two impossibility refusals, which outrank the request: there is no
+       window to draw the form in, and a capture has no crystal to measure. */
+    check_int("--startup --headless parses",
+              parse_line("--startup --headless", &options), 0);
+    check_int("and is never asked -- no window, and nobody to answer",
+              startup_form_wanted(&options), 0);
+
+    check_int("--startup over a capture parses",
+              parse_line("--startup --file testfiles/gsm_arfcn_69.bin",
+                         &options), 0);
     check_int("and is never asked -- its correction is in its samples",
               startup_form_wanted(&options), 0);
 
-    check_int("a timed run parses", parse_line("--duration 20", &options), 0);
-    check_int("and is not asked", startup_form_wanted(&options), 0);
-
-    check_int("a named screen parses", parse_line("--view gsm", &options), 0);
-    check_int("and is not asked", startup_form_wanted(&options), 0);
-    /* Including the screen it would have landed on anyway: naming it is what
-       makes the run scripted, not which one was named. */
-    check_int("--view survey parses", parse_line("--view survey", &options), 0);
-    check_int("and is still not asked", startup_form_wanted(&options), 0);
-
-    check_int("a stated correction parses", parse_line("--ppm 32", &options), 0);
+    /*
+     * And the provenance guard, which is not an inference: a measured
+     * correction offering to overwrite a stated one is the confusion that
+     * cost a measured +32 twice in one afternoon.
+     */
+    check_int("--startup --ppm 32 parses",
+              parse_line("--startup --ppm 32", &options), 0);
     check_int("and is not asked -- measuring one would offer to overwrite it",
               startup_form_wanted(&options), 0);
-    /* --ppm 0 is the case that cost a measured +32 twice in one afternoon. */
-    check_int("--ppm 0 parses", parse_line("--ppm 0", &options), 0);
+    check_int("--startup --ppm 0 parses",
+              parse_line("--startup --ppm 0", &options), 0);
     check_int("and is not asked either", startup_form_wanted(&options), 0);
 
-    check_int("a stated site parses", parse_line("--site roof", &options), 0);
-    check_int("and has answered the question", startup_form_wanted(&options),
-              0);
+    /*
+     * The three that no longer refuse. Each existed to keep the form away
+     * from a run that had not asked for it; a run that says `--startup` has.
+     */
+    check_int("--startup --duration 20 parses",
+              parse_line("--startup --duration 20", &options), 0);
+    check_int("and is asked -- the timer no longer implies a refusal",
+              startup_form_wanted(&options), 1);
 
-    check_int("--no-startup parses", parse_line("--no-startup", &options), 0);
-    check_int("and refuses it", startup_form_wanted(&options), 0);
-    check_int("twice is a mistake", parse_line("--no-startup --no-startup",
-                                               &options), -1);
+    check_int("--startup --view gsm parses",
+              parse_line("--startup --view gsm", &options), 0);
+    check_int("and is asked", startup_form_wanted(&options), 1);
+
+    check_int("--startup --site roof parses",
+              parse_line("--startup --site roof", &options), 0);
+    check_int("and is asked -- the site pre-fills rather than refusing",
+              startup_form_wanted(&options), 1);
+
+    /*
+     * An explicit refusal beats an explicit request, in either order, so the
+     * pair never resolves by argument position.
+     */
+    check_int("--no-startup still parses", parse_line("--no-startup", &options),
+              0);
+    check_int("and still refuses", startup_form_wanted(&options), 0);
+    check_int("twice is still a mistake",
+              parse_line("--no-startup --no-startup", &options), -1);
+    check_int("--no-startup --startup parses",
+              parse_line("--no-startup --startup", &options), 0);
+    check_int("and the refusal wins", startup_form_wanted(&options), 0);
+    check_int("--startup --no-startup parses",
+              parse_line("--startup --no-startup", &options), 0);
+    check_int("and the refusal wins whichever order they came in",
+              startup_form_wanted(&options), 0);
 
     check_int("--view startup names the form itself",
               parse_line("--view startup", &options), 0);
     check_int("and it is reachable from the command line",
               (int)options.view, (int)START_VIEW_STARTUP);
+    /* That route is START_VIEW_STARTUP's and not this rule's, which is what
+       keeps the form screenshottable without any flag at all. */
+    check_int("without needing --startup to say so",
+              startup_form_wanted(&options), 0);
 }
 
 static void test_the_environment_answers_the_same_questions(void) {
@@ -729,7 +779,37 @@ static void test_the_environment_answers_the_same_questions(void) {
     parse_line("", &options);
     check_int("an empty environment changes nothing",
               options_apply_environment(&options, fake_env), 0);
-    check_int("and the form still opens", startup_form_wanted(&options), 1);
+    check_int("and the form stays shut", startup_form_wanted(&options), 0);
+
+    /* The request, for a launcher that cannot reach the command line. */
+    clear_env();
+    g_env_startup = "1";
+    parse_line("", &options);
+    check_int("the request is applied",
+              options_apply_environment(&options, fake_env), 1);
+    check_int("and the form opens", startup_form_wanted(&options), 1);
+
+    clear_env();
+    g_env_startup = "";
+    parse_line("", &options);
+    check_int("an empty request is no request",
+              options_apply_environment(&options, fake_env), 0);
+    check_int("and the form stays shut", startup_form_wanted(&options), 0);
+
+    /* A refusal from either route beats a request from either route. */
+    clear_env();
+    g_env_startup = "1";
+    parse_line("--no-startup", &options);
+    options_apply_environment(&options, fake_env);
+    check_int("the environment cannot ask past a refusing flag",
+              startup_form_wanted(&options), 0);
+
+    clear_env();
+    g_env_no_startup = "1";
+    parse_line("--startup", &options);
+    options_apply_environment(&options, fake_env);
+    check_int("nor can a flag ask past a refusing variable",
+              startup_form_wanted(&options), 0);
 
     clear_env();
     g_env_site = "field-hut";
@@ -741,8 +821,8 @@ static void test_the_environment_answers_the_same_questions(void) {
     check_str("the site", options.site, "field-hut");
     check_str("the antenna, commas and all", options.antenna, "discone, roof");
     check_str("the label", options.receiver_label, "dongle-a");
-    check_int("and the form has nothing left to ask",
-              startup_form_wanted(&options), 0);
+    check_int("and nothing asked for the form", startup_form_wanted(&options),
+              0);
 
     /* A flag beats a variable. One rule, in one direction. */
     clear_env();
@@ -764,19 +844,17 @@ static void test_the_environment_answers_the_same_questions(void) {
     check_int("an empty variable applies nothing",
               options_apply_environment(&options, fake_env), 0);
     check_true("and leaves the site unset", options.site == NULL);
-    check_int("and does not suppress the form",
-              startup_form_wanted(&options), 1);
 
     clear_env();
     g_env_no_startup = "1";
-    parse_line("", &options);
+    parse_line("--startup", &options);
     check_int("the refusal is applied",
               options_apply_environment(&options, fake_env), 1);
     check_int("and the form does not open", startup_form_wanted(&options), 0);
 
     clear_env();
     g_env_no_startup = "";
-    parse_line("", &options);
+    parse_line("--startup", &options);
     check_int("an empty refusal is no refusal",
               options_apply_environment(&options, fake_env), 0);
     check_int("so the form still opens", startup_form_wanted(&options), 1);

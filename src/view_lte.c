@@ -469,6 +469,20 @@ void update_lte(struct app *app, double now) {
     lte_session_feed(&app->lte.session, app->frame.i_samples, app->frame.q_samples,
                      app->frame.pair_count, (double)app->applied.sample_rate_hz,
                      app->device.full_scale, now, trace, &event);
+
+    if (event.cell_found) {
+        if (app->lte.session.mib_valid) {
+            debug_log_write("lte", "pci %d sfn %d ports %d offset %+.1f kHz",
+                            app->lte.session.cell.pci,
+                            app->lte.session.mib.system_frame_number,
+                            app->lte.session.mib.antenna_ports,
+                            app->lte.session.cell.frequency_offset_hz / 1e3);
+        } else {
+            debug_log_write("lte", "pci %d offset %+.1f kHz",
+                            app->lte.session.cell.pci,
+                            app->lte.session.cell.frequency_offset_hz / 1e3);
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -956,7 +970,7 @@ void draw_lte(struct app *app) {
     draw_button(l.record_button, recording ? "Recording..." : "Record 2s",
                 recording);
     draw_button(l.view_toggle,
-                app->lte.analysis_mode ? "View: Signal" : "View: Charts", 0);
+                app->lte.analysis_mode ? "Show signal" : "Show charts", 0);
 
     {
         int bands[LTE_BANDS_MAX];
@@ -1034,7 +1048,24 @@ void draw_lte(struct app *app) {
     if (app->lte.analysis_mode) {
         draw_charts(app, &l);
     } else {
-        draw_waterfall_rect(app, 0, l.waterfall, &app->lte.window);
+        struct sdrgui_waterfall_marker lte_marker;
+        int m_cnt = 0;
+        char lte_lbl[32];
+        if (app->lte.session.cell_valid) {
+            lte_marker.frequency_hz = (double)app->applied.frequency_hz +
+                                     app->lte.session.cell.frequency_offset_hz;
+            lte_marker.bandwidth_hz = 1400000.0; /* 6 PRB minimum */
+            lte_marker.age_seconds = now - app->lte.session.cell_time;
+            lte_marker.duration_seconds = 0.010; /* 10 ms frame */
+            lte_marker.id = 0;
+            lte_marker.highlighted = 1;
+            lte_marker.color = (Color){ 80, 220, 240, 220 };
+            snprintf(lte_lbl, sizeof(lte_lbl), "PCI %d", app->lte.session.cell.pci);
+            lte_marker.label = lte_lbl;
+            m_cnt = 1;
+        }
+        draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->lte.window,
+                                         m_cnt ? &lte_marker : NULL, m_cnt, NULL, NULL);
         draw_cell_panel(app, l.cell_panel, now);
         draw_mib_panel(app, l.mib_panel, now);
     }

@@ -376,6 +376,62 @@ void sdrgui_scatter(const struct sdrgui_scatter_params *params) {
     }
 }
 
+static Rectangle resolve_label_pill(Rectangle target, const Rectangle *placed,
+                                   int placed_count, Rectangle plot, float marker_cx) {
+    Rectangle r = target;
+    int max_attempts = 8;
+    int attempt = 0;
+
+    /*
+     * Y is physical time: never modify r.y so labels remain strictly at the
+     * detection's true time coordinate. Offset only along the horizontal
+     * (frequency) axis to resolve collisions.
+     */
+    while (attempt < max_attempts) {
+        int collides = 0;
+        for (int i = 0; i < placed_count; i++) {
+            Rectangle p = { placed[i].x - 4.0f, placed[i].y - 2.0f,
+                            placed[i].width + 8.0f, placed[i].height + 4.0f };
+            if (CheckCollisionRecs(r, p)) {
+                collides = 1;
+                break;
+            }
+        }
+        if (!collides)
+            break;
+
+        attempt++;
+        float span_x = target.width + 10.0f;
+        if (attempt == 1) {
+            r.x = marker_cx + 8.0f;
+        } else if (attempt == 2) {
+            r.x = marker_cx - r.width - 8.0f;
+        } else if (attempt == 3) {
+            r.x = marker_cx + 8.0f + span_x;
+        } else if (attempt == 4) {
+            r.x = marker_cx - 8.0f - span_x - r.width;
+        } else if (attempt == 5) {
+            r.x = marker_cx + 8.0f + 2.0f * span_x;
+        } else if (attempt == 6) {
+            r.x = marker_cx - 8.0f - 2.0f * span_x - r.width;
+        } else {
+            r.x = target.x + (float)attempt * 12.0f;
+        }
+    }
+
+    if (r.x < plot.x + 2.0f)
+        r.x = plot.x + 2.0f;
+    if (r.x + r.width > plot.x + plot.width - 2.0f)
+        r.x = plot.x + plot.width - r.width - 2.0f;
+
+    if (r.y < plot.y + 2.0f)
+        r.y = plot.y + 2.0f;
+    if (r.y + r.height > plot.y + plot.height - 2.0f)
+        r.y = plot.y + plot.height - r.height - 2.0f;
+
+    return r;
+}
+
 void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
     char text[256];
     int channel_axis = params->channel_axis;
@@ -510,7 +566,9 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
                                    params->sample_rate
                              : (double)params->fallback_pairs /
                                    params->sample_rate;
-    double visible_seconds = params->rows * row_seconds;
+    double visible_seconds = (params->height > 0 ? (double)params->height
+                                                 : (double)params->rows) *
+                             row_seconds;
     int time_divisions = plot.height >= 400.0f ? 4 : 2;
     for (int division = 0; division <= time_divisions; division++) {
         float y = plot.y + plot.height * division / (float)time_divisions;
@@ -523,6 +581,133 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
     }
 
     DrawRectangleLinesEx(plot, 1.0f, (Color){ 82, 109, 126, 255 });
+
+    /* Detection markers plotted over the waterfall */
+    if (params->markers && params->marker_count > 0 && visible_seconds > 0.0) {
+        Vector2 mouse_pos = GetMousePosition();
+        Rectangle placed_pills[64];
+        int pill_count = 0;
+
+        for (int m_idx = 0; m_idx < params->marker_count; m_idx++) {
+            const struct sdrgui_waterfall_marker *m = &params->markers[m_idx];
+            if (m->age_seconds < 0.0 || m->age_seconds > visible_seconds)
+                continue;
+            if (m->frequency_hz < lower_frequency || m->frequency_hz > upper_frequency)
+                continue;
+
+            float mx = plot.x + (float)((m->frequency_hz - lower_frequency) /
+                                        (upper_frequency - lower_frequency)) * plot.width;
+            float my = plot.y + (float)(m->age_seconds / visible_seconds) * plot.height;
+
+            /* Channel bandwidth and burst duration brackets */
+            float marker_w = 26.0f;
+            if (m->bandwidth_hz > 0.0) {
+                marker_w = (float)(m->bandwidth_hz / (upper_frequency - lower_frequency)) * plot.width;
+                if (marker_w < 20.0f)
+                    marker_w = 20.0f;
+            }
+            float marker_h = 12.0f;
+            if (m->duration_seconds > 0.0) {
+                marker_h = (float)(m->duration_seconds / visible_seconds) * plot.height;
+                if (marker_h < 8.0f)
+                    marker_h = 8.0f;
+            }
+
+            Rectangle r_marker = { mx - marker_w / 2.0f, my - marker_h / 2.0f, marker_w, marker_h };
+            if (r_marker.y < plot.y + 2.0f)
+                r_marker.y = plot.y + 2.0f;
+            if (r_marker.y + r_marker.height > plot.y + plot.height - 2.0f)
+                r_marker.y = plot.y + plot.height - r_marker.height - 2.0f;
+
+            /*
+             * Tag pill geometry -- for markers that have something to say.
+             *
+             * A marker with no label draws its brackets and its dot and
+             * nothing else: no pill, no slot in the collision budget, no
+             * leader line. An empty pill used to be drawn anyway, 20 px wide
+             * with a border, which on a busy band is a screenful of little
+             * boxes saying nothing and hiding what the labelled markers
+             * carry. It also spent one of the 64 collision slots per
+             * unlabelled marker, so the labels that *did* have something to
+             * say were the ones pushed off.
+             */
+            int labelled = m->label && m->label[0];
+            int tw = labelled ? MeasureText(m->label, 12) : 0;
+            float pw = (float)(tw + 14);
+            float ph = 16.0f;
+            float tx = r_marker.x + r_marker.width + 4.0f;
+            Rectangle target, pill;
+            int is_hover;
+
+            if (tx + pw > plot.x + plot.width - 2.0f)
+                tx = r_marker.x - pw - 4.0f;
+            target = (Rectangle){ tx, my - ph / 2.0f, pw, ph };
+            if (target.y < plot.y + 2.0f)
+                target.y = plot.y + 2.0f;
+            if (target.y + target.height > plot.y + plot.height - 2.0f)
+                target.y = plot.y + plot.height - target.height - 2.0f;
+
+            pill = target;
+            if (labelled &&
+                pill_count < (int)(sizeof(placed_pills) / sizeof(placed_pills[0]))) {
+                pill = resolve_label_pill(target, placed_pills, pill_count, plot, mx);
+                placed_pills[pill_count++] = pill;
+            }
+
+            /* An unlabelled marker is hovered by its brackets, which are all
+               there is of it. */
+            is_hover = CheckCollisionPointRec(mouse_pos, r_marker) ||
+                       (labelled && CheckCollisionPointRec(mouse_pos, pill));
+            if (is_hover) {
+                if (params->out_hovered_marker_id)
+                    *params->out_hovered_marker_id = m->id;
+                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && params->out_clicked_marker_id)
+                    *params->out_clicked_marker_id = m->id;
+            }
+
+            Color col = m->color.a > 0 ? m->color : (Color){ 80, 220, 240, 220 };
+            if (m->highlighted || is_hover)
+                col = (Color){ 255, 202, 105, 255 };
+
+            /* Draw channel bandwidth brackets around the signal burst */
+            float b_len = 5.0f;
+            /* Left bracket '[' */
+            DrawLine((int)r_marker.x, (int)r_marker.y, (int)(r_marker.x + b_len), (int)r_marker.y, col);
+            DrawLine((int)r_marker.x, (int)r_marker.y, (int)r_marker.x, (int)(r_marker.y + r_marker.height), col);
+            DrawLine((int)r_marker.x, (int)(r_marker.y + r_marker.height), (int)(r_marker.x + b_len), (int)(r_marker.y + r_marker.height), col);
+
+            /* Right bracket ']' */
+            DrawLine((int)(r_marker.x + r_marker.width - b_len), (int)r_marker.y, (int)(r_marker.x + r_marker.width), (int)r_marker.y, col);
+            DrawLine((int)(r_marker.x + r_marker.width), (int)r_marker.y, (int)(r_marker.x + r_marker.width), (int)(r_marker.y + r_marker.height), col);
+            DrawLine((int)(r_marker.x + r_marker.width - b_len), (int)(r_marker.y + r_marker.height), (int)(r_marker.x + r_marker.width), (int)(r_marker.y + r_marker.height), col);
+
+            /* Center carrier dot */
+            float dot_y = my;
+            if (dot_y < plot.y + 3.0f)
+                dot_y = plot.y + 3.0f;
+            else if (dot_y > plot.y + plot.height - 3.0f)
+                dot_y = plot.y + plot.height - 3.0f;
+            DrawCircle((int)mx, (int)dot_y, 2.5f, col);
+
+            /* If badge was shifted horizontally to avoid collision, draw horizontal leader line */
+            if (labelled &&
+                (fabsf(pill.x - target.x) > 2.0f ||
+                 fabsf(pill.x - (r_marker.x + r_marker.width + 4.0f)) > 2.0f)) {
+                float anchor_x = (pill.x > mx) ? r_marker.x + r_marker.width : r_marker.x;
+                float dest_x = (pill.x > mx) ? pill.x : pill.x + pill.width;
+                DrawLine((int)anchor_x, (int)(pill.y + pill.height / 2.0f), (int)dest_x, (int)(pill.y + pill.height / 2.0f),
+                         (Color){ col.r, col.g, col.b, 160 });
+            }
+
+            /* Draw label pill */
+            if (labelled) {
+                DrawRectangleRec(pill, (Color){ 10, 16, 24, 235 });
+                DrawRectangleLinesEx(pill, 1.0f, col);
+                DrawText(m->label, (int)pill.x + 7, (int)pill.y + 2, 12, col);
+            }
+        }
+    }
+
     if (!params->calibration_mode)
         DrawText("time (newest at top)", (int)plot.x, (int)outer.y, 16,
                  (Color){ 151, 174, 188, 255 });
@@ -545,7 +730,7 @@ void sdrgui_waterfall(const struct sdrgui_waterfall_params *params) {
     if (sdrgui_plot_cursor(plot, &x_fraction, &y_fraction, &mouse)) {
         double frequency = lower_frequency +
                            x_fraction * (upper_frequency - lower_frequency);
-        double age = y_fraction * params->height * row_seconds;
+        double age = y_fraction * visible_seconds;
         char offset[40];
         sdrgui_format_frequency_offset(offset, sizeof(offset),
                                 frequency - params->center_hz);

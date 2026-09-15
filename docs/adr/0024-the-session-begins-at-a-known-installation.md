@@ -2,7 +2,9 @@
 
 ## Status
 
-accepted
+accepted; **amended 2026-09-15** -- the form is opt-in. See "Amendment" at the
+end, which replaces the first sentence of the Decision and the whole of
+"Saying what the form would ask is how it is bypassed".
 
 ## Context
 
@@ -151,3 +153,69 @@ writer. `survey_session.{c,h}` is the shape, and ADR-0012 is the rule.
 - `check-startup-session` reaches every transition with no window and no
   receiver, including the settle timed from the tuning -- which no capture can
   exercise, because nothing in `testfiles/` retunes.
+
+## Amendment, 2026-09-15: the form is asked for, not assumed
+
+The Decision said the program "does not reach a view until the site is known
+and a calibration has been attempted" on a plain windowed receiver launch.
+**It now reaches a view immediately, and the form opens only for `--startup`
+or `SDRPROBE_STARTUP`.**
+
+### Why
+
+The Consequences already carried the cost and understated who pays it: "a cold
+launch costs 12.8 s of GSM scanning plus the gate's own settling where GSM 900
+is on air. Where it is not, the LTE band scan is minutes." That is the price of
+*every* interactive launch, including the many that want to look at a waterfall
+for thirty seconds and have not moved the receiver since the last calibration
+-- which is already on file, keyed by receiver and site (ADR-0018), and already
+restored and applied at startup. **Skip** released the form, but a modal that
+most launches dismiss is a modal in the wrong default.
+
+The second reason is structural and is the one that settles it. "A scripted run
+never sees it" was true because seven conditions each refused, and it was true
+only while all seven stayed right. `check-pipelines`, every screenshot recipe
+and every `--duration` check rested on that list being complete. Opt-in makes
+the same guarantee hold because nothing asked, which is not a property anybody
+can break by adding a screen.
+
+### What is unchanged
+
+The form itself, `startup_session.{c,h}`, the GSM-then-LTE order and every
+reason for it, the modality while it is up, the health indicator as the
+standing verdict, and `installation_commit()` as the one writer. This changes
+when the form opens and nothing about what it does.
+
+The original Context also stands: the numbers are still keyed to an
+arrangement, and attaching one arrangement's measurement to another is still
+silent rather than wrong-looking. What has changed is the judgement about where
+that risk is best carried -- a form nobody asked for that most operators
+dismiss is weak protection, and the health indicator answers "what am I
+corrected by, and against what reference" at any later moment, which a dismissed
+modal does not.
+
+### The rule now
+
+`startup_form_wanted()` is still the whole rule, still pure, still checked.
+It is a request plus three refusals rather than seven refusals:
+
+- `--startup`, or `SDRPROBE_STARTUP`, asks for it. Nothing else does.
+- `--no-startup` and `SDRPROBE_NO_STARTUP` still refuse, and **a refusal beats
+  a request in either order**, so the pair never resolves by argument
+  position. Neither changes the default any more; they are kept so a launcher
+  or unit file carrying one keeps meaning what it meant.
+- `--headless` and `--file` refuse because the form cannot work: no window and
+  nobody to answer it, and a capture whose correction is already in its
+  samples has no crystal to measure.
+- `--ppm` refuses because it is a **provenance** guard rather than an
+  inference -- `.scratch/device-model/issues/12-*`, where `--ppm 0` wrote over
+  a measured +32 twice in one afternoon.
+
+`--duration`, `--view` and `--site` no longer refuse. Each existed only to
+infer that a run had not asked for the form; a run that says `--startup` has
+asked, and `--startup --site roof` now opens it with the site pre-filled rather
+than refusing on the operator's behalf.
+
+`--view startup` still opens it whatever this rule says, for the reason
+`START_VIEW_CALIBRATION` exists -- so the form stays screenshottable with no
+flag at all, and `check-options` pins that the two routes are separate.

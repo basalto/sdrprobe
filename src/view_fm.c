@@ -178,6 +178,11 @@ void update_fm_flush(struct app *app, double now, int flush) {
 
         fm_session_feed(&fm->session, multiplex, n,
                         (double)app->applied.sample_rate_hz, now, flush, &event);
+        if (event.groups_advanced) {
+            debug_log_write("fm-rds", "pi 0x%04X ps \"%s\" groups %ld",
+                            fm->session.station.pi, fm->session.station.ps,
+                            fm->session.groups_total);
+        }
         if (fm->analysis_mode && fm->session.bb_count > 0)
             fm_rds_timing_scores(fm->session.bb_i, fm->session.bb_q,
                                  fm_rds_chunk_length(fm->session.bb_count, 1),
@@ -848,7 +853,7 @@ void draw_fm(struct app *app) {
                 app->fm.scan.running ? "Stop" : "Scan band",
                 app->fm.scan.running);
     draw_button(l.view_toggle,
-                app->fm.analysis_mode ? "View: Signal" : "View: Charts", 0);
+                app->fm.analysis_mode ? "Show signal" : "Show charts", 0);
 
     if (app->fm.analysis_mode) {
         /* Top row: the signal, from the air inwards. Bottom row: what came
@@ -864,7 +869,22 @@ void draw_fm(struct app *app) {
 
     if (fm_scan_showing(app))
         draw_scan_list(app, l.scan_list);
-    draw_waterfall_rect(app, 0, l.waterfall, &app->fm.window);
+
+    struct sdrgui_waterfall_marker fm_markers[FM_SCAN_MAX_FOUND];
+    int fm_mcnt = 0;
+    for (int k = 0; k < app->fm.scan.found_count && k < FM_SCAN_MAX_FOUND; k++) {
+        fm_markers[k].frequency_hz = (double)app->fm.scan.found[k].frequency_hz;
+        fm_markers[k].bandwidth_hz = 150000.0;
+        fm_markers[k].age_seconds = 0.0;
+        fm_markers[k].duration_seconds = 0.0;
+        fm_markers[k].id = k;
+        fm_markers[k].highlighted = (app->fm.scan.found[k].frequency_hz == app->applied.frequency_hz);
+        fm_markers[k].color = (Color){ 80, 220, 240, 200 };
+        fm_markers[k].label = app->fm.scan.found[k].ps[0] ? app->fm.scan.found[k].ps : "FM";
+        fm_mcnt++;
+    }
+    draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->fm.window,
+                                     fm_markers, fm_mcnt, NULL, NULL);
     draw_signal_panel(app, l.signal_panel);
     draw_station_panel(app, l.station_panel);
     draw_funnel_panel(app, l.funnel_panel);

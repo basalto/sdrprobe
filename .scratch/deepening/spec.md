@@ -192,6 +192,36 @@ Magnitude binning, a uniform session dispatcher, overlay management and a
 shared analysis-mode module were rejected as false depth or conflicts with
 ADR-0023.
 
+## Fourth review, 2026-09-15
+
+Tickets 11, 12 and 14 still pass the deletion test. The new IQ ring, startup
+session, reading-origin arithmetic, clock chain and device-profile work are
+also coherent modules and are not candidates for another extraction. The
+report is `/tmp/architecture-review-20260915-101346.html`.
+
+Three recommendations survived direct comparison with the current code:
+
+15. **One SRD decode session** -- `update_srd()` owns transmission discovery,
+   demodulation choice, cross-block run assembly, frame deduplication and
+   undecoded events inside a raylib view. Move that machine behind one
+   SRD-specific session used by the window and headless adapters. Strong and
+   `ready-for-agent`.
+16. **Retrospective signal analysis outside the overlay** -- the waterfall
+   popup makes untested Probe conclusions inside a static raylib function and
+   applies an SRD-specific modulation classifier to every technology. Form a
+   presentation-free analysis record from the existing measurements and the
+   refusal discipline in `signal_findings`. Strong and `ready-for-agent`.
+17. **An extracted IQ slice is one value** -- `iq_ring_extract_slice()` makes
+   its caller guess a byte capacity and reconstruct one sample snapshot from
+   several output parameters. Let the ring own one coherent snapshot of bytes
+   and metadata. Medium, `ready-for-agent`, and blocked by 16 so the second
+   consumer determines the interface rather than a hypothetical UHD backend.
+
+A generic overlay manager, generic session coordinator, configuration manager
+and uniform technology interface were rejected. `input_route.h`,
+`installation_commit()` and the per-technology sessions already own the useful
+decisions, and ADR-0023 explicitly rejects a common technology shape.
+
 ## What this is not
 
 - Not a change to any DSP answer. Every capture in `testfiles/` must decode

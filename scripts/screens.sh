@@ -29,6 +29,7 @@ adsb=testfiles/adsb_cpr_pair.bin
 lte=testfiles/lte_b20_pci28.bin
 fm=testfiles/fm_rds_tsf.bin
 tetra=testfiles/tetra_cc17.bin
+srd=testfiles/srd_remote_control_ook_a.bin
 
 # name:arguments. The duration is the settle time as well as the clock, since
 # the frame captured is the last one.
@@ -53,6 +54,10 @@ set -- \
     "calibration-4g:--file $gsm --view calibration --calibrate lte --duration 5" \
     "settings:--file $gsm --view settings --duration 5" \
     "help:--file $gsm --view help --duration 5"
+
+set -- "$@" \
+    "srd:--file $srd --frequency 433.8M --sample-rate 2000000 --view srd --duration 10" \
+    "srd-charts:--file $srd --frequency 433.8M --sample-rate 2000000 --view srd --analysis --duration 10"
 
 for entry in "$@"; do
     name=${entry%%:*}

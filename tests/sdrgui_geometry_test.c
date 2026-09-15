@@ -409,7 +409,356 @@ static void test_the_pointer_is_on_the_dot(void) {
               sdrgui_point_in_circle(centre, 0.0f, 100.0f, 50.0f), 0);
 }
 
+/*
+ * Message-log columns, and the overlap they were reported for.
+ *
+ * The SRD decode log drew "UNDECODED" in an 84 px KIND column and "2FSK" in
+ * the MOD column beside it, and the two came out on top of each other --
+ * "UNDECOD2BSK" on screen. Neither column left its panel, so check-layout saw
+ * nothing; the values were drawn with a bare DrawText while only the headings
+ * were clipped.
+ *
+ * The property that has to hold is one line: **no column starts before the
+ * one before it has finished its text**. Everything below is that, at the
+ * widths the real callers use and at the extremes.
+ */
+static void check_columns_do_not_overlap(const char *what,
+                                         struct sdrgui_log_columns c) {
+    char label[128];
+
+    snprintf(label, sizeof(label), "%s: the id starts after the time's text", what);
+    check_true(label, c.id_x >= c.time_x + c.time_width);
+    snprintf(label, sizeof(label), "%s: the label starts after the id's text", what);
+    check_true(label, c.label_x >= c.id_x + c.id_width);
+    if (c.show_freq) {
+        snprintf(label, sizeof(label), "%s: the frequency starts after the time's text", what);
+        check_true(label, c.freq_x >= c.time_x + c.time_width);
+        snprintf(label, sizeof(label), "%s: the id starts after the frequency's text", what);
+        check_true(label, c.id_x >= c.freq_x + c.freq_width);
+    }
+    if (c.show_type) {
+        snprintf(label, sizeof(label), "%s: the type starts after the label's text", what);
+        check_true(label, c.type_x >= c.label_x + c.label_width);
+        snprintf(label, sizeof(label), "%s: the detail starts after the type's text", what);
+        check_true(label, c.detail_x >= c.type_x + c.type_width);
+    } else {
+        snprintf(label, sizeof(label), "%s: the detail starts after the label's text", what);
+        check_true(label, c.detail_x >= c.label_x + c.label_width);
+    }
+    if (c.show_raw) {
+        snprintf(label, sizeof(label), "%s: the raw starts after the detail's text", what);
+        check_true(label, c.raw_x >= c.detail_x + c.detail_width);
+    }
+    snprintf(label, sizeof(label), "%s: every column has room for something", what);
+    check_true(label, c.time_width > 0 && c.id_width > 0 &&
+                      c.label_width > 0 && c.detail_width > 0);
+}
+
+static void test_message_log_columns(void) {
+    /*
+     * The reported case. "UNDECODED" measures about 95 px at 18 point in this
+     * font; the exact number is the drawing's to find, so the check works in
+     * the currency this function is handed -- a text width -- and 95 is what
+     * it was measured at.
+     */
+    struct sdrgui_log_columns wide =
+        sdrgui_message_log_columns(12, 1900, (struct sdrgui_log_widths){ 95, 40, 0, 0 });
+
+    check_columns_do_not_overlap("a full-width SRD log", wide);
+    check_true("the id column grew past its minimum to hold UNDECODED",
+               wide.id_width >= 95);
+    check_true("and the raw column still fits", wide.show_raw);
+
+    /*
+     * The case that must not regress: ADS-B, whose identifier is six hex
+     * characters and fits the minimum. Growing the column for a caller that
+     * does not need it would move every other column for no reason.
+     */
+    struct sdrgui_log_columns adsb =
+        sdrgui_message_log_columns(12, 1900, (struct sdrgui_log_widths){ 58, 40, 0, 0 });
+
+    check_columns_do_not_overlap("an ADS-B log", adsb);
+    check_int("a short id leaves the column at its minimum",
+              adsb.id_x + SDRGUI_LOG_ID_PITCH_MIN, adsb.label_x);
+
+    /*
+     * A narrow panel. The raw column is given up first -- it already was --
+     * and the decoded message takes the room, which is the column carrying
+     * the reading.
+     */
+    struct sdrgui_log_columns narrow =
+        sdrgui_message_log_columns(12, 700, (struct sdrgui_log_widths){ 95, 40, 0, 0 });
+
+    check_columns_do_not_overlap("a narrow log", narrow);
+    check_int("a narrow panel gives up the raw column", narrow.show_raw, 0);
+    check_true("and the detail column ends inside the panel",
+               narrow.detail_x + narrow.detail_width <= 700);
+
+    /*
+     * An absurd identifier in a narrow panel: the growth is refused rather
+     * than taken out of the decoded message, which keeps its minimum. The
+     * text is then clipped by the drawing, which is a legible answer where
+     * overlap is not.
+     */
+    struct sdrgui_log_columns squeezed =
+        sdrgui_message_log_columns(12, 620, (struct sdrgui_log_widths){ 600, 300, 0, 0 });
+
+    check_columns_do_not_overlap("an absurd id in a narrow log", squeezed);
+    check_true("the decoded message keeps its minimum",
+               squeezed.detail_width >= SDRGUI_LOG_DETAIL_MIN - 1 ||
+               squeezed.detail_x + SDRGUI_LOG_DETAIL_MIN > 620);
+
+    /*
+     * A panel too small for any of it. Nothing may come back zero or
+     * negative, because a width of zero is a division waiting to happen and a
+     * negative one is a rectangle drawn backwards.
+     */
+    struct sdrgui_log_columns tiny =
+        sdrgui_message_log_columns(12, 120, (struct sdrgui_log_widths){ 95, 40, 0, 0 });
+
+    check_columns_do_not_overlap("a log with no room at all", tiny);
+    check_int("a hopeless panel gives up the raw column", tiny.show_raw, 0);
+
+    /*
+     * The optional type column. A caller with no type for its rows passes 0
+     * and gets exactly the layout it had before the column existed, which is
+     * what keeps the ADS-B log unmoved by an SRD feature -- asserted field by
+     * field rather than trusted.
+     */
+    {
+        struct sdrgui_log_columns without =
+            sdrgui_message_log_columns(12, 1900, (struct sdrgui_log_widths){ 58, 40, 0, 0 });
+        struct sdrgui_log_columns with =
+            sdrgui_message_log_columns(12, 1900, (struct sdrgui_log_widths){ 58, 40, 110, 0 });
+
+        check_int("no type asked for, no type column", without.show_type, 0);
+        check_int("a type asked for gets one", with.show_type, 1);
+        check_columns_do_not_overlap("a log with a type column", with);
+
+        check_int("without a type the detail column is where it always was",
+                  without.detail_x, without.label_x + SDRGUI_LOG_LABEL_PITCH_MIN);
+        check_int("and the raw column too",
+                  without.raw_x, without.detail_x + SDRGUI_LOG_DETAIL_PITCH);
+        check_int("the type column pushes the detail right by its own width",
+                  with.detail_x - without.detail_x,
+                  with.type_x + with.type_width + SDRGUI_LOG_GUTTER - with.type_x);
+        check_int("and moves nothing to its left",
+                  with.label_x, without.label_x);
+
+        check_true("a wide type gets the room it asks for",
+                   with.type_width >= 110);
+    }
+
+    /*
+     * A type column in a narrow panel is squeezed like the others rather than
+     * pushing the decoded message out of the panel.
+     */
+    {
+        struct sdrgui_log_columns tight =
+            sdrgui_message_log_columns(12, 640, (struct sdrgui_log_widths){ 95, 40, 300, 0 });
+
+        check_columns_do_not_overlap("a type column with no room", tight);
+        check_true("the decoded message survives a greedy type column",
+                   tight.detail_width >= 1 &&
+                   tight.detail_x + tight.detail_width <= 640);
+    }
+
+    /*
+     * The frequency column, which the SRD log carries and ADS-B does not.
+     * Same rule as the type column: absent costs nothing, present pushes only
+     * what is to its right.
+     */
+    {
+        struct sdrgui_log_widths bare = { 58, 40, 0, 0 };
+        struct sdrgui_log_widths tuned = { 58, 40, 0, 90 };
+        struct sdrgui_log_columns without =
+            sdrgui_message_log_columns(12, 1900, bare);
+        struct sdrgui_log_columns with =
+            sdrgui_message_log_columns(12, 1900, tuned);
+
+        check_int("no frequency asked for, no frequency column",
+                  without.show_freq, 0);
+        check_int("a frequency asked for gets one", with.show_freq, 1);
+        check_columns_do_not_overlap("a log with a frequency column", with);
+
+        check_int("without a frequency the id column is where it always was",
+                  without.id_x, without.time_x + SDRGUI_LOG_TIME_PITCH);
+        check_true("the frequency column pushes the id right",
+                   with.id_x > without.id_x);
+        check_int("and moves nothing to its left", with.time_x, without.time_x);
+
+        /* Both optional columns at once, which is what the SRD log asks for. */
+        {
+            struct sdrgui_log_widths both = { 95, 40, 110, 90 };
+            struct sdrgui_log_columns all =
+                sdrgui_message_log_columns(12, 1900, both);
+
+            check_columns_do_not_overlap("a log with every column", all);
+            check_true("both optional columns are present",
+                       all.show_freq && all.show_type);
+            check_true("and the decoded message still has room",
+                       all.detail_width >= SDRGUI_LOG_DETAIL_MIN);
+        }
+
+        /* And in a panel with no room, neither may push the message out. */
+        {
+            struct sdrgui_log_widths greedy = { 300, 200, 300, 300 };
+            struct sdrgui_log_columns squeezed =
+                sdrgui_message_log_columns(12, 700, greedy);
+
+            check_columns_do_not_overlap("every column, no room", squeezed);
+            check_true("the decoded message survives every greedy column",
+                       squeezed.detail_width >= 1 &&
+                       squeezed.detail_x + squeezed.detail_width <= 700);
+        }
+    }
+
+    /*
+     * Growth is monotone in what it is asked for: a wider identifier never
+     * moves a column left. The columns are added left to right, so a caller
+     * cannot make the log narrower by having more to say.
+     */
+    {
+        int previous_label_x = 0;
+        int w;
+
+        for (w = 20; w <= 400; w += 20) {
+            struct sdrgui_log_columns c =
+                sdrgui_message_log_columns(12, 1900, (struct sdrgui_log_widths){ w, 40, 0, 0 });
+            check_true("a wider id never moves the label column left",
+                       c.label_x >= previous_label_x);
+            previous_label_x = c.label_x;
+        }
+    }
+}
+
+
+/*
+ * Which row of a message log the pointer is over.
+ *
+ * It lives here because clicking a row in the SRD log both selected it and
+ * retuned the receiver, from inside `draw_log()` -- a function taking
+ * `const struct app *` and casting the const away to act. Moving the decision
+ * to the input phase means finding the row without drawing it, and a hit test
+ * that disagrees with the drawing selects a row the reader did not click,
+ * which is what `test_the_gutter_is_the_bug` above is about for bars.
+ */
+static void test_which_log_row_the_pointer_is_over(void) {
+    Rectangle outer = { 0.0f, 0.0f, 900.0f, 400.0f };
+    struct sdrgui_log_rows band = sdrgui_message_log_rows(outer);
+    Vector2 at;
+    int row;
+
+    /*
+     * Anchored on the numbers the drawing used before this band was lifted
+     * out of it, not on the band's own fields.
+     *
+     * The first version of this check was phrased entirely against
+     * `band.first_y` -- so dropping the heading block moved the expectations
+     * with the answer and the check stayed green through the mutation. That
+     * is the round trip CLAUDE.md warns about, in the small: a convention both
+     * sides share cannot be checked by comparing the two sides.
+     *
+     * These four constants were literals inside `sdrgui_message_log()`. If
+     * the extraction changed any of them, every message log in the program
+     * moved, and this is what says so.
+     */
+    check_close("the caption strip is the drawing's 25 px",
+                (double)SDRGUI_LOG_CAPTION_STRIP, 25.0, 1e-6);
+    check_int("the padding is its 12", SDRGUI_LOG_PAD, 12);
+    check_int("the heading block its 22", SDRGUI_LOG_HEADING_HEIGHT, 22);
+    check_int("and a row its 24", SDRGUI_LOG_ROW_HEIGHT, 24);
+
+    check_int("row 0 starts one heading block below the first text line",
+              band.first_y, (int)band.plot.y + 12 + 22);
+    check_int("the row band starts at the TIME column",
+              band.left, (int)band.plot.x + 12);
+    check_int("rows are the drawing's pitch", band.row_height,
+              SDRGUI_LOG_ROW_HEIGHT);
+
+    /*
+     * And the capacity against the arithmetic rather than against itself:
+     * 400 px less the caption strip, the frame's own padding top and bottom,
+     * and the headings, over 24.
+     */
+    check_int("the capacity is what fits below the headings",
+              band.capacity,
+              ((int)(band.plot.y + band.plot.height) - 12 -
+               ((int)band.plot.y + 12 + 22)) / 24);
+    check_true("which on a 400 px log is a useful number of rows",
+               band.capacity > 5);
+
+    /* The middle of row 0, and of row 3. */
+    at.x = (float)band.left + 20.0f;
+    at.y = (float)band.first_y + (float)band.row_height / 2.0f;
+    check_int("the first row", sdrgui_message_log_row_at(outer, 10, at), 0);
+
+    at.y = (float)band.first_y + 3.0f * (float)band.row_height + 4.0f;
+    check_int("the fourth", sdrgui_message_log_row_at(outer, 10, at), 3);
+
+    /* Above the first row is the heading rule, not a row. */
+    at.y = (float)band.first_y - 8.0f;
+    check_int("the headings are not a row",
+              sdrgui_message_log_row_at(outer, 10, at), -1);
+
+    /* Left and right of the row band. */
+    at.y = (float)band.first_y + 4.0f;
+    at.x = (float)band.left - 40.0f;
+    check_int("left of the band", sdrgui_message_log_row_at(outer, 10, at), -1);
+    at.x = (float)(band.left + band.width) + 40.0f;
+    check_int("right of it", sdrgui_message_log_row_at(outer, 10, at), -1);
+
+    /*
+     * Past the last row the log *holds*, which is the case an empty log is
+     * always in -- and the reason `srd_log_row_intent()` has a no-row answer
+     * rather than treating -1 as row 0.
+     */
+    at.x = (float)band.left + 20.0f;
+    at.y = (float)band.first_y + 4.0f * (float)band.row_height;
+    check_int("past the last row the log holds",
+              sdrgui_message_log_row_at(outer, 3, at), -1);
+    check_int("and an empty log has no rows at all",
+              sdrgui_message_log_row_at(outer, 0, at), -1);
+
+    /*
+     * Past the last row that *fits*. A log longer than its panel draws only
+     * what fits, and a hit test answering for an undrawn row would select
+     * something the reader cannot see -- `panel_rows.h`'s rule, one level in.
+     */
+    at.y = (float)band.first_y +
+           (float)(band.capacity + 2) * (float)band.row_height;
+    check_int("and past the last row that fits",
+              sdrgui_message_log_row_at(outer, 500, at), -1);
+
+    /* Every row that fits is reachable, and none maps to two. */
+    {
+        int seen = 0;
+        int i;
+
+        for (i = 0; i < band.capacity; i++) {
+            at.y = (float)band.first_y + ((float)i + 0.5f) *
+                                             (float)band.row_height;
+            row = sdrgui_message_log_row_at(outer, 500, at);
+            if (row == i)
+                seen++;
+        }
+        check_int("every row that fits is reachable at its own centre",
+                  seen, band.capacity);
+    }
+
+    /* A panel too short for any row answers for none rather than for row 0. */
+    {
+        Rectangle tiny = { 0.0f, 0.0f, 900.0f, 40.0f };
+
+        at.x = 20.0f;
+        at.y = 30.0f;
+        check_int("a panel with no room for a row",
+                  sdrgui_message_log_row_at(tiny, 10, at), -1);
+    }
+}
+
 int main(void) {
+    test_message_log_columns();
     test_the_plot_sits_inside_its_chart();
     test_a_tiny_chart();
     test_the_pointer_finds_the_bar_it_is_over();
@@ -423,5 +772,7 @@ int main(void) {
 
     test_peak_marks();
     test_the_pointer_is_on_the_dot();
+    test_which_log_row_the_pointer_is_over();
+
     return check_report("chart geometry");
 }

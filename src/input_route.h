@@ -62,6 +62,17 @@ struct input_state {
     int text_focus;     /* a text field outside the settings panel has focus */
     int scope_zoomed;   /* the Scope's frequency window is narrower than the
                            span being received */
+    /*
+     * The retrospective signal report, raised by right-clicking a waterfall.
+     *
+     * Modal, and it takes no typing -- which is why it is its own field
+     * rather than a typing surface. It reached this struct nowhere until
+     * 2026-09-15, so `q` was live behind it and quit the program out from
+     * under a reader (`.scratch/iq-ring-buffer/issues/03-*`). A reading
+     * surface with a receiver running behind it has to stop the shortcuts for
+     * the same reason Help does.
+     */
+    int report_open;
 };
 
 /*
@@ -152,7 +163,7 @@ static inline int input_takes_typing(const struct input_state *s) {
  * is the point of having them.
  */
 static inline int input_shortcuts_live(const struct input_state *s) {
-    return !input_takes_typing(s);
+    return !input_takes_typing(s) && !s->report_open;
 }
 
 /* Help can be opened from anywhere it is not already open, including over
@@ -168,7 +179,8 @@ static inline int input_help_opens(const struct input_state *s) {
  * and returns NONE is the bug this exists to make impossible to write.
  */
 static inline int input_scale_keys(const struct input_state *s) {
-    if (!s || s->help_open || s->settings_open || s->text_focus)
+    if (!s || s->help_open || s->settings_open || s->text_focus ||
+        s->report_open)
         return INPUT_SCALE_NONE;
     /* The scan overlay draws a channel chart of its own, not a waterfall. */
     if (s->scan_open)
@@ -242,7 +254,8 @@ static inline int input_escape(const struct input_state *s) {
     if (!s)
         return INPUT_ESCAPE_NOTHING;
     /* An overlay that is up owns the key; its handler decides. */
-    if (s->help_open || s->settings_open || s->calibration_open)
+    if (s->help_open || s->settings_open || s->calibration_open ||
+        s->report_open)
         return INPUT_ESCAPE_NOTHING;
     if (s->menu_open)
         return INPUT_ESCAPE_CLOSE_MENU;

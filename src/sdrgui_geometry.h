@@ -235,4 +235,255 @@ sdrgui_drag_band_at(Rectangle plot, double lower_hz, double upper_hz,
     return band;
 }
 
+/*
+ * Where the columns of a message log go.
+ *
+ * Five columns -- time, an identifier, a short label, the decoded text and
+ * the raw bytes -- and until 2026-09-15 their x positions were five constants
+ * added up inside the drawing, with the *headings* clipped to fit and the
+ * *values* drawn with a bare DrawText. The comment beside them claimed "every
+ * field is drawn through sdrgui_text_fit now, so a column that does not fit is
+ * shortened rather than spilled", and that was true of two fields out of five.
+ *
+ * What it looked like: the SRD log's KIND column is 84 px and its longest
+ * value is "UNDECODED", which is wider, so it was drawn straight through the
+ * MOD column beside it and the two read as "UNDECOD2BSK". check-layout cannot
+ * see that -- it compares rectangles, and both columns are inside the panel --
+ * which is exactly the case panel_rows.h was written for, one level further
+ * in.
+ *
+ * So the widths follow the content. The caller measures its widest identifier
+ * and label -- MeasureText needs a font, which needs a window, so measuring
+ * stays with the drawing (see this file's header) -- and this decides what to
+ * do with the answer. Growth is allowed only while the decoded-message column
+ * keeps its own minimum, because that column is the one carrying the reading;
+ * past that the columns stay at their minimums and the text is clipped, which
+ * is a legible answer where overlap is not.
+ *
+ * Every width here is the room for the *text*, already inside the gutter that
+ * separates it from the next column.
+ */
+
+#define SDRGUI_LOG_GUTTER 12
+#define SDRGUI_LOG_TIME_PITCH 96
+#define SDRGUI_LOG_ID_PITCH_MIN 84
+#define SDRGUI_LOG_LABEL_PITCH_MIN 64
+#define SDRGUI_LOG_TYPE_PITCH_MIN 96
+#define SDRGUI_LOG_FREQ_PITCH_MIN 110
+#define SDRGUI_LOG_DETAIL_PITCH 430
+#define SDRGUI_LOG_DETAIL_MIN 180
+#define SDRGUI_LOG_RAW_MIN 170
+
+/*
+ * What the caller measured, by name.
+ *
+ * Positional ints were fine for two optional columns and stopped being fine
+ * at three: `(left, right, 95, 40, 110)` says nothing about which 110 is
+ * which, and view_adsb.c had already been bitten once by a positional
+ * initialiser silently shifting when a field was added beside it. A zero
+ * means "this caller has no such column" for the optional ones.
+ */
+struct sdrgui_log_widths {
+    int id;
+    int label;
+    int type;   /* 0 when the caller has no type for its rows */
+    int freq;   /* 0 when the caller has no frequency for its rows */
+};
+
+struct sdrgui_log_columns {
+    int time_x, time_width;
+    int freq_x, freq_width;
+    int id_x, id_width;
+    int label_x, label_width;
+    int type_x, type_width;
+    int detail_x, detail_width;
+    int raw_x, raw_width;
+    int show_freq; /* 0 when the caller has no frequency for its rows */
+    int show_type; /* 0 when the caller has no type for its rows */
+    int show_raw;  /* 0 when the raw column would not fit and is given up */
+};
+
+/* One column's pitch: at least its minimum, more if its content needs it,
+   and nothing at all when the caller has no such column. */
+static inline int sdrgui_log_pitch(int text, int minimum, int optional) {
+    int pitch;
+
+    if (optional && text <= 0)
+        return 0;
+    pitch = minimum;
+    if (text + SDRGUI_LOG_GUTTER > pitch)
+        pitch = text + SDRGUI_LOG_GUTTER;
+    return pitch;
+}
+
+/* Hand back whatever this column wanted past its minimum that there is room
+   for, and take it out of `room`. */
+static inline int sdrgui_log_squeeze(int pitch, int minimum, int *room) {
+    int give;
+
+    if (pitch <= 0)
+        return 0;
+    give = pitch - minimum;
+    if (give > *room)
+        give = *room;
+    *room -= give;
+    return minimum + give;
+}
+
+static inline struct sdrgui_log_columns
+sdrgui_message_log_columns(int left, int right,
+                           struct sdrgui_log_widths w) {
+    struct sdrgui_log_columns c;
+    int id_pitch = sdrgui_log_pitch(w.id, SDRGUI_LOG_ID_PITCH_MIN, 0);
+    int label_pitch = sdrgui_log_pitch(w.label, SDRGUI_LOG_LABEL_PITCH_MIN, 0);
+    int type_pitch = sdrgui_log_pitch(w.type, SDRGUI_LOG_TYPE_PITCH_MIN, 1);
+    int freq_pitch = sdrgui_log_pitch(w.freq, SDRGUI_LOG_FREQ_PITCH_MIN, 1);
+    int wanted, room;
+
+    /*
+     * What the columns want past their minimums, against what is left once
+     * the decoded-message column has taken its own. The identifier is served
+     * first: it is the widest by design, and it is what overflows.
+     *
+     * The optional columns cost nothing when absent -- a caller with no
+     * frequency or type passes 0 for it and the rest land exactly where they
+     * did before the column existed, which is what keeps the ADS-B log
+     * unmoved by an SRD feature.
+     */
+    wanted = (id_pitch - SDRGUI_LOG_ID_PITCH_MIN) +
+             (label_pitch - SDRGUI_LOG_LABEL_PITCH_MIN) +
+             (type_pitch > 0 ? type_pitch - SDRGUI_LOG_TYPE_PITCH_MIN : 0) +
+             (freq_pitch > 0 ? freq_pitch - SDRGUI_LOG_FREQ_PITCH_MIN : 0);
+    room = right - (left + SDRGUI_LOG_TIME_PITCH +
+                    (freq_pitch > 0 ? SDRGUI_LOG_FREQ_PITCH_MIN : 0) +
+                    SDRGUI_LOG_ID_PITCH_MIN + SDRGUI_LOG_LABEL_PITCH_MIN +
+                    (type_pitch > 0 ? SDRGUI_LOG_TYPE_PITCH_MIN : 0) +
+                    SDRGUI_LOG_DETAIL_MIN);
+    if (room < 0)
+        room = 0;
+    if (wanted > room) {
+        id_pitch = sdrgui_log_squeeze(id_pitch, SDRGUI_LOG_ID_PITCH_MIN, &room);
+        label_pitch = sdrgui_log_squeeze(label_pitch,
+                                         SDRGUI_LOG_LABEL_PITCH_MIN, &room);
+        freq_pitch = sdrgui_log_squeeze(freq_pitch,
+                                        SDRGUI_LOG_FREQ_PITCH_MIN, &room);
+        type_pitch = sdrgui_log_squeeze(type_pitch,
+                                        SDRGUI_LOG_TYPE_PITCH_MIN, &room);
+    }
+
+    c.time_x = left;
+    c.freq_x = c.time_x + SDRGUI_LOG_TIME_PITCH;
+    c.id_x = c.freq_x + freq_pitch;
+    c.label_x = c.id_x + id_pitch;
+    c.type_x = c.label_x + label_pitch;
+    c.detail_x = c.type_x + type_pitch;
+    c.raw_x = c.detail_x + SDRGUI_LOG_DETAIL_PITCH;
+
+    c.time_width = SDRGUI_LOG_TIME_PITCH - SDRGUI_LOG_GUTTER;
+    c.freq_width = freq_pitch > 0 ? freq_pitch - SDRGUI_LOG_GUTTER : 0;
+    c.id_width = id_pitch - SDRGUI_LOG_GUTTER;
+    c.label_width = label_pitch - SDRGUI_LOG_GUTTER;
+    c.type_width = type_pitch > 0 ? type_pitch - SDRGUI_LOG_GUTTER : 0;
+    c.show_freq = freq_pitch > 0;
+    c.show_type = type_pitch > 0;
+
+    c.show_raw = c.raw_x + SDRGUI_LOG_RAW_MIN <= right;
+    c.detail_width = (c.show_raw ? c.raw_x - SDRGUI_LOG_GUTTER : right) -
+                     c.detail_x;
+    c.raw_width = c.show_raw ? right - c.raw_x : 0;
+
+    if (c.time_width < 1)
+        c.time_width = 1;
+    if (c.id_width < 1)
+        c.id_width = 1;
+    if (c.label_width < 1)
+        c.label_width = 1;
+    if (c.show_type && c.type_width < 1)
+        c.type_width = 1;
+    if (c.show_freq && c.freq_width < 1)
+        c.freq_width = 1;
+    if (c.detail_width < 1)
+        c.detail_width = 1;
+    if (c.raw_width < 0)
+        c.raw_width = 0;
+    return c;
+}
+
+/*
+ * The message log's rows, and which one a pointer is over.
+ *
+ * The row band is the one part of that log needing no `MeasureText`: the
+ * caption strip, the padding, the heading rule and the row pitch are all
+ * constants, and only the *columns* depend on the widths of the text about to
+ * be drawn. So the hit test can live here while the column arithmetic needs
+ * its answer passed in, which is the split this header already makes
+ * (ADR-0012).
+ *
+ * It exists because clicking a row in the SRD log both selected it and
+ * retuned the receiver, from inside `draw_log()` -- a function taking
+ * `const struct app *` and casting the const away to act. Drawing reports;
+ * the input phase decides. Reaching the decision from the input phase means
+ * finding the row without drawing it, and that is this.
+ */
+#define SDRGUI_LOG_CAPTION_STRIP 25.0f
+#define SDRGUI_LOG_PAD 12
+#define SDRGUI_LOG_ROW_HEIGHT 24
+#define SDRGUI_LOG_HEADING_HEIGHT 22
+
+/* Where row 0 starts, and how many rows fit, inside a log's outer rect. */
+struct sdrgui_log_rows {
+    Rectangle plot;     /* the framed area inside the caption strip */
+    int first_y;        /* top of row 0, before its 2 px overhang */
+    int left;           /* the TIME column's x, which the row band starts at */
+    int width;          /* the row band's width */
+    int row_height;
+    int capacity;       /* how many rows fit; a row past it is not drawn */
+};
+
+static inline struct sdrgui_log_rows sdrgui_message_log_rows(Rectangle outer) {
+    struct sdrgui_log_rows r;
+    int usable;
+
+    r.plot = sdrgui_chart_area(outer, 0.0f, SDRGUI_LOG_CAPTION_STRIP);
+    r.left = (int)r.plot.x + SDRGUI_LOG_PAD;
+    r.width = (int)r.plot.width - 2 * SDRGUI_LOG_PAD + 8;
+    r.first_y = (int)r.plot.y + SDRGUI_LOG_PAD + SDRGUI_LOG_HEADING_HEIGHT;
+    r.row_height = SDRGUI_LOG_ROW_HEIGHT;
+
+    usable = (int)(r.plot.y + r.plot.height) - SDRGUI_LOG_PAD - r.first_y;
+    r.capacity = usable / SDRGUI_LOG_ROW_HEIGHT;
+    if (r.capacity < 0)
+        r.capacity = 0;
+    if (r.width < 0)
+        r.width = 0;
+    return r;
+}
+
+/*
+ * Which row the pointer is over, or -1.
+ *
+ * `count` is how many rows the log holds; only the ones that fit are drawn,
+ * so a pointer below the last drawn row is over nothing even when the log is
+ * longer. That is deliberate and it is the same rule `panel_rows.h` states: a
+ * row past the capacity is not drawn at all, and a hit test that answered for
+ * an undrawn row would select something the reader cannot see.
+ */
+static inline int sdrgui_message_log_row_at(Rectangle outer, int count,
+                                            Vector2 at) {
+    struct sdrgui_log_rows r = sdrgui_message_log_rows(outer);
+    int rows = count < r.capacity ? count : r.capacity;
+    int row;
+
+    if (rows <= 0)
+        return -1;
+    if (at.x < (float)(r.left - 4) || at.x > (float)(r.left - 4 + r.width))
+        return -1;
+    if (at.y < (float)(r.first_y - 2))
+        return -1;
+    row = (int)((at.y - (float)(r.first_y - 2)) / (float)r.row_height);
+    if (row < 0 || row >= rows)
+        return -1;
+    return row;
+}
+
 #endif

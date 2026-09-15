@@ -68,29 +68,33 @@ BUILD=build
 
 all: sdrprobe
 
-DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/adsb_session.c $(SRC)/fm_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
+DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/adsb_session.c $(SRC)/fm_session.c $(SRC)/srd_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
-	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c
+	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c $(SRC)/srd_dsp.c $(SRC)/srd_frame.c
 APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/backend_uhd.c \
-	$(SRC)/acquisition.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
+	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
+	$(SRC)/view_srd.c \
 	$(SRC)/view_survey.c \
 	$(SRC)/band_plan.c \
 	$(SRC)/overlay_calibration.c $(SRC)/overlay_startup.c $(SRC)/overlay_scan.c \
-	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c \
+	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c $(SRC)/overlay_signal_report.c \
+	$(SRC)/signal_analysis.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
 	$(SRC)/debug_log.c
 APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
-	$(SRC)/lte_layout.h $(SRC)/fm_layout.h \
+	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h $(SRC)/startup_session.h \
 	$(SRC)/startup_layout.h \
 	$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/chrome_layout.h \
 	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
-	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/debug_log.h \
-	$(SRC)/receiver_lease.h $(SRC)/device_profile.h \
+	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h \
+	$(SRC)/view_input.h $(SRC)/srd_log.h $(SRC)/debug_log.h \
+	$(SRC)/receiver_lease.h $(SRC)/device_profile.h $(SRC)/overlay_signal_report.h \
+	$(SRC)/signal_analysis.h \
 	$(SRC)/installation.h \
 	$(SRC)/capture_sidecar.h $(SRC)/device_backend.h \
 	$(SRC)/app.h $(SRC)/view.h \
@@ -101,7 +105,8 @@ APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_ch
 	$(SRC)/scope_layout.h $(SRC)/settings_layout.h
 DSP_HDR=$(SRC)/gsm_session.h $(SRC)/tetra_session.h $(SRC)/lte_session.h $(SRC)/adsb_session.h $(SRC)/fm_session.h $(SRC)/device_profile.h $(SRC)/signal_probe.h $(SRC)/signal_findings.h $(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
 	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h $(SRC)/lte_scan.h \
-	$(SRC)/fm_dsp.h $(SRC)/rds.h $(SRC)/tetra_dsp.h $(SRC)/tetra_sync.h
+	$(SRC)/fm_dsp.h $(SRC)/rds.h $(SRC)/tetra_dsp.h $(SRC)/tetra_sync.h \
+	$(SRC)/srd_dsp.h $(SRC)/srd_frame.h $(SRC)/srd_record.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
 GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
@@ -253,7 +258,8 @@ check-lte-scan: $(TESTS)/lte_scan_test.c $(TESTS)/check.h $(SRC)/lte_scan.h \
 check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 		$(SRC)/adsb_layout.h $(SRC)/chrome_layout.h $(SRC)/lte_layout.h \
 		$(SRC)/survey_layout.h $(SRC)/calibration_layout.h \
-		$(SRC)/fm_layout.h $(SRC)/row_list.h
+		$(SRC)/fm_layout.h $(SRC)/tetra_layout.h $(SRC)/srd_layout.h \
+		$(SRC)/row_list.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
@@ -416,6 +422,7 @@ check-debug-log: $(TESTS)/debug_log_test.c $(TESTS)/check.h \
 	$(Q)./$(BUILD)/debug_log_test
 
 check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h \
+		$(SRC)/view_input.h $(SRC)/srd_log.h \
 		$(SRC)/calibration_nav.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/input_route_test \
@@ -526,12 +533,20 @@ check-scan: $(TESTS)/scan_plan_test.c $(TESTS)/check.h $(SRC)/scan_plan.h
 # type only -- it never opens one.
 check-acquisition: $(TESTS)/acquisition_test.c $(TESTS)/check.h \
 		$(SRC)/acquisition.c $(SRC)/acquisition.h \
+		$(SRC)/iq_ring.c $(SRC)/iq_ring.h \
 		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -pthread -o $(BUILD)/acquisition_test \
-		$(TESTS)/acquisition_test.c $(SRC)/acquisition.c \
+		$(TESTS)/acquisition_test.c $(SRC)/acquisition.c $(SRC)/iq_ring.c \
 		$(shell pkg-config --libs librtlsdr) -lm -pthread
 	$(Q)./$(BUILD)/acquisition_test
+
+check-iq-ring: $(TESTS)/iq_ring_test.c $(TESTS)/check.h \
+		$(SRC)/iq_ring.c $(SRC)/iq_ring.h $(SRC)/device_profile.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -pthread -o $(BUILD)/iq_ring_test \
+		$(TESTS)/iq_ring_test.c $(SRC)/iq_ring.c -lm -pthread
+	$(Q)./$(BUILD)/iq_ring_test
 
 # Which candidates the survey should warn about: the receiver's own reference
 # comb, and the DC offset at each step centre. The check is built from a real
@@ -542,6 +557,17 @@ check-signal-findings: $(TESTS)/signal_findings_test.c $(TESTS)/check.h \
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_findings_test \
 		$(TESTS)/signal_findings_test.c -lm
 	$(Q)./$(BUILD)/signal_findings_test
+
+check-signal-analysis: $(TESTS)/signal_analysis_test.c $(TESTS)/check.h \
+		$(SRC)/signal_analysis.c $(SRC)/signal_analysis.h \
+		$(SRC)/signal_probe.c $(SRC)/signal_probe.h \
+		$(SRC)/signal_findings.h $(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(SRC)/device_profile.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_analysis_test \
+		$(TESTS)/signal_analysis_test.c $(SRC)/signal_analysis.c \
+		$(SRC)/signal_probe.c $(SRC)/srd_dsp.c $(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/signal_analysis_test
 
 # The 16-bit corpus, and the gate every later device-model ticket is measured
 # against. `.scratch/device-model/issues/01-a-format-change-moves-no-answer.md`.
@@ -751,11 +777,11 @@ CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-t
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \
-	check-lte-scan check-tetra-dsp check-layout check-adsb-session \
+	check-lte-scan check-tetra-dsp check-srd-dsp check-srd-frame check-srd-record check-srd-session check-layout check-adsb-session \
 	check-sdr-dsp check-sample-format check-survey-store check-survey-record \
 	check-lte-transport check-lte-turbo check-options check-tetra-sync \
-	check-gsm-bcch check-adsb-dsp check-suspect check-acquisition check-config \
-	check-signal-findings check-device-backend check-site-history \
+	check-gsm-bcch check-adsb-dsp check-suspect check-acquisition check-iq-ring check-config \
+	check-signal-findings check-signal-analysis check-device-backend check-site-history \
 	check-installation check-calibration check-freq-window check-device-profile \
 	check-survey-carrier check-scan check-survey-sweep check-survey-bands \
 	check-lte-confirm check-lte-findings check-text-wrap check-capture-sidecar \
@@ -820,16 +846,10 @@ endif
 # promise the order does not keep -- which is worse than not having them.
 # Every suite still says what it covers on its own line.
 check: sdrprobe
-	@mkdir -p $(BUILD)
-	@rm -f $(TALLY)
-	@printf '\nsdrprobe checks -- no window, no receiver, nobody watching\n\n'
-	@CHECK_TALLY=$(TALLY) $(MAKE) --no-print-directory -j$(CHECK_JOBS) \
-		--output-sync=target check-pipelines $(CHECK_UNITS)
-	@awk '{checks += $$1; bad += $$2} END { printf \
-		"\n%d checks in %d suites, no failures\n\n", checks, NR}' $(TALLY)
+	@CHECK_JOBS=$(CHECK_JOBS) scripts/run_check.sh $(CHECK_UNITS)
 
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
-	check-lte-mib check-band-plan
+	check-lte-mib check-band-plan check-srd-dsp
 
 # The checks that cover what changed, and a count of what was skipped. The
 # full suite is the gate on push; this is what to run while working, because
@@ -869,6 +889,47 @@ check-tetra-dsp: $(TESTS)/tetra_dsp_test.c $(TESTS)/check.h \
 		$(TESTS)/tetra_dsp_test.c $(SRC)/tetra_dsp.c \
 		$(SRC)/signal_probe.c -lm
 	$(Q)./$(BUILD)/tetra_dsp_test
+
+check-srd-dsp: $(TESTS)/srd_dsp_test.c $(TESTS)/check.h \
+		$(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
+		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_dsp_test \
+		$(TESTS)/srd_dsp_test.c $(SRC)/srd_dsp.c \
+		$(SRC)/sdr_dsp.c $(SRC)/signal_probe.c -lm
+	$(Q)./$(BUILD)/srd_dsp_test
+
+check-srd-frame: $(TESTS)/srd_frame_test.c $(TESTS)/check.h \
+		$(SRC)/srd_frame.c $(SRC)/srd_frame.h \
+		$(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
+		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_frame_test \
+		$(TESTS)/srd_frame_test.c $(SRC)/srd_frame.c \
+		$(SRC)/srd_dsp.c $(SRC)/sdr_dsp.c $(SRC)/signal_probe.c -lm
+	$(Q)./$(BUILD)/srd_frame_test
+
+check-srd-record: $(TESTS)/srd_record_test.c $(TESTS)/check.h \
+		$(SRC)/srd_record.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_record_test \
+		$(TESTS)/srd_record_test.c -lm
+	$(Q)./$(BUILD)/srd_record_test
+
+check-srd-session: $(TESTS)/srd_session_test.c $(TESTS)/check.h \
+		$(SRC)/srd_session.c $(SRC)/srd_session.h \
+		$(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
+		$(SRC)/srd_frame.c $(SRC)/srd_frame.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
+		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_session_test \
+		$(TESTS)/srd_session_test.c $(SRC)/srd_session.c \
+		$(SRC)/srd_dsp.c $(SRC)/srd_frame.c $(SRC)/sdr_dsp.c \
+		$(SRC)/signal_probe.c -lm
+	$(Q)./$(BUILD)/srd_session_test
 
 check-tetra-sync: $(TESTS)/tetra_sync_test.c $(TESTS)/check.h \
 		$(SRC)/tetra_sync.c $(SRC)/tetra_sync.h
@@ -989,13 +1050,58 @@ probe-fcch: scripts/fcch_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h
 		$(SPAN_FCCH) $(STEP_FCCH) $(HALF_FCCH)
 
 probe-signal: scripts/signal_report.c $(SRC)/signal_probe.c \
-		$(SRC)/signal_probe.h
+		$(SRC)/signal_probe.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_report \
-		scripts/signal_report.c $(SRC)/signal_probe.c -lm
+		scripts/signal_report.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/signal_report $(FILE_SIGNAL) $(RATE_SIGNAL) \
 		$(AT_SIGNAL) $(CONTROLS_SIGNAL) $(CHANNEL_SIGNAL) \
 		$(SEARCH_SIGNAL) $(GUARD_SIGNAL) $(PAIRS_SIGNAL)
+
+# Where the transmissions are in a capture, and what they are. probe-signal
+# answers neither for a transmitter that speaks once a second: it reads a
+# fixed prefix of the file, and so does every function it calls, so a press
+# at 1.078 s is outside all three windows. This walks the whole capture,
+# groups what it finds into transmissions, and then hands one of them to the
+# same shipping measurements -- alongside an equal window at t = 0, which is
+# the control and is what probe-signal is really reporting on.
+FILE_OOK?=testfiles/carrier_75000_bare.bin
+RATE_OOK?=2000000
+# How far a chunk's strongest bin must stand over that chunk's own median bin
+# before the chunk counts as holding something. A 1024-bin transform of noise
+# reads about 12 dB by itself, so the bar has to clear that with room.
+FLOOR_OOK?=25
+# The silence that separates two transmissions rather than dividing one. A
+# press holds preamble and data sections with brief gaps inside it.
+GAP_OOK?=0.050
+CHANNEL_OOK?=50000
+GUARD_OOK?=50000
+BUCKET_OOK?=10
+RUNS_OOK?=48
+probe-ook: scripts/ook_report.c $(SRC)/signal_probe.c $(SRC)/signal_probe.h \
+		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/ook_report \
+		scripts/ook_report.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/ook_report $(FILE_OOK) $(RATE_OOK) $(FLOOR_OOK) \
+		$(GAP_OOK) $(CHANNEL_OOK) $(GUARD_OOK) $(BUCKET_OOK) $(RUNS_OOK)
+
+# One SRD capture through the shipping decode chain, every stage shown.
+# probe-ook stops at the envelope, which is the Probe-context question; this
+# carries on into chips, Manchester violations and frames. The chip-period
+# sweep is the point: a mode-finding heuristic returns one number whether or
+# not it is right.
+FILE_SRD?=testfiles/srd_remote_control_fsk.bin
+RATE_SRD?=2000000
+probe-srd: scripts/srd_report.c $(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
+		$(SRC)/srd_frame.c $(SRC)/srd_frame.h $(SRC)/signal_probe.c \
+		$(SRC)/signal_probe.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_report \
+		scripts/srd_report.c $(SRC)/srd_dsp.c $(SRC)/srd_frame.c \
+		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/srd_report $(FILE_SRD) $(RATE_SRD)
 
 # Is there a clock-coherent tone at this frequency, and whose clock is it?
 # Written a dozen times as a one-liner in one afternoon; the numbers belong in
@@ -1049,4 +1155,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session add-argument clean
+.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-ook probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session check-srd-dsp check-srd-frame check-srd-record add-argument clean

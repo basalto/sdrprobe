@@ -14,9 +14,11 @@ description: Capture what the sdrprobe window draws as a PNG and read it back. U
 make screens          # build/screens/*.png, from captures, about a minute
 ```
 
-Twelve screens: the four Scope views, the survey, the three decode views, the
-calibration overlay in both arrangements, settings and help. All from captures,
-so none of it needs a receiver and all of it draws the same picture twice.
+Twenty capture-backed states: the four Scope views (plus spectrum zoom),
+Survey and its band picker, GSM, ADS-B, LTE, FM and TETRA data/analysis states,
+both calibration arrangements, Settings, Help, and the SRD data and analysis
+states. None of the batch needs a receiver, and every included state draws the
+same picture twice.
 
 **Look at the ones your change touched, and at their neighbours.** A change to
 one panel moves the ones below it.
@@ -162,13 +164,19 @@ same every run. All are verified.
 | LTE | `--file testfiles/lte_b20_pci28.bin --view lte --earfcn 6200` |
 | GSM | `--file testfiles/gsm_arfcn_69.bin --view gsm --arfcn 69` |
 | ADS-B | `--file testfiles/adsb_cpr_pair.bin --view adsb` |
+| FM | `--file testfiles/fm_rds_tsf.bin --sample-rate 2048000 --frequency 89.6M --view fm` |
+| TETRA | `--file testfiles/tetra_cc17.bin --sample-rate 2000000 --view tetra` |
+| SRD | `--file testfiles/srd_remote_control_ook_a.bin --frequency 433.8M --sample-rate 2000000 --view srd` |
 | Scope | `--file testfiles/gsm_arfcn_69.bin --view spectrum` |
 | Survey | `--file testfiles/gsm_arfcn_69.bin --frequency 948.4M --view survey` |
 | Calibration | `--view calibration` (add `--calibrate lte` for the 4G arrangement) |
 
-`--view` also takes `magnitude`, `scatter` and `waterfall`. A live receiver
-works in place of `--file`, and changes between runs, so prefer a capture
-unless the point is live behaviour.
+Add `--analysis` for a decode view's chart arrangement. `--view` also takes
+`magnitude`, `scatter`, `waterfall`, `settings`, `help`, and `startup`. The
+startup form is not part of `make screens`; force it with `--view startup` when
+that installation workflow is the subject. A live receiver works in place of
+`--file`, and changes between runs, so prefer a capture unless the point is
+live behaviour.
 
 ## How long to run
 

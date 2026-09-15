@@ -244,6 +244,81 @@ int sdr_dsp_corrected_ppm(int current_ppm, double measured_frequency_hz,
  * is pair_count / size -- so a longer transform buys resolution and spends
  * averaging, which is the whole of the trade.
  */
+/*
+ * What a retune does to a stored spectrum row, and what is left of it.
+ *
+ * A waterfall row is `bins` dBFS values spread evenly across the received
+ * span, so bin i sits at `centre - rate/2 + i*rate/bins`. Move the centre and
+ * every one of those frequencies is still where it was -- what changes is
+ * which bin of the *new* span holds it:
+ *
+ *     j = i + (old_centre - new_centre) * bins / rate
+ *
+ * Tune upwards and the old picture slides left, which is the direction a
+ * reader expects: a carrier that sat at the right of the screen is nearer the
+ * middle once you have tuned towards it.
+ *
+ * The history used to be thrown away whole on any retune, on the sound
+ * reasoning that rows gathered at another frequency do not belong at this
+ * one. They do, though -- just not in the same bins -- and once the SRD view
+ * grew arrows that walk a ten-megahertz allocation half a span at a time,
+ * discarding the half that still overlaps meant the waterfall was blank more
+ * often than not, with the detection labels left standing over nothing.
+ *
+ * Returns the shift in bins. A shift of `bins` or more in either direction
+ * means the two spans do not overlap and nothing survives; the caller is
+ * expected to notice that rather than be protected from it, because clearing
+ * is then the right answer and this function is not the one to decide it.
+ */
+static inline int sdr_dsp_retune_bin_shift(double old_centre_hz,
+                                           double new_centre_hz,
+                                           double sample_rate, int bins) {
+    double shift;
+
+    if (!(sample_rate > 0.0) || bins <= 0)
+        return 0;
+    shift = (old_centre_hz - new_centre_hz) * (double)bins / sample_rate;
+    if (shift > (double)bins)
+        return bins;
+    if (shift < -(double)bins)
+        return -bins;
+    return (int)(shift < 0.0 ? shift - 0.5 : shift + 0.5);
+}
+
+/*
+ * Slide one row by `shift` bins, filling what slides in with `fill`.
+ *
+ * `fill` is what "not measured here" looks like: a dBFS far under anything a
+ * receiver reports, so it renders as the waterfall's own background rather
+ * than as a quiet signal. A row shifted clear of itself is entirely fill.
+ */
+static inline void sdr_dsp_shift_row(float *row, int bins, int shift,
+                                     float fill) {
+    int i;
+
+    if (!row || bins <= 0)
+        return;
+    if (shift >= bins || shift <= -bins) {
+        for (i = 0; i < bins; i++)
+            row[i] = fill;
+        return;
+    }
+    if (shift > 0) {
+        for (i = bins - 1; i >= shift; i--)
+            row[i] = row[i - shift];
+        for (i = 0; i < shift; i++)
+            row[i] = fill;
+    } else if (shift < 0) {
+        for (i = 0; i < bins + shift; i++)
+            row[i] = row[i - shift];
+        for (i = bins + shift; i < bins; i++)
+            row[i] = fill;
+    }
+}
+
+/* A dBFS no receiver reports, standing for "this bin was never measured". */
+#define SDR_DSP_UNMEASURED_DBFS (-300.0f)
+
 int sdr_dsp_spectrum(struct sdr_dsp *dsp,
                      const float *i_samples, const float *q_samples,
                      size_t pair_count, int size, float full_scale,

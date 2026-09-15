@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include "view.h"
+#include "debug_log.h"
 #include "gsm_layout.h"
 #include "sdrgui.h"
 
@@ -68,6 +69,9 @@ void gsm_tune_selected(struct app *app, int arfcn) {
         return;
     app->gsm.selected_arfcn = arfcn;
     app->gsm.selected_hz = (double)expected;
+    if (app->receiver_mode)
+        retune_receiver(app, expected - 400000U, app->applied.ppm);
+
     /* Open on the channel that was chosen. A default, not a lock: 0 puts the
        whole span back and a drag goes anywhere. */
     chart_window_sync(&app->gsm.window, app->applied.frequency_hz,
@@ -79,11 +83,6 @@ void gsm_tune_selected(struct app *app, int arfcn) {
     app->gsm.session.sch_valid = 0;
     gsm_continuity_reset(&app->gsm.session.continuity);
     memset(&app->gsm.session.cell, 0, sizeof(app->gsm.session.cell)); /* a different cell */
-    /* Moves the receiver; does not borrow it. Every caller reaches here with
-       the GSM view already entered, and a tune that quietly took ownership
-       was how one screen could end up owning the receiver twice. */
-    if (app->receiver_mode)
-        retune_receiver(app, expected - 400000U, app->applied.ppm);
 }
 
 /* Note an SCH decode that cannot be right: T1 advances once per 1326 frames,
@@ -105,6 +104,18 @@ void update_gsm_sch(struct app *app, double now) {
                      app->frame.pair_count, (double)app->applied.sample_rate_hz,
                      app->gsm.selected_hz - (double)app->applied.frequency_hz,
                      now, &event);
+
+    if (event.sch_decoded) {
+        debug_log_write("gsm-sch", "bsic %d (ncc %d bcc %d) fn %u",
+                        app->gsm.session.sch.bsic,
+                        app->gsm.session.sch.ncc,
+                        app->gsm.session.sch.bcc,
+                        app->gsm.session.sch.frame_number);
+    }
+    if (event.broadcast_read) {
+        debug_log_write("gsm-bcch", "mcc %d mnc %d lac %d ci %d",
+                        event.si.mcc, event.si.mnc, event.si.lac, event.si.cell_id);
+    }
 }
 
 static Rectangle gsm_record_button(void) {
@@ -357,7 +368,26 @@ void draw_gsm(struct app *app) {
             DrawText(TextFormat("ARFCN waterfall - inspecting ARFCN %d",
                                 app->gsm.selected_arfcn),
                      (int)wf.x, (int)wf.y - 18, 16, (Color){ 151, 174, 188, 255 });
-            draw_waterfall_rect(app, 1, wf, &app->gsm.window);
+            struct sdrgui_waterfall_marker gsm_marker;
+            int m_cnt = 0;
+            char gsm_lbl[32];
+            if (app->gsm.selected_hz > 0.0) {
+                gsm_marker.frequency_hz = app->gsm.selected_hz;
+                gsm_marker.bandwidth_hz = 200000.0;
+                gsm_marker.age_seconds = 0.0;
+                gsm_marker.duration_seconds = 0.0;
+                gsm_marker.id = 0;
+                gsm_marker.highlighted = 1;
+                gsm_marker.color = (Color){ 100, 220, 140, 220 };
+                if (app->gsm.session.sch.bsic >= 0)
+                    snprintf(gsm_lbl, sizeof(gsm_lbl), "BSIC %d", app->gsm.session.sch.bsic);
+                else
+                    snprintf(gsm_lbl, sizeof(gsm_lbl), "ARFCN %d", app->gsm.selected_arfcn);
+                gsm_marker.label = gsm_lbl;
+                m_cnt = 1;
+            }
+            draw_waterfall_rect_with_markers(app, 1, wf, &app->gsm.window,
+                                             m_cnt ? &gsm_marker : NULL, m_cnt, NULL, NULL);
         }
 
 
@@ -373,7 +403,7 @@ void draw_gsm(struct app *app) {
             SCAN_BCCH_MIN_CONF, hover, GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ,
             app->gsm.selected_arfcn,
             app->receiver_mode ? "no channel measured yet -- press Scan"
-                               : "a band scan needs a live receiver"
+                                : "a band scan needs a live receiver"
         };
         sdrgui_scan_chart(&params);
 
@@ -383,7 +413,26 @@ void draw_gsm(struct app *app) {
         Rectangle wf = gsm_waterfall_rect();
         DrawText("ARFCN waterfall", (int)wf.x, (int)wf.y - 18, 16,
                  (Color){ 151, 174, 188, 255 });
-        draw_waterfall_rect(app, 1, wf, &app->gsm.window);
+        struct sdrgui_waterfall_marker gsm_marker;
+        int m_cnt = 0;
+        char gsm_lbl[32];
+        if (app->gsm.selected_hz > 0.0) {
+            gsm_marker.frequency_hz = app->gsm.selected_hz;
+            gsm_marker.bandwidth_hz = 200000.0;
+            gsm_marker.age_seconds = 0.0;
+            gsm_marker.duration_seconds = 0.0;
+            gsm_marker.id = 0;
+            gsm_marker.highlighted = 1;
+            gsm_marker.color = (Color){ 100, 220, 140, 220 };
+            if (app->gsm.session.sch.bsic >= 0)
+                snprintf(gsm_lbl, sizeof(gsm_lbl), "BSIC %d", app->gsm.session.sch.bsic);
+            else
+                snprintf(gsm_lbl, sizeof(gsm_lbl), "ARFCN %d", app->gsm.selected_arfcn);
+            gsm_marker.label = gsm_lbl;
+            m_cnt = 1;
+        }
+        draw_waterfall_rect_with_markers(app, 1, wf, &app->gsm.window,
+                                         m_cnt ? &gsm_marker : NULL, m_cnt, NULL, NULL);
 
         /* Default Channel Power Scan Chart on Bottom */
         Rectangle sc = gsm_scan_rect();
