@@ -20,6 +20,10 @@
 #include "device_profile.h"
 #include "sdr_dsp.h"
 #include "srd_dsp.h"
+/* For SRD_FULL_FRAME_BITS alone -- the real-capture claim below is stated in
+ * frames, and restating 80 here is how two numbers come to disagree. Nothing
+ * from srd_frame.c is called, so the suite still links -lm and srd_dsp. */
+#include "srd_frame.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -720,6 +724,29 @@ static void test_refusals_and_edge_cases(void) {
               srd_manchester_decode(NULL, 0, SRD_MANCHESTER_THOMAS, &dec), 0);
 }
 
+/*
+ * The longest run of consecutive legal Manchester chip pairs at a decode's
+ * chosen phase, in bits. srd_extract_frames() keeps exactly this stretch and
+ * discards the rest, so it is what says whether a chip period explains the
+ * signal -- a violation count over a whole press does not, since the idle
+ * between frames violates the code as surely as noise does.
+ */
+static size_t longest_unbroken(const uint8_t *chips, size_t chip_count,
+                               int phase) {
+    size_t best = 0, run = 0, c;
+
+    for (c = (size_t)phase; c + 1 < chip_count; c += 2) {
+        if (chips[c] == chips[c + 1]) {
+            if (run > best)
+                best = run;
+            run = 0;
+        } else {
+            run++;
+        }
+    }
+    return run > best ? run : best;
+}
+
 static void test_real_capture(void) {
     const char *path = "testfiles/srd_remote_control_ook_a.bin";
     FILE *f = fopen(path, "rb");
@@ -787,8 +814,30 @@ static void test_real_capture(void) {
                 struct srd_manchester_decode thomas, ieee;
                 check_int("decode both polarities on real capture succeeds",
                           srd_manchester_decode_both(chips, chip_n, &thomas, &ieee), 1);
-                check_true("real transmission decodes with low error rate",
-                           thomas.error_count * 10 < thomas.bit_count);
+                /*
+                 * Not a violation *rate* over the whole press, which is
+                 * what stood here and is the wrong statistic: a press is
+                 * 1.1 s holding twelve 80-bit frames with idle between
+                 * them, and the idle is not a legal Manchester symbol, so
+                 * the four presses of this capture read 10.3%, 2.8%,
+                 * 12.2% and 11.3% while every frame the same run stream
+                 * yields carries zero errors (check-srd-frame asserts
+                 * that, on this capture). Counting the gaps as decode
+                 * errors is the same transcript-not-a-measurement fault
+                 * srd_dsp.h recorded for the 2-FSK bursts.
+                 *
+                 * What this layer can establish is the unbroken stretch,
+                 * because a frame has to arrive without a violation
+                 * inside it. Measured from both ends: the real period
+                 * gives 208 to 215 bits on all four presses, and the best
+                 * *wrong* period in the sweep (340-390 us) gives 127,
+                 * with everything under 200 us giving 1 or 2. A floor of
+                 * two frames sits between them.
+                 */
+                check_true("real transmission decodes two frames' worth "
+                           "without a Manchester violation",
+                           longest_unbroken(chips, chip_n, thomas.phase) >=
+                               2 * SRD_FULL_FRAME_BITS);
                 free(env);
             }
         }
