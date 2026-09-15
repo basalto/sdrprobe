@@ -58,8 +58,8 @@ Following `view_lte.c` / `lte_layout.h` as the template, and the order in
   of `enum decode_kind`.
 - `tests/srd_dsp_test.c` behind `make check-srd-dsp`, in `CHECK_UNITS`, over
   **synthetic** fixtures.
-- Two committed captures: one OOK signal and one 2-FSK signal. Unit and
-  pipeline checks require them; absence is a broken checkout.
+- Two external captures: one OOK signal and one 2-FSK signal. Unit and
+  pipeline checks report their absence as visible skips.
 
 ## Tickets
 

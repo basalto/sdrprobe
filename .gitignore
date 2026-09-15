@@ -21,6 +21,10 @@
 # Raw-I/Q recordings from the Record button (user captures, not fixtures).
 /captures/
 
+# External capture corpus. Keep local copies here for checks and diagnostics;
+# the recordings and sidecars are distributed separately from Git.
+/testfiles/
+
 # Band surveys. Measurements of one operator's location with one antenna, the
 # same kind of thing as captures/ and kept for the same reason: they are how a
 # later sweep is compared with an earlier one, and they are nobody else's

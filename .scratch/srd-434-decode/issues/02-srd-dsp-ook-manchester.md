@@ -68,11 +68,11 @@ synthetic fixtures.
 
 ## Captures
 
-`testfiles/srd_remote_control_ook_a.bin` is the committed OOK fixture.
+`testfiles/srd_remote_control_ook_a.bin` is the external OOK fixture.
 `check-pipelines` asserts that the survey finds the SRD remote control near
 434.417 MHz and that the assembled decoder recovers full frames. The carrier
 offset and chip period remain pinned in the protocol document and are
-reproducible with `make probe-ook`. A missing fixture fails the suite.
+reproducible with `make probe-ook`. A missing fixture is reported as a skip.
 
 What `srd_dsp`'s own unit layer gets is still **synthetic** fixtures — an OOK Manchester
 burst laid into noise at a known carrier, chip period and bit pattern — which

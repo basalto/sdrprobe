@@ -135,17 +135,30 @@ static void test_the_sidecar_path_rule(void) {
 }
 
 /* The real corpora, which is what the program will actually meet. */
+static int capture_exists(const char *path) {
+    FILE *capture = fopen(path, "rb");
+
+    if (!capture)
+        return 0;
+    fclose(capture);
+    return 1;
+}
+
 static void test_the_corpora_on_disk(void) {
     struct capture_sidecar c;
 
-    if (capture_sidecar_read("testfiles/gsm_arfcn_69.bin", &c) == 0) {
+    if (!capture_exists("testfiles/gsm_arfcn_69.bin")) {
+        check_skip("testfiles/gsm_arfcn_69.bin");
+    } else if (capture_sidecar_read("testfiles/gsm_arfcn_69.bin", &c) == 0) {
         check_int("testfiles/ is 8-bit", (int)c.format, SAMPLE_FORMAT_U8);
         check_close("at 127.5", c.full_scale, 127.5, 1e-6);
     } else {
         check_true("testfiles/gsm_arfcn_69.json reads", 0);
     }
 
-    if (capture_sidecar_read("build/testfiles16/gsm_arfcn_69.bin", &c) == 0) {
+    if (!capture_exists("build/testfiles16/gsm_arfcn_69.bin")) {
+        check_skip("build/testfiles16/gsm_arfcn_69.bin");
+    } else if (capture_sidecar_read("build/testfiles16/gsm_arfcn_69.bin", &c) == 0) {
         check_int("the generated corpus is 16-bit", (int)c.format,
                   SAMPLE_FORMAT_S16);
         check_close("at 2040", c.full_scale, 2040.0, 1e-6);

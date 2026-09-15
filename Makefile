@@ -173,7 +173,7 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/
 # preamble, and what a station says about itself. Decoder side; links fm_dsp
 # only to reach the real capture.
 check-rds: $(TESTS)/rds_test.c $(TESTS)/check.h $(SRC)/rds.c $(SRC)/rds.h \
-		$(SRC)/fm_dsp.c $(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin \
+		$(SRC)/fm_dsp.c $(SRC)/fm_dsp.h \
 		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/rds_test \
@@ -189,7 +189,7 @@ check-fm-scan: $(TESTS)/fm_scan_test.c $(TESTS)/check.h $(SRC)/fm_scan.h
 	$(Q)./$(BUILD)/fm_scan_test
 
 check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
-		$(SRC)/fm_dsp.h testfiles/fm_rds_tsf.bin \
+		$(SRC)/fm_dsp.h \
 		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_dsp_test \
@@ -224,7 +224,6 @@ check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(TESTS)/check.h $(SRC)/adsb_dsp.c $(SR
 # second time and independently, so agreement means something.
 check-lte-dsp: $(TESTS)/lte_dsp_test.c $(TESTS)/check.h $(SRC)/lte_dsp.c \
 		$(SRC)/lte_dsp.h $(SRC)/lte_gold.h $(SRC)/lte_mib.c $(SRC)/lte_mib.h \
-		testfiles/lte_b20_pci28.bin \
 		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_dsp_test \
@@ -314,14 +313,13 @@ check-survey-store: $(TESTS)/survey_store_test.c $(TESTS)/check.h \
 		$(SRC)/band_plan.c -lm
 	$(Q)./$(BUILD)/survey_store_test
 
-# One LTE chain walk, over both committed captures. No window, no receiver.
+# One LTE chain walk, over both external captures. No window, no receiver.
 check-lte-chain-analysis: $(TESTS)/lte_chain_analysis_test.c $(TESTS)/check.h \
 		$(SRC)/lte_chain_analysis.c $(SRC)/lte_chain_analysis.h \
 		$(SRC)/lte_confirm.h $(SRC)/lte_stats.h $(SRC)/lte_session.c \
 		$(SRC)/lte_session.h $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/sdr_dsp.c \
-		$(SRC)/device_profile.h testfiles/lte_b20_pci28.bin \
-		testfiles/lte_b8_pci330_4port.bin
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_chain_analysis_test \
 		$(TESTS)/lte_chain_analysis_test.c $(SRC)/lte_chain_analysis.c \
@@ -454,7 +452,7 @@ check-gsm-bcch: $(TESTS)/gsm_bcch_test.c $(TESTS)/check.h $(SRC)/gsm_bcch.c \
 check-fm-session: $(TESTS)/fm_session_test.c $(TESTS)/check.h \
 		$(SRC)/fm_session.c $(SRC)/fm_session.h $(SRC)/fm_dsp.c \
 		$(SRC)/rds.c $(SRC)/fm_scan.h $(SRC)/sdr_dsp.c \
-		$(SRC)/device_profile.h testfiles/fm_rds_tsf.bin
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_session_test \
 		$(TESTS)/fm_session_test.c $(SRC)/fm_session.c $(SRC)/fm_dsp.c \
@@ -463,8 +461,7 @@ check-fm-session: $(TESTS)/fm_session_test.c $(TESTS)/check.h \
 
 check-adsb-session: $(TESTS)/adsb_session_test.c $(TESTS)/check.h \
 		$(SRC)/adsb_session.c $(SRC)/adsb_session.h $(SRC)/adsb_dsp.c \
-		$(SRC)/adsb_analysis.h $(SRC)/sdr_dsp.c $(SRC)/device_profile.h \
-		testfiles/adsb_cpr_pair.bin
+		$(SRC)/adsb_analysis.h $(SRC)/sdr_dsp.c $(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_session_test \
 		$(TESTS)/adsb_session_test.c $(SRC)/adsb_session.c \
@@ -474,7 +471,7 @@ check-adsb-session: $(TESTS)/adsb_session_test.c $(TESTS)/check.h \
 check-lte-session: $(TESTS)/lte_session_test.c $(TESTS)/check.h \
 		$(SRC)/lte_session.c $(SRC)/lte_session.h $(SRC)/lte_dsp.c \
 		$(SRC)/lte_mib.c $(SRC)/lte_stats.h $(SRC)/sdr_dsp.c \
-		$(SRC)/device_profile.h testfiles/lte_b20_pci28.bin
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_session_test \
 		$(TESTS)/lte_session_test.c $(SRC)/lte_session.c $(SRC)/lte_dsp.c \
@@ -484,8 +481,7 @@ check-lte-session: $(TESTS)/lte_session_test.c $(TESTS)/check.h \
 check-tetra-session: $(TESTS)/tetra_session_test.c $(TESTS)/check.h \
 		$(SRC)/tetra_session.c $(SRC)/tetra_session.h $(SRC)/tetra_dsp.c \
 		$(SRC)/tetra_sync.c $(SRC)/sdr_dsp.c $(SRC)/signal_probe.c \
-		$(SRC)/device_profile.h \
-		testfiles/tetra_cc17.bin testfiles/tetra_cc32.bin
+		$(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/tetra_session_test \
 		$(TESTS)/tetra_session_test.c $(SRC)/tetra_session.c \
@@ -495,8 +491,7 @@ check-tetra-session: $(TESTS)/tetra_session_test.c $(TESTS)/check.h \
 
 check-gsm-session: $(TESTS)/gsm_session_test.c $(TESTS)/check.h \
 		$(SRC)/gsm_session.c $(SRC)/gsm_session.h $(SRC)/gsm_dsp.c \
-		$(SRC)/gsm_bcch.c $(SRC)/sdr_dsp.c $(SRC)/device_profile.h \
-		testfiles/gsm_arfcn_69.bin testfiles/gsm_arfcn_113.bin
+		$(SRC)/gsm_bcch.c $(SRC)/sdr_dsp.c $(SRC)/device_profile.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_session_test \
 		$(TESTS)/gsm_session_test.c $(SRC)/gsm_session.c \
@@ -572,7 +567,8 @@ check-signal-analysis: $(TESTS)/signal_analysis_test.c $(TESTS)/check.h \
 # The 16-bit corpus, and the gate every later device-model ticket is measured
 # against. `.scratch/device-model/issues/01-a-format-change-moves-no-answer.md`.
 #
-# testfiles/ is 8-bit and its answers are pinned; build/testfiles16/ is the
+# The external testfiles/ corpus is 8-bit and its answers are pinned;
+# build/testfiles16/ is the
 # same signal in the container a 12-bit device delivers, generated here and
 # never committed. The check asserts the two arrive as bit-identical floats,
 # which settles it for the whole program: there is exactly one byte-to-float
@@ -580,7 +576,10 @@ check-signal-analysis: $(TESTS)/signal_analysis_test.c $(TESTS)/check.h \
 # takes floats.
 FORMAT_CAPTURES=gsm_arfcn_69 gsm_arfcn_113 adsb_cpr_pair lte_b20_pci28 \
 	tetra_cc17 fm_rds_tsf
-FORMAT16=$(patsubst %,$(BUILD)/testfiles16/%.bin,$(FORMAT_CAPTURES))
+FORMAT16=$(foreach capture,$(FORMAT_CAPTURES), \
+	$(if $(and $(wildcard testfiles/$(capture).bin), \
+		$(wildcard testfiles/$(capture).json)), \
+		$(BUILD)/testfiles16/$(capture).bin))
 
 $(BUILD)/rescale_capture: scripts/rescale_capture.c
 	@mkdir -p $(BUILD)
@@ -644,8 +643,7 @@ check-sample-format: $(TESTS)/sample_format_test.c $(TESTS)/check.h \
 	$(Q)./$(BUILD)/sample_format_test
 
 check-signal-probe: $(TESTS)/signal_probe_test.c $(TESTS)/check.h \
-		$(SRC)/signal_probe.c $(SRC)/signal_probe.h \
-		testfiles/carrier_75000_bare.bin
+		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_probe_test \
 		$(TESTS)/signal_probe_test.c $(SRC)/signal_probe.c -lm
@@ -720,8 +718,7 @@ check-survey-session: $(TESTS)/survey_session_test.c $(TESTS)/check.h \
 		$(SRC)/survey_confirm.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h \
 		$(SRC)/site_history.c $(SRC)/site_history.h \
 		$(SRC)/band_plan.c $(SRC)/band_plan.h \
-		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c \
-		testfiles/gsm_arfcn_69.bin testfiles/adsb_cpr_pair.bin
+		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_session_test \
 		$(TESTS)/survey_session_test.c $(SRC)/survey_session.c \
@@ -1155,4 +1152,4 @@ hooks:
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check hooks check-survey-session check-signal-probe check-signal-findings check-lte-findings check-lte-stats check-lte-confirm check-config check-survey-carrier check-survey-confirm check-site-history check-survey-store check-lte-dsp check-lte-mib check-lte-scan check-gsm-bcch check-suspect check-input check-geometry check-gsm-continuity check-adsb-analysis check-scan check-acquisition check-survey-sweep check-options check-calibration check-pipelines check-sdr-dsp check-gsm-dsp check-adsb-dsp check-band-plan check-dsp check-layout check-freq-window probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-ook probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture check-sample-format check-device-profile check-capture-sidecar check-device-backend check-add-argument check-gsm-session check-tetra-session check-lte-session check-adsb-session check-fm-session check-srd-dsp check-srd-frame check-srd-record add-argument clean
+.PHONY: all check $(CHECK_UNITS) hooks check-dsp probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-ook probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture add-argument clean

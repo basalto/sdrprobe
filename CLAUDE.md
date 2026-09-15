@@ -2034,12 +2034,12 @@ share the header -- which is exactly what makes it hard to notice.
   invariants are the only checks a wrong SCH field layout cannot satisfy: the
   synthetic round trip passes against any layout the encoder shares.
 - **`testfiles/srd_remote_control_ook_a.bin` and
-  `srd_remote_control_fsk.bin` are committed fixtures.** Their names and
-  sidecars describe the SRD protocol and receiving setup. A missing fixture is
-  a broken checkout.
-- **`check-pipelines` and the SRD unit suites always exercise them.** Every
+  `srd_remote_control_fsk.bin` are external fixtures.** Their names and
+  sidecars describe the SRD protocol and receiving setup. Missing captures are
+  reported as skips.
+- **`check-pipelines` and the SRD unit suites exercise them when present.** Every
   capture-driven group in `tests/pipelines.sh` is guarded by `have`, which
-  counts a missing capture as a failure rather than silently omitting coverage.
+  reports a missing capture as a skip rather than silently omitting coverage.
   The OOK group requires the band survey to place the transmitter near
   434.417 MHz and the assembled decoder to recover full frames. `make
   probe-ook` reaches the same carrier by a route sharing no code with the

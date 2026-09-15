@@ -533,14 +533,14 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
 - `testfiles/adsb_modes1.bin` — raw 8-bit I/Q capture at 2 MS/s, for
   hardware-free testing; read by `sdrprobe --file`.
 - `testfiles/srd_remote_control_ook_a.bin` — a 5 s OOK SRD remote-control
-  capture at 434.417 MHz, tuned to 433.800 MHz. It is a committed fixture
-  required by the checks. `check-pipelines` requires the survey to find the
+  capture at 434.417 MHz, tuned to 433.800 MHz. It is part of the external
+  capture corpus. When present, `check-pipelines` requires the survey to find the
   carrier near 434.417 MHz and the assembled decoder to recover full frames.
   `docs/srd-remote-control-ook-capture-and-decode.md` carries its measured
   protocol and regression contract.
 - **Every capture-driven group in `tests/pipelines.sh` is guarded by `have`**.
-  A missing capture is counted as a failed check because every fixture is
-  committed and required; a green suite cannot silently omit capture coverage.
+  A missing external capture is reported as a skip; the summary keeps the
+  reduced coverage visible.
 - `testfiles/gsm_arfcn_69.bin` — 2 s raw I/Q capture of GSM 900 ARFCN 69
   (948.8 MHz, tuned to expected − 400 kHz); the `check-gsm-dsp` SCH test decodes
   its BSIC (59, NCC 7 / BCC 3).

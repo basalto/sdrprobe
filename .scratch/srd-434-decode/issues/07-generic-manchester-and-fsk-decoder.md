@@ -68,7 +68,7 @@ Three observations from that output, none of them yet a finding:
   expected, but `E3 8E 38` and `C7 1C 71` are a period-3 pattern, which is what
   a preamble read at the wrong chip period looks like.
 
-The committed 2-FSK capture is required by the SRD DSP and frame checks.
+The external 2-FSK capture is used by the SRD DSP and frame checks when present.
 
 ---
 

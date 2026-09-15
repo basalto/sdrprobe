@@ -924,7 +924,7 @@ static void check_real_capture(const char *path, int pci, int integer_offset,
     size_t got;
 
     if (!file) {
-        printf("  (skipping the real-capture check: %s absent)\n", path);
+        check_skip(path);
         return;
     }
     raw = malloc(LTE_REAL_BLOCK);

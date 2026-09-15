@@ -74,8 +74,10 @@ static int walk_capture(const char *path, struct walk *out) {
     memset(out, 0, sizeof(*out));
     lte_chain_run_reset(&out->run);
     out->primary_pci = -1;
-    if (!f)
+    if (!f) {
+        check_skip(path);
         return 0;
+    }
     for (;;) {
         struct lte_chain_result r;
         struct lte_chain_block block;
@@ -160,8 +162,8 @@ static int walk_capture(const char *path, struct walk *out) {
 static void test_band_20_reads_cell_28(void) {
     struct walk w;
 
-    check_int("the band 20 capture opens",
-              walk_capture("testfiles/lte_b20_pci28.bin", &w), 1);
+    if (!walk_capture("testfiles/lte_b20_pci28.bin", &w))
+        return;
     check_int("thirty whole blocks", w.blocks_read, 30);
     /*
      * **29 of 30**, and the missing one is not a defect here.
@@ -214,8 +216,8 @@ static void test_band_20_reads_cell_28(void) {
 static void test_band_8_reads_cell_330_on_four_ports(void) {
     struct walk w;
 
-    check_int("the band 8 capture opens",
-              walk_capture("testfiles/lte_b8_pci330_4port.bin", &w), 1);
+    if (!walk_capture("testfiles/lte_b8_pci330_4port.bin", &w))
+        return;
     check_int("twelve whole blocks", w.blocks_read, 12);
     check_int("every one holds a cell", w.analysed, 12);
     check_int("none refused", w.refused, 0);
@@ -251,8 +253,9 @@ static void test_band_8_reads_cell_330_on_four_ports(void) {
 static void test_the_multi_cell_walk_never_loses_a_cell(void) {
     struct walk b20, b8;
 
-    walk_capture("testfiles/lte_b20_pci28.bin", &b20);
-    walk_capture("testfiles/lte_b8_pci330_4port.bin", &b8);
+    if (!walk_capture("testfiles/lte_b20_pci28.bin", &b20) ||
+        !walk_capture("testfiles/lte_b8_pci330_4port.bin", &b8))
+        return;
 
     check_true("the single-cell search finds something on band 20",
                b20.single_found > 0);
@@ -268,7 +271,8 @@ static void test_the_multi_cell_walk_never_loses_a_cell(void) {
 static void test_the_primary_is_the_strongest_correlation(void) {
     struct walk w;
 
-    walk_capture("testfiles/lte_b20_pci28.bin", &w);
+    if (!walk_capture("testfiles/lte_b20_pci28.bin", &w))
+        return;
     check_int("no block chose a weaker correlation", w.primary_not_strongest,
               0);
     check_int("so the identity never flipped", w.primary_changes, 1);
@@ -284,7 +288,8 @@ static void test_the_verdicts_stay_distinct(void) {
     struct walk w;
     int i, confirmed = 0, unread = 0, spurious = 0, primary_confirmed = 0;
 
-    walk_capture("testfiles/lte_b20_pci28.bin", &w);
+    if (!walk_capture("testfiles/lte_b20_pci28.bin", &w))
+        return;
     for (i = 0; i < w.run.tally.count; i++) {
         const struct lte_cell_sighting *s = &w.run.tally.cell[i];
         enum lte_cell_verdict v = lte_cell_verdict_for(s);
@@ -324,7 +329,8 @@ static void test_the_verdicts_stay_distinct(void) {
 static void test_one_search_per_block(void) {
     struct walk w;
 
-    walk_capture("testfiles/lte_b20_pci28.bin", &w);
+    if (!walk_capture("testfiles/lte_b20_pci28.bin", &w))
+        return;
     check_true("blocks were analysed", w.run.blocks > 0);
     check_true("one search each", w.run.searches == w.run.blocks);
     check_true("and a block that was refused still counts as one",

@@ -14,7 +14,8 @@ the 2-FSK SRD fixture. Payload semantics remain opaque.
 | Duration | 5.046 s |
 | Signal above local floor | about 31 dB |
 
-The fixture is committed and is required by the SRD DSP and frame checks.
+The fixture is part of the external corpus. The SRD DSP and frame checks use it
+when present and report a skip otherwise.
 
 ## Transmission Structure
 
@@ -77,6 +78,6 @@ particular product or transmitter.
 6. `srd_extract_frames()` reports every maximal legal frame and leaves the
    payload uninterpreted.
 
-The committed fixture is a real-signal check of this chain. Synthetic unit
+The external fixture is a real-signal check of this chain. Synthetic unit
 fixtures remain useful for arithmetic and edge cases, but they cannot establish
 the on-air modulation convention by themselves.

@@ -757,7 +757,7 @@ static void test_a_real_bare_carrier(void) {
     size_t n = 0;
 
     if (!f) {
-        check_true("the capture is present", 0);
+        check_skip("testfiles/carrier_75000_bare.bin");
         return;
     }
     while (n < 400000 && fread(raw, 1, 2, f) == 2) {

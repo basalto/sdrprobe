@@ -246,7 +246,7 @@ make check-pipelines   # the built program over testfiles/, asserting on stdout
 
 The decision checks need no window, receiver, or person. DSP and domain suites
 keep raylib and librtlsdr out of their dependency boundary. `check-pipelines`
-runs the real binary against committed captures: GSM, ADS-B, LTE, TETRA, FM,
+runs the real binary against the external capture corpus: GSM, ADS-B, LTE, TETRA, FM,
 survey, recording, and both supported sample containers must keep their
 end-to-end invariants.
 

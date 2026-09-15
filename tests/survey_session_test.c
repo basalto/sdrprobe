@@ -89,8 +89,10 @@ static int survey_capture(const char *path, double centre_hz,
     struct survey_block block;
     FILE *f = fopen(path, "rb");
 
-    if (!f)
+    if (!f) {
+        check_skip(path);
         return 0;
+    }
     survey_session_reset(ss);
     if (survey_session_one_tuning(ss, centre_hz, RATE, &event) !=
         SURVEY_PLAN_OK) {
@@ -119,7 +121,6 @@ static void test_the_same_capture_twice(void) {
     int i;
 
     if (!survey_capture("testfiles/gsm_arfcn_69.bin", 948.4e6, &first)) {
-        check_true("testfiles/gsm_arfcn_69.bin surveys", 0);
         return;
     }
     /* 31 whole blocks of 131072 pairs, all folded, none discarded: one tuning
@@ -159,7 +160,6 @@ static void test_the_mode_s_carrier(void) {
     static struct survey_session ss;
 
     if (!survey_capture("testfiles/adsb_cpr_pair.bin", 1090e6, &ss)) {
-        check_true("testfiles/adsb_cpr_pair.bin surveys", 0);
         return;
     }
     check_true("at least one candidate", ss.peak_count >= 1);
@@ -181,7 +181,6 @@ static void test_which_spectrum_may_be_measured(void) {
     struct survey_session_event event;
 
     if (!survey_capture("testfiles/gsm_arfcn_69.bin", 948.4e6, &ss)) {
-        check_true("testfiles/gsm_arfcn_69.bin surveys", 0);
         return;
     }
     check_true("one tuning offers its held spectrum",

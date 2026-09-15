@@ -751,7 +751,7 @@ static void test_real_capture(void) {
     const char *path = "testfiles/srd_remote_control_ook_a.bin";
     FILE *f = fopen(path, "rb");
     if (!f) {
-        check_true("required OOK SRD remote-control capture is present", 0);
+        check_skip(path);
         return;
     }
 
@@ -928,7 +928,7 @@ static void test_real_fsk_capture(void) {
     const char *path = "testfiles/srd_remote_control_fsk.bin";
     FILE *f = fopen(path, "rb");
     if (!f) {
-        check_true("required 2-FSK SRD remote-control capture is present", 0);
+        check_skip(path);
         return;
     }
 

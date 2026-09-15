@@ -4,7 +4,7 @@
  * `.scratch/device-model/issues/01-a-format-change-moves-no-answer.md` is the
  * ticket. Everything in that spec is a change to how samples are represented,
  * and the only way to know such a change is harmless is to make it against a
- * corpus whose right answers are already pinned. testfiles/ is that corpus and
+ * corpus whose right answers are already pinned. testfiles/ is that external corpus and
  * it is 8-bit; this writes the same signal in the container a 12-bit device
  * delivers, so the two can be compared through the format layer.
  *

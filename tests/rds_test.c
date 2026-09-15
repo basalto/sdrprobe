@@ -359,7 +359,7 @@ static void test_a_real_station(void) {
     double axis;
 
     if (!f) {
-        check_msg(0, "cannot open %s -- run from the repository root\n", path);
+        check_skip(path);
         return;
     }
     bytes = fread(raw, 1, sizeof(raw), f);

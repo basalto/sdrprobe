@@ -163,7 +163,7 @@ make check-input
 make check-pipelines
 ```
 
-`make check-pipelines` drives the assembled program over committed captures and
+`make check-pipelines` drives the assembled program over external captures and
 asserts identities and messages that synthetic round trips cannot establish.
 `make screens NAMES="..."` renders selected window states for visual review.
 White-box `make probe-*` targets are diagnostics: they explain a result but do

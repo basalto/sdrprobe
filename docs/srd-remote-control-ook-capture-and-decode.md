@@ -10,8 +10,8 @@ as opaque data.
 | --- | --- | --- | --- |
 | `testfiles/srd_remote_control_ook_a.bin` | 433.800 MHz | 4 | 5.046 s |
 
-The capture is committed and required by `check-srd-dsp`, `check-srd-frame`, and
-`check-pipelines`; a missing file is a broken checkout, not a skipped check.
+The capture is part of the external corpus. `check-srd-dsp`, `check-srd-frame`,
+and `check-pipelines` use it when present and report a skip otherwise.
 
 ## Physical Layer
 

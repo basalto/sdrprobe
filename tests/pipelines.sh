@@ -8,8 +8,7 @@
 # recording path, or the flags that reach them fails here instead of on
 # someone's desk.
 #
-# A missing capture fails its group: every fixture is part of the repository's
-# executable contract.
+# A missing external capture skips its group and is reported in the summary.
 #
 #     make check-pipelines
 #
@@ -41,13 +40,12 @@ skip() {
 }
 
 # Guard a group of assertions on the captures they need. Returns success when
-# every one is present; otherwise records one failure per missing capture and
+# every one is present; otherwise records one skip per missing capture and
 # returns failure, so the caller reads:
 #
 #     if have testfiles/foo.bin; then ... fi
 #
-# Assertions inside do not run when a prerequisite capture is missing; the
-# missing capture itself is counted as a failed check.
+# Assertions inside do not run when a prerequisite capture is missing.
 have() {
     have_missing=''
     for have_f in "$@"; do
@@ -56,8 +54,7 @@ have() {
     [ -z "$have_missing" ] && return 0
 
     for have_f in $have_missing; do
-        checked
-        fail "${have_f##*/} is missing: this tree is broken"
+        skip "${have_f##*/} is absent from the external capture corpus"
     done
     return 1
 }
