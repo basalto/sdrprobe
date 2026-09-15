@@ -167,3 +167,41 @@ The **session** truncates silently too — `runs[2048]` per transmission and
 `SRD_SESSION_STREAM_RUNS_MAX` 4096 — and nothing reports it. Only the probe
 was in this ticket's acceptance. Worth a ticket of its own if a transmission
 ever runs long enough to hit it.
+
+## Comments
+
+**2026-09-15 — the sweep's zero-violation rows are a trap, and the picker is
+right.** Asked whether `srd_chip_period()` picks badly on
+`srd_remote_control_ook_a.bin`: the sweep's own output invites that reading,
+because at the picked 499.73 us the longest press scores 127 violations while
+every period from 510 to 560 us scores **0** over 1085 bits at the same 94.7%
+coverage. It does not. Run through `srd_extract_frames()`, all five periods
+return the **same 12 frames** — 4 full, 8 repeat, byte-identical:
+
+```
+  499.73 us  coverage  94.7%  chips 2238  violations  127  frames 12 (full  4)
+  510.00 us  coverage  94.7%  chips 2170  violations    0  frames 12 (full  4)
+  520.00 us  coverage  94.7%  chips 2170  violations    0  frames 12 (full  4)
+  540.00 us  coverage  94.7%  chips 2170  violations    0  frames 12 (full  4)
+  560.00 us  coverage  94.7%  chips 2170  violations    0  frames 12 (full  4)
+```
+
+The mechanism is the delimiter. It is six runs of **1.5 chips** by design, so
+at 499.73 us each quantises to 2 chips and reads as a same-state pair — a
+violation — while at 510 us and above it absorbs into 1 and does not. The
+extractor finds delimiters from the **runs**, never from the chips, so neither
+quantisation reaches the decode.
+
+Which means the violation count is not a measure of decode quality at all:
+it swings 127 to 0 across periods whose output is identical. That is what
+condemned `check-srd-dsp`'s old real-capture claim — `error_count * 10 <
+bit_count`, which also counted the idle between frames in a 1.1 s press and
+read 10.3%, 2.8%, 12.2% and 11.3% on the four presses. Replaced with the
+longest unbroken legal stretch against a floor of two frames, which both
+candidate periods clear (208 bits at the picked one, 1085 at 510) and every
+wrong period fails (127 at 340-390 us, one or two under 200).
+
+No change to `srd_chip_period()`. The harness was a one-off over the shipping
+functions, not a second implementation; the sweep in `make probe-srd` already
+prints every column above except the frame count, and adding that column is
+the only thing here worth building if the question comes back.
