@@ -71,7 +71,7 @@ run() {
 }
 
 if [ ! -x "$probe" ]; then
-    echo "pipeline: build $probe first (make)" >&2
+    echo "pipeline: build $probe first (make all)" >&2
     exit 2
 fi
 

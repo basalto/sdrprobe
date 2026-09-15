@@ -143,7 +143,8 @@ On Arch‑based systems: `pacman -S rtl-sdr raylib pkgconf`.
 ## Build & run
 
 ```sh
-make                 # builds ./sdrprobe
+make                 # lists every target and what it is for
+make all             # builds ./sdrprobe
 ./sdrprobe           # live receiver; Survey opens after installation startup
 ./sdrprobe --file testfiles/adsb_modes1.bin   # hardware-free paced playback
 ```

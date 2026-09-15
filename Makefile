@@ -66,6 +66,26 @@ TESTS=tests
 VENDOR=vendor
 BUILD=build
 
+# `make` with no target prints the list of targets rather than building.
+#
+# Ninety-five targets, and the one that used to be first is not the one most
+# often wanted: a bare `make` built ./sdrprobe, which is what `make all` and
+# `make sdrprobe` still do, while what a newcomer to this repository needs is
+# the name of the suite that covers their change. So the default goal is the
+# list.
+#
+# It is generated rather than written down: `scripts/make_help.py` reads the
+# `#:` line above each target, and describes a check with **its own suite's**
+# `check_report()` sentence -- the same line the suite prints when it runs.
+# A hand-kept list of sixty-eight checks is a caption that stops agreeing
+# with the picture above it.
+.DEFAULT_GOAL := help
+
+#: [Build] every target, and what it is for -- what a bare `make` prints
+help:
+	$(Q)python3 scripts/make_help.py $(firstword $(MAKEFILE_LIST))
+
+#: [Build] build ./sdrprobe
 all: sdrprobe
 
 DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/adsb_session.c $(SRC)/fm_session.c $(SRC)/srd_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
@@ -119,6 +139,7 @@ $(BUILD)/raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
 	$(Q)printf '  cc  %s\n' $@
 	$(Q)$(CC) -O2 $(RAYGUI_FLAGS) -w -c $(SRC)/raygui_impl.c -o $@
 
+#: [Build] build ./sdrprobe (needs librtlsdr and raylib dev headers)
 sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 		$(GUI_SRC) $(GUI_HDR) $(BUILD)/raygui_impl.o
 	$(Q)printf '  cc  %s\n' $@
@@ -378,6 +399,7 @@ check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/options.c $(SRC)/
 # Whole paths through the built program, over the captures in testfiles/:
 # decode, record, and the flags that reach them. Needs the binary and about ten
 # seconds; needs no receiver and nobody watching.
+#: [Gate] the built program over testfiles/, asserting on stdout
 check-pipelines: sdrprobe $(TESTS)/pipelines.sh $(FORMAT16)
 	@$(TESTS)/pipelines.sh
 
@@ -591,6 +613,7 @@ $(BUILD)/testfiles16/%.bin: testfiles/%.bin testfiles/%.json \
 	$(Q)./$(BUILD)/rescale_capture $< $@ >/dev/null
 
 # One capture by hand, for a capture outside the corpus above.
+#: [Tools] write an 8-bit capture into the 16-bit container a 12-bit device delivers (FILE_RESCALE= OUT_RESCALE=)
 rescale-capture: $(BUILD)/rescale_capture
 	$(Q)./$(BUILD)/rescale_capture $(FILE_RESCALE) $(OUT_RESCALE)
 
@@ -604,11 +627,20 @@ rescale-capture: $(BUILD)/rescale_capture
 #
 # Read the diff afterwards: it is a text tool and rewrites a prototype the same
 # way it rewrites a call.
+#: [Tools] insert an argument into every call of a function (FILE= FUNC= INDEX= VALUE=; FILE=--self-test)
 add-argument:
 	$(Q)python3 scripts/add_argument.py $(FILE) $(FUNC) $(INDEX) $(VALUE)
 
+#: the refactoring tool above, against its own traps
 check-add-argument: scripts/add_argument.py
 	$(Q)CHECK_TALLY=$(CHECK_TALLY) python3 scripts/add_argument.py --self-test
+
+# The list `make` prints, against the Makefile it is generated from. What it
+# guards is a target added without a `#:` line: nothing breaks, the target is
+# still listed, and it silently says nothing about itself.
+#: every target is listed, and says what it is
+check-make-help: scripts/make_help.py Makefile
+	$(Q)CHECK_TALLY=$(CHECK_TALLY) python3 scripts/make_help.py --self-test
 
 check-device-backend: $(TESTS)/device_backend_test.c $(TESTS)/check.h \
 		$(SRC)/device_backend.h $(SRC)/device_profile.h \
@@ -786,7 +818,7 @@ CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-t
 	check-geometry check-fm-scan check-row-list check-survey-confirm \
 	check-gsm-continuity check-receiver-lease check-lte-stats \
 	check-reading-origin check-clock-chain check-lte-chain-analysis \
-	check-add-argument TALLY=$(BUILD)/check-tally
+	check-add-argument check-make-help TALLY=$(BUILD)/check-tally
 
 TALLY=$(BUILD)/check-tally
 
@@ -842,9 +874,11 @@ endif
 # was which, and with the pool interleaving them they would have been a
 # promise the order does not keep -- which is worse than not having them.
 # Every suite still says what it covers on its own line.
+#: [Gate] every suite below, no window and no receiver
 check: sdrprobe
 	@CHECK_JOBS=$(CHECK_JOBS) scripts/run_check.sh $(CHECK_UNITS)
 
+#: [Gate] the DSP suites alone
 check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 	check-lte-mib check-band-plan check-srd-dsp
 
@@ -852,6 +886,7 @@ check-dsp: check-sdr-dsp check-gsm-dsp check-adsb-dsp check-lte-dsp \
 # full suite is the gate on push; this is what to run while working, because
 # a suite takes under a second and all of them take the better part of a
 # minute. FILES overrides what git thinks changed.
+#: [Gate] only the suites covering what git says changed, and a count of what it skipped (FILES= overrides git)
 check-touched:
 	$(Q)python3 scripts/check_touched.py $(FILES)
 
@@ -863,6 +898,7 @@ RATE_FM_FILTER ?= 2048000
 
 # Rectangular against shaped biphase filter, over the same samples at a sweep
 # of added noise. Answers whether the theoretical decibel is worth having.
+#: RDS: which biphase filter, over the same samples (FILE_FM_FILTER=)
 probe-fm-filter: scripts/fm_filter_probe.c $(SRC)/fm_dsp.c $(SRC)/fm_dsp.h \
 		$(SRC)/rds.c $(SRC)/rds.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
@@ -944,6 +980,7 @@ check-lte-transport: $(TESTS)/lte_transport_test.c $(TESTS)/check.h \
 		$(SRC)/lte_turbo.c -lm
 	$(Q)./$(BUILD)/lte_transport_test
 
+#: walk the GSM SCH chain, stage by stage (FILE=)
 probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
@@ -953,6 +990,7 @@ probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
 
 # White-box diagnostic walk through the ADS-B Mode S decode chain.
 FILE_ADSB ?= testfiles/adsb_modes1.bin
+#: walk the Mode S chain, stage by stage (FILE_ADSB=)
 probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
@@ -963,12 +1001,14 @@ probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
 # White-box diagnostic walk through the LTE cell search and broadcast channel.
 FILE_LTE ?= testfiles/lte_b20_pci28.bin
 FILE_NBIOT ?= captures/nbiot.bin
+#: is there NB-IoT here? (FILE_NBIOT=, or --self-test)
 probe-nbiot: scripts/nbiot_gate.c $(SRC)/lte_dsp.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/nbiot_gate \
 		scripts/nbiot_gate.c -lm
 	$(Q)./$(BUILD)/nbiot_gate $(FILE_NBIOT)
 
+#: walk the LTE chain over a capture, single-cell beside multi-cell (FILE_LTE=)
 probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h \
 		$(SRC)/lte_chain_analysis.c $(SRC)/lte_chain_analysis.h \
@@ -989,6 +1029,7 @@ probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 #   MODE_TWO_CELL=--fixture    which stage of the fixture two compilers differ at
 #   MODE_TWO_CELL=--diagnose   what a copy of the fixture leaves out
 MODE_TWO_CELL ?= --seeds
+#: the two-cell fixture over forty draws of its traffic (MODE_TWO_CELL=--fixture hashes it stage by stage)
 probe-two-cell: $(TESTS)/lte_dsp_test.c $(TESTS)/two_cell_sweep.inc \
 		$(TESTS)/check.h $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h \
@@ -1011,6 +1052,7 @@ RATE_PERIODICITY?=1920000
 # chosen rather than inherited (ADR-0013). Pure noise through the real
 # transform and the real fold; a survey of nothing should report nothing.
 DRAWS ?= 6
+#: what a survey of nothing reports, at every fold depth (DRAWS=)
 probe-survey-threshold: scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c \
 		$(SRC)/sdr_dsp.h $(SRC)/survey_sweep.h
 	@mkdir -p $(BUILD)
@@ -1039,6 +1081,7 @@ PAIRS_SIGNAL?=0
 # it is pointed. The FCCH is the coherent thing, not the loudest, and this is
 # the detector that knows the difference -- swept, with a narrow search at
 # each step, because the shipping one picks one winner over 50 kHz.
+#: every coherent tone in a GSM channel, and which is the FCCH (FILE_FCCH= RATE_FCCH= CARRIER_FCCH=)
 probe-fcch: scripts/fcch_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fcch_probe \
@@ -1046,6 +1089,7 @@ probe-fcch: scripts/fcch_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h
 	$(Q)./$(BUILD)/fcch_probe $(FILE_FCCH) $(RATE_FCCH) $(CARRIER_FCCH) \
 		$(SPAN_FCCH) $(STEP_FCCH) $(HALF_FCCH)
 
+#: on air, or noise? a signal measured against its own controls (FILE_SIGNAL= AT_SIGNAL= CONTROLS_SIGNAL=)
 probe-signal: scripts/signal_report.c $(SRC)/signal_probe.c \
 		$(SRC)/signal_probe.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
 		$(SRC)/device_profile.h
@@ -1076,6 +1120,7 @@ CHANNEL_OOK?=50000
 GUARD_OOK?=50000
 BUCKET_OOK?=10
 RUNS_OOK?=48
+#: where the transmissions are in a capture, and what modulation they carry (FILE_OOK=)
 probe-ook: scripts/ook_report.c $(SRC)/signal_probe.c $(SRC)/signal_probe.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
 	@mkdir -p $(BUILD)
@@ -1091,6 +1136,7 @@ probe-ook: scripts/ook_report.c $(SRC)/signal_probe.c $(SRC)/signal_probe.h \
 # not it is right.
 FILE_SRD?=testfiles/srd_remote_control_fsk.bin
 RATE_SRD?=2000000
+#: and what they say: runs, chips, violations, frames (FILE_SRD=)
 probe-srd: scripts/srd_report.c $(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
 		$(SRC)/srd_frame.c $(SRC)/srd_frame.h $(SRC)/signal_probe.c \
 		$(SRC)/signal_probe.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
@@ -1103,17 +1149,20 @@ probe-srd: scripts/srd_report.c $(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
 # Is there a clock-coherent tone at this frequency, and whose clock is it?
 # Written a dozen times as a one-liner in one afternoon; the numbers belong in
 # a ticket rather than a transcript. Needs a receiver.
+#: is a clock-coherent tone at this frequency, and whose clock? Needs a receiver (FREQ_TONE= APPLIED_TONE=)
 probe-tone: scripts/tone_probe.sh sdrprobe
 	$(Q)FREQ_TONE=$(FREQ_TONE) SPAN_TONE=$(SPAN_TONE) PPM_TONE=$(PPM_TONE) \
 		APPLIED_TONE=$(APPLIED_TONE) DWELL_TONE=$(DWELL_TONE) \
 		WINDOW_TONE=$(WINDOW_TONE) ./scripts/tone_probe.sh
 
+#: which of these nominal frequencies carry a tone clocked by this receiver? Needs a receiver (NOMINALS=)
 probe-artifacts: scripts/artifact_sweep.sh sdrprobe
 	$(Q)NOMINALS="$(NOMINALS)" GAIN_ARTIFACTS=$(GAIN_ARTIFACTS) \
 		PPM_ARTIFACTS=$(PPM_ARTIFACTS) SPAN_ARTIFACTS=$(SPAN_ARTIFACTS) \
 		DWELL_ARTIFACTS=$(DWELL_ARTIFACTS) LABEL_ARTIFACTS="$(LABEL_ARTIFACTS)" \
 		./scripts/artifact_sweep.sh
 
+#: LTE or 5G NR? which subcarrier spacing? (FILE_PERIODICITY=)
 probe-periodicity: scripts/signal_periodicity.c $(SRC)/signal_probe.c \
 		$(SRC)/signal_probe.h
 	@mkdir -p $(BUILD)
@@ -1131,10 +1180,12 @@ SCREEN_H?=950
 # Every screen, or the ones named: make screens NAMES="calibration-2g gsm".
 # A change touches a screen or two; rendering the other ten costs a minute to
 # learn nothing.
+#: [Diagnostics] render the views from captures into build/screens/ (NAMES="gsm lte")
 screens: sdrprobe
 	@mkdir -p $(SCREEN_DIR)
 	$(Q)NAMES="$(NAMES)" sh scripts/screens.sh $(SCREEN_DIR) $(SCREEN_W) $(SCREEN_H)
 
+#: [Diagnostics] what the DSP costs against the 65.5 ms a block covers (BENCH_ARCH=-march=native)
 bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(BENCH_ARCH) -I$(SRC) -o $(BUILD)/dsp_bench \
@@ -1144,12 +1195,14 @@ bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 # Point git at the version-controlled hooks in scripts/hooks/, so `git push`
 # runs `make check` first. One setting, and the hook itself stays in the repo
 # where it can be read and changed like anything else.
+#: [Tools] run `make check` on every git push (once, per clone)
 hooks:
 	$(Q)git config core.hooksPath scripts/hooks
 	@printf '  %-34s %s\n' "pre-push" \
 		"installed; git push --no-verify skips it"
 
+#: [Tools] remove ./sdrprobe and build/
 clean:
 	rm -rf sdrprobe $(BUILD)
 
-.PHONY: all check $(CHECK_UNITS) hooks check-dsp probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-ook probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture add-argument clean
+.PHONY: help all check check-make-help $(CHECK_UNITS) hooks check-dsp probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-ook probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture add-argument clean

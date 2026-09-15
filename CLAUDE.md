@@ -10,7 +10,8 @@ need the detail.
 ## Build & test
 
 ```sh
-make                  # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
+make                  # every target and what it is for; the default goal
+make all              # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
 make check            # everything below, ~57 s, no window and no receiver
 make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
@@ -44,6 +45,7 @@ make check-capture-sidecar # what a capture says about its own bytes
 make check-device-backend # the contract a receiver has to satisfy
 make check-installation # what a measurement belongs to
 make check-add-argument # the refactoring tool below, against its own traps
+make check-make-help  # every target is listed, and says what it is
 make check-gsm-session  # a GSM decode, block by block, no window
 make check-tetra-session # a TETRA decode, block by block
 make check-lte-session  # an LTE decode, and the repeat a message needs
@@ -56,6 +58,16 @@ make check-pipelines  # the built program over testfiles/, asserting on stdout
 make hooks            # run `make check` on every git push (once, per clone)
 make clean
 ```
+
+**That list is what a bare `make` prints, and it is generated rather than
+written down.** The default goal is `help`; `make all` builds. A list of
+ninety-five targets kept by hand is a caption that stops agreeing with the picture
+above it, so `scripts/make_help.py` reads the `#:` line above each rule --
+and for a `check-*` rule with no `#:` line it reads that suite's **own**
+`check_report("what it covers")` sentence, the same line the suite prints
+when it runs. A target added with neither is listed as undocumented and
+`check-make-help` fails, for the same reason the `NOT GATED` and `MISSING`
+audits further down exist: the failure is invisible from a green run.
 
 **Run the suite that covers the change, not all of them.** Most suites are
 under a second and the full set is **about three minutes**, so `make check`
