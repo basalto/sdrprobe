@@ -5,10 +5,15 @@ receiver, DSP and testability boundaries. The first decision is where the
 network boundary belongs: after acquisition as raw I/Q, after DSP as derived
 display state, or around an Emscripten build of most of the application.
 
-The assessment is in `issues/01-stream-derived-state-to-a-web-client.md`. It
-is deliberately awaiting human review before implementation tickets are
-created. The choice affects the public protocol, deployment requirements,
-browser support and whether each client repeats the DSP workload.
+**Decided 2026-09-16.** The boundary is after DSP: the native process keeps
+acquisition, receiver control, DSP and persistence, and serves a **Viewer
+link** on loopback carrying **State updates** out and **Viewer commands** in.
+The seam both frontends share is a **view model** -- plain data saying what a
+screen shows -- so the raylib window and a browser Viewer are alternative
+readers of one object rather than two presentations kept in step. They are not
+run at the same time. ADR-0027 and its amendment carry the reasoning;
+`issues/01-*` carries the decisions and the two claims of its own that were
+measured wrong.
 
 ## Constraints
 
@@ -22,10 +27,22 @@ browser support and whether each client repeats the DSP workload.
 - Do not make WebUSB-only browser support the primary product path.
 - Do not introduce a uniform technology interface solely for serialization.
 
-## Not yet decided
+## Settled
 
-- Whether remote access beyond a trusted LAN is a product requirement.
-- Whether the browser must process capture files locally.
-- Whether preserving the current raylib presentation is more important than a
-  web-native responsive and accessible interface.
-- Whether direct browser access to an RTL-SDR is worth Chromium-only support.
+- **Remote access**: loopback only. The bind address is the authorization
+  boundary, which is what lets a Viewer command carry no credential.
+- **Capture files in the browser**: not on this path, and not declined --
+  capture analysis in WebAssembly needs no receiver, no stream and no server,
+  shares no code with the Viewer link, and remains its own decision.
+- **The raylib presentation**: kept and primary, migrating onto the shared
+  view model view by view. Retiring it is a further amendment to ADR-0027 and
+  would owe an accounting of `check-layout`, the `*_layout.h` headers,
+  `panel_rows.h` and `make screens`, none of which have web equivalents.
+- **WebUSB**: no. Chromium-only, and a new backend rather than a recompile.
+
+## Still open
+
+- The input half of the seam. 161 raylib input call sites, hit-testing done
+  inline against rectangles that exist only while drawing. A Viewer command is
+  not a click, so nothing on this path is blocked by it.
+- Whether more than one Viewer may send commands at once.

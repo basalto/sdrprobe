@@ -366,3 +366,25 @@ _Avoid_: Component, view
 **HUD composition**:
 Assembling a screen from SDR visual components and widgets, keeping the arrangement separate from both the rendering of each piece and the application logic behind it.
 _Avoid_: Layout engine, scene graph
+
+### Remote viewing
+
+**Viewer**:
+A browser client watching one running receiver. It draws measurements the native process has already made; it never acquires samples, runs DSP, or owns any state of its own beyond what it has been sent.
+_Avoid_: Publisher, subscriber, dashboard, remote GUI
+
+**Viewer link**:
+The loopback connection carrying state out to a Viewer and commands back in. Its address is the authorization boundary: reaching it already requires an account on the machine, which is why a Viewer command needs no credential of its own.
+_Avoid_: Publisher, feed, channel, socket
+
+**State update**:
+One message of derived measurements on a replaceable stream. A newer one supersedes an unsent older one rather than queueing behind it, which is the Latest block rule carried onto the wire.
+_Avoid_: Frame, packet, snapshot, event
+
+**Viewer command**:
+One instruction from a Viewer to the receiver — a retune, a sweep, a recording. Unlike a State update it is reliable and ordered: it is never dropped to catch up, and its outcome is reported back.
+_Avoid_: Request, RPC, message
+
+**Tuning generation**:
+A counter advanced on every retune and stamped on every State update, so a Viewer can tell that measurements in flight belong to the previous tuning and decline to draw them under the new one.
+_Avoid_: Sequence number, epoch, version
