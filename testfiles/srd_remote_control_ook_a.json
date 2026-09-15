@@ -1,0 +1,17 @@
+{
+  "provenance": "recorded by sdrprobe",
+  "format": "unsigned 8-bit interleaved I/Q, mid-scale = zero",
+  "full_scale": 127.5,
+  "bytes_per_pair": 2,
+  "technology": "raw",
+  "center_frequency_hz": 433800000,
+  "sample_rate_hz": 2000000,
+  "gain_db": 49.6,
+  "ppm": 43,
+  "source": "RTL-SDR: Generic RTL2832U",
+  "tuner": "R820T",
+  "started_at": "2026-09-13T13:56:21",
+  "duration_seconds": 5.046,
+  "bytes": 20185088,
+  "short_blocks": 0
+}

@@ -890,7 +890,7 @@ check-tetra-dsp: $(TESTS)/tetra_dsp_test.c $(TESTS)/check.h \
 		$(SRC)/signal_probe.c -lm
 	$(Q)./$(BUILD)/tetra_dsp_test
 
-check-srd-dsp: $(TESTS)/srd_dsp_test.c $(TESTS)/check.h \
+check-srd-dsp: $(TESTS)/srd_dsp_test.c $(TESTS)/check.h $(SRC)/srd_frame.h \
 		$(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
 		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
