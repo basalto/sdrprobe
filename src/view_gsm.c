@@ -387,7 +387,7 @@ void draw_gsm(struct app *app) {
                 m_cnt = 1;
             }
             draw_waterfall_rect_with_markers(app, 1, wf, &app->gsm.window,
-                                             m_cnt ? &gsm_marker : NULL, m_cnt, NULL, NULL);
+                                             m_cnt ? &gsm_marker : NULL, m_cnt, NULL);
         }
 
 
@@ -432,7 +432,7 @@ void draw_gsm(struct app *app) {
             m_cnt = 1;
         }
         draw_waterfall_rect_with_markers(app, 1, wf, &app->gsm.window,
-                                         m_cnt ? &gsm_marker : NULL, m_cnt, NULL, NULL);
+                                         m_cnt ? &gsm_marker : NULL, m_cnt, NULL);
 
         /* Default Channel Power Scan Chart on Bottom */
         Rectangle sc = gsm_scan_rect();

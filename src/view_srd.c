@@ -189,6 +189,7 @@ void update_srd(struct app *app, double now) {
  * receiver.
  */
 static void handle_log_click(struct app *app);
+static void handle_marker_click(struct app *app);
 
 static void srd_freq_show(struct app *app) {
     struct srd_view *s = &app->srd;
@@ -334,6 +335,9 @@ void handle_srd_input(struct app *app) {
        still commits it first, and before the buttons, none of which share a
        rectangle with the log. */
     handle_log_click(app);
+    /* And the same selection by pointing at the waterfall. Both are here, in
+       the input phase, rather than one of them inside a draw. */
+    handle_marker_click(app);
 
     if (clicked(l.record_button)) {
         double seconds;
@@ -570,6 +574,100 @@ static void handle_log_click(struct app *app) {
         retune_receiver(app, intent.tune_hz, app->applied.ppm);
 }
 
+/*
+ * The markers this view puts on the waterfall, built once for whoever asks.
+ *
+ * Extracted from `draw_srd()` because the click that selects one now happens
+ * in the input phase (ADR-0012: a draw may not decide), and the hit test has
+ * to be laid out against the *same* markers the drawing laid out -- a second
+ * construction here would be a second answer. `labels` is the caller's
+ * storage because a marker points at its label rather than carrying it.
+ */
+static int srd_markers_build(const struct app *app,
+                             struct sdrgui_waterfall_marker *markers,
+                             char labels[][32], int max) {
+    const struct srd_view *s = &app->srd;
+    int marker_count = 0;
+    double now_sec = GetTime();
+
+    for (int k = 0; k < s->log_count && k < max; k++) {
+            /* Where it was, not where the receiver is now. */
+            markers[k].frequency_hz = s->log[k].absolute_hz;
+            markers[k].bandwidth_hz = (s->log[k].modulation == SRD_MOD_FSK2) ? 45000.0 : 25000.0;
+            markers[k].age_seconds = now_sec - s->log[k].at;
+            markers[k].duration_seconds = 0.025;
+            markers[k].id = k;
+            markers[k].highlighted = (k == s->selected_log);
+            markers[k].color = (s->log[k].kind == SRD_FRAME_FSK_DETECTED)
+                                   ? (Color){ 120, 160, 200, 180 }
+                                   : (s->log[k].kind == SRD_FRAME_UNDECODED)
+                                         ? (Color){ 250, 160, 80, 220 }
+                                         : (s->log[k].modulation == SRD_MOD_FSK2)
+                                               ? (Color){ 80, 220, 240, 220 }
+                                               : (Color){ 100, 230, 150, 220 };
+            if (s->log[k].kind == SRD_FRAME_FSK_DETECTED) {
+                snprintf(labels[k], sizeof(labels[k]), "WAKEUP");
+            } else if (s->log[k].kind == SRD_FRAME_UNDECODED) {
+                /*
+                 * No label. A detected burst with no frame is the commonest
+                 * thing on this band by a wide margin -- one live sweep put
+                 * 35 of them on screen at once -- and every one of them said
+                 * the same word. The brackets already say a burst was there
+                 * and how wide it was; the word added nothing and buried the
+                 * markers that carry a sequence number or a decode.
+                 */
+                labels[k][0] = '\0';
+            } else if (s->log[k].byte_count >= 14 &&
+                       ((s->log[k].bytes[0] == 0x27 && s->log[k].bytes[1] == 0xE5) ||
+                        (s->log[k].bytes[0] == 0xD8 && s->log[k].bytes[1] == 0x1A))) {
+                uint16_t seq = ((uint16_t)s->log[k].bytes[8] << 8) | s->log[k].bytes[9];
+                snprintf(labels[k], sizeof(labels[k]), "seq %04X", seq);
+            } else {
+                snprintf(labels[k], sizeof(labels[k]), "%s",
+                         s->log[k].kind == SRD_FRAME_FULL ? "FULL" :
+                         s->log[k].kind == SRD_FRAME_REPEAT ? "REPEAT" : "GENERIC");
+            }
+            markers[k].label = labels[k][0] ? labels[k] : NULL;
+        marker_count++;
+    }
+    return marker_count;
+}
+
+/*
+ * Clicking a marker on the waterfall selects the burst it stands for.
+ *
+ * The same selection the log rows offer, by pointing at where the burst was
+ * heard instead of at a row -- and until this moved here it was done by
+ * `sdrgui_waterfall()` writing an out-parameter from inside its draw loop.
+ */
+static void handle_marker_click(struct app *app) {
+    struct srd_view *s = &app->srd;
+    struct srd_layout l = srd_layout_for((float)GetScreenWidth(),
+                                         (float)GetScreenHeight());
+    struct sdrgui_waterfall_marker markers[SRD_LOG_CAPACITY];
+    static char labels[SRD_LOG_CAPACITY][32];
+    struct sdrgui_marker_layout layout[SRD_LOG_CAPACITY];
+    int widths[SRD_LOG_CAPACITY];
+    struct sdrgui_marker_axes axes;
+    Vector2 mouse = GetMousePosition();
+    int count, laid, i, hit;
+
+    if (s->analysis_mode || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        return;
+    count = srd_markers_build(app, markers, labels, SRD_LOG_CAPACITY);
+    if (count <= 0)
+        return;
+    for (i = 0; i < count; i++)
+        widths[i] = (markers[i].label && markers[i].label[0])
+                        ? MeasureText(markers[i].label, 12) : 0;
+    axes = waterfall_marker_axes(app, l.waterfall, &s->window);
+    laid = sdrgui_waterfall_marker_layout(markers, count, widths, axes, layout,
+                                          SRD_LOG_CAPACITY);
+    hit = sdrgui_waterfall_marker_at(layout, laid, mouse.x, mouse.y);
+    if (hit >= 0)
+        s->selected_log = hit;
+}
+
 void draw_srd(struct app *app) {
     struct srd_view *s = &app->srd;
     struct srd_layout l = srd_layout_for((float)GetScreenWidth(),
@@ -644,55 +742,11 @@ void draw_srd(struct app *app) {
     if (!s->analysis_mode) {
         struct sdrgui_waterfall_marker markers[SRD_LOG_CAPACITY];
         static char labels[SRD_LOG_CAPACITY][32];
-        int marker_count = 0;
-        double now_sec = GetTime();
+        int marker_count = srd_markers_build(app, markers, labels,
+                                             SRD_LOG_CAPACITY);
 
-        for (int k = 0; k < s->log_count && k < SRD_LOG_CAPACITY; k++) {
-            /* Where it was, not where the receiver is now. */
-            markers[k].frequency_hz = s->log[k].absolute_hz;
-            markers[k].bandwidth_hz = (s->log[k].modulation == SRD_MOD_FSK2) ? 45000.0 : 25000.0;
-            markers[k].age_seconds = now_sec - s->log[k].at;
-            markers[k].duration_seconds = 0.025;
-            markers[k].id = k;
-            markers[k].highlighted = (k == s->selected_log);
-            markers[k].color = (s->log[k].kind == SRD_FRAME_FSK_DETECTED)
-                                   ? (Color){ 120, 160, 200, 180 }
-                                   : (s->log[k].kind == SRD_FRAME_UNDECODED)
-                                         ? (Color){ 250, 160, 80, 220 }
-                                         : (s->log[k].modulation == SRD_MOD_FSK2)
-                                               ? (Color){ 80, 220, 240, 220 }
-                                               : (Color){ 100, 230, 150, 220 };
-            if (s->log[k].kind == SRD_FRAME_FSK_DETECTED) {
-                snprintf(labels[k], sizeof(labels[k]), "WAKEUP");
-            } else if (s->log[k].kind == SRD_FRAME_UNDECODED) {
-                /*
-                 * No label. A detected burst with no frame is the commonest
-                 * thing on this band by a wide margin -- one live sweep put
-                 * 35 of them on screen at once -- and every one of them said
-                 * the same word. The brackets already say a burst was there
-                 * and how wide it was; the word added nothing and buried the
-                 * markers that carry a sequence number or a decode.
-                 */
-                labels[k][0] = '\0';
-            } else if (s->log[k].byte_count >= 14 &&
-                       ((s->log[k].bytes[0] == 0x27 && s->log[k].bytes[1] == 0xE5) ||
-                        (s->log[k].bytes[0] == 0xD8 && s->log[k].bytes[1] == 0x1A))) {
-                uint16_t seq = ((uint16_t)s->log[k].bytes[8] << 8) | s->log[k].bytes[9];
-                snprintf(labels[k], sizeof(labels[k]), "seq %04X", seq);
-            } else {
-                snprintf(labels[k], sizeof(labels[k]), "%s",
-                         s->log[k].kind == SRD_FRAME_FULL ? "FULL" :
-                         s->log[k].kind == SRD_FRAME_REPEAT ? "REPEAT" : "GENERIC");
-            }
-            markers[k].label = labels[k][0] ? labels[k] : NULL;
-            marker_count++;
-        }
-
-        int clicked_marker = -1;
         draw_waterfall_rect_with_markers(app, 0, l.waterfall, &s->window,
-                                         markers, marker_count, &clicked_marker, NULL);
-        if (clicked_marker >= 0)
-            s->selected_log = clicked_marker;
+                                         markers, marker_count, NULL);
 
         draw_log(app, l.log_full);
         return;

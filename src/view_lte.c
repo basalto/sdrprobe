@@ -1065,7 +1065,7 @@ void draw_lte(struct app *app) {
             m_cnt = 1;
         }
         draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->lte.window,
-                                         m_cnt ? &lte_marker : NULL, m_cnt, NULL, NULL);
+                                         m_cnt ? &lte_marker : NULL, m_cnt, NULL);
         draw_cell_panel(app, l.cell_panel, now);
         draw_mib_panel(app, l.mib_panel, now);
     }

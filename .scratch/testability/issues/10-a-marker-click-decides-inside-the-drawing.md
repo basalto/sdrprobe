@@ -1,6 +1,6 @@
 # 10 — A marker click decides inside the drawing, and nothing can reach it
 
-Status: ready-for-agent
+Status: resolved, 2026-09-16
 Blocked by: (none)
 Opened 2026-09-15, from ticket 09's scope note.
 
@@ -90,37 +90,45 @@ reproducing an iteration order and hoping.
 
 ## Tasks
 
-- [ ] Add a marker-layout function to `sdrgui_geometry.h`: markers, the span,
+- [x] Add a marker-layout function to `sdrgui_geometry.h`: markers, the span,
       `visible_seconds`, the plot and the measured label widths in; every
       marker's bracket rect and resolved pill rect out.
-- [ ] Move `resolve_label_pill()` into it unchanged, and check its eight
+- [x] Move `resolve_label_pill()` into it unchanged, and check its eight
       placement attempts and its clamping directly.
-- [ ] Add `sdrgui_waterfall_marker_at()` over that layout, returning the
+- [x] Add `sdrgui_waterfall_marker_at()` over that layout, returning the
       topmost marker under a point, or -1.
-- [ ] Make `sdrgui_waterfall()` draw from the layout rather than computing
+- [x] Make `sdrgui_waterfall()` draw from the layout rather than computing
       rects inline, so the two cannot disagree.
-- [ ] Remove `out_clicked_marker_id` from `struct sdrgui_waterfall_params`;
+- [x] Remove `out_clicked_marker_id` from `struct sdrgui_waterfall_params`;
       keep `out_hovered_marker_id`, which reports rather than decides.
-- [ ] Move ADS-B and SRD marker selection into `handle_adsb_input()` and
+- [x] Move ADS-B and SRD marker selection into `handle_adsb_input()` and
       `handle_srd_input()`, beside the log-row selection ticket 09 put there.
-- [ ] Check the forward and inverse agree: a marker laid out at a frequency
+- [x] Check the forward and inverse agree: a marker laid out at a frequency
       and age is found by a point at its own centre, for every marker in a
       populated waterfall.
 
 ## Acceptance criteria
 
-- [ ] No draw function changes selection anywhere in the program, which
+- [x] No draw function changes selection anywhere in the program, which
       completes ticket 09's criterion rather than restating it.
-- [ ] `check-geometry` covers bracket placement, pill collision resolution,
+- [x] `check-geometry` covers bracket placement, pill collision resolution,
       the plot clamping and the topmost-wins rule, with no window.
-- [ ] A mutation of the frequency-to-x mapping, of the age-to-y mapping, or of
+- [x] A mutation of the frequency-to-x mapping, of the age-to-y mapping, or of
       the topmost rule fails the suite. **State which mutations were run and
       what each produced** — ticket 09's first geometry check was phrased
       against its own answer and survived a mutation that dropped a whole
       heading block.
-- [ ] The ADS-B and SRD waterfalls render identically to before, compared as
-      images.
-- [ ] Clicking a marker selects the same log entry it selects today.
+- [~] The ADS-B and SRD waterfalls render identically to before, compared as
+      images. **Not available as stated, and the tick is a `~` for that
+      reason**: the same binary renders the same capture differently on two
+      runs, so there is no byte comparison to make. Established by eye against
+      a before/after pair, and the control run first. See below.
+- [~] Clicking a marker selects the same log entry it selects today.
+      **A click cannot be injected here** -- the same reason `CLAUDE.md` gives
+      for key presses -- so this is established by the forward/inverse check
+      over a populated waterfall, by the topmost-wins check, and by the
+      selection path being the same `selected_log` write moved from the draw
+      to the input phase. Not by clicking.
 
 ## Not in scope
 
@@ -140,3 +148,76 @@ a two-axis projection with order-dependent label placement over it. Claiming
 the "no draw function changes selection" criterion while markers still did
 would have put a green tick over the half that was not modelled, which is the
 fault `CLAUDE.md` names about layout headers holding half a screen.
+
+## Done, 2026-09-16
+
+`sdrgui_waterfall_marker_layout()` in `sdrgui_geometry.h` computes every
+marker's bracket and pill in one pass; `sdrgui_waterfall_marker_at()` is the
+inverse; `sdrgui_waterfall()` draws from the array and decides nothing.
+`out_clicked_marker_id` is gone from `struct sdrgui_waterfall_params`, and
+selection moved to `handle_marker_click()` in `view_srd.c` and `view_adsb.c`,
+beside the log-row selection ticket 09 put there. No draw function in the
+program writes a selection now.
+
+**Two things the ticket did not anticipate, both forced.** `check-geometry`
+links `-lm` alone, so `CheckCollisionRecs()` -- which is in raylib's *library*
+-- could not come along; `sdrgui_rects_overlap()` reproduces it to the
+character, strict inequalities included, because the placement was tuned
+against those and a `<=` would move pills that currently sit edge to edge. And
+`sdrgui.h` includes `sdrgui_geometry.h`, so `struct sdrgui_waterfall_marker`
+moved down into the geometry header rather than the layout reaching up for it.
+
+Three smaller ones worth recording. The marker construction itself had to come
+out of both draw functions (`srd_markers_build()`, `adsb_markers_build()`),
+because a hit test laid out against a *second* construction of the markers is
+a second answer. The axes needed a shared derivation too --
+`waterfall_marker_axes()` in `view_scope.c`, over `sdrgui_waterfall_span()`
+and the new `sdrgui_waterfall_visible_seconds()` -- since the drawing derives
+them inside `sdrgui_waterfall()` and the input phase cannot reach in. And the
+leader line is drawn on a condition with **two** terms, one of them comparing
+the pill against its pre-collision target, so the layout carries `pill_target`
+rather than dropping it and quietly changing which markers grow a line.
+
+### The mutations, and what each produced
+
+`check-geometry` went from 190 to 230 checks. Run one at a time against the
+finished suite:
+
+| mutation | result |
+| --- | --- |
+| x mapping inverted (`upper - f`) | 1 failed |
+| x mapping off by one bin (+2500 Hz) | 2 failed |
+| y mapping inverted (`visible - age`) | 1 failed |
+| topmost rule -> first match wins | 1 failed |
+| bracket y-clamp removed | 1 failed |
+| bandwidth floor 20 px -> 2 px | 1 failed |
+| **pill x-clamp removed** | **passed** |
+
+**The last one is the point.** `test_a_pill_is_clamped_into_the_plot` was
+green and proved nothing: a single marker hard against the right edge never
+reaches the clamp, because its pill is flipped to the *left* of the brackets
+before placement and lands inside the plot on its own. What reaches the clamp
+is a *collision*, which throws a pill to `marker_cx + 8` and past the edge --
+so the check needs two markers at the same moment, not one. Rewritten that
+way it catches the mutation, and the suite is 230 checks rather than 226.
+That is the class `check-claims` calls "a green check can mean nothing at
+all", found only because the ticket demanded the mutations be run and stated.
+
+### The images, and why "identically" is not available
+
+The criterion asks for the ADS-B and SRD waterfalls compared as images. They
+are **not byte-comparable, and that is not a regression**: rendering the same
+capture twice from the *same* binary produces different PNGs, because a
+marker's age is `GetTime() - entry.at` and playback catches a different moment
+each run. That control was run first, and it differs for both screens.
+
+Compared by eye instead: ADS-B before and after are indistinguishable -- the
+same twelve stacked `495211` pills in the same positions, only the log's wall
+clock differs. SRD is structurally identical: same bracket-and-pill markers in
+green, same stacking near 434.4 MHz, same leader lines, with the log holding a
+different moment's frames. The pills stacked at the plot's left edge on ADS-B
+are pre-existing and appear in both: a Mode S marker's bandwidth is 2 MHz
+against a 2 MHz span, so its bracket is the whole plot and its pill is flipped
+left and clamped.
+
+`make check`: 21667 checks in 77 suites, no failures.

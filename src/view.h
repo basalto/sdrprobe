@@ -317,13 +317,16 @@ void view_window_input(struct app *app, struct chart_window *win,
                        Rectangle rect, enum chart_key key, double spacing_hz,
                        int allow_retune);
 
+struct sdrgui_marker_axes waterfall_marker_axes(const struct app *app,
+                                                Rectangle rect,
+                                                const struct chart_window *win);
+
 void draw_waterfall_rect(const struct app *app, int calibration_mode,
                          Rectangle rect, const struct chart_window *win);
 void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mode,
                                       Rectangle rect, const struct chart_window *win,
                                       const struct sdrgui_waterfall_marker *markers,
                                       int marker_count,
-                                      int *out_clicked_marker_id,
                                       int *out_hovered_marker_id);
 /*
  * The Scope's own three views. Each reads its measurements from a

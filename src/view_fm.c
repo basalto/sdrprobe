@@ -884,7 +884,7 @@ void draw_fm(struct app *app) {
         fm_mcnt++;
     }
     draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->fm.window,
-                                     fm_markers, fm_mcnt, NULL, NULL);
+                                     fm_markers, fm_mcnt, NULL);
     draw_signal_panel(app, l.signal_panel);
     draw_station_panel(app, l.station_panel);
     draw_funnel_panel(app, l.funnel_panel);

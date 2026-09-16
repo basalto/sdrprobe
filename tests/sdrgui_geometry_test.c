@@ -757,6 +757,356 @@ static void test_which_log_row_the_pointer_is_over(void) {
     }
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Waterfall markers: where each one lands, and which one a click hits. */
+
+/*
+ * These used to be computed inside `sdrgui_waterfall()`'s draw loop, which
+ * also wrote which marker had been clicked -- so nothing without a window
+ * could ask where a marker was, and the inverse of the mapping did not exist
+ * at all. `sdrgui.h` already records what that costs, for the survey chart:
+ *
+ *   a marker drawn at a frequency the hit test maps somewhere else is the
+ *   same bug the bar charts had, one or two positions out and only visible
+ *   by clicking.
+ */
+
+#define MARK_PLOT rect(100.0f, 50.0f, 800.0f, 400.0f)
+
+static struct sdrgui_marker_axes mark_axes(void) {
+    struct sdrgui_marker_axes a;
+
+    a.plot = MARK_PLOT;
+    a.lower_hz = 433000000.0;
+    a.upper_hz = 435000000.0;   /* 2 MHz across 800 px: 2.5 kHz a pixel */
+    a.visible_seconds = 20.0;
+    return a;
+}
+
+static struct sdrgui_waterfall_marker a_marker(double hz, double age,
+                                               const char *label) {
+    struct sdrgui_waterfall_marker m;
+
+    m.frequency_hz = hz;
+    m.bandwidth_hz = 25000.0;
+    m.age_seconds = age;
+    m.duration_seconds = 0.025;
+    m.label = label;
+    m.highlighted = 0;
+    m.id = 0;
+    m.color = (Color){ 0, 0, 0, 0 };
+    return m;
+}
+
+/* The centre of the span sits at the centre of the plot, and "now" at the
+   top: the two axes, each at a point that cannot come out right by accident
+   if either is inverted. */
+static void test_a_marker_lands_where_its_frequency_and_age_say(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[2];
+    struct sdrgui_marker_layout out[2];
+    int widths[2] = { 0, 0 };
+    int n;
+
+    m[0] = a_marker(434000000.0, 0.0, NULL);     /* mid-span, now */
+    m[1] = a_marker(433500000.0, 10.0, NULL);    /* quarter across, half down */
+    m[1].id = 1;
+
+    n = sdrgui_waterfall_marker_layout(m, 2, widths, axes, out, 2);
+    check_int("both are on screen", n, 2);
+    check_close("mid-span is mid-plot", out[0].centre_x, 500.0f, 0.01f);
+    check_close("a quarter across is a quarter along", out[1].centre_x, 300.0f,
+                0.01f);
+    /* Age 0 is the top row, and the dot is clamped 3 px inside the plot. */
+    check_close("now is at the top", out[0].dot_y, 53.0f, 0.01f);
+    check_close("ten of twenty seconds is halfway down", out[1].dot_y, 250.0f,
+                0.01f);
+}
+
+/* Off either end of the span, or older than the history, is not drawn at all
+   -- so the count is what is on screen and an index into it is not an index
+   into the caller's array. That is why the layout carries `index`. */
+static void test_what_is_off_screen_is_dropped(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[4];
+    struct sdrgui_marker_layout out[4];
+    int widths[4] = { 0, 0, 0, 0 };
+    int n;
+
+    m[0] = a_marker(432000000.0, 1.0, NULL);     /* below the span */
+    m[1] = a_marker(436000000.0, 1.0, NULL);     /* above it */
+    m[2] = a_marker(434000000.0, 25.0, NULL);    /* older than the history */
+    m[3] = a_marker(434000000.0, 1.0, NULL);     /* the only one on screen */
+    m[3].id = 7;
+
+    n = sdrgui_waterfall_marker_layout(m, 4, widths, axes, out, 4);
+    check_int("one of four is drawn", n, 1);
+    check_int("and it is the one that fits", out[0].id, 7);
+    check_int("which remembers where it came from", out[0].index, 3);
+}
+
+/*
+ * The brackets are the burst's bandwidth and duration, with a floor on each
+ * so a narrow or brief one is still something to point at.
+ */
+static void test_the_brackets_are_the_burst(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[2];
+    struct sdrgui_marker_layout out[2];
+    int widths[2] = { 0, 0 };
+
+    /* 500 kHz of 2 MHz across 800 px is 200 px. */
+    m[0] = a_marker(434000000.0, 5.0, NULL);
+    m[0].bandwidth_hz = 500000.0;
+    m[0].duration_seconds = 5.0;      /* a quarter of 20 s is 100 px */
+    /* And one far under both floors. */
+    m[1] = a_marker(434000000.0, 5.0, NULL);
+    m[1].bandwidth_hz = 100.0;
+    m[1].duration_seconds = 0.000001;
+
+    sdrgui_waterfall_marker_layout(m, 2, widths, axes, out, 2);
+    check_close("bandwidth becomes width", out[0].bracket.width, 200.0f, 0.01f);
+    check_close("duration becomes height", out[0].bracket.height, 100.0f, 0.01f);
+    check_close("a narrow burst still gets 20 px", out[1].bracket.width, 20.0f,
+                0.01f);
+    check_close("and a brief one 8", out[1].bracket.height, 8.0f, 0.01f);
+}
+
+/* Nothing may be drawn outside the plot: a burst at the very top or bottom of
+   the history has its brackets pushed back inside. */
+static void test_the_brackets_stay_inside_the_plot(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[2];
+    struct sdrgui_marker_layout out[2];
+    int widths[2] = { 0, 0 };
+
+    m[0] = a_marker(434000000.0, 0.0, NULL);       /* now: half the bracket
+                                                      would be above the plot */
+    m[1] = a_marker(434000000.0, 20.0, NULL);      /* the oldest row */
+
+    sdrgui_waterfall_marker_layout(m, 2, widths, axes, out, 2);
+    check_true("the newest is not above the plot",
+               out[0].bracket.y >= MARK_PLOT.y + 2.0f - 0.001f);
+    check_true("the oldest is not below it",
+               out[1].bracket.y + out[1].bracket.height <=
+                   MARK_PLOT.y + MARK_PLOT.height - 2.0f + 0.001f);
+    check_true("and neither dot leaves it",
+               out[0].dot_y >= MARK_PLOT.y &&
+                   out[1].dot_y <= MARK_PLOT.y + MARK_PLOT.height);
+}
+
+/*
+ * **The forward and the inverse agree.** Every marker laid out is found by a
+ * point at its own centre -- which is the property that was unavailable while
+ * this lived inside the drawing, and the one the survey chart has had all
+ * along.
+ */
+static void test_every_marker_is_found_at_its_own_centre(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[24];
+    struct sdrgui_marker_layout out[24];
+    int widths[24];
+    int i, n, wrong = 0;
+
+    /* A populated waterfall: spread across the span and the history, so the
+       pills collide and are moved. */
+    for (i = 0; i < 24; i++) {
+        m[i] = a_marker(433100000.0 + i * 75000.0, 0.5 + i * 0.75, "seq 1234");
+        m[i].id = 100 + i;
+        widths[i] = 52;
+    }
+    n = sdrgui_waterfall_marker_layout(m, 24, widths, axes, out, 24);
+    check_int("all of them are on screen", n, 24);
+
+    for (i = 0; i < n; i++) {
+        float cx = out[i].bracket.x + out[i].bracket.width / 2.0f;
+        float cy = out[i].bracket.y + out[i].bracket.height / 2.0f;
+
+        if (sdrgui_waterfall_marker_at(out, n, cx, cy) != out[i].id)
+            wrong++;
+    }
+    check_msg(wrong == 0, "every marker is found at its own centre (%d of %d "
+              "were not)", wrong, n);
+
+    /* And a point well outside every bracket finds nothing. */
+    check_int("empty space selects nothing",
+              sdrgui_waterfall_marker_at(out, n, MARK_PLOT.x + 1.0f,
+                                         MARK_PLOT.y + MARK_PLOT.height - 1.0f),
+              -1);
+}
+
+/*
+ * **The topmost wins.** Two markers at the same place: the later one is drawn
+ * over the earlier, so a click belongs to it. The loop this replaced got the
+ * same answer by overwriting its output on every match -- correct by accident,
+ * which is not something a check could state or a reader rely on.
+ */
+static void test_the_topmost_marker_wins(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[2];
+    struct sdrgui_marker_layout out[2];
+    int widths[2] = { 0, 0 };
+    int n;
+
+    m[0] = a_marker(434000000.0, 5.0, NULL);
+    m[0].id = 11;
+    m[1] = a_marker(434000000.0, 5.0, NULL);   /* exactly on top of it */
+    m[1].id = 22;
+
+    n = sdrgui_waterfall_marker_layout(m, 2, widths, axes, out, 2);
+    check_int("both laid out", n, 2);
+    check_int("the one drawn last takes the click",
+              sdrgui_waterfall_marker_at(out, n, out[0].centre_x,
+                                         out[0].bracket.y + 1.0f), 22);
+}
+
+/*
+ * Pills are moved off each other, and the y is never touched -- a label must
+ * stay at the moment its detection happened, or it is a label for a different
+ * burst.
+ */
+static void test_pills_are_moved_apart_but_never_in_time(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[3];
+    struct sdrgui_marker_layout out[3];
+    int widths[3] = { 60, 60, 60 };
+    int i, n;
+
+    /* Three at nearly the same time and frequency: their pills must collide. */
+    for (i = 0; i < 3; i++) {
+        m[i] = a_marker(434000000.0 + i * 2000.0, 10.0, "FULL");
+        m[i].id = i;
+    }
+    n = sdrgui_waterfall_marker_layout(m, 3, widths, axes, out, 3);
+    check_int("three laid out", n, 3);
+
+    for (i = 0; i < n; i++)
+        check_close("the pill stays at its own time", out[i].pill.y,
+                    out[i].pill_target.y, 0.001f);
+
+    /* And no two overlap once resolved. */
+    {
+        int overlaps = 0;
+
+        for (i = 0; i < n; i++) {
+            int j;
+            for (j = i + 1; j < n; j++)
+                if (sdrgui_rects_overlap(out[i].pill, out[j].pill))
+                    overlaps++;
+        }
+        check_int("no two pills overlap", overlaps, 0);
+    }
+}
+
+/*
+ * A pill pushed off the edge is pulled back: a label half outside the chart
+ * is a label nobody can read.
+ *
+ * **This check was green for the wrong reason first.** A single marker hard
+ * against the right edge with a wide label never reaches the clamp: the pill
+ * is flipped to the *left* of the brackets before placement, and lands inside
+ * the plot on its own. Removing the clamp entirely left the suite passing.
+ * What reaches it is a *collision*, which throws the pill to `marker_cx + 8`
+ * and past the edge -- so this needs two markers at the same moment, not one.
+ */
+static void test_a_pill_is_clamped_into_the_plot(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[2];
+    struct sdrgui_marker_layout out[2];
+    int widths[2] = { 120, 120 };
+    int i, n;
+
+    /* Both hard against the right edge, at the same time: the second one's
+       pill collides with the first and is thrown outward. */
+    m[0] = a_marker(434985000.0, 10.0, "seq 4C1D");
+    m[0].id = 0;
+    m[1] = a_marker(434995000.0, 10.0, "seq 4C1E");
+    m[1].id = 1;
+
+    n = sdrgui_waterfall_marker_layout(m, 2, widths, axes, out, 2);
+    check_int("both laid out", n, 2);
+    for (i = 0; i < n; i++) {
+        check_true("the pill starts inside the plot",
+                   out[i].pill.x >= MARK_PLOT.x + 2.0f - 0.001f);
+        check_true("and ends inside it",
+                   out[i].pill.x + out[i].pill.width <=
+                       MARK_PLOT.x + MARK_PLOT.width - 2.0f + 0.001f);
+    }
+    /* And the one that had to move is genuinely somewhere else, so this is
+       not passing because nothing was resolved. */
+    check_true("the second pill was moved by the collision",
+               out[1].pill.x != out[1].pill_target.x ||
+                   out[1].pill.y != out[1].pill_target.y);
+}
+
+/*
+ * An unlabelled marker takes no pill and no slot in the budget, and is hit by
+ * its brackets alone. On this band most detections are unlabelled, so a pill
+ * for each would spend the whole budget on markers saying nothing.
+ */
+static void test_an_unlabelled_marker_is_its_brackets(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[1];
+    struct sdrgui_marker_layout out[1];
+    int widths[1] = { 0 };
+
+    m[0] = a_marker(434000000.0, 10.0, NULL);
+    m[0].id = 5;
+    sdrgui_waterfall_marker_layout(m, 1, widths, axes, out, 1);
+    check_int("it is not labelled", out[0].labelled, 0);
+    check_int("its brackets take the click",
+              sdrgui_waterfall_marker_at(out, 1, out[0].centre_x,
+                                         out[0].bracket.y + 1.0f), 5);
+    /* Where its pill would have been, nothing is selected. */
+    check_int("and the space beside it does not",
+              sdrgui_waterfall_marker_at(out, 1,
+                                         out[0].bracket.x +
+                                             out[0].bracket.width + 8.0f,
+                                         out[0].pill.y + 8.0f), -1);
+}
+
+/* Degenerate axes answer nothing rather than dividing by zero. */
+static void test_axes_that_say_nothing(void) {
+    struct sdrgui_marker_axes axes = mark_axes();
+    struct sdrgui_waterfall_marker m[1];
+    struct sdrgui_marker_layout out[1];
+    int widths[1] = { 0 };
+
+    m[0] = a_marker(434000000.0, 1.0, NULL);
+    axes.visible_seconds = 0.0;
+    check_int("no history, no markers",
+              sdrgui_waterfall_marker_layout(m, 1, widths, axes, out, 1), 0);
+    axes = mark_axes();
+    axes.upper_hz = axes.lower_hz;
+    check_int("no span, no markers",
+              sdrgui_waterfall_marker_layout(m, 1, widths, axes, out, 1), 0);
+    check_int("and nothing is over an empty layout",
+              sdrgui_waterfall_marker_at(out, 0, 100.0f, 100.0f), -1);
+}
+
+/* How much history is on screen, which both the drawing and the hit test
+   divide an age by. */
+static void test_visible_seconds(void) {
+    /* 400 rows of 131072 pairs at 2 MS/s: 0.065536 s a row. */
+    check_close("height wins when there is one",
+                (float)sdrgui_waterfall_visible_seconds(200, 400, 131072,
+                                                        131072, 2000000.0),
+                26.2144f, 0.001f);
+    check_close("rows when there is not",
+                (float)sdrgui_waterfall_visible_seconds(200, 0, 131072, 131072,
+                                                        2000000.0),
+                13.1072f, 0.001f);
+    check_close("and the fallback when no block has arrived",
+                (float)sdrgui_waterfall_visible_seconds(200, 0, 0, 131072,
+                                                        2000000.0),
+                13.1072f, 0.001f);
+    check_close("a rate of zero is no history at all",
+                (float)sdrgui_waterfall_visible_seconds(200, 400, 131072,
+                                                        131072, 0.0),
+                0.0f, 0.001f);
+}
+
 int main(void) {
     test_message_log_columns();
     test_the_plot_sits_inside_its_chart();
@@ -773,6 +1123,18 @@ int main(void) {
     test_peak_marks();
     test_the_pointer_is_on_the_dot();
     test_which_log_row_the_pointer_is_over();
+
+    test_a_marker_lands_where_its_frequency_and_age_say();
+    test_what_is_off_screen_is_dropped();
+    test_the_brackets_are_the_burst();
+    test_the_brackets_stay_inside_the_plot();
+    test_every_marker_is_found_at_its_own_centre();
+    test_the_topmost_marker_wins();
+    test_pills_are_moved_apart_but_never_in_time();
+    test_a_pill_is_clamped_into_the_plot();
+    test_an_unlabelled_marker_is_its_brackets();
+    test_axes_that_say_nothing();
+    test_visible_seconds();
 
     return check_report("chart geometry");
 }

@@ -1,6 +1,7 @@
 #ifndef SDRGUI_GEOMETRY_H
 #define SDRGUI_GEOMETRY_H
 
+#include <stddef.h>
 #include <raylib.h>
 
 /*
@@ -484,6 +485,296 @@ static inline int sdrgui_message_log_row_at(Rectangle outer, int count,
     if (row < 0 || row >= rows)
         return -1;
     return row;
+}
+
+struct sdrgui_waterfall_marker {
+    double frequency_hz;        /* detection center frequency */
+    double bandwidth_hz;        /* estimated bandwidth */
+    double age_seconds;         /* age in the past (0 = now = top of waterfall) */
+    double duration_seconds;    /* duration of burst in time */
+    /*
+     * Tag / packet summary, or NULL for a marker that has nothing to add
+     * beyond being there -- which draws brackets and a dot and no pill.
+     * On a busy band most detections are of that kind, and a box saying
+     * the same word forty times hides the few that say something else.
+     */
+    const char *label;
+    int highlighted;            /* 1 if selected/hovered in table */
+    int id;                     /* entry identifier */
+    Color color;                /* custom color (or default if 0) */
+};
+
+/*
+ * Whether two rectangles overlap.
+ *
+ * raylib's `CheckCollisionRecs()` to the character, reproduced here because
+ * it is in raylib's *library* and this header is compiled by checks that link
+ * `-lm` alone. The inequalities are strict, so rectangles that merely touch
+ * do not collide -- copying that exactly is the point, since the label
+ * placement below was tuned against it and a `<=` here would move pills that
+ * currently sit edge to edge.
+ */
+static inline int sdrgui_rects_overlap(Rectangle a, Rectangle b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x &&
+           a.y < b.y + b.height && a.y + a.height > b.y;
+}
+
+/*
+ * How many seconds of history the waterfall is showing.
+ *
+ * Shared by the drawing and by whoever hit-tests a marker, because a marker's
+ * y is its age over this and the two must divide by the same number.
+ */
+static inline double sdrgui_waterfall_visible_seconds(int rows, int height,
+                                                      size_t pair_count,
+                                                      size_t fallback_pairs,
+                                                      double sample_rate) {
+    double row_seconds;
+
+    if (sample_rate <= 0.0)
+        return 0.0;
+    row_seconds = (pair_count > 0 ? (double)pair_count
+                                  : (double)fallback_pairs) / sample_rate;
+    return (height > 0 ? (double)height : (double)rows) * row_seconds;
+}
+
+/* What the markers are laid out against: the plot, the frequency span across
+   it, and how much time it covers. */
+struct sdrgui_marker_axes {
+    Rectangle plot;
+    double lower_hz;
+    double upper_hz;
+    double visible_seconds;
+};
+
+/*
+ * Where one marker's parts ended up. `pill` is meaningful only when
+ * `labelled`; `index` is the marker's place in the caller's array, so the
+ * drawing can go back for its colour and its text.
+ */
+struct sdrgui_marker_layout {
+    Rectangle bracket;
+    Rectangle pill;
+    /*
+     * Where the pill would have gone before collisions were resolved. Kept
+     * because the drawing leads the eye to a pill that moved, and "moved" is
+     * measured against both this and the default position beside the bracket
+     * -- two terms, and dropping either changes which markers grow a leader
+     * line.
+     */
+    Rectangle pill_target;
+    float centre_x;
+    float dot_y;
+    int labelled;
+    int index;
+    int id;
+};
+
+/*
+ * How many pills may be placed. Past this a marker still draws its brackets
+ * and its dot; it just does not compete for a label position.
+ */
+#define SDRGUI_MARKER_PILL_BUDGET 64
+
+/*
+ * How many markers may be laid out at once: the larger of the two logs that
+ * draw them, `ADSB_LOG_CAPACITY` at 256 (`SRD_LOG_CAPACITY` is 64). So this
+ * narrows nothing today -- it is the bound that lets the layout be an array
+ * on the stack rather than an allocation inside a draw.
+ */
+#define SDRGUI_MARKER_MAX 256
+
+/*
+ * One marker's label pill, moved out of the collisions already placed.
+ *
+ * Y is physical time and is never modified: a label must stay at the
+ * detection's own moment. Only x moves, through eight attempts either side of
+ * the marker, then a clamp into the plot.
+ */
+static inline Rectangle sdrgui_marker_pill_resolve(Rectangle target,
+                                                   const Rectangle *placed,
+                                                   int placed_count,
+                                                   Rectangle plot,
+                                                   float marker_cx) {
+    Rectangle r = target;
+    int max_attempts = 8;
+    int attempt = 0;
+
+    while (attempt < max_attempts) {
+        int collides = 0;
+        int i;
+
+        for (i = 0; i < placed_count; i++) {
+            Rectangle p = { placed[i].x - 4.0f, placed[i].y - 2.0f,
+                            placed[i].width + 8.0f, placed[i].height + 4.0f };
+            if (sdrgui_rects_overlap(r, p)) {
+                collides = 1;
+                break;
+            }
+        }
+        if (!collides)
+            break;
+
+        attempt++;
+        {
+            float span_x = target.width + 10.0f;
+
+            if (attempt == 1)
+                r.x = marker_cx + 8.0f;
+            else if (attempt == 2)
+                r.x = marker_cx - r.width - 8.0f;
+            else if (attempt == 3)
+                r.x = marker_cx + 8.0f + span_x;
+            else if (attempt == 4)
+                r.x = marker_cx - 8.0f - span_x - r.width;
+            else if (attempt == 5)
+                r.x = marker_cx + 8.0f + 2.0f * span_x;
+            else if (attempt == 6)
+                r.x = marker_cx - 8.0f - 2.0f * span_x - r.width;
+            else
+                r.x = target.x + (float)attempt * 12.0f;
+        }
+    }
+
+    if (r.x < plot.x + 2.0f)
+        r.x = plot.x + 2.0f;
+    if (r.x + r.width > plot.x + plot.width - 2.0f)
+        r.x = plot.x + plot.width - r.width - 2.0f;
+    if (r.y < plot.y + 2.0f)
+        r.y = plot.y + 2.0f;
+    if (r.y + r.height > plot.y + plot.height - 2.0f)
+        r.y = plot.y + plot.height - r.height - 2.0f;
+    return r;
+}
+
+/*
+ * Every marker's brackets and label pill, in one pass.
+ *
+ * One pass and one array because pill placement is **order-dependent**: each
+ * pill is resolved against the ones already placed, so marker N's rectangle
+ * depends on 0..N-1. A hit test that re-derived a single marker's placement
+ * independently would be a second implementation agreeing only by luck. The
+ * drawing and the hit test read this instead.
+ *
+ * `label_widths[i]` is `MeasureText(markers[i].label, 12)` -- measured by the
+ * caller because it needs a font, which needs a window, and this header may
+ * not (ADR-0012). It is read only for markers that have a label.
+ *
+ * Markers outside the frequency span or the time window are dropped rather
+ * than emitted, so the returned count is what is on screen.
+ */
+static inline int sdrgui_waterfall_marker_layout(
+        const struct sdrgui_waterfall_marker *markers, int count,
+        const int *label_widths, struct sdrgui_marker_axes axes,
+        struct sdrgui_marker_layout *out, int out_max) {
+    Rectangle placed[SDRGUI_MARKER_PILL_BUDGET];
+    int placed_count = 0;
+    int n = 0;
+    int i;
+    double span_hz = axes.upper_hz - axes.lower_hz;
+
+    if (!markers || !out || out_max <= 0 || span_hz <= 0.0 ||
+        axes.visible_seconds <= 0.0)
+        return 0;
+
+    for (i = 0; i < count && n < out_max; i++) {
+        const struct sdrgui_waterfall_marker *m = &markers[i];
+        struct sdrgui_marker_layout *l = &out[n];
+        float mx, my, marker_w, marker_h, pw, ph, tx;
+        Rectangle target;
+        int tw;
+
+        if (m->age_seconds < 0.0 || m->age_seconds > axes.visible_seconds)
+            continue;
+        if (m->frequency_hz < axes.lower_hz || m->frequency_hz > axes.upper_hz)
+            continue;
+
+        mx = axes.plot.x + (float)((m->frequency_hz - axes.lower_hz) /
+                                   span_hz) * axes.plot.width;
+        my = axes.plot.y + (float)(m->age_seconds / axes.visible_seconds) *
+                           axes.plot.height;
+
+        marker_w = 26.0f;
+        if (m->bandwidth_hz > 0.0) {
+            marker_w = (float)(m->bandwidth_hz / span_hz) * axes.plot.width;
+            if (marker_w < 20.0f)
+                marker_w = 20.0f;
+        }
+        marker_h = 12.0f;
+        if (m->duration_seconds > 0.0) {
+            marker_h = (float)(m->duration_seconds / axes.visible_seconds) *
+                       axes.plot.height;
+            if (marker_h < 8.0f)
+                marker_h = 8.0f;
+        }
+
+        l->bracket = (Rectangle){ mx - marker_w / 2.0f, my - marker_h / 2.0f,
+                                  marker_w, marker_h };
+        if (l->bracket.y < axes.plot.y + 2.0f)
+            l->bracket.y = axes.plot.y + 2.0f;
+        if (l->bracket.y + l->bracket.height >
+            axes.plot.y + axes.plot.height - 2.0f)
+            l->bracket.y = axes.plot.y + axes.plot.height -
+                           l->bracket.height - 2.0f;
+
+        l->labelled = m->label && m->label[0];
+        tw = l->labelled && label_widths ? label_widths[i] : 0;
+        pw = (float)(tw + 14);
+        ph = 16.0f;
+        tx = l->bracket.x + l->bracket.width + 4.0f;
+        if (tx + pw > axes.plot.x + axes.plot.width - 2.0f)
+            tx = l->bracket.x - pw - 4.0f;
+        target = (Rectangle){ tx, my - ph / 2.0f, pw, ph };
+        if (target.y < axes.plot.y + 2.0f)
+            target.y = axes.plot.y + 2.0f;
+        if (target.y + target.height > axes.plot.y + axes.plot.height - 2.0f)
+            target.y = axes.plot.y + axes.plot.height - target.height - 2.0f;
+
+        l->pill_target = target;
+        l->pill = target;
+        if (l->labelled && placed_count < SDRGUI_MARKER_PILL_BUDGET) {
+            l->pill = sdrgui_marker_pill_resolve(target, placed, placed_count,
+                                                 axes.plot, mx);
+            placed[placed_count++] = l->pill;
+        }
+
+        l->centre_x = mx;
+        l->dot_y = my;
+        if (l->dot_y < axes.plot.y + 3.0f)
+            l->dot_y = axes.plot.y + 3.0f;
+        else if (l->dot_y > axes.plot.y + axes.plot.height - 3.0f)
+            l->dot_y = axes.plot.y + axes.plot.height - 3.0f;
+
+        l->index = i;
+        l->id = m->id;
+        n++;
+    }
+    return n;
+}
+
+/*
+ * Which marker a point is over: its id, or -1.
+ *
+ * **The topmost wins**, which is the later one in the layout, because that is
+ * the one drawn over the others. The loop it replaced reached the same answer
+ * by overwriting its output on every match and happening to draw in the same
+ * order -- right by accident, and so not something a reader could rely on or
+ * a check could state. It is stated here.
+ *
+ * An unlabelled marker is hit by its brackets, which are all there is of it.
+ */
+static inline int sdrgui_waterfall_marker_at(
+        const struct sdrgui_marker_layout *layout, int count, float x,
+        float y) {
+    int found = -1;
+    int i;
+
+    for (i = 0; i < count; i++) {
+        if (sdrgui_point_in(layout[i].bracket, x, y) ||
+            (layout[i].labelled && sdrgui_point_in(layout[i].pill, x, y)))
+            found = layout[i].id;
+    }
+    return found;
 }
 
 #endif

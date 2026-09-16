@@ -274,7 +274,7 @@ void draw_tetra(struct app *app) {
         }
 
         draw_waterfall_rect_with_markers(app, 0, l.waterfall, &t->window,
-                                         m_cnt ? &tetra_marker : NULL, m_cnt, NULL, NULL);
+                                         m_cnt ? &tetra_marker : NULL, m_cnt, NULL);
         draw_log(app, l.log_full);
         return;
     }

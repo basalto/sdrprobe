@@ -263,7 +263,6 @@ void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mod
                                       Rectangle rect, const struct chart_window *win,
                                       const struct sdrgui_waterfall_marker *markers,
                                       int marker_count,
-                                      int *out_clicked_marker_id,
                                       int *out_hovered_marker_id) {
     Rectangle plot = sdrgui_waterfall_area(rect);
     struct sdrgui_waterfall_params params = {
@@ -276,7 +275,7 @@ void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mod
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
         0, 0.0, 0.0,
-        markers, marker_count, out_clicked_marker_id, out_hovered_marker_id
+        markers, marker_count, out_hovered_marker_id
     };
 
     chart_window_zoom_of(win, &params.zoom_center_hz,
@@ -286,10 +285,42 @@ void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mod
     sdrgui_waterfall(&params);
 }
 
+/*
+ * The axes the waterfall's markers are laid out against.
+ *
+ * The drawing derives these inside `sdrgui_waterfall()`; a hit test in the
+ * input phase needs the same three numbers and cannot reach into a draw. Both
+ * go through `sdrgui_waterfall_span()` and
+ * `sdrgui_waterfall_visible_seconds()`, so there is one implementation of each
+ * and this only assembles them -- which is what stops the pointer and the
+ * picture disagreeing about where a marker is.
+ */
+struct sdrgui_marker_axes waterfall_marker_axes(const struct app *app,
+                                                Rectangle rect,
+                                                const struct chart_window *win) {
+    struct sdrgui_marker_axes axes;
+    struct sdrgui_waterfall_span span;
+    double zoom_center = 0.0, zoom_half = 0.0;
+
+    chart_window_zoom_of(win, &zoom_center, &zoom_half);
+    span = sdrgui_waterfall_span((double)app->applied.frequency_hz,
+                                 (double)app->applied.sample_rate_hz,
+                                 zoom_center, zoom_half,
+                                 (float)app->sv.waterfall.width);
+    axes.plot = sdrgui_waterfall_area(rect);
+    axes.lower_hz = span.lower_hz;
+    axes.upper_hz = span.upper_hz;
+    axes.visible_seconds = sdrgui_waterfall_visible_seconds(
+        app->sv.waterfall_rows, app->sv.waterfall_height,
+        app->frame.pair_count, SAMPLE_BLOCK_PAIRS,
+        (double)app->applied.sample_rate_hz);
+    return axes;
+}
+
 void draw_waterfall_rect(const struct app *app, int calibration_mode,
                          Rectangle rect, const struct chart_window *win) {
     draw_waterfall_rect_with_markers(app, calibration_mode, rect, win,
-                                     NULL, 0, NULL, NULL);
+                                     NULL, 0, NULL);
 }
 
 /*
@@ -323,7 +354,7 @@ void draw_waterfall(const struct app *app, const struct scope_view_model *svm,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
         0, 0.0, 0.0,
-        NULL, 0, NULL, NULL
+        NULL, 0, NULL
     };
 
     /* The component already knows how to draw part of its span -- the

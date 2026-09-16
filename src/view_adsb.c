@@ -138,6 +138,64 @@ void update_adsb(struct app *app, double now) {
     }
 }
 
+/*
+ * The markers this view puts on the waterfall.
+ *
+ * One construction, because the drawing lays these out to draw them and the
+ * input phase lays out the same ones to find which was clicked -- and two
+ * constructions would be two answers. A frame's label is its ICAO, which the
+ * log already holds, so there is no label storage to pass in.
+ */
+static int adsb_markers_build(const struct app *app,
+                              struct sdrgui_waterfall_marker *markers,
+                              int max) {
+    int marker_count = 0;
+    double now_sec = GetTime();
+
+    for (int k = 0; k < app->adsb.log_count && k < max; k++) {
+        markers[k].frequency_hz = 1090000000.0;
+        markers[k].bandwidth_hz = 2000000.0;
+        markers[k].age_seconds = now_sec - app->adsb.log[k].time;
+        markers[k].duration_seconds = 0.000120;
+        markers[k].id = k;
+        markers[k].highlighted = (k == app->adsb.selected_log);
+        markers[k].color = (Color){ 80, 220, 240, 220 };
+        markers[k].label = app->adsb.log[k].icao;
+        marker_count++;
+    }
+    return marker_count;
+}
+
+/*
+ * Clicking a marker selects the frame it stands for -- the same selection a
+ * log row gives, by pointing at when it arrived. It used to be decided inside
+ * `sdrgui_waterfall()`'s draw loop (ADR-0012).
+ */
+static void handle_marker_click(struct app *app) {
+    struct adsb_layout l = adsb_layout_now();
+    struct sdrgui_waterfall_marker markers[ADSB_LOG_CAPACITY];
+    struct sdrgui_marker_layout layout[ADSB_LOG_CAPACITY];
+    int widths[ADSB_LOG_CAPACITY];
+    struct sdrgui_marker_axes axes;
+    Vector2 mouse = GetMousePosition();
+    int count, laid, i, hit;
+
+    if (adsb_analysis_showing(app))
+        return;
+    count = adsb_markers_build(app, markers, ADSB_LOG_CAPACITY);
+    if (count <= 0)
+        return;
+    for (i = 0; i < count; i++)
+        widths[i] = (markers[i].label && markers[i].label[0])
+                        ? MeasureText(markers[i].label, 12) : 0;
+    axes = waterfall_marker_axes(app, l.waterfall, &app->adsb.window);
+    laid = sdrgui_waterfall_marker_layout(markers, count, widths, axes, layout,
+                                          ADSB_LOG_CAPACITY);
+    hit = sdrgui_waterfall_marker_at(layout, laid, mouse.x, mouse.y);
+    if (hit >= 0)
+        app->adsb.selected_log = hit;
+}
+
 void handle_adsb_input(struct app *app) {
     struct adsb_layout l = adsb_layout_now();
 
@@ -174,6 +232,9 @@ void handle_adsb_input(struct app *app) {
 
         if (row >= 0)
             app->adsb.selected_log = row;
+        /* And the same selection by pointing at the waterfall, which the
+           marker layout answers over the same geometry it is drawn with. */
+        handle_marker_click(app);
     }
 }
 
@@ -393,26 +454,10 @@ void draw_adsb(struct app *app) {
 
     if (!analysis) {
         struct sdrgui_waterfall_marker markers[ADSB_LOG_CAPACITY];
-        int marker_count = 0;
-        double now_sec = GetTime();
+        int marker_count = adsb_markers_build(app, markers, ADSB_LOG_CAPACITY);
 
-        for (int k = 0; k < app->adsb.log_count && k < ADSB_LOG_CAPACITY; k++) {
-            markers[k].frequency_hz = 1090000000.0;
-            markers[k].bandwidth_hz = 2000000.0;
-            markers[k].age_seconds = now_sec - app->adsb.log[k].time;
-            markers[k].duration_seconds = 0.000120;
-            markers[k].id = k;
-            markers[k].highlighted = (k == app->adsb.selected_log);
-            markers[k].color = (Color){ 80, 220, 240, 220 };
-            markers[k].label = app->adsb.log[k].icao;
-            marker_count++;
-        }
-
-        int clicked_marker = -1;
         draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->adsb.window,
-                                         markers, marker_count, &clicked_marker, NULL);
-        if (clicked_marker >= 0)
-            app->adsb.selected_log = clicked_marker;
+                                         markers, marker_count, NULL);
 
         /* Drawn, and nothing more: selecting a row is handle_adsb_input()'s,
            over the same geometry this log is laid out with. */

@@ -165,22 +165,9 @@ void sdrgui_scatter(const struct sdrgui_scatter_params *params);
    8 of that. */
 #define SDRGUI_WATERFALL_FOOTER_H 44.0f
 
-struct sdrgui_waterfall_marker {
-    double frequency_hz;        /* detection center frequency */
-    double bandwidth_hz;        /* estimated bandwidth */
-    double age_seconds;         /* age in the past (0 = now = top of waterfall) */
-    double duration_seconds;    /* duration of burst in time */
-    /*
-     * Tag / packet summary, or NULL for a marker that has nothing to add
-     * beyond being there -- which draws brackets and a dot and no pill.
-     * On a busy band most detections are of that kind, and a box saying
-     * the same word forty times hides the few that say something else.
-     */
-    const char *label;
-    int highlighted;            /* 1 if selected/hovered in table */
-    int id;                     /* entry identifier */
-    Color color;                /* custom color (or default if 0) */
-};
+/* struct sdrgui_waterfall_marker moved to sdrgui_geometry.h, which is
+   included above: it is the input to the marker layout there, and a
+   check that reaches the layout has to be able to name it. */
 
 struct sdrgui_waterfall_params {
     Rectangle plot;
@@ -213,7 +200,13 @@ struct sdrgui_waterfall_params {
     /* Detection markers plotted directly over the waterfall */
     const struct sdrgui_waterfall_marker *markers;
     int marker_count;
-    int *out_clicked_marker_id;
+    /*
+     * Hovering is reporting and stays; clicking decided something and is
+     * gone. `out_clicked_marker_id` used to be written from inside the draw
+     * loop, and two views read it to change their selection -- a draw
+     * function deciding, which ADR-0012 forbids. A caller asks
+     * `sdrgui_waterfall_marker_at()` in its input phase instead.
+     */
     int *out_hovered_marker_id;
 };
 
