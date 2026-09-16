@@ -99,3 +99,43 @@ public interface has no way for `viewer_session` or `frame_advance` to learn
 what is subscribed. The deletion test is positive: without demand at the
 frame-advance seam, each frontend must impersonate native tab state or pay for
 all work and discard the result afterward.
+
+**2026-09-16, read against the code before building it.** The premise holds:
+`viewer_session_run()` pins `TAB_SCOPE` / `VIEW_SPECTRUM` and calls
+`frame_advance()` unconditionally, so `process_block()` and the waterfall run
+with nothing connected. Three amendments before anybody starts.
+
+**The native-window adapter cannot work as this describes, and the task should
+go.** Plan step 3 and its task ask the window to derive demand from its active
+screen. There is no screen that wants the block unconverted: every decode view
+reads what `process_block()` fills -- `view_gsm.c:103`, `view_tetra.c:76`,
+`view_srd.c:148`, `view_lte.c:469`, `view_adsb.c:127`, `view_fm.c:78` -- and
+`view_survey.c:85-89` reads those *and* `spectrum_average`. Window demand can
+only ever be on, which this ticket's own "rendered screens are unchanged"
+criterion forces anyway. Say that out loud and let the window pass full demand,
+rather than building an adapter that models a choice it does not have.
+
+The split that would pay the window is one level lower, inside
+`signal_frame_process()`: conversion, magnitudes and statistics, which every
+screen needs, against the transform, peak hold and waterfall row, which the
+five decode tabs do not. That is a real saving and a larger change than this
+ticket describes -- worth its own, and it is where "a subscription says what to
+compute" would generalise past the Scope.
+
+**Measure the payoff first.** Nothing here says what idle `--serve` costs.
+`CLAUDE.md` puts the whole Scope path at about 7 ms of a 65.5 ms block. If that
+is what this saves, it is an ownership fix and should be argued as one rather
+than as a performance fix -- which is also the repository's own rule
+(`does-it-help`): the acceptance criteria ask for work counters after the
+change, and the number that decides whether to make it is the one before.
+
+**Nothing pins what has to survive demand-off.** With Scope demand off,
+`frame_advance()` returns `spectrum_updated = 0` while `receiver_state`,
+`link_health` and `command_result` are still published every iteration. A
+`tune` command with no spectrum subscriber must still retune and publish the
+new generation. Add that to the acceptance criteria; it is the case where
+switching work off quietly switches control off with it.
+
+Checked and not a risk: demand-off does not busy-spin.
+`viewer_session.c:165` paces every iteration on `viewer_link_poll()`.
+

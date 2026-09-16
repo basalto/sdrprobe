@@ -174,12 +174,12 @@ Focused checks while iterating: the new runtime check,
 - [ ] Move acquisition start/stop behind the runtime without changing callers.
 - [x] Move frequency/rate transactions and preserve their error text.
 - [ ] Move applied settings and make the runtime their only writer.
-- [ ] Route Settings through the runtime transaction; remove its duplicate
+- [x] Route Settings through the runtime transaction; remove its duplicate
   stop/apply/flush/read-back/restart and rollback implementation.
-- [ ] Make every successful tuning-identity change advance
+- [x] Make every successful tuning-identity change advance
   `receiver_applied.generation` in the same operation that publishes the
   new applied snapshot.
-- [ ] Check that a Settings success advances centre/correction and generation
+- [x] Check that a Settings success advances centre/correction and generation
   together, while every Settings failure preserves all three.
 - [ ] Decide `receiver_mode` as capability, source kind or deletion from UHD
   evidence.
@@ -371,3 +371,69 @@ This does not clear the UHD dependency for common gain and source-capability
 ownership, so the ticket remains `needs-info`. It does sharpen the first Phase
 4 migration and its check: Settings goes first, and applied tuning plus
 generation is one atomic result rather than fields callers coordinate.
+
+### Done, 2026-09-16 -- the generation moved inside the transaction
+
+`receiver_runtime_apply()` is the sequence with a gain change at the front of
+it -- stop, gain, correction, frequency, flush, read back, start -- and
+`receiver_runtime_tune()` is the same body with the gain left alone.
+`apply_settings()` calls it and no longer owns a transaction; its ~60 lines and
+three rollback blocks are gone, and so are its private `settings_frequency()`
+and `settings_ppm()` device read-backs, which were the tell that two places
+were reading one device back.
+
+**The generation is advanced by the transaction, on its one success return,
+and by nothing else.** `retune_receiver()` and `retune_receiver_at_rate()`
+dropped their own `generation++`. A caller cannot do it correctly, because
+only the transaction knows that every step took -- which is precisely how the
+Settings panel came to move the receiver while the counter ADR-0027 publishes
+said nothing had moved.
+
+`check-receiver-runtime` went from 65 checks to 122. Both directions are
+pinned: exactly one advance per success (including `_tune_at_rate()`, which
+reaches the tuning through `_tune()` and must not count twice), and no advance
+on any of the eight ways it can refuse. The one that matters is the case this
+suite was built for -- the rate takes and the tuning refuses -- where half the
+transaction succeeded and an advance is easiest to leak through.
+
+Verified on air as well as in the fakes, because the receiver path is the half
+no check reaches: a live `--serve --serve-retune-after 3:104000000` logs
+`tune took, now 104.000000 MHz, 2.000 MS/s, +34 ppm, generation 1`. The
+generation was previously unobservable from a running program -- the window and
+a Viewer never run together, so a Settings apply cannot be watched over the
+link -- so `tune_result_logged()` reports it now.
+
+**Gain is a parameter, not a field of `struct receiver_applied`.** It rides in
+the transaction because a separate gain transaction ahead of the tune would
+let the gain take while the tuning rolled back, leaving the receiver at a
+sensitivity nobody asked for under a refusal saying nothing happened. It does
+not join the applied struct, because an AD9361's receive gain is a table index
+and a tuner's is a step in tenths (`GAIN_UNIT_INDEX`) -- the question this
+ticket is still `needs-info` on. 24 call sites across 8 files stay where they
+are.
+
+**Two things the checks found rather than confirmed.** A first version had a
+plain retune restate the gain it thought the device held; `device_set_gain()`
+carries a manual/automatic flag that nothing can read back, so that would have
+switched a manual receiver to automatic on every survey step. And the gain's
+own failure path called the shared rollback, which rewrites a frequency and a
+correction the transaction had not yet touched -- `check-receiver-runtime`
+caught it as a frequency write on a path that had tuned nothing. A rollback
+undoes what was done; rewriting what was not is how a refusal comes to look
+like a retune to everything downstream.
+
+**One check was dropped on purpose and is worth knowing about.** The Settings
+panel refused a read-back more than 1 kHz from the request; the runtime refuses
+only a read-back of zero, which is what every other retune has always done.
+The tolerance mattered while the panel owned the frequency field -- it no
+longer does, and now re-applies a frequency that is itself the device's last
+answer. Restoring it means tightening the runtime for the survey and both band
+scans, which needs its own measurement.
+
+Still open here, and untouched: the waterfall. `apply_settings()` clears its
+history where every other retune now shifts it
+(`sdr_dsp_retune_bin_shift()`, `view_scope.c`). That is a drawing concern that
+used to sit inside a receiver transaction -- it is outside one now, since
+rolling the tuning back because a texture would not allocate would leave the
+generation advanced with the frequency put back -- but the clear itself stands.
+Its own ticket.
