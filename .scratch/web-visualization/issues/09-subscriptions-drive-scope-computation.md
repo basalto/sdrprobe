@@ -1,6 +1,6 @@
 # 09 - Viewer subscriptions drive Scope computation
 
-Status: ready-for-agent
+Status: needs-info -- the premise holds and the cost case is spent; see "What is left to decide"
 
 ## Description
 
@@ -151,3 +151,91 @@ That is ticket 10, and the payoff measurement this ticket asked for is in it.
 Re-argue this one against those numbers once the loop is paced -- the case for
 it is ownership, which stands, not cost, which was never checked.
 
+### The measurement this ticket asked for, 2026-09-16
+
+Two independent routes, and they agree.
+
+**`make bench-dsp`, per 65.5 ms block, 2048-point transform**, which is the
+Scope path stage by stage:
+
+| stage | ms/block | of the budget |
+| --- | --- | --- |
+| byte -> I/Q + magnitude | 0.096 | 0.15% |
+| signal statistics (two percentiles) | 0.949 | 1.45% |
+| magnitude peak bins | 0.120 | 0.18% |
+| DC removal (only when Remove DC is on) | 0.222 | 0.34% |
+| spectrum: 64 x 2048-point FFT | **4.789** | **7.31%** |
+
+With DC removal off, which is the default, the whole Scope path is 5.954 ms --
+**9.09% of a block**. Measured `--serve` CPU with no client is 9.4-9.6%, so the
+two agree to within half a point and acquisition plus the loop is the
+remainder. **The transform is 80% of it.**
+
+**And in situ**, sweeping the transform size against `--serve` CPU with no
+client, 20 s windows:
+
+| transform | CPU |
+| --- | --- |
+| 256 | 8.2% |
+| 1024 | 8.7% |
+| 4096 | 9.8% |
+| 16384 | 12.5% |
+
+4.3 points of spread across the sizes, on a total of 8-12, which is the same
+conclusion from the other end: the transform is the dominant term and
+everything every screen needs is about 2% of a block. (The rise is steeper
+than the `N log2 N` the transform should follow -- +0.5, +1.1, +2.7 points per
+two octaves. Cache, probably, at 16384 points; not established, and not needed
+for this decision.)
+
+**So the saving is real and it is small**: about 9% of one core, headless,
+when a Viewer asked for no spectrum -- a configuration that after ticket 10
+costs 9.4% in total.
+
+### And the "larger change that would pay the window" is mostly not there
+
+The comment above claimed the transform is what "the five decode tabs do not"
+need. **That is wrong, and it is the second claim in this ticket to fail on
+contact with the code.** Every decode view draws a waterfall, which is the
+spectrum: `view_gsm.c:389`, `view_adsb.c:412`, `view_fm.c:886`,
+`view_srd.c:692`, `view_tetra.c:276`, `view_lte.c:1067`, all through
+`draw_waterfall_rect_with_markers()`.
+
+What is true is narrower. Each of those draws is gated on `!analysis_mode`
+(e.g. `view_tetra.c:259`), so a decode view in its **analysis arrangement**
+draws no waterfall and needs no transform. That is a real demand distinction,
+but it is a per-arrangement one a reader toggles, not a per-tab one -- so the
+`signal_frame` split would pay 7.3% of a block only while somebody is looking
+at charts instead of a log, rather than on every decode tab as claimed.
+
+The window still has no screen that wants the block unconverted, and now it
+also has no *default* screen that wants it untransformed.
+
+## What is left to decide
+
+The premise holds and the mechanism is sound; what is open is whether it is
+worth building, and that is not a question this ticket can answer about
+itself.
+
+1. **Build, narrow, or defer.** The cost argument is spent: ~9% of one core,
+   headless only. The ownership argument stands and is the only one left --
+   ADR-0027 and `viewer_link.h:26` both state "a subscription says what to
+   compute", and that is currently false, since the link gates sending rather
+   than computing. Either implement it, or narrow both statements to "a
+   subscription says what is sent" and close this.
+2. **Or wait for ticket 07.** ADR-0027 justifies the rule by "the block budget
+   does not allow computing every technology for every Viewer" -- which is
+   about decoders. Only the Scope is served today and it is cheap, so the case
+   that motivates the rule does not exist yet. It appears the moment a decode
+   view is served, where `bench-dsp` above puts one GSM SCH decode at 14.2 ms
+   a block against the whole Scope path's 6.0.
+3. **If built, the window passes a constant.** Drop plan step 3 and its task,
+   or keep it only as far as the analysis arrangement above, and say which.
+4. **Add the control criterion**: a `tune` with no spectrum subscriber must
+   still retune and publish the new generation. Note that ticket 10 has since
+   changed that loop -- `receiver_state` is paced on a heartbeat plus a
+   generation change now -- so the interaction wants checking rather than
+   assuming.
+
+Recommendation: **2**, with these numbers recorded so whoever picks it up
+starts from them rather than from the cost argument that is now spent.
