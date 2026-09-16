@@ -136,6 +136,18 @@ change, and the number that decides whether to make it is the one before.
 new generation. Add that to the acceptance criteria; it is the case where
 switching work off quietly switches control off with it.
 
-Checked and not a risk: demand-off does not busy-spin.
-`viewer_session.c:165` paces every iteration on `viewer_link_poll()`.
+~~Checked and not a risk: demand-off does not busy-spin.
+`viewer_session.c:165` paces every iteration on `viewer_link_poll()`.~~
+
+**Struck 2026-09-16, and it is the reason this ticket is now second.** That was
+read off the source and never measured, and it is false in exactly the
+configuration this ticket is about. Measured: a client subscribed to
+`receiver_state` alone drives the serve loop to over 1700 publishes a second
+and **98.6% of a core**, against 10.0% for a `spectrum` subscriber and 9.8%
+for no client at all. The whole Scope path this ticket proposes to skip is the
+9.8%; the metadata-only case it treats as the cheap one costs ninety.
+
+That is ticket 10, and the payoff measurement this ticket asked for is in it.
+Re-argue this one against those numbers once the loop is paced -- the case for
+it is ownership, which stands, not cost, which was never checked.
 
