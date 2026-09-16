@@ -255,3 +255,39 @@ scenario reproduces the whole incident in four lines --
 `check-viewer-link` now also builds and links `src/debug_log.c`; `make
 check` (21403 checks) and `check-pipelines` (34 checks) both still pass
 unchanged.
+
+### 2026-09-16 -- a real bug in this ticket's own page, found after closing
+
+A user testing the page live reported frequent, high drop rates in a
+real browser tab -- something this ticket's own acceptance criteria
+could not have caught, since "verified live" here meant an 8-second
+headless-Chromium run that happened not to run long enough for the bug
+to matter. Profiled rather than guessed (`performance.now()` around
+each draw call, aggregated and logged once a second): `drawWaterfall()`
+was redrawing the entire 900x260 canvas from a JS-side row-history
+array on every single new row -- up to `width * height` individual
+`fillRect()` calls per update, growing as history filled -- and
+accounted for 95%+ of the page's own JS busy time, dwarfing
+`drawSpectrum()` and everything else in the message handler combined.
+This is what was actually driving the drops this ticket's own
+`link_health`/`dropped` counters exist to report: a busy tab reads its
+socket less often, which backpressures the server, which is exactly
+the freshness rule replacing unsent messages as designed -- working
+correctly in response to a real bug in the page consuming its own
+output too slowly.
+
+Fixed by scrolling the canvas (`ctx.drawImage()` shifting the existing
+image down one row, then drawing only the new row at the top) instead
+of keeping a JS-side history to replay -- O(width) per update instead
+of O(width * rows). Measured on the same machine, before/after:
+dropped 37.7-63.5% and JS busy 88-95% before; dropped **0.0%** across
+every stream and JS busy **18.9%** after, with far more messages
+processed in the same window (848 vs ~140-175).
+
+The lesson for this ticket's own record: "verified live in a real
+browser" is only as strong as how long that verification ran and how
+full the thing being drawn was allowed to get. An 8-second check with
+an empty waterfall history never exercises the state this bug needed
+to show up in; a bound as basic as "does this get slower as the
+picture fills" was not part of what ticket 05 asked to prove, and
+should have been.

@@ -153,3 +153,28 @@ Makefile's own `make-help` audit picking up the new target).
 `check-pipelines`: 34 checks, unchanged. `nm -u` on `viewer_link.o`,
 `process_cpu.o`, `viewer_session.o`, `websocket.o`, `frame_advance.o` and
 `scope_view_model.o` confirms no raylib symbol reaches any of them.
+
+### 2026-09-16 -- the 24% drop rate above was the bug, not proof of the mechanism
+
+Re-reading this ticket's own "not a planted scenario" paragraph above
+after the fact: it was right that the drop was genuine, and wrong about
+what it meant. That 24% (and worse, 37-63%, measured again later) was
+`drawWaterfall()` redrawing its entire canvas from a JS-side row-history
+array on every new row -- up to `width * height` `fillRect()` calls per
+update -- consuming 95%+ of the page's own JS busy time and backpressuring
+the whole link as a result. `link_health` correctly reported a real
+problem; this ticket read the number as confirmation the freshness rule
+works (true) without asking why a fresh headless tab was already that far
+behind (the actual finding). Fixed in `src/viewer_page.h`
+(`ctx.drawImage()` scrolling the canvas instead of replaying a history
+array -- see ticket 05's own comment on this, where the full story is
+written down). Measured after the fix, same test shape as above: dropped
+0.0% across every stream, JS busy 18.9%.
+
+The panel this ticket built is exactly what made the bug findable at
+all -- without a `dropped` count visible anywhere, "the page seems a
+little slow sometimes" has no number attached to it and nothing to
+profile against. Worth stating plainly since it is easy to read the
+above as this ticket having shipped a red herring: it shipped the
+instrument that caught a real bug already present since ticket 05,
+which is the panel doing exactly its job.
