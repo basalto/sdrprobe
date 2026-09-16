@@ -591,7 +591,7 @@ static int runtime_start(void *ctx) {
     return start_acquisition((struct app *)ctx);
 }
 
-static struct receiver_runtime runtime_over(struct app *app) {
+struct receiver_runtime runtime_over(struct app *app) {
     struct receiver_runtime rt;
 
     memset(&rt, 0, sizeof(rt));
@@ -620,9 +620,11 @@ static void tune_result_logged(const struct app *app, int result) {
     if (!debug_log_active())
         return;
     if (result == 0)
-        debug_log_write("tune", "took, now %.6f MHz, %.3f MS/s, %+d ppm",
+        debug_log_write("tune", "took, now %.6f MHz, %.3f MS/s, %+d ppm, "
+                        "generation %u",
                         app->applied.frequency_hz / 1e6,
-                        app->applied.sample_rate_hz / 1e6, app->applied.ppm);
+                        app->applied.sample_rate_hz / 1e6, app->applied.ppm,
+                        app->applied.generation);
     else
         debug_log_write("tune", "refused: %.140s",
                         app->receiver_error[0] ? app->receiver_error
@@ -641,7 +643,6 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
     result = receiver_runtime_tune_at_rate(&rt, frequency, sample_rate, ppm);
     tune_result_logged(app, result);
     if (result == 0) {
-        app->applied.generation++;
         iq_ring_configure(&app->acq.ring, app->applied.sample_rate_hz,
                           app->device.format, app->device.full_scale,
                           app->applied.frequency_hz, app->applied_gain_tenths,
@@ -779,10 +780,6 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
                     frequency / 1e6, ppm, app->applied.frequency_hz / 1e6);
     result = receiver_runtime_tune(&rt, frequency, ppm);
     tune_result_logged(app, result);
-    /* ADR-0027's tuning generation: bumped on a genuine move so a later
-       reader can tell a measurement in flight is from before this retune. */
-    if (result == 0)
-        app->applied.generation++;
     /*
      * Every spectrum was measured across a different span and is now
      * meaningless, whether the move took or was rolled back. The waterfall's

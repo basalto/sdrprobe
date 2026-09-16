@@ -25,18 +25,14 @@
  * fields.
  */
 
-/* What the source reports, or 0 when it will not say -- the same shape
-   sdrprobe.c uses, kept local because the settings panel is the only other
-   place that reads the device back. */
-static uint32_t settings_frequency(struct app *app) {
-    uint32_t hz = 0;
-    return device_frequency_hz(&app->source, &hz) == 0 ? hz : 0;
-}
-
-static int settings_ppm(struct app *app) {
-    int ppm = 0;
-    return device_ppm(&app->source, &ppm) == 0 ? ppm : 0;
-}
+/*
+ * This panel used to read the device back itself -- its own
+ * `settings_frequency()` and `settings_ppm()`, "the same shape sdrprobe.c
+ * uses, kept local". That was the tell: two places reading one device back,
+ * either of which could come to disagree about what had been applied. The
+ * read-back is a step of `receiver_runtime_apply()` now, and what it read is
+ * in `app->applied`.
+ */
 
 void open_settings(struct app *app) {
     snprintf(app->set.ppm, sizeof(app->set.ppm), "%d",
@@ -127,73 +123,66 @@ int apply_settings(struct app *app) {
         return 0;
     }
 
-    int manual = app->set.gain_choice > 0;
-    int gain = manual ? device_gain_option_value(&app->device,
+    /*
+     * The receiver half, through the one transaction.
+     *
+     * This panel used to run its own stop/gain/correction/frequency/flush/
+     * read-back/restart with three rollback blocks -- a second copy of
+     * `receiver_runtime_apply()` that wrote `app->applied` directly and never
+     * advanced the tuning generation ADR-0027 publishes to every Viewer. The
+     * refusal text is the runtime's now, and `app->receiver_error` is where it
+     * writes: one writer for why a receiver would not do something, which is
+     * what that buffer exists for.
+     *
+     * **One check went with the copy, deliberately.** This panel refused a
+     * read-back more than 1 kHz from the request ("Frequency readback
+     * mismatch"); the runtime refuses only a read-back of zero, which is what
+     * every other retune in the program has always done. The tolerance was
+     * worth having while this panel owned the frequency field. It no longer
+     * does -- `frequency` here is `app->applied.frequency_hz`, which is
+     * itself what the device last reported -- so the case it guarded is a
+     * device disagreeing with its own previous answer, and one rule for every
+     * retune is worth more than a second one here. Restoring it means
+     * tightening the runtime for every caller, which is a change to the
+     * survey and both band scans and needs its own measurement.
+     */
+    struct receiver_runtime rt = runtime_over(app);
+    struct receiver_gain want, had;
+
+    want.manual = app->set.gain_choice > 0;
+    want.tenths = want.manual
+                      ? device_gain_option_value(&app->device,
                                                  app->set.gain_choice - 1)
                       : 0;
-    int old_manual = app->applied_manual_gain;
-    int old_gain = app->applied_gain_tenths;
-    int old_ppm = app->applied.ppm;
-    uint32_t old_frequency = app->applied.frequency_hz;
-    if (stop_acquisition(app) < 0)
-        return -1;
-    if (device_set_gain(&app->source, manual, gain) < 0 ||
-        set_frequency_correction(&app->source, ppm) < 0 ||
-        device_set_frequency_hz(&app->source, frequency) < 0 ||
-        device_flush(&app->source) < 0) {
-        snprintf(app->set.error, sizeof(app->set.error),
-                 "Receiver rejected the requested settings");
-        device_set_gain(&app->source, old_manual, old_gain);
-        set_frequency_correction(&app->source, old_ppm);
-        device_set_frequency_hz(&app->source, old_frequency);
-        device_flush(&app->source);
-        if (start_acquisition(app) < 0)
-            snprintf(app->set.error, sizeof(app->set.error),
-                     "Settings failed and acquisition could not restart");
-        return -1;
-    }
-    uint32_t reported_frequency = settings_frequency(app);
-    uint32_t difference = reported_frequency > frequency
-                              ? reported_frequency - frequency
-                              : frequency - reported_frequency;
-    if (reported_frequency == 0 || difference > 1000U) {
-        snprintf(app->set.error, sizeof(app->set.error),
-                 "Frequency readback mismatch: requested %u, got %u",
-                 frequency, reported_frequency);
-        device_set_gain(&app->source, old_manual, old_gain);
-        set_frequency_correction(&app->source, old_ppm);
-        device_set_frequency_hz(&app->source, old_frequency);
-        device_flush(&app->source);
-        if (start_acquisition(app) < 0)
-            snprintf(app->set.error, sizeof(app->set.error),
-                     "Readback failed and acquisition could not restart");
+    had.manual = app->applied_manual_gain;
+    had.tenths = app->applied_gain_tenths;
+
+    if (receiver_runtime_apply(&rt, frequency, ppm, want, had) < 0) {
+        snprintf(app->set.error, sizeof(app->set.error), "%s",
+                 app->receiver_error[0] ? app->receiver_error
+                                        : "Receiver rejected the requested "
+                                          "settings");
         return -1;
     }
 
-    app->applied.frequency_hz = reported_frequency;
-    app->applied_manual_gain = manual;
-    app->applied_gain_tenths = gain;
+    app->applied_manual_gain = want.manual;
+    app->applied_gain_tenths = want.tenths;
     app->options.frequency = frequency;
     app->options.ppm = ppm;
-    app->applied.ppm = settings_ppm(app);
     app->remove_dc = app->set.remove_dc;
     signal_frame_invalidate(&app->frame);
+    /*
+     * Drawing, and after the transaction rather than inside it: the receiver
+     * is where it was asked to be whatever a texture does, and a rollback of
+     * the tuning because a waterfall could not be allocated would leave the
+     * generation advanced with the frequency put back. The panel still says
+     * so, because a blank chart with no explanation is worse.
+     */
     if (recreate_waterfall(app, app->plot, 1) < 0) {
         snprintf(app->set.error, sizeof(app->set.error),
                  "Could not reset waterfall for the new frequency");
-        device_set_gain(&app->source, old_manual, old_gain);
-        set_frequency_correction(&app->source, old_ppm);
-        device_set_frequency_hz(&app->source, old_frequency);
-        device_flush(&app->source);
-        app->applied_manual_gain = old_manual;
-        app->applied_gain_tenths = old_gain;
-        app->applied.ppm = old_ppm;
-        app->applied.frequency_hz = old_frequency;
-        start_acquisition(app);
         return -1;
     }
-    if (start_acquisition(app) < 0)
-        return -1;
     return 0;
 }
 

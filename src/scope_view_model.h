@@ -49,10 +49,12 @@ struct scope_view_model {
     uint32_t center_hz;
     uint32_t sample_rate_hz;
     int ppm;
-    /* ADR-0027's tuning generation: bumped by retune_receiver() on a
-       successful retune, and by nothing else -- the Settings panel's own
-       apply path is a separate, older transaction that does not yet run
-       through it, a known and not a silent gap. */
+    /* ADR-0027's tuning generation: advanced by the receiver transaction
+       (receiver_runtime.h) on a success and by nothing else, so every path
+       that moves the receiver -- a Viewer command, the Settings panel, a
+       survey step -- moves it. It used to be retune_receiver()'s own line,
+       which left the Settings panel changing the tuning while this said
+       nothing had changed. */
     uint32_t tuning_generation;
 
     /* The two device-profile facts the charts read, not the whole profile. */

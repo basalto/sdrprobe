@@ -102,6 +102,198 @@ static void test_a_tuning_that_takes(void) {
     check_int("and started once", worker.starts, 1);
     check_int("and is running", worker.running, 1);
     check_str("with nothing to report", error, "");
+    check_int("and the tuning generation advanced once", (int)applied.generation,
+              1);
+}
+
+/*
+ * **The generation moves with the identity or not at all.**
+ *
+ * ADR-0027 publishes this counter beside every Viewer State update so a client
+ * can discard a measurement belonging to the previous tuning. It used to be
+ * advanced by `retune_receiver()` in `sdrprobe.c`, *after* this transaction
+ * returned -- which left the Settings panel, a second copy of this sequence,
+ * moving the receiver while the counter said nothing had moved. Two writers,
+ * one externally published value, different meanings.
+ *
+ * So the rule is one line and it is checked from both ends: exactly one
+ * advance per success, and not one on any refusal. Once per success also
+ * means `_tune_at_rate()` -- which reaches the tuning through `_tune()` --
+ * must not advance it a second time of its own.
+ */
+static void test_the_generation_advances_once_per_success(void) {
+    struct receiver_runtime rt = a_runtime();
+
+    check_int("a first tuning takes", receiver_runtime_tune(&rt, 948400000, 0),
+              0);
+    check_int("one advance", (int)applied.generation, 1);
+    check_int("a second takes", receiver_runtime_tune(&rt, 935000000, 0), 0);
+    check_int("two", (int)applied.generation, 2);
+
+    /* A rate change reaches the tuning through the same function; the counter
+       must count the transaction, not the functions it passed through. */
+    check_int("and a rate change with it",
+              receiver_runtime_tune_at_rate(&rt, 806000000, 1920000, 0), 0);
+    check_int("three, not four", (int)applied.generation, 3);
+
+    /* An unchanged rate delegates instead of nesting, and still counts once. */
+    check_int("an unchanged rate is still one transaction",
+              receiver_runtime_tune_at_rate(&rt, 800000000, 1920000, 0), 0);
+    check_int("four", (int)applied.generation, 4);
+}
+
+/*
+ * And the other end: every way this can refuse leaves the counter alone.
+ *
+ * This is the half that matters. An advance on a failure is worse than no
+ * counter at all -- a Viewer would discard the measurements that are still
+ * correct, under a tuning that never changed.
+ */
+static void test_no_refusal_advances_the_generation(void) {
+    struct receiver_runtime rt = a_runtime();
+    struct fake_device *f = fake_backend_state();
+
+    f->fail_frequency_in = 1;
+    check_int("a frequency the device refuses",
+              receiver_runtime_tune(&rt, 948400000, 0), -1);
+    check_int("leaves the generation", (int)applied.generation, 0);
+
+    rt = a_runtime();
+    f = fake_backend_state();
+    f->fail_flush_in = 1;
+    check_int("a flush that fails", receiver_runtime_tune(&rt, 948400000, 0),
+              -1);
+    check_int("leaves it", (int)applied.generation, 0);
+
+    rt = a_runtime();
+    f = fake_backend_state();
+    f->fail_frequency_read_in = 1;
+    check_int("a tuning that cannot be read back",
+              receiver_runtime_tune(&rt, 948400000, 0), -1);
+    check_int("leaves it", (int)applied.generation, 0);
+
+    rt = a_runtime();
+    worker.fail_stop_in = 1;
+    check_int("a stop that fails", receiver_runtime_tune(&rt, 948400000, 0),
+              -1);
+    check_int("leaves it", (int)applied.generation, 0);
+
+    rt = a_runtime();
+    worker.fail_start_in = 1;
+    check_int("a restart that fails", receiver_runtime_tune(&rt, 948400000, 0),
+              -1);
+    check_int("leaves it", (int)applied.generation, 0);
+
+    rt = a_runtime();
+    f = fake_backend_state();
+    f->fail_rate_in = 1;
+    check_int("a rate the device refuses",
+              receiver_runtime_tune_at_rate(&rt, 948400000, 1920000, 0), -1);
+    check_int("leaves it", (int)applied.generation, 0);
+
+    /* The case this suite exists for: the rate takes and the tuning does not.
+       Half the transaction succeeded, so this is the one an advance would be
+       easiest to leak through. */
+    rt = a_runtime();
+    f = fake_backend_state();
+    f->fail_frequency_in = 1;
+    check_int("the rate takes and the tuning refuses",
+              receiver_runtime_tune_at_rate(&rt, 948400000, 1920000, 0), -1);
+    check_int("and still no advance", (int)applied.generation, 0);
+
+    rt = a_runtime();
+    rt.live = 0;
+    check_int("a capture refuses", receiver_runtime_tune(&rt, 948400000, 0),
+              -1);
+    check_int("without advancing anything", (int)applied.generation, 0);
+}
+
+/*
+ * The gain rides in the same transaction, for one reason: doing it in a
+ * separate transaction ahead of the tuning would let the gain take while the
+ * tuning rolled back, leaving the receiver at a sensitivity nobody asked for
+ * under a refusal saying nothing happened. That was reachable from the
+ * Settings panel, which ran its own copy of this sequence.
+ */
+static void test_a_gain_and_a_tuning_take_together(void) {
+    struct receiver_runtime rt = a_runtime();
+    struct fake_device *f = fake_backend_state();
+    struct receiver_gain want, had;
+
+    had.manual = 0;
+    had.tenths = 0;
+    want.manual = 1;
+    want.tenths = 297;
+
+    check_int("it applies", receiver_runtime_apply(&rt, 948400000, -31, want,
+                                                   had), 0);
+    check_int("the gain took", f->gain, 297);
+    check_int("as a manual one", f->manual_gain, 1);
+    check_int("and so did the tuning", (int)applied.frequency_hz, 948400000);
+    check_int("with one advance", (int)applied.generation, 1);
+}
+
+/* And the whole point: a refusal puts the gain back with everything else. */
+static void test_a_refused_tuning_puts_the_gain_back(void) {
+    struct receiver_runtime rt = a_runtime();
+    struct fake_device *f = fake_backend_state();
+    struct receiver_gain want, had;
+
+    /* Where the receiver was: manual, 29.7 dB. */
+    f->manual_gain = 1;
+    f->gain = 297;
+    had.manual = 1;
+    had.tenths = 297;
+    want.manual = 1;
+    want.tenths = 496;
+
+    f->fail_frequency_in = 1;
+    check_int("the tuning refuses",
+              receiver_runtime_apply(&rt, 948400000, 0, want, had), -1);
+    check_int("and the gain went back", f->gain, 297);
+    check_int("still manual", f->manual_gain, 1);
+    check_int("the tuning never moved", (int)applied.frequency_hz, 100000000);
+    check_int("and nothing advanced", (int)applied.generation, 0);
+}
+
+/* A gain the device itself refuses stops the transaction before the tuning. */
+static void test_a_gain_that_refuses(void) {
+    struct receiver_runtime rt = a_runtime();
+    struct fake_device *f = fake_backend_state();
+    struct receiver_gain want, had;
+
+    had.manual = 0;
+    had.tenths = 0;
+    want.manual = 1;
+    want.tenths = 297;
+    f->fail_gain_in = 1;
+
+    check_int("it refuses", receiver_runtime_apply(&rt, 948400000, 0, want,
+                                                   had), -1);
+    check_true("saying it was the gain", strstr(error, "gain") != NULL);
+    check_int("nothing was tuned", f->frequency_writes, 0);
+    check_int("the tuning is where it was", (int)applied.frequency_hz,
+              100000000);
+    check_int("and nothing advanced", (int)applied.generation, 0);
+    check_int("with the worker running", worker.running, 1);
+}
+
+/*
+ * A plain retune leaves the gain **untouched**, which is not the same as
+ * setting it to what it already is: `device_set_gain()` carries a
+ * manual/automatic flag that nothing can read back, so a retune restating the
+ * current gain would switch a manual receiver to automatic every time
+ * anything tuned it. The survey retunes once a step.
+ */
+static void test_a_retune_does_not_touch_the_gain(void) {
+    struct receiver_runtime rt = a_runtime();
+    struct fake_device *f = fake_backend_state();
+
+    f->manual_gain = 1;
+    f->gain = 297;
+    check_int("it tunes", receiver_runtime_tune(&rt, 948400000, 0), 0);
+    check_int("the gain is untouched", f->gain, 297);
+    check_int("and still manual", f->manual_gain, 1);
 }
 
 /*
@@ -275,6 +467,12 @@ int main(void) {
     test_a_stop_that_fails();
     test_an_unchanged_rate_is_a_plain_retune();
     test_a_capture_refuses_and_says_why();
+    test_the_generation_advances_once_per_success();
+    test_no_refusal_advances_the_generation();
+    test_a_gain_and_a_tuning_take_together();
+    test_a_refused_tuning_puts_the_gain_back();
+    test_a_gain_that_refuses();
+    test_a_retune_does_not_touch_the_gain();
     test_refusals();
     return check_report("the receiver's transitions, and their rollback");
 }

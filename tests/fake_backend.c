@@ -87,6 +87,8 @@ static int fake_set_gain(struct device_session *s, int manual, int value) {
     struct fake_device *f = s->handle;
     if (!f)
         return -1;
+    if (due(&f->fail_gain_in))
+        return -1;
     f->manual_gain = manual;
     f->gain = value;
     return 0;

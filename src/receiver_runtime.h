@@ -32,14 +32,20 @@
 /*
  * What the receiver is currently doing. One owner: whoever passes it in.
  *
- * `generation` is ADR-0027's tuning generation: a plain counter, bumped by
- * `retune_receiver()` in `sdrprobe.c` on a successful retune and nowhere
- * else. It exists so a consumer downstream of this struct -- a Viewer,
- * later -- can tell that a measurement in flight belongs to the tuning
- * before this one and decline to draw it under the new frequency. It is not
- * bumped by the Settings panel's own apply path (`overlay_settings.c`),
- * which is a separate, older transaction that does not yet go through
- * `retune_receiver()` -- a known gap, not a silent one.
+ * `generation` is ADR-0027's tuning generation: a plain counter advanced by
+ * the transactions below, on success, and by nothing else. It exists so a
+ * consumer downstream of this struct -- a Viewer -- can tell that a
+ * measurement in flight belongs to the tuning before this one and decline to
+ * draw it under the new frequency.
+ *
+ * **It is advanced here rather than by the caller, and that is the point.**
+ * It used to be `retune_receiver()`'s own `generation++` in `sdrprobe.c`,
+ * which left the Settings panel -- a second stop/apply/flush/read-back/restart
+ * transaction of its own -- moving the receiver while the generation said
+ * nothing had moved. Two writers assigned different meanings to one value
+ * that ADR-0027 had already made external. A caller cannot advance it
+ * correctly because only the transaction knows which of its steps took: the
+ * identity and its generation move together or neither moves.
  */
 struct receiver_applied {
     uint32_t frequency_hz;
@@ -84,6 +90,23 @@ struct receiver_runtime {
 };
 
 /*
+ * What a gain change asks for, and what the gain was before it.
+ *
+ * Gain is a parameter here and **not a field of `struct receiver_applied`**,
+ * which is the same refusal as the one above: an AD9361's receive gain is a
+ * table index and a tuner's is a step in tenths of a decibel
+ * (`GAIN_UNIT_INDEX`, `device_profile.h`), so which fields an applied-gain
+ * struct should hold is a question for the second receiver rather than one to
+ * answer now. The caller keeps `applied_manual_gain` / `applied_gain_tenths`
+ * and assigns them once this returns 0. What the transaction needs is only
+ * what to set and what to put back.
+ */
+struct receiver_gain {
+    int manual;
+    int tenths;
+};
+
+/*
  * Tune, leaving the rate alone. Returns 0, or -1 with a reason in `error`.
  *
  * The steps are stop, correction, frequency, flush, read back, start -- and
@@ -91,9 +114,33 @@ struct receiver_runtime {
  * back, flushes, and restarts. The read-back is a step of its own because a
  * device that cannot say where it is tuned has not been tuned as far as
  * anything downstream is concerned.
+ *
+ * A success advances `applied->generation`; every failure leaves it, along
+ * with the frequency and the correction it belongs to.
  */
 int receiver_runtime_tune(struct receiver_runtime *rt, uint32_t frequency_hz,
                           int ppm);
+
+/*
+ * The same transaction with a gain change at the front of it: stop, gain,
+ * correction, frequency, flush, read back, start. `had` is what the gain was,
+ * and every failure after the gain was written puts it back with the tuning.
+ *
+ * One transaction and not two, deliberately. The Settings panel used to run
+ * its own copy of this sequence, and doing the gain in a separate transaction
+ * ahead of a tune would let the gain take while the tuning rolled back --
+ * leaving the receiver at a sensitivity nobody asked for, with a refusal on
+ * screen saying nothing happened.
+ *
+ * `receiver_runtime_tune()` is this with the gain left untouched -- which is
+ * not the same as asking for the gain it already has. `device_set_gain()`
+ * carries a manual/automatic flag that nothing can read back, so a retune
+ * that restated the current gain would switch a manual receiver to automatic
+ * every time anything tuned it.
+ */
+int receiver_runtime_apply(struct receiver_runtime *rt, uint32_t frequency_hz,
+                           int ppm, struct receiver_gain want,
+                           struct receiver_gain had);
 
 /*
  * Tune and change the rate together. Returns 0, or -1 with a reason.

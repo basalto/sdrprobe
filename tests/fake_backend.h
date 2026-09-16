@@ -42,6 +42,7 @@ struct fake_device {
     int fail_rate_in;
     int fail_flush_in;
     int fail_frequency_read_in;   /* reads back 0: "cannot say where I am" */
+    int fail_gain_in;
 };
 
 /* The backend, and the state it writes. One device at a time, which is what

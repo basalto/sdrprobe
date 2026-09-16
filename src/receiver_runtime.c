@@ -44,10 +44,21 @@ static int life_start(struct receiver_runtime *rt) {
     return rt->life.start ? rt->life.start(rt->life.ctx) : 0;
 }
 
-/* Put the tuning back where it was, flush, and restart. Used by every failure
-   path after the frequency has been touched, which is why it is one place. */
-static void put_tuning_back(struct receiver_runtime *rt, uint32_t frequency,
-                            int ppm) {
+/*
+ * Put the tuning back where it was -- and the gain with it when this
+ * transaction had touched the gain, which `had` being non-NULL is what says.
+ * Used by every failure path after the device has been written to, which is
+ * why it is one place.
+ *
+ * The gain is written unconditionally rather than only when it changed: this
+ * runs after a failure, where what the device actually holds is the question,
+ * and a device that has just refused a frequency is not one to take the word
+ * of about anything else.
+ */
+static void put_receiver_back(struct receiver_runtime *rt, uint32_t frequency,
+                              int ppm, const struct receiver_gain *had) {
+    if (had)
+        device_set_gain(rt->source, had->manual, had->tenths);
     receiver_runtime_set_correction(rt->source, ppm);
     device_set_frequency_hz(rt->source, frequency);
     device_flush(rt->source);
@@ -55,8 +66,22 @@ static void put_tuning_back(struct receiver_runtime *rt, uint32_t frequency,
     rt->applied->ppm = ppm;
 }
 
-int receiver_runtime_tune(struct receiver_runtime *rt, uint32_t frequency_hz,
-                          int ppm) {
+/*
+ * The whole transaction, with the gain optional.
+ *
+ * NULL for both gains means "do not touch it", which is what a plain retune
+ * wants and is not the same as asking for gain 0: `device_set_gain()` carries
+ * a manual/automatic flag that nothing can read back, so a transaction that
+ * tried to restate the current gain would switch a manual receiver to
+ * automatic every time anything retuned.
+ *
+ * `want` and `had` arrive together or not at all -- there is no rolling back
+ * a change that was not asked for, and no asking for one with nowhere to put
+ * it back to.
+ */
+static int apply_locked(struct receiver_runtime *rt, uint32_t frequency_hz,
+                        int ppm, const struct receiver_gain *want,
+                        const struct receiver_gain *had) {
     uint32_t old_frequency, reported;
     int old_ppm;
 
@@ -72,12 +97,26 @@ int receiver_runtime_tune(struct receiver_runtime *rt, uint32_t frequency_hz,
 
     if (life_stop(rt) < 0)
         return -1;
+    if (want && device_set_gain(rt->source, want->manual, want->tenths) < 0) {
+        /*
+         * The gain is the first thing written, so nothing else has moved yet
+         * and only the gain goes back -- `put_receiver_back()` would rewrite
+         * a frequency and a correction this transaction never touched. A
+         * rollback undoes what was done; rewriting what was not is how a
+         * refusal comes to look like a retune to everything downstream.
+         */
+        say(rt, "Receiver rejected the requested gain");
+        if (had)
+            device_set_gain(rt->source, had->manual, had->tenths);
+        life_start(rt);
+        return -1;
+    }
     if (receiver_runtime_set_correction(rt->source, ppm) < 0 ||
         device_set_frequency_hz(rt->source, frequency_hz) < 0 ||
         device_flush(rt->source) < 0) {
         say(rt, "Receiver rejected %.6f MHz or %+d ppm",
             frequency_hz / 1e6, ppm);
-        put_tuning_back(rt, old_frequency, old_ppm);
+        put_receiver_back(rt, old_frequency, old_ppm, had);
         life_start(rt);
         return -1;
     }
@@ -90,7 +129,7 @@ int receiver_runtime_tune(struct receiver_runtime *rt, uint32_t frequency_hz,
     reported = read_frequency(rt->source);
     if (reported == 0) {
         say(rt, "Could not read the tuning back from the receiver");
-        put_tuning_back(rt, old_frequency, old_ppm);
+        put_receiver_back(rt, old_frequency, old_ppm, had);
         life_start(rt);
         return -1;
     }
@@ -98,13 +137,30 @@ int receiver_runtime_tune(struct receiver_runtime *rt, uint32_t frequency_hz,
     rt->applied->ppm = read_ppm(rt->source);
 
     if (life_start(rt) < 0) {
-        put_tuning_back(rt, old_frequency, old_ppm);
+        put_receiver_back(rt, old_frequency, old_ppm, had);
         life_start(rt);
         say(rt, "Acquisition would not restart; put the previous tuning "
                 "back");
         return -1;
     }
+    /*
+     * ADR-0027's tuning generation, advanced here and nowhere else: this is
+     * the one line that knows every step took. A caller doing it afterwards
+     * is a second writer, which is exactly what the Settings panel used to be.
+     */
+    rt->applied->generation++;
     return 0;
+}
+
+int receiver_runtime_tune(struct receiver_runtime *rt, uint32_t frequency_hz,
+                          int ppm) {
+    return apply_locked(rt, frequency_hz, ppm, NULL, NULL);
+}
+
+int receiver_runtime_apply(struct receiver_runtime *rt, uint32_t frequency_hz,
+                           int ppm, struct receiver_gain want,
+                           struct receiver_gain had) {
+    return apply_locked(rt, frequency_hz, ppm, &want, &had);
 }
 
 int receiver_runtime_tune_at_rate(struct receiver_runtime *rt,

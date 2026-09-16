@@ -281,6 +281,16 @@ int scope_header_input(struct app *app);
 void draw_scope_header(const struct app *app);
 void clear_scatter(struct app *app);
 int recreate_scatter(struct app *app, Rectangle plot);
+/*
+ * The receiver transaction over this application's state, built one way.
+ *
+ * `retune_receiver()` and the Settings panel both change what the receiver is
+ * doing, and both used to construct their own sequence -- which is how the
+ * Settings panel came to move the tuning without advancing the generation
+ * ADR-0027 publishes. One constructor, so there is one transaction.
+ */
+struct receiver_runtime runtime_over(struct app *app);
+
 int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);
 int allocate_waterfall_history(struct app *app, int rows);
 void render_waterfall(struct app *app);
