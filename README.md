@@ -155,6 +155,9 @@ make all             # builds ./sdrprobe
 The command names the frontend and nothing else -- window, browser, socket.
 Every flag below works the same under all three; `web` and `server` are
 `--headless --serve` underneath, and that spelling keeps working directly.
+`web --no-browser` is `server`, exactly -- so `--no-browser` (or
+`SDRPROBE_NO_BROWSER` for a launcher that cannot reach the command line) is
+how to keep the link without a browser opening on its own.
 
 ```
 ./sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]

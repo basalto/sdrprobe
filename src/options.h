@@ -246,6 +246,13 @@ struct options {
      * 2026-09-15).
      */
     int startup;
+    /*
+     * Suppress `web`'s browser. `server` is `web --no-browser` by
+     * definition (ticket 02's own check asserts the two agree), so this is
+     * also the flag that makes them the same thing rather than two
+     * behaviours that happen to look alike today and can drift apart.
+     */
+    int no_browser;
     /* Whether --view was given at all, as opposed to the default landing on
        Survey. `startup_form_wanted()` needs the difference: a run that names
        its screen is a scripted one, and `--view survey` is naming it. */
@@ -309,14 +316,18 @@ int parse_switch(const char *text, int *value);
 int parse_options(int argc, char **argv, struct options *options);
 
 /*
- * The environment's say in the same four questions the startup form asks:
- * SDRPROBE_SITE, SDRPROBE_ANTENNA, SDRPROBE_RECEIVER_LABEL and
- * SDRPROBE_NO_STARTUP.
+ * The environment's say in the same questions the command line answers, for
+ * a launcher that cannot reach it: the four the startup form asks --
+ * SDRPROBE_SITE, SDRPROBE_ANTENNA, SDRPROBE_RECEIVER_LABEL,
+ * SDRPROBE_STARTUP and SDRPROBE_NO_STARTUP -- and SDRPROBE_NO_BROWSER
+ * beside them, which is not one of the form's questions and is read here
+ * anyway rather than starting a second function for one more variable of
+ * the same shape.
  *
  * It exists because a launcher, a systemd unit or a field script cannot
  * always reach the command line -- and wrapping the binary in a shell script
- * to add two flags is how a deployment acquires a second place to get the
- * site wrong.
+ * to add a flag is how a deployment acquires a second place to get the
+ * answer wrong.
  *
  * **One precedence rule: a flag beats a variable beats the config file.** So
  * a value already set by a flag is left alone here, and a value set here is
@@ -341,5 +352,23 @@ int options_apply_environment(struct options *options,
  * rule rather than by luck.
  */
 int startup_form_wanted(const struct options *options);
+
+/*
+ * Whether `web`'s browser should open.
+ *
+ * Pure over `options` and one environment lookup -- for `DISPLAY` and
+ * `WAYLAND_DISPLAY`, which say whether there is anywhere to draw. Those are
+ * not among the four questions `options_apply_environment()` answers and do
+ * not belong folded into it; `--no-browser` and `SDRPROBE_NO_BROWSER` are
+ * already resolved into `no_browser` by the time this runs, the same way
+ * `SDRPROBE_NO_STARTUP` is resolved into `no_startup` before
+ * `startup_form_wanted()` reads it.
+ *
+ * `lookup` is the same shape as `options_apply_environment()`'s, for the
+ * same reason: a check can hand it a table and reach every row without a
+ * real environment or a real display.
+ */
+int browser_wanted(const struct options *options,
+                   const char *(*lookup)(const char *));
 
 #endif

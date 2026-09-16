@@ -668,6 +668,12 @@ static const char *g_env_antenna;
 static const char *g_env_label;
 static const char *g_env_no_startup;
 static const char *g_env_startup;
+static const char *g_env_no_browser;
+/* Not SDRPROBE_* -- browser_wanted() reads these two directly, the way the
+   real environment names them, since they say whether there is anywhere to
+   draw rather than answering one of this program's own questions. */
+static const char *g_env_display;
+static const char *g_env_wayland_display;
 
 static const char *fake_env(const char *name) {
     if (strcmp(name, "SDRPROBE_SITE") == 0)
@@ -680,6 +686,12 @@ static const char *fake_env(const char *name) {
         return g_env_no_startup;
     if (strcmp(name, "SDRPROBE_STARTUP") == 0)
         return g_env_startup;
+    if (strcmp(name, "SDRPROBE_NO_BROWSER") == 0)
+        return g_env_no_browser;
+    if (strcmp(name, "DISPLAY") == 0)
+        return g_env_display;
+    if (strcmp(name, "WAYLAND_DISPLAY") == 0)
+        return g_env_wayland_display;
     return NULL;
 }
 
@@ -689,6 +701,9 @@ static void clear_env(void) {
     g_env_label = NULL;
     g_env_no_startup = NULL;
     g_env_startup = NULL;
+    g_env_no_browser = NULL;
+    g_env_display = NULL;
+    g_env_wayland_display = NULL;
 }
 
 /*
@@ -885,6 +900,99 @@ static void test_the_environment_answers_the_same_questions(void) {
  * Viewer link cannot honour (a different screen, a different headless mode)
  * is refused rather than silently dropped.
  */
+/*
+ * Whether `web`'s browser opens -- browser_wanted(), pure over `struct
+ * options` and one environment lookup, reaching every row with no process
+ * and no display. What is not checked here, and cannot be, is starting the
+ * real browser: `browser.h`'s own comment says why, and
+ * `.scratch/cli-subcommands/issues/02-*` has the one thing that was
+ * verified by hand instead -- a minute of a real `web` run leaving no
+ * zombie behind.
+ */
+static void test_the_browser(void) {
+    struct options options;
+
+    clear_env();
+    g_env_display = ":0";
+    check_int("web parses", parse_line("web", &options), 0);
+    check_int("and wants a browser, with somewhere to draw",
+              browser_wanted(&options, fake_env), 1);
+
+    clear_env();
+    g_env_wayland_display = "wayland-1";
+    parse_line("web", &options);
+    check_int("Wayland alone is also somewhere to draw",
+              browser_wanted(&options, fake_env), 1);
+
+    /* The default: neither the window nor server ever wants one, whatever
+       the display says -- server has no browser to open at all, and the
+       plain window is not a serving command in the first place. */
+    clear_env();
+    g_env_display = ":0";
+    parse_line("", &options);
+    check_int("the window never wants one",
+              browser_wanted(&options, fake_env), 0);
+    parse_line("server", &options);
+    check_int("and neither does server", browser_wanted(&options, fake_env),
+              0);
+
+    /* No display, either variable: skipped, not attempted. */
+    clear_env();
+    parse_line("web", &options);
+    check_int("with nowhere to draw, web does not want one",
+              browser_wanted(&options, fake_env), 0);
+
+    /* By request, the flag. */
+    clear_env();
+    g_env_display = ":0";
+    check_int("web --no-browser parses",
+              parse_line("web --no-browser", &options), 0);
+    check_int("and does not want one", browser_wanted(&options, fake_env),
+              0);
+
+    /* By request, the variable -- for a launcher that runs web and cannot
+       reach the command line either. */
+    clear_env();
+    g_env_display = ":0";
+    g_env_no_browser = "1";
+    parse_line("web", &options);
+    check_int("the variable is applied",
+              options_apply_environment(&options, fake_env), 1);
+    check_int("and it refuses same as the flag",
+              browser_wanted(&options, fake_env), 0);
+
+    clear_env();
+    g_env_display = ":0";
+    g_env_no_browser = "";
+    parse_line("web", &options);
+    check_int("an empty variable is not a request",
+              options_apply_environment(&options, fake_env), 0);
+    check_int("so the browser is still wanted",
+              browser_wanted(&options, fake_env), 1);
+
+    /*
+     * The equivalence the whole flag exists for: two spellings of one
+     * behaviour that must not be free to drift apart. Same environment,
+     * same display, so the only thing that can account for a difference is
+     * the command word itself.
+     */
+    clear_env();
+    g_env_display = ":0";
+    {
+        struct options web_suppressed, plain_server;
+
+        parse_line("web --no-browser", &web_suppressed);
+        parse_line("server", &plain_server);
+        check_int("web --no-browser wants no browser",
+                  browser_wanted(&web_suppressed, fake_env), 0);
+        check_int("neither does server",
+                  browser_wanted(&plain_server, fake_env), 0);
+        check_int("and they agree on headless too", web_suppressed.headless,
+                  plain_server.headless);
+        check_int("and on serve", web_suppressed.serve, plain_server.serve);
+    }
+}
+
 static void test_the_command_word(void) {
     struct options options;
     const char *window[] = { "sdrprobe" };
@@ -1026,6 +1134,7 @@ int main(void) {
     test_the_environment_answers_the_same_questions();
 
     test_the_command_word();
+    test_the_browser();
 
     return check_report("command line");
 }

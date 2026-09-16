@@ -110,18 +110,21 @@ void usage(const char *program) {
             "  --serve-retune-after  SECONDS:HZ -- a scripted one-shot retune\n"
             "                    during --serve, for testing the tuning\n"
             "                    generation; not a Viewer command\n"
+            "  --no-browser      web: keep the link, skip its browser --\n"
+            "                    the same thing server already is\n"
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
             program, program, program, program);
-    printf("\nThe environment answers the same questions the startup form\n"
-           "asks, and whether to ask them at all, for a launcher or a unit\n"
-           "file that cannot reach the command line. A flag beats a variable\n"
-           "beats the config file, and a refusal beats a request.\n"
+    printf("\nThe environment answers the same questions the command line\n"
+           "does, for a launcher or a unit file that cannot reach it. A flag\n"
+           "beats a variable beats the config file, and a refusal beats a\n"
+           "request.\n"
            "  SDRPROBE_SITE             as --site\n"
            "  SDRPROBE_ANTENNA          as --antenna\n"
            "  SDRPROBE_RECEIVER_LABEL   as --receiver-label\n"
            "  SDRPROBE_STARTUP          as --startup\n"
            "  SDRPROBE_NO_STARTUP       as --no-startup\n"
+           "  SDRPROBE_NO_BROWSER       as --no-browser\n"
            "An empty value is no value: it is ignored, rather than taken as\n"
            "an answer.\n");
 }
@@ -651,6 +654,10 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->receiver_label || i + 1 >= argc || !*argv[i + 1])
                 return -1;
             options->receiver_label = argv[++i];
+        } else if (strcmp(option, "--no-browser") == 0) {
+            if (options->no_browser)
+                return -1;
+            options->no_browser = 1;
         } else if (strcmp(option, "--no-startup") == 0) {
             if (options->no_startup)
                 return -1;
@@ -936,6 +943,13 @@ int options_apply_environment(struct options *options,
         options->startup = 1;
         applied++;
     }
+    /* Same shape again: a presence rather than a value, no negation, for a
+       launcher that runs `web` and cannot reach the command line either. */
+    value = lookup("SDRPROBE_NO_BROWSER");
+    if (value && *value && !options->no_browser) {
+        options->no_browser = 1;
+        applied++;
+    }
     return applied;
 }
 
@@ -992,6 +1006,30 @@ int startup_form_wanted(const struct options *options) {
      * something has.
      */
     if (options->ppm_seen)
+        return 0;
+    return 1;
+}
+
+int browser_wanted(const struct options *options,
+                   const char *(*lookup)(const char *)) {
+    const char *display, *wayland;
+
+    if (!options || !lookup)
+        return 0;
+    /* `server` never wants one. `server` IS `web --no-browser` (ticket
+       02's own check asserts it), and this is the one place that has to be
+       true rather than merely documented. */
+    if (options->command != COMMAND_WEB)
+        return 0;
+    if (options->no_browser)
+        return 0;
+    /* `xdg-open` on a machine with nowhere to draw is a child process that
+       fails in a way nobody watching stdout or stderr would ever see --
+       worse than not trying, because it looks like nothing happened rather
+       than like something was declined. */
+    display = lookup("DISPLAY");
+    wayland = lookup("WAYLAND_DISPLAY");
+    if ((!display || !*display) && (!wayland || !*wayland))
         return 0;
     return 1;
 }

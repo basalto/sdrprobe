@@ -3,7 +3,9 @@
 #include "viewer_session.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 
+#include "browser.h"
 #include "frame_advance.h"
 #include "process_cpu.h"
 #include "scope_view_model.h"
@@ -46,6 +48,15 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
         snprintf(error, error_cap, "unimplemented command");
         return -1;
     }
+}
+
+/* getenv() with the const browser_wanted() wants: it returns `char *`, and a
+   lookup handing out a mutable pointer into the environment invites a
+   caller to write through it. sdrprobe.c keeps its own copy of this for the
+   same reason -- both are one line, and a shared header for one line each
+   is not worth the seam. */
+static const char *environment(const char *name) {
+    return getenv(name);
 }
 
 int viewer_session_run(struct app *app) {
@@ -114,6 +125,35 @@ int viewer_session_run(struct app *app) {
            "Viewer link listening on 127.0.0.1:%d -- open "
            "http://127.0.0.1:%d/ in a browser. Ctrl-C to stop.\n",
            port, port);
+
+    /*
+     * The one moment this can happen, and the one time: after the bind
+     * above, so a browser's first load never races the listener and reads
+     * as the program being broken, and once, so nothing later in the loop
+     * -- a reconnect, a retune -- can fire it again.
+     *
+     * `browser_wanted()` is where `web` and `--no-browser` and the two
+     * display variables are actually decided, all of it checkable with no
+     * process and no display; this is only the report of what it decided,
+     * on the same stream the listening line above is on.
+     */
+    {
+        char url[32];
+
+        snprintf(url, sizeof(url), "http://127.0.0.1:%d/", port);
+        if (browser_wanted(&app->options, environment)) {
+            if (browser_open(url) == 0)
+                fprintf(stderr, "Opening it in a browser.\n");
+            else
+                fprintf(stderr, "Could not start a browser; open the URL "
+                                "above yourself.\n");
+        } else if (app->options.command == COMMAND_WEB) {
+            fprintf(stderr, app->options.no_browser
+                                ? "Not opening a browser: --no-browser.\n"
+                                : "Not opening a browser: no DISPLAY or "
+                                  "WAYLAND_DISPLAY.\n");
+        }
+    }
 
     while (!stop_requested()) {
         struct slot_snapshot snapshot;

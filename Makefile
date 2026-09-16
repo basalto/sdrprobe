@@ -103,9 +103,9 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/signal_analysis.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
-	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c
+	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c $(SRC)/browser.c
 APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_page.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
-	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h \
+	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h $(SRC)/browser.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h $(SRC)/startup_session.h \
 	$(SRC)/startup_layout.h \
