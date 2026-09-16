@@ -65,7 +65,7 @@ int start_scan(struct app *app) {
                                   0) < 0) {
         return -1;
     }
-    app->bandscan.step_started_at = GetTime();
+    app->bandscan.step_started_at = monotonic_seconds();
     app->bandscan.running = 1;
     app->bandscan.open = 1;
     debug_log_write("gsm-scan", "begin, %d steps, %.1f s",
@@ -78,7 +78,7 @@ int start_scan(struct app *app) {
 void update_scan(struct app *app) {
     if (!app->bandscan.running || !app->frame.spectrum_ready)
         return;
-    double elapsed = GetTime() - app->bandscan.step_started_at;
+    double elapsed = monotonic_seconds() - app->bandscan.step_started_at;
     enum scan_step_phase phase = scan_step_phase_at(elapsed, app->bandscan.step,
                                                     app->bandscan.plan.step_count);
 
@@ -163,7 +163,7 @@ void update_scan(struct app *app) {
         receiver_return(app, &app->bandscan.lease_token);
         return;
     }
-    app->bandscan.step_started_at = GetTime();
+    app->bandscan.step_started_at = monotonic_seconds();
 }
 
 static int scan_arfcn_at(const struct app *app, Vector2 point) {

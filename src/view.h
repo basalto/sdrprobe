@@ -189,7 +189,7 @@ void view_adsb_defaults(struct app *app);
 
 
 /* Scope tab: the four signal views, and the GPU resources two of them keep
-   between frames. render_waterfall and update_scatter are here because the
+   between frames. render_waterfall and render_scatter are here because the
    frame loop drives them; waterfall_color and view_name stay private. */
 Rectangle calculate_plot(void);
 /*
@@ -282,8 +282,16 @@ void clear_scatter(struct app *app);
 int recreate_scatter(struct app *app, Rectangle plot);
 int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);
 void render_waterfall(struct app *app);
-void update_waterfall(struct app *app);
-void update_scatter(struct app *app, double now, int insert);
+/*
+ * advance_waterfall_row and advance_scatter_history are the data halves of
+ * what update_waterfall and update_scatter used to be: plain float
+ * maintenance, callable from the advance step in frame_advance.h with no GL
+ * context. render_waterfall and render_scatter are the GPU halves and stay
+ * draw-phase calls; the frame loop calls each pair in sequence.
+ */
+void advance_waterfall_row(struct app *app);
+void advance_scatter_history(struct app *app, double now, int insert);
+void render_scatter(struct app *app, double now);
 /*
  * The window gestures for a decode view's waterfall: sync it against the
  * current tuning, then take the drag, the zoom keys and the pan.

@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <time.h>
 
+#include "frame_advance.h"
 #include "sdr_dsp.h"
 #include "gsm_dsp.h"
 #include "adsb_dsp.h"
@@ -1881,75 +1882,19 @@ static int run_gui(struct app *app) {
             }
         }
 
-        decay_spectrum_peak(app, now);
-        int have_new = consume_latest(&app->acq, &snapshot);
-        int spectrum_updated = have_new ? process_block(app, now) : 0;
-        if (spectrum_updated) {
-            update_waterfall(app);
-            update_scan(app);
-            update_calibration_measurement(app);
-        }
         /*
-         * Every frame, and `spectrum_updated` says whether a block came with
-         * it. The survey's machine has decisions on both clocks: a look is
-         * counted only when a block arrives -- counting frames gave the
-         * confirmation pass six looks in a tenth of a second, at a spectrum
-         * from before the receiver had retuned -- while a step that has
-         * already heard something is over on time alone, and waiting for one
-         * more block to say so costs a block per step.
+         * The per-block work, extracted so a headless Viewer link (ADR-0027)
+         * can drive the same sequence with no window: everything from block
+         * consumption through the per-technology dispatch. `frame_advance()`
+         * is the one place that decides what to compute; what follows here
+         * is only the two GPU uploads it left for the draw phase, gated the
+         * same way `update_waterfall()` and `update_scatter()` used to gate
+         * them internally.
          */
-        /*
-         * The startup form's calibration, on the same terms and for the same
-         * reason: every frame, with `spectrum_updated` as a parameter rather
-         * than a guard, because a scan step is over on its own clock and
-         * waiting for one more block to notice costs a block per step.
-         *
-         * It is modal, so nothing else runs while it is up.
-         */
-        update_startup(app, spectrum_updated);
-        if (app->tab == TAB_SURVEY && !app->cal.open && !app->startup.open)
-            update_survey(app, now, spectrum_updated);
-        if (have_new && app->tab == TAB_DECODE &&
-            app->decode == DECODE_ADSB && !app->cal.open)
-            update_adsb(app, now);
-        if (have_new && app->tab == TAB_DECODE &&
-            app->decode == DECODE_GSM && !app->cal.open)
-            update_gsm_sch(app, now);
-        /* Every block, and only when one arrived: a TETRA downlink is
-           continuous and each block carries several synchronization bursts,
-           so there is nothing to carry between them. */
-        if (have_new && app->tab == TAB_DECODE &&
-            app->decode == DECODE_TETRA && !app->cal.open)
-            update_tetra(app, now);
-        if (have_new && app->tab == TAB_DECODE &&
-            app->decode == DECODE_SRD && !app->cal.open)
-            update_srd(app, now);
-        if (app->tab == TAB_DECODE && app->decode == DECODE_LTE &&
-            !app->cal.open) {
-            /* The scan drives the tuning, so it runs every frame and not only
-               when a block arrives: most of its time is spent waiting for the
-               tuner to settle, and nothing arrives worth having then. */
-            update_lte_scan(app, now, have_new);
-            if (have_new && !app->lte.scan.running)
-                update_lte(app, now);
-        }
-        if (app->tab == TAB_DECODE && app->decode == DECODE_FM) {
-            /* Every block, and only when one arrived: the pilot loop is a
-               continuous thing and a block skipped is a quarter second of
-               its lock thrown away. While the scan is walking the band it
-               owns the receiver and feeds the chain itself. */
-            update_fm_scan(app, now, have_new);
-            if (have_new && !app->fm.scan.running)
-                update_fm(app, now);
-            /* Every frame, not every block: the sound card asks on its own
-               schedule and a block is several of its buffers. */
-            update_fm_audio(app);
-        }
-        update_drift_check(app, spectrum_updated);
-        update_scatter(app, now,
-                       have_new && app->tab == TAB_SCOPE &&
-                           !app->cal.open &&
-                           app->view == VIEW_SCATTER);
+        int spectrum_updated = frame_advance(app, &snapshot, now);
+        if (spectrum_updated)
+            render_waterfall(app);
+        render_scatter(app, now);
 
         BeginDrawing();
         ClearBackground((Color){ 12, 19, 28, 255 });

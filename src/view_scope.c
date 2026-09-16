@@ -183,7 +183,14 @@ void render_waterfall(struct app *app) {
 }
 
 
-void update_waterfall(struct app *app) {
+/*
+ * The waterfall's data half: shift the row history and insert the newest
+ * row. Plain floats, no GL -- this is what an advance step reachable without
+ * a window may call. `render_waterfall()` is the other half, the texture
+ * upload, and stays a draw-phase call; the frame loop calls both in
+ * sequence, same as `update_waterfall()` used to do internally.
+ */
+void advance_waterfall_row(struct app *app) {
     if (!app->sv.waterfall_ready || !app->frame.spectrum_ready)
         return;
 
@@ -200,7 +207,6 @@ void update_waterfall(struct app *app) {
            sizeof(*app->sv.waterfall_dbfs));
     if (app->sv.waterfall_rows < app->sv.waterfall_height)
         app->sv.waterfall_rows++;
-    render_waterfall(app);
 }
 
 void view_window_input(struct app *app, struct chart_window *win,
@@ -317,7 +323,15 @@ void draw_waterfall(const struct app *app) {
     sdrgui_waterfall(&params);
 }
 
-void update_scatter(struct app *app, double now, int insert) {
+/*
+ * The scatter's data half: insert the newest block's decimated, normalized
+ * points and expire whatever has aged out of the history. Plain floats, no
+ * GL -- expiry runs every call regardless of `insert`, because the fade is a
+ * function of `now` advancing, not of a block arriving. `render_scatter()`
+ * is the other half, the render-to-texture pass, and stays a draw-phase
+ * call.
+ */
+void advance_scatter_history(struct app *app, double now, int insert) {
     if (insert && app->frame.pair_count > 0) {
         struct scatter_block *block =
             &app->sv.scatter_history[app->sv.scatter_history_head];
@@ -351,7 +365,15 @@ void update_scatter(struct app *app, double now, int insert) {
             break;
         app->sv.scatter_history_count--;
     }
+}
 
+/*
+ * The scatter's render half: paint the aged history into the scatter
+ * texture. Runs every frame regardless of whether a new block arrived,
+ * because the fade itself is motion -- an unfilled frame would let the
+ * newest points sit still while older ones should be dimming.
+ */
+void render_scatter(struct app *app, double now) {
     size_t oldest = (app->sv.scatter_history_head + SCATTER_HISTORY_BLOCKS -
                      app->sv.scatter_history_count) %
                     SCATTER_HISTORY_BLOCKS;
