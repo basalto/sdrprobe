@@ -16,6 +16,7 @@
 #include "band_plan_view.h"
 #include "survey_bands.h"
 #include "lte_dsp.h"
+#include "scope_layout.h"
 #include "sdrgui.h"
 
 /*
@@ -1610,7 +1611,8 @@ void handle_survey_input(struct app *app) {
          * which is what this path has always done, now said out loud.
          */
         receiver_commit(app, &s->lease_token);
-        if (recreate_waterfall(app, app->plot, 1) < 0)
+        if (recreate_waterfall(app, scope_plot_split(app->plot).waterfall,
+                               1) < 0)
             return;
         /*
          * The tab as well as the view, and that is what was missing: the
@@ -1624,7 +1626,7 @@ void handle_survey_input(struct app *app) {
          * commit above is what stops it, by giving the claim up without
          * asking for a restore.
          */
-        app->view = VIEW_WATERFALL;
+        app->view = VIEW_SPECTRUM;
         set_tab(app, TAB_SCOPE);
         return;
     }

@@ -129,7 +129,7 @@ static void test_named_values(void) {
 
     expect(parse_view("survey", &view) >= 0 && view == START_VIEW_SURVEY,
            "--view survey did not parse");
-    expect(parse_view("waterfall", &view) >= 0 && view == START_VIEW_WATERFALL,
+    expect(parse_view("waterfall", &view) >= 0 && view == START_VIEW_SPECTRUM,
            "--view waterfall did not parse");
     expect(parse_view("nope", &view) != 0, "an unknown view name parsed");
 
@@ -571,12 +571,16 @@ static void test_every_screen_is_reachable(void) {
     }
 
     /*
-     * Every one of them names a different screen.
+     * Every one of them names a different screen, but one pair is now an
+     * intentional exception: "waterfall" is kept as an alias for "spectrum"
+     * rather than its own screen, since the Scope's spectrum and waterfall
+     * are one combined view (spectrum on top, waterfall below) and not two.
      *
-     * They stopped doing so when the survey became a tab: the four Scope
-     * views set app->view and nothing set the tab, so with the survey as the
-     * default tab all four of them opened the survey. Nothing failed -- the
-     * flags parsed, the program ran, and four screenshots came out identical,
+     * The other collisions this guards against are real bugs. It stopped
+     * catching them when the survey became a tab: the four Scope views set
+     * app->view and nothing set the tab, so with the survey as the default
+     * tab all four of them opened the survey. Nothing failed -- the flags
+     * parsed, the program ran, and four screenshots came out identical,
      * which is how it was noticed.
      */
     {
@@ -589,10 +593,18 @@ static void test_every_screen_is_reachable(void) {
                 seen[count++] = view;
         }
         for (a = 0; a < count; a++)
-            for (b = a + 1; b < count; b++)
+            for (b = a + 1; b < count; b++) {
+                int is_the_known_alias =
+                    (strcmp(screens[a], "spectrum") == 0 &&
+                     strcmp(screens[b], "waterfall") == 0) ||
+                    (strcmp(screens[a], "waterfall") == 0 &&
+                     strcmp(screens[b], "spectrum") == 0);
+                if (is_the_known_alias)
+                    continue;
                 check_msg(seen[a] != seen[b],
                           "--view %s and --view %s name the same screen\n",
                           screens[a], screens[b]);
+            }
     }
 }
 

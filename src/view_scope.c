@@ -293,22 +293,29 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
 }
 
 /*
- * The Scope's waterfall, into the Scope's plot.
+ * The Scope's waterfall, into whichever rectangle its caller hands it --
+ * the bottom half of app->plot in the combined Spectrum+Waterfall view
+ * (scope_plot_split()), matching every other caller of this component,
+ * which already passes its own rectangle rather than reading app->plot
+ * directly.
  *
- * It used to take a calibration flag, and the calibration overlay used it --
- * which drew that overlay's waterfall into app->plot, a rectangle 52 px above
- * the one the overlay's own layout had set aside. The result was a waterfall
- * over the status line, and expected/measured markers placed against a chart
- * that was somewhere else. The flag is gone rather than fixed: every other
- * view already passes its own rectangle, so with no flag left there is no way
- * to draw a waterfall anywhere but where a layout put it.
+ * It used to take a calibration flag instead of a rectangle, and the
+ * calibration overlay used it -- which drew that overlay's waterfall
+ * into app->plot, a rectangle 52 px above the one the overlay's own
+ * layout had set aside. The result was a waterfall over the status
+ * line, and expected/measured markers placed against a chart that was
+ * somewhere else. The flag was removed rather than fixed, for the same
+ * reason this now takes an explicit rectangle rather than app->plot: a
+ * caller that owns the layout should say where, not read a field that
+ * might mean something else by the time it draws.
  */
-void draw_waterfall(const struct app *app, const struct scope_view_model *svm) {
+void draw_waterfall(const struct app *app, const struct scope_view_model *svm,
+                    Rectangle plot) {
     const struct freq_window *w = &app->sv.window.freq;
     double span = w->view_upper_hz - w->view_lower_hz;
     double data = w->data_upper_hz - w->data_lower_hz;
     struct sdrgui_waterfall_params params = {
-        app->plot, app->sv.waterfall, (double)svm->center_hz,
+        plot, app->sv.waterfall, (double)svm->center_hz,
         (double)svm->sample_rate_hz, 0, 0,
         0.0, 0.0,
         app->sv.waterfall_rows, app->sv.waterfall_height, svm->pair_count,
@@ -329,7 +336,7 @@ void draw_waterfall(const struct app *app, const struct scope_view_model *svm) {
     /* The band being dragged out, mapped with the rectangle the strip is
        actually drawn in -- the same one the hit test uses. */
     if (app->sv.window.dragging) {
-        Rectangle area = sdrgui_waterfall_area(app->plot);
+        Rectangle area = sdrgui_waterfall_area(plot);
         params.drag_active = 1;
         params.drag_lower_hz = freq_window_hz_at(w, area.x, area.width,
                                                  app->sv.window.drag_from_x);
@@ -432,8 +439,6 @@ static const char *view_name(enum view_kind view) {
         return "spectrum";
     if (view == VIEW_SCATTER)
         return "I/Q scatter";
-    if (view == VIEW_WATERFALL)
-        return "waterfall";
     return "magnitude";
 }
 
@@ -518,14 +523,15 @@ void draw_magnitude(const struct app *app, const struct scope_view_model *svm) {
     sdrgui_magnitude(&params);
 }
 
-void draw_spectrum(const struct app *app, const struct scope_view_model *svm) {
+void draw_spectrum(const struct app *app, const struct scope_view_model *svm,
+                   Rectangle plot) {
     const struct freq_window *w = &app->sv.window.freq;
     struct sdrgui_spectrum_params params;
     double span = w->view_upper_hz - w->view_lower_hz;
     double data = w->data_upper_hz - w->data_lower_hz;
 
     memset(&params, 0, sizeof(params));
-    params.plot = app->plot;
+    params.plot = plot;
     params.center_hz = (double)svm->center_hz;
     params.sample_rate = (double)svm->sample_rate_hz;
     params.ready = svm->spectrum_ready;
@@ -542,7 +548,7 @@ void draw_spectrum(const struct app *app, const struct scope_view_model *svm) {
     /* The region being dragged out, drawn over the trace so a reader can see
        what they are about to select rather than what they selected. */
     if (app->sv.window.dragging) {
-        Rectangle area = sdrgui_spectrum_area(app->plot);
+        Rectangle area = sdrgui_spectrum_area(plot);
         double a = freq_window_hz_at(w, area.x, area.width,
                                      app->sv.window.drag_from_x);
         double b = freq_window_hz_at(w, area.x, area.width,
@@ -647,18 +653,25 @@ static void waterfall_carry_across_retune(struct app *app) {
     render_waterfall(app);
 }
 
-/* The scatter render texture and the waterfall texture track the plot
-   rectangle, so they are rebuilt when it changes. The frame loop used to
-   compare their dimensions itself, which meant it had to know that the
-   scatter's size lives on a RenderTexture and the waterfall's in two ints.
-   Returns negative if a texture could not be created. */
+/* The scatter render texture tracks the plot rectangle whole (I/Q scatter
+   is still its own full-screen view); the waterfall texture tracks only
+   its half of it (scope_plot_split()'s bottom half, since the combined
+   Spectrum+Waterfall view puts spectrum above it). Checked and rebuilt
+   independently -- a window resize moves both, but nothing else does,
+   since the split is a fixed proportion of one rectangle. The frame loop
+   used to compare their dimensions itself, which meant it had to know
+   that the scatter's size lives on a RenderTexture and the waterfall's in
+   two ints. Returns negative if a texture could not be created. */
 int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
-    int resized = IsWindowResized() ||
-                  (int)plot.width != app->sv.scatter.texture.width ||
-                  (int)plot.height != app->sv.scatter.texture.height ||
-                  (int)plot.width != app->sv.waterfall_width ||
-                  (int)plot.height != app->sv.waterfall_height;
-    if (!resized) {
+    struct scope_plot_layout split = scope_plot_split(plot);
+    int scatter_resized = IsWindowResized() ||
+                          (int)plot.width != app->sv.scatter.texture.width ||
+                          (int)plot.height != app->sv.scatter.texture.height;
+    int waterfall_resized = IsWindowResized() ||
+                            (int)split.waterfall.width != app->sv.waterfall_width ||
+                            (int)split.waterfall.height != app->sv.waterfall_height;
+
+    if (!scatter_resized && !waterfall_resized) {
         app->plot = plot;
         /* Retuning does not rebuild the waterfall itself -- tuning a receiver
            is not a drawing operation, and it happens on paths that have no
@@ -672,9 +685,15 @@ int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
             waterfall_carry_across_retune(app);
         return 0;
     }
-    if (recreate_scatter(app, plot) < 0)
+    /* recreate_scatter() sets app->plot as a side effect (it always has),
+       but that only fires when scatter itself needs rebuilding -- which
+       IsWindowResized() usually makes true alongside waterfall_resized,
+       but is not guaranteed to be, now that the two are checked
+       independently. Set unconditionally rather than lean on that. */
+    app->plot = plot;
+    if (scatter_resized && recreate_scatter(app, plot) < 0)
         return -1;
-    if (recreate_waterfall(app, plot, 0) < 0)
+    if (waterfall_resized && recreate_waterfall(app, split.waterfall, 0) < 0)
         return -1;
     recompute_magnitude_bins(app);
     return 0;
@@ -741,12 +760,21 @@ enum chart_key chart_key_pressed(void) {
 
 int scope_freq_input(struct app *app, Rectangle outer,
                      enum chart_key key) {
-    /* The rectangle the trace is actually drawn in, from the same function
-       the chart uses. Mapping across the outer one put every drag a label
-       gutter -- about 50 kHz at full span -- left of where it looked. */
-    Rectangle plot = app->view == VIEW_WATERFALL
-                         ? sdrgui_waterfall_area(outer)
-                         : sdrgui_spectrum_area(outer);
+    /* The combined view puts both charts on screen at once, sharing this
+       one `app->sv.window` -- dragging or scaling either has the same
+       effect, so all this needs to decide is which chart's rectangle the
+       mouse is currently over, for the pixel-to-hertz mapping a drag
+       needs. A keyboard-only action (+/-, arrows, 0) does not read pixel
+       space at all, so which half it nominally picked never matters for
+       those. Mapping across the *outer* rectangle instead of the one the
+       trace is actually drawn in put every drag a label gutter -- about
+       50 kHz at full span -- left of where it looked, which is why this
+       still goes through sdrgui_spectrum_area()/sdrgui_waterfall_area()
+       rather than `outer` itself. */
+    struct scope_plot_layout split = scope_plot_split(outer);
+    Rectangle plot = CheckCollisionPointRec(GetMousePosition(), split.waterfall)
+                         ? sdrgui_waterfall_area(split.waterfall)
+                         : sdrgui_spectrum_area(split.spectrum);
     double want;
 
     scope_freq_sync(app);
@@ -844,8 +872,7 @@ int scope_header_input(struct app *app) {
     struct scope_view *sv = &app->sv;
     struct scope_header_layout l =
         scope_header_layout_for((float)GetScreenWidth(),
-                                app->view == VIEW_SPECTRUM ||
-                                    app->view == VIEW_WATERFALL);
+                                app->view == VIEW_SPECTRUM);
     Vector2 mouse = GetMousePosition();
     int retuned = 0;
 
@@ -932,8 +959,7 @@ void draw_scope_header(const struct app *app) {
     const struct scope_view *sv = &app->sv;
     struct scope_header_layout l =
         scope_header_layout_for((float)GetScreenWidth(),
-                                app->view == VIEW_SPECTRUM ||
-                                    app->view == VIEW_WATERFALL);
+                                app->view == VIEW_SPECTRUM);
     const Color label = { 157, 180, 194, 255 };
     int size = (int)l.label_height;
 

@@ -535,9 +535,8 @@ static void test_who_owns_the_spectrum(void) {
 
     s = state_of(0, 0, 0, 0, TAB_SCOPE, 0);
     s.view = VIEW_KIND_SPECTRUM;
-    check_true("the spectrum view owns it", input_scope_owns_spectrum(&s));
-    s.view = VIEW_KIND_WATERFALL;
-    check_true("and the waterfall", input_scope_owns_spectrum(&s));
+    check_true("the combined spectrum+waterfall view owns it",
+              input_scope_owns_spectrum(&s));
 
     /* The other Scope views do not read it, so they do not get to change it. */
     s.view = 0;
@@ -562,7 +561,7 @@ static void test_who_owns_the_spectrum(void) {
     check_true("not with calibration open over it",
                !input_scope_owns_spectrum(&s));
     s = state_of(0, 0, 1, 1, TAB_SCOPE, 0);
-    s.view = VIEW_KIND_WATERFALL;
+    s.view = VIEW_KIND_SPECTRUM;
     check_true("nor the channel scan inside it",
                !input_scope_owns_spectrum(&s));
     check_true("and no state owns nothing", !input_scope_owns_spectrum(NULL));
@@ -897,7 +896,7 @@ static void test_the_fold_only_copies(void) {
     v.scan_open = 1;
     v.startup_open = 1;
     v.tab = TAB_DECODE;
-    v.view = VIEW_KIND_WATERFALL;
+    v.view = 2; /* an arbitrary view value, just to prove it is copied through */
     v.decode = DECODE_KIND_ADSB;
     v.scope_zoomed = 1;
     s = view_input_state(&v);
@@ -908,7 +907,7 @@ static void test_the_fold_only_copies(void) {
     check_int("scan", s.scan_open, 1);
     check_int("startup", s.startup_open, 1);
     check_int("tab", s.tab, TAB_DECODE);
-    check_int("view", s.view, VIEW_KIND_WATERFALL);
+    check_int("view", s.view, 2);
     check_int("decode", s.decode, DECODE_KIND_ADSB);
     check_int("zoom", s.scope_zoomed, 1);
     check_int("and Help still outranks all of it",

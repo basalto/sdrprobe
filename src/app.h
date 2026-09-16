@@ -309,11 +309,16 @@ enum drift_phase {
     DRIFT_SETTLE,
     DRIFT_MEASURE
 };
+/* VIEW_SPECTRUM draws the spectrum and the waterfall together, spectrum
+   on top -- merged from two separate views into one, since both already
+   read one shared zoom/pan window (`struct scope_view`'s own `window`
+   field) and a reader zooming one and not the other was always answering
+   one question with two pictures. There is no VIEW_WATERFALL any more;
+   `--view waterfall` still parses, as an alias for this same value. */
 enum view_kind {
     VIEW_MAGNITUDE,
     VIEW_SPECTRUM,
-    VIEW_SCATTER,
-    VIEW_WATERFALL
+    VIEW_SCATTER
 };
 /* Top-level tabs, in input_route.h so a check can reach the precedence
    without app.h. TAB_SURVEY is 0 and so is the zero-initialised default,

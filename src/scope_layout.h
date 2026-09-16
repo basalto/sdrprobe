@@ -41,6 +41,57 @@
    layout check asserts the two agree rather than trusting them to. */
 #define SCOPE_ROW_BOTTOM (SCOPE_ROW_Y + SCOPE_ROW_H + 10.0f)
 
+/*
+ * The gap between the spectrum and the waterfall in the combined view.
+ *
+ * sdrgui_chart_area() only reserves 8 px below a chart's own plot rectangle,
+ * but sdrgui_spectrum() draws its axis-summary caption *below that*, at
+ * `plot.y + plot.height + 36` in 16 px text -- 44 px past the bottom edge of
+ * the rectangle it was handed, because until this view existed nothing else
+ * was ever drawn there. A 12 px gap left that caption overlapping the
+ * waterfall's own top row, so this clears the caption's worst case (44 px)
+ * with a few pixels to spare rather than the plot-only margin.
+ */
+#define SCOPE_SPLIT_GAP 52.0f
+
+struct scope_plot_layout {
+    Rectangle spectrum;
+    Rectangle waterfall;
+};
+
+/* Splits one Scope-tab plot rectangle into a spectrum half (top) and a
+   waterfall half (bottom) for the combined Spectrum+Waterfall view. Pure
+   geometry, so tests/layout_test.c can pin it without a window -- the
+   same reason scope_header_layout_for() is here rather than beside the
+   drawing. */
+static inline struct scope_plot_layout scope_plot_split(Rectangle plot) {
+    struct scope_plot_layout out;
+    float half = (plot.height - SCOPE_SPLIT_GAP) / 2.0f;
+    float wf_y, wf_h;
+
+    if (half < 1.0f)
+        half = 1.0f;
+    if (half > plot.height)
+        half = plot.height;
+    out.spectrum = (Rectangle){ plot.x, plot.y, plot.width, half };
+
+    wf_y = plot.y + half + SCOPE_SPLIT_GAP;
+    wf_h = plot.height - half - SCOPE_SPLIT_GAP;
+    if (wf_h < 1.0f) {
+        /* A plot too short for the gap and a usable waterfall row both --
+           calculate_plot() clamps to as little as one pixel on a squeezed
+           window. Drop the gap rather than let the waterfall run past the
+           plot's own bottom edge: off the edge is worse than touching the
+           spectrum. */
+        wf_y = plot.y + half;
+        wf_h = plot.height - half;
+        if (wf_h < 0.0f)
+            wf_h = 0.0f;
+    }
+    out.waterfall = (Rectangle){ plot.x, wf_y, plot.width, wf_h };
+    return out;
+}
+
 struct scope_header_layout {
     Rectangle centre_field;
     Rectangle start_field;      /* zero width when the view has no frequency

@@ -59,7 +59,7 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "pairs, where 180.3 is full scale.\n"
     "\n"
     "Keys\n"
-    "1-4   Scope tab: magnitude, spectrum, I/Q scatter, waterfall\n"
+    "1-3   Scope tab: magnitude, spectrum + waterfall, I/Q scatter\n"
     "1-4   Decode tab: FM, ADS-B, GSM, LTE\n"
     "+ -   stretch or compress the active chart's vertical scale\n"
     "Up/Down   zoom the frequency window in and out. Every chart with a "
@@ -112,10 +112,11 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
 },
 {
     "Spectrum",
-    "Spectrum view (Scope, key 2)",
-    "What it plots: signal power across the sampled bandwidth. The x axis is "
-    "frequency in MHz with the receiver's centre frequency in the middle and a "
-    "span of one sample rate (2 MHz at 2 MS/s); the y axis is dBFS, topping "
+    "Spectrum + waterfall view (Scope, key 2)",
+    "What it plots: signal power across the sampled bandwidth, with the "
+    "waterfall's history of it stacked below. The x axis is frequency in MHz "
+    "with the receiver's centre frequency in the middle and a span of one "
+    "sample rate (2 MHz at 2 MS/s); the spectrum's y axis is dBFS, topping "
     "out at +6.\n"
     "\n"
     "How it is made: the block is cut into 64 non-overlapping 2048-pair "
@@ -124,45 +125,42 @@ static const struct help_page help_pages[HELP_TOPIC_COUNT] = {
     "went in. Each bin is sample_rate/2048 wide, 977 Hz at 2 MS/s, which is "
     "the finest frequency detail this view can show.\n"
     "\n"
-    "Two traces. The brighter one is that average. The fainter one is peak "
-    "hold: the highest level seen at each frequency, decaying 20 dB per "
-    "second, so a burst stays visible for a moment after it has gone. A "
-    "carrier that is always on draws the two together; a bursty signal shows "
-    "as peak hold standing well above the average.\n"
+    "Two traces in the spectrum. The brighter one is that average. The "
+    "fainter one is peak hold: the highest level seen at each frequency, "
+    "decaying 20 dB per second, so a burst stays visible for a moment after "
+    "it has gone. A carrier that is always on draws the two together; a "
+    "bursty signal shows as peak hold standing well above the average.\n"
     "\n"
-    "Reading it: a narrow spike is a carrier. A flat-topped block is a "
-    "modulated channel, and its width is the channel's -- a GSM channel is 200 "
-    "kHz wide. The rough floor between them is noise. A spike exactly at the "
-    "centre frequency is usually the receiver's own DC offset rather than "
-    "anything on the air; the DC-spike filter in Settings removes it.\n"
+    "Reading the spectrum: a narrow spike is a carrier. A flat-topped block "
+    "is a modulated channel, and its width is the channel's -- a GSM channel "
+    "is 200 kHz wide. The rough floor between them is noise. A spike exactly "
+    "at the centre frequency is usually the receiver's own DC offset rather "
+    "than anything on the air; the DC-spike filter in Settings removes it.\n"
     "\n"
     "Up/Down moves the bottom of the dBFS axis in 10 dB steps while the top "
-    "stays put, which is how to give a weak signal more of the plot."
-},
-{
-    "Waterfall",
-    "Waterfall view (Scope, key 4)",
-    "What it plots: the same spectrum as the spectrum view, one row per block, "
-    "stacked over time. The newest row is at the top and older rows scroll "
-    "down; the left gutter labels rows by age in seconds, and the line under "
-    "the plot gives the visible history span. Colour is power -- dark blue at "
-    "the bottom of the scale, through blue and purple, to orange and white at "
+    "stays put, which is how to give a weak signal more of the plot.\n"
+    "\n"
+    "Below it, the waterfall is the same spectrum, one row per block, stacked "
+    "over time. The newest row is at the top and older rows scroll down; the "
+    "left gutter labels rows by age in seconds, and the line under the plot "
+    "gives the visible history span. Colour is power -- dark blue at the "
+    "bottom of the scale, through blue and purple, to orange and white at "
     "the top.\n"
     "\n"
-    "Reading it: a vertical stripe is a carrier that stays on. Short dashes "
-    "are bursts, and their spacing is the transmitter's timing. A stripe that "
-    "leans sideways is a frequency that is moving -- the transmitter's, or the "
-    "receiver's own crystal warming up. Brightening spread across the whole "
-    "width is the noise floor rising, not a signal.\n"
+    "Reading the waterfall: a vertical stripe is a carrier that stays on. "
+    "Short dashes are bursts, and their spacing is the transmitter's timing. "
+    "A stripe that leans sideways is a frequency that is moving -- the "
+    "transmitter's, or the receiver's own crystal warming up. Brightening "
+    "spread across the whole width is the noise floor rising, not a signal. "
+    "Up/Down applied there moves the bottom of the colour scale instead of "
+    "the dBFS axis, which matters more here than on any other chart: raise "
+    "it and only the strongest activity keeps its colour, which is how a "
+    "weak carrier is picked out of a busy band; lower it and the noise floor "
+    "lights up.\n"
     "\n"
-    "Up/Down moves the bottom of the colour scale, which matters more here "
-    "than on any other chart. Raise it and only the strongest activity keeps "
-    "its colour, which is how a weak carrier is picked out of a busy band; "
-    "lower it and the noise floor lights up.\n"
-    "\n"
-    "The GSM view and the calibration overlay draw this same waterfall with "
-    "its x axis labelled by ARFCN instead of frequency, zoomed to the channel "
-    "being inspected."
+    "The GSM view and the calibration overlay draw this same waterfall on its "
+    "own, with its x axis labelled by ARFCN instead of frequency, zoomed to "
+    "the channel being inspected."
 },
 {
     "I/Q scatter",
@@ -838,8 +836,6 @@ static int help_topic_for_screen(const struct app *app) {
         return HELP_SPECTRUM;
     if (app->view == VIEW_SCATTER)
         return HELP_SCATTER;
-    if (app->view == VIEW_WATERFALL)
-        return HELP_WATERFALL;
     return HELP_MAGNITUDE;
 }
 

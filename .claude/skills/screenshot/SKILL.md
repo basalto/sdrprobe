@@ -167,14 +167,16 @@ same every run. All are verified.
 | FM | `--file testfiles/fm_rds_tsf.bin --sample-rate 2048000 --frequency 89.6M --view fm` |
 | TETRA | `--file testfiles/tetra_cc17.bin --sample-rate 2000000 --view tetra` |
 | SRD | `--file testfiles/srd_remote_control_ook_a.bin --frequency 433.8M --sample-rate 2000000 --view srd` |
-| Scope | `--file testfiles/gsm_arfcn_69.bin --view spectrum` |
+| Scope | `--file testfiles/gsm_arfcn_69.bin --view spectrum` (spectrum on top, waterfall below) |
 | Survey | `--file testfiles/gsm_arfcn_69.bin --frequency 948.4M --view survey` |
 | Calibration | `--view calibration` (add `--calibrate lte` for the 4G arrangement) |
 
 Add `--analysis` for a decode view's chart arrangement. `--view` also takes
-`magnitude`, `scatter`, `waterfall`, `settings`, `help`, and `startup`. The
-startup form is not part of `make screens`; force it with `--view startup` when
-that installation workflow is the subject. A live receiver works in place of
+`magnitude`, `scatter`, `settings`, `help`, and `startup`; `waterfall` still
+parses, as an alias for `spectrum` -- the Scope's spectrum and waterfall are
+one view now, spectrum on top and the waterfall below it. The startup form is
+not part of `make screens`; force it with `--view startup` when that
+installation workflow is the subject. A live receiver works in place of
 `--file`, and changes between runs, so prefer a capture unless the point is
 live behaviour.
 

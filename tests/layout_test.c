@@ -1278,6 +1278,52 @@ static void check_scope_header(void) {
 }
 
 /*
+ * scope_plot_split() -- the combined Spectrum+Waterfall view's one plot
+ * rectangle divided into a spectrum half on top and a waterfall half below,
+ * with a gap between them. No test covered calculate_plot() or this split
+ * before: calculate_plot() itself needs a window (GetScreenWidth()), but the
+ * split it feeds does not, so this pins the split's own arithmetic against a
+ * handful of plot rectangles built by hand.
+ */
+static void check_scope_plot_split(void) {
+    static const Rectangle plots[] = {
+        { 16.0f, 90.0f, 1468.0f, 615.0f },   /* the default window, roughly */
+        { 16.0f, 90.0f, 300.0f, 40.0f },     /* squeezed to almost nothing */
+        { 0.0f, 0.0f, 100.0f, 2.0f }         /* smaller than the gap itself */
+    };
+    size_t p;
+
+    for (p = 0; p < sizeof(plots) / sizeof(plots[0]); p++) {
+        Rectangle plot = plots[p];
+        struct scope_plot_layout l = scope_plot_split(plot);
+        char name[96];
+
+        snprintf(name, sizeof(name), "plot %zu: same x", p);
+        check_close(name, (double)l.spectrum.x, (double)plot.x, 0.01);
+        snprintf(name, sizeof(name), "plot %zu: same width", p);
+        check_close(name, (double)l.spectrum.width, (double)plot.width, 0.01);
+        snprintf(name, sizeof(name), "plot %zu: waterfall shares the x", p);
+        check_close(name, (double)l.waterfall.x, (double)plot.x, 0.01);
+        snprintf(name, sizeof(name), "plot %zu: and the width", p);
+        check_close(name, (double)l.waterfall.width, (double)plot.width, 0.01);
+
+        snprintf(name, sizeof(name), "plot %zu: spectrum starts at the top",
+                 p);
+        check_close(name, (double)l.spectrum.y, (double)plot.y, 0.01);
+        snprintf(name, sizeof(name), "plot %zu: waterfall below the spectrum",
+                 p);
+        check_true(name, l.waterfall.y >= l.spectrum.y + l.spectrum.height);
+        snprintf(name, sizeof(name), "plot %zu: neither is empty", p);
+        check_true(name, l.spectrum.height >= 1.0f &&
+                             l.waterfall.height >= 1.0f);
+        snprintf(name, sizeof(name), "plot %zu: waterfall ends at the plot", p);
+        check_true(name,
+                   l.waterfall.y + l.waterfall.height <= plot.y + plot.height +
+                                                              0.01f);
+    }
+}
+
+/*
  * What a field says. Trailing rubbish is the case worth having: strtod stops
  * at the first character it cannot use, so "948.4x" parses as 948.4 and a
  * field that accepted it would retune somewhere nobody typed.
@@ -1960,6 +2006,7 @@ int main(void) {
     check_scan_and_help();
     check_settings_panel();
     check_scope_header();
+    check_scope_plot_split();
     check_scope_fields();
 
     test_tetra_layout();

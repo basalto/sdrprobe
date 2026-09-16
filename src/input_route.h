@@ -42,7 +42,6 @@ enum active_tab {
  */
 #define DECODE_KIND_ADSB 1
 #define VIEW_KIND_SPECTRUM 1
-#define VIEW_KIND_WATERFALL 3
 
 /* Everything the routing depends on, and nothing else. */
 struct input_state {
@@ -222,10 +221,12 @@ static inline int input_scope_owns_spectrum(const struct input_state *s) {
         return 0;
     if (s->calibration_open || s->scan_open)
         return 0;
-    /* And only the two views that draw it. The others do not read the
-       spectrum at all, so there is nothing to gain and a size that changed
-       under a screen not showing it would be a surprise later. */
-    return s->view == VIEW_KIND_SPECTRUM || s->view == VIEW_KIND_WATERFALL;
+    /* And only the one view that draws it -- the combined Spectrum+
+       Waterfall view (VIEW_SPECTRUM draws both now). The others do not
+       read the spectrum at all, so there is nothing to gain and a size
+       that changed under a screen not showing it would be a surprise
+       later. */
+    return s->view == VIEW_KIND_SPECTRUM;
 }
 
 /*

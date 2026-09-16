@@ -35,10 +35,9 @@ srd=testfiles/srd_remote_control_ook_a.bin
 # the frame captured is the last one.
 set -- \
     "magnitude:--file $gsm --view magnitude --duration 5" \
-    "spectrum:--file $gsm --view spectrum --duration 5" \
+    "spectrum:--file $gsm --view spectrum --duration 20" \
     "spectrum-zoom:--file $gsm --frequency 948.4M --view spectrum --zoom 948.2M:948.7M --duration 5" \
     "scatter:--file $gsm --view scatter --duration 5" \
-    "waterfall:--file $gsm --view waterfall --duration 20" \
     "survey:--file $gsm --frequency 948.4M --view survey --duration 6" \
     "survey-bands:--file $gsm --frequency 948.4M --view survey --survey-bands --duration 5" \
     "gsm:--file $gsm --view gsm --arfcn 69 --duration 8" \

@@ -67,7 +67,7 @@ int debug_screen_differs(const struct debug_screen *a,
 }
 
 static const char *SCOPE_VIEWS[] = {
-    "magnitude", "spectrum", "scatter", "waterfall"
+    "magnitude", "spectrum", "scatter"
 };
 static const char *DECODES[] = { "fm", "adsb", "gsm", "lte" };
 

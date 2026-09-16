@@ -28,9 +28,12 @@
 enum start_view {
     START_VIEW_DEFAULT = 0,
     START_VIEW_MAGNITUDE,
+    /* Also what "--view waterfall" parses to now -- the Scope's own
+       VIEW_SPECTRUM draws the spectrum and the waterfall together, so
+       there is no separate starting screen for the waterfall alone any
+       more, only this same one under its other name. */
     START_VIEW_SPECTRUM,
     START_VIEW_SCATTER,
-    START_VIEW_WATERFALL,
     START_VIEW_SURVEY,
     START_VIEW_GSM,
     START_VIEW_ADSB,

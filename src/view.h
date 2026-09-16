@@ -316,16 +316,24 @@ void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mod
                                       int *out_clicked_marker_id,
                                       int *out_hovered_marker_id);
 /*
- * The Scope's own four views. Each reads its measurements from a
+ * The Scope's own three views. Each reads its measurements from a
  * `struct scope_view_model` (scope_view_model.h) rather than `app->frame` or
  * `app->applied` directly -- `app` is still passed for what stays
  * view-owned: the plot rectangle, the zoom/pan/drag window, and the GPU
  * resources (the scatter and waterfall textures) that cannot be plain data.
+ *
+ * draw_spectrum() and draw_waterfall() take an explicit `plot` rather than
+ * reading `app->plot` themselves, because the combined Spectrum+Waterfall
+ * view (VIEW_SPECTRUM) splits one plot rectangle between the two of them
+ * (scope_layout.h's scope_plot_split()) rather than handing either the
+ * whole thing.
  */
-void draw_waterfall(const struct app *app, const struct scope_view_model *svm);
+void draw_waterfall(const struct app *app, const struct scope_view_model *svm,
+                    Rectangle plot);
 void draw_base_hud(const struct app *app, const struct slot_snapshot *snapshot);
 void draw_magnitude(const struct app *app, const struct scope_view_model *svm);
-void draw_spectrum(const struct app *app, const struct scope_view_model *svm);
+void draw_spectrum(const struct app *app, const struct scope_view_model *svm,
+                   Rectangle plot);
 void draw_scatter(const struct app *app, const struct scope_view_model *svm);
 void view_scope_defaults(struct app *app);
 int view_scope_resize_if_needed(struct app *app, Rectangle plot);

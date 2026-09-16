@@ -242,7 +242,10 @@ int parse_view(const char *text, enum start_view *view) {
         { "magnitude", START_VIEW_MAGNITUDE },
         { "spectrum", START_VIEW_SPECTRUM },
         { "scatter", START_VIEW_SCATTER },
-        { "waterfall", START_VIEW_WATERFALL },
+        /* An alias: the Scope's spectrum view draws the waterfall
+           together with it now, so there is nothing left for this name
+           to mean but the same starting screen. */
+        { "waterfall", START_VIEW_SPECTRUM },
         { "survey", START_VIEW_SURVEY },
         { "gsm", START_VIEW_GSM },
         { "adsb", START_VIEW_ADSB },

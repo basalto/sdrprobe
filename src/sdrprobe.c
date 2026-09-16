@@ -26,6 +26,7 @@
 #include "capture_sidecar.h"
 #include "version.h"
 #include "chrome_layout.h"
+#include "scope_layout.h"
 #include "sdrgui.h"
 #include "view_input.h"
 #include "view.h"
@@ -44,8 +45,6 @@ typedef char input_route_adsb_matches[
     (DECODE_KIND_ADSB == (int)DECODE_ADSB) ? 1 : -1];
 typedef char input_route_spectrum_matches[
     (VIEW_KIND_SPECTRUM == (int)VIEW_SPECTRUM) ? 1 : -1];
-typedef char input_route_waterfall_matches[
-    (VIEW_KIND_WATERFALL == (int)VIEW_WATERFALL) ? 1 : -1];
 /* And view_input.h mirrors the Scope's "no field has focus" for the same
    reason: it decides whether the header is taking typed characters. */
 typedef char view_input_scope_field_none_matches[
@@ -1080,8 +1079,8 @@ int start_capture_record(struct app *app, const char *basename,
 }
 
 static void draw_header(const struct app *app) {
-    static const char *scope_opts[4] = {
-        "1 magnitude", "2 spectrum", "3 I/Q scatter", "4 waterfall"
+    static const char *scope_opts[3] = {
+        "1 magnitude", "2 spectrum + waterfall", "3 I/Q scatter"
     };
     static const char *decode_opts[6] = { "1 FM", "2 ADS-B", "3 GSM",
                                           "4 LTE", "5 TETRA", "6 SRD" };
@@ -1090,9 +1089,9 @@ static void draw_header(const struct app *app) {
              (Color){ 225, 236, 245, 255 });
     if (app->tab == TAB_SURVEY) {
         /*
-         * No numbered options. The survey has one screen, and the four the
+         * No numbered options. The survey has one screen, and the three the
          * Scope tab numbers are not alternatives to it -- listing them here
-         * offered a reader four keys that would take them somewhere else
+         * offered a reader keys that would take them somewhere else
          * entirely.
          */
         struct chrome_layout chrome = chrome_layout_now();
@@ -1100,9 +1099,8 @@ static void draw_header(const struct app *app) {
                  "   Esc quit", (int)chrome.option_row_left,
                  (int)chrome.option_row_y, 16, (Color){ 143, 167, 182, 255 });
     } else if (app->tab == TAB_SCOPE) {
-        draw_option_row((int)app->view, scope_opts, 4,
-                        app->view == VIEW_SPECTRUM ||
-                                app->view == VIEW_WATERFALL
+        draw_option_row((int)app->view, scope_opts, 3,
+                        app->view == VIEW_SPECTRUM
                             ? "drag/Up/Down zoom  Left/Right pan  +/- scale"
                               "  0 reset  h help  Esc quit"
                             : "+/- scale   h help   Esc quit",
@@ -1183,8 +1181,7 @@ static struct view_input view_input_now(const struct app *app) {
     v.waterfall_report_open = app->wf_menu.popup_open;
 
     v.scope_zoomed = app->tab == TAB_SCOPE &&
-                     (app->view == VIEW_SPECTRUM ||
-                      app->view == VIEW_WATERFALL) &&
+                     app->view == VIEW_SPECTRUM &&
                      freq_window_zoomed(&app->sv.window.freq);
     return v;
 }
@@ -1307,8 +1304,8 @@ static void check_waterfall_right_click(struct app *app) {
     const struct chart_window *win = NULL;
     const char *tech = "raw";
 
-    if (app->tab == TAB_SCOPE && app->view == VIEW_WATERFALL) {
-        rect = app->plot;
+    if (app->tab == TAB_SCOPE && app->view == VIEW_SPECTRUM) {
+        rect = scope_plot_split(app->plot).waterfall;
         win = &app->sv.window;
         tech = "scope";
     } else if (app->tab == TAB_DECODE) {
@@ -1463,8 +1460,6 @@ static int run_gui(struct app *app) {
     case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM;
                                set_tab(app, TAB_SCOPE); break;
     case START_VIEW_SCATTER:   app->view = VIEW_SCATTER;
-                               set_tab(app, TAB_SCOPE); break;
-    case START_VIEW_WATERFALL: app->view = VIEW_WATERFALL;
                                set_tab(app, TAB_SCOPE); break;
     case START_VIEW_SURVEY:
         /*
@@ -1867,8 +1862,6 @@ static int run_gui(struct app *app) {
                     selected = VIEW_SPECTRUM;
                 if (IsKeyPressed(KEY_THREE))
                     selected = VIEW_SCATTER;
-                if (IsKeyPressed(KEY_FOUR))
-                    selected = VIEW_WATERFALL;
                 if (selected != app->view) {
                     app->view = selected;
                     if (selected == VIEW_SCATTER)
@@ -1879,8 +1872,7 @@ static int run_gui(struct app *app) {
                  * drag to zoom, Left and Right to pan, 0 to put it back. It
                  * retunes only when a pan has run out of received span.
                  */
-                if (app->view == VIEW_SPECTRUM ||
-                    app->view == VIEW_WATERFALL) {
+                if (app->view == VIEW_SPECTRUM) {
                     scope_freq_input(app, app->plot, chart_key);
                 }
                 /* The scale keys are applied once, below, for every screen
@@ -1935,12 +1927,13 @@ static int run_gui(struct app *app) {
                 draw_scope_header(app);
                 if (app->view == VIEW_MAGNITUDE)
                     draw_magnitude(app, &svm);
-                else if (app->view == VIEW_SPECTRUM)
-                    draw_spectrum(app, &svm);
-                else if (app->view == VIEW_SCATTER)
+                else if (app->view == VIEW_SPECTRUM) {
+                    struct scope_plot_layout split =
+                        scope_plot_split(app->plot);
+                    draw_spectrum(app, &svm, split.spectrum);
+                    draw_waterfall(app, &svm, split.waterfall);
+                } else
                     draw_scatter(app, &svm);
-                else
-                    draw_waterfall(app, &svm);
             }
             draw_header(app);
             if (app->set.open)
