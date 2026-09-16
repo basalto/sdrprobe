@@ -100,7 +100,7 @@ transmitted information lives in a second bounded context (see
   selected. Both are now cases in `tests/survey_window_test.c`. Anything in a
   view that is arithmetic rather than drawing belongs here for the same reason.
 - `make bench-dsp` — times each DSP stage against the 65.5 ms of signal a
-  256 KB block covers, which is the interval the receiver delivers them at.
+  256 KiB block covers, which is the interval the receiver delivers them at.
   Hardware-free, `-lm` only. `BENCH_ARCH=-march=native` answers "would SIMD
   help" by measuring it rather than arguing about it; as of this writing it
   does not, and `docs/liquid-dsp-sdrprobe-assessment.md` records why and where
@@ -286,7 +286,30 @@ transmitted information lives in a second bounded context (see
 - 1090 MHz (ADS-B), 2 MS/s (1 sample = 0.5 µs), the supported manual gain
   nearest 30 dB.
 - Samples are unsigned 8-bit interleaved I/Q; 127/127.5 = zero signal.
-- Block size is `16*16384` = 256 KB, deliberately matching dump1090's block.
+- Block size is `16*16384` = 262144 bytes -- 256 KiB, a deliberate power of
+  two matching dump1090's own block. Decimal SI would call 262144 bytes
+  262.1 KB, not 256 KB; see "Units are decimal SI" below for why this one
+  stays `KiB` rather than being forced into a decimal label.
+
+## Units are decimal SI, not binary
+
+Network throughput is bits per second -- Kbps at 1000, Mbps at 1e6 -- and a
+data size (a buffer, a high-water mark, a file) is bytes -- KB at 1000, MB
+at 1e6. Never KiB/MiB for either, and never a byte count silently divided
+by 1024 while displayed under a "KB"/"MB" label -- that mismatch shipped
+once, in the Viewer link's Health panel (ticket 08): `send_queue_high_water`
+and the received-throughput figure were both computed with `/1024` and
+labelled "KB"/"KB/s", which is a KiB value wearing a decimal name. Fixed in
+`src/viewer_page.h` (`formatBytes()`/`formatBitsPerSecond()`),
+`src/viewer_link.c` (`format_bytes_decimal()`, the stderr disconnect
+report) and `scripts/viewer_client.py` (`format_bytes()`/`format_bps()`).
+
+The one exception is a **structural constant that is genuinely a power of
+two** -- a block size chosen to match another system, a page size, an
+allocation granularity -- where `KiB`/`MiB` is the honest description and
+saying so plainly beats forcing a decimal label onto a binary fact. The
+dump1090 block size above is exactly that case: `256 KiB` is what it is,
+and no amount of rounding makes it `256 KB` too.
 
 ## Files
 
@@ -814,3 +837,14 @@ Triage uses the five canonical role names as status strings. See `docs/agents/tr
 ### Domain docs
 
 Domain documentation uses a single-context layout. See `docs/agents/domain.md`.
+
+<!-- CODEGRAPH_START -->
+## CodeGraph
+
+In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
+
+- **MCP tool** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them, including dynamic-dispatch hops grep can't follow. Name a file or symbol in the query to read its current line-numbered source. If it's listed but deferred, load it by name via tool search.
+- **Shell** (always works): `codegraph explore "<symbol names or question>"` prints the same output.
+
+If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
+<!-- CODEGRAPH_END -->

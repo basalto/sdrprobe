@@ -1648,7 +1648,7 @@ Its shape:
   a build without it, so callers ask rather than testing a macro.
 - **Threading** lives in `src/acquisition.c`, which owns `struct acquisition`
   and does not include `app.h`. A worker (`receiver_worker` for the librtlsdr
-  async callback, `file_worker` for the paced file pacer) hands 256 KB blocks
+  async callback, `file_worker` for the paced file pacer) hands 256 KiB blocks
   to the render thread through a **single mutex-guarded, overwriteable slot** —
   `struct latest_block`, consumed by `consume_latest`. Not a queue: a slow
   renderer drops blocks rather than lagging (ADR-0002). Headless *file*

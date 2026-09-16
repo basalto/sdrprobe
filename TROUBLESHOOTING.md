@@ -103,9 +103,16 @@ healthy" without guessing:
 
 ```
 link_health     server_cpu=59.6% spectrum sent=343 dropped=0 waterfall sent=342
-                dropped=0 receiver_state sent=342 dropped=0 high_water=946
+                dropped=0 receiver_state sent=342 dropped=0 high_water=16.4 KB
                 age=1.1 ms
 ```
+
+Units throughout are decimal SI (AGENTS.md's convention): a byte count --
+`high_water`, a buffer size -- is KB/MB at 1000/1e6; a throughput --
+`viewer_client.py --stats`'s per-stream line, the page's Health panel's
+"received" figure -- is Kbps/Mbps, bits rather than bytes, same decimal
+scale. Never KiB/MiB, never a byte count silently divided by 1024 behind
+a "KB" label.
 
 - **A rising `dropped` count with a low, stable `age`** is the transport
   working as designed: a slow client is falling behind and the freshness
@@ -113,9 +120,11 @@ link_health     server_cpu=59.6% spectrum sent=343 dropped=0 waterfall sent=342
 - **A rising `dropped` count with a rising `age`** would mean the
   replace-and-drop rule itself is broken -- this should not happen; if it
   does, it is the bug ticket 05 found and fixed (see section 7).
-- **`high_water` at or near 262144** (`VIEWER_LINK_CLIENT_SNDBUF`, 256 KiB)
-  means the kernel send buffer is genuinely full, which is what triggers
-  drops in the first place.
+- **`high_water` at or near 262.1 KB** (`VIEWER_LINK_CLIENT_SNDBUF`,
+  `256 * 1024` bytes -- a genuinely binary buffer size, so the source
+  comment says `256 KiB`; what is reported here is always the decimal
+  figure) means the kernel send buffer is genuinely full, which is what
+  triggers drops in the first place.
 - **`server_cpu` near or above 100%** on a single-threaded serving loop plus
   the acquisition worker is a real signal the block rate cannot keep up;
   compare against `--fft` (a smaller transform costs less per block).
@@ -124,7 +133,7 @@ When any client disconnects, the server itself prints a summary to stderr,
 independent of the Viewer ever seeing it:
 
 ```
-viewer link: client fd 6 disconnecting, send queue high-water 16408 bytes
+viewer link: client fd 6 disconnecting, send queue high-water 16.4 KB
   spectrum       sent 342 dropped 12
   waterfall      sent 340 dropped 14
   receiver_state sent 354 dropped 0

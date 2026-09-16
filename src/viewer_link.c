@@ -77,6 +77,22 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
 };
 
 /*
+ * Decimal SI, matching AGENTS.md's units convention: KB at 1000 bytes,
+ * MB at 1e6, never KiB/MiB and never a silent /1024 wearing a "KB" label.
+ * A fixed static buffer rather than an allocation -- this is a diagnostic
+ * line, one call site, printed and used immediately.
+ */
+static const char *format_bytes_decimal(double bytes) {
+    static char buf[32];
+
+    if (bytes >= 1e6)
+        snprintf(buf, sizeof(buf), "%.2f MB", bytes / 1e6);
+    else
+        snprintf(buf, sizeof(buf), "%.1f KB", bytes / 1e3);
+    return buf;
+}
+
+/*
  * Ticket 05's own falsifiability criterion: without this, "a slow Viewer
  * stays current" and "a fast Viewer misses nothing" are both unmeasurable
  * claims. Printed once, when a client disconnects (voluntarily or by
@@ -91,8 +107,8 @@ static void report_client_stats(int fd, const struct viewer_client *c) {
     if (c->state == VIEWER_CLIENT_CLOSED)
         return;
     fprintf(stderr, "viewer link: client fd %d disconnecting, send queue "
-                    "high-water %d bytes\n",
-            fd, c->send_queue_high_water);
+                    "high-water %s\n",
+            fd, format_bytes_decimal(c->send_queue_high_water));
     for (s = 0; s < VIEWER_STREAM_COUNT; s++) {
         const struct viewer_stream_slot *slot = &c->slot[s];
 

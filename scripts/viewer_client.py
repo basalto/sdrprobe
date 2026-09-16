@@ -250,7 +250,7 @@ def run_print(client, count):
                      f"dropped={state['waterfall_dropped']} "
                      f"receiver_state sent={state['receiver_state_sent']} "
                      f"dropped={state['receiver_state_dropped']} "
-                     f"high_water={state['send_queue_high_water']} "
+                     f"high_water={format_bytes(state['send_queue_high_water'])} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             elif state.get("type") == "command_result":
                 print(f"command_result  command={state['command']!r} "
@@ -268,8 +268,26 @@ def run_print(client, count):
         n += 1
 
 
+def format_bytes(n):
+    """Decimal SI, matching AGENTS.md's units convention: a byte count
+    (storage, a buffer size) as KB at 1000 / MB at 1e6 -- never KiB/MiB."""
+    if n >= 1e6:
+        return f"{n / 1e6:.2f} MB"
+    return f"{n / 1e3:.1f} KB"
+
+
+def format_bps(bytes_per_second):
+    """Decimal SI, matching AGENTS.md's units convention: throughput as
+    bits/sec (a network figure), Kbps at 1000, Mbps at 1e6 -- never a
+    byte count wearing a bits-per-second label, never binary."""
+    bits = bytes_per_second * 8
+    if bits >= 1e6:
+        return f"{bits / 1e6:.2f} Mbps"
+    return f"{bits / 1e3:.1f} Kbps"
+
+
 def run_stats(client, seconds):
-    """What ticket 05's 'Measured' criterion asks for: bytes/sec per
+    """What ticket 05's 'Measured' criterion asks for: throughput per
     stream, message rate, and end-to-end age (min/mean/max) -- printed as
     one summary rather than a message per line, since that is what a
     number to write into a ticket looks like."""
@@ -306,7 +324,7 @@ def run_stats(client, seconds):
             continue
         ages = s["ages"]
         print(f"  {stream:<14} {s['count']:>4} messages, "
-             f"{s['bytes'] / seconds:>10.0f} bytes/s, "
+             f"{format_bps(s['bytes'] / seconds):>12}, "
              f"age min/mean/max = {min(ages):.1f}/"
              f"{sum(ages) / len(ages):.1f}/{max(ages):.1f} ms")
 
