@@ -1,6 +1,6 @@
 ---
 name: does-it-help
-description: Decide whether a change to the DSP or a capture actually improves anything, with a number. Use when comparing two implementations, when tempted to adopt a theoretically better algorithm, or when choosing a constant like a dwell, a chunk length or a capture duration.
+description: Decide whether a change actually improves anything, with a number -- in the DSP, and equally in the serve loop, the receiver path or anywhere else with a cost. Use when comparing two implementations, when tempted to adopt a theoretically better algorithm, when choosing a constant like a dwell, a chunk length, a poll interval or a capture duration, or when deciding whether a saving is worth building.
 ---
 
 # Better is a measurement, not an argument
@@ -166,3 +166,41 @@ was uninformative, how it was measured, the table, and the reasons it was not
 adopted anyway. A ticket comment carries the same content when the answer is
 smaller. The table is the durable part -- the conclusion may not survive a
 different antenna, and the numbers say why.
+
+## Not only the DSP
+
+Every example above is a decode chain, because that is where this repository
+first needed the question. The method is not about signals. It applied
+unchanged, 2026-09-16, to a serve loop: choosing how often a Viewer's
+`receiver_state` goes out, and deciding whether a proposed ticket was worth
+building. **If a change has a cost or claims an improvement, this is the
+skill**, whatever subsystem it is in -- and the first of the four failures
+above is the one that recurs, because "measure where the thing being changed
+is the binding constraint" is exactly as easy to skip outside the DSP.
+
+## A total is not an answer
+
+There is a fifth way, and it does not look like a mistake: measuring the
+**whole** cost when the decision is about a **part** of it.
+
+A ticket proposed skipping the Scope path for a Viewer that had not asked for
+a spectrum. `--serve` with no client measured 9.6% of a core, which is a
+correct number and does not decide anything -- the ticket's question is which
+*part* of that would go. `make bench-dsp` splits it: conversion 0.096 ms a
+block, statistics 0.949, peak bins 0.120, and the transform **4.789** -- so
+the transform is 80% of it and everything every screen needs is about 2% of a
+block. That is what turned a number into a decision, and it also priced a
+*different* change (splitting conversion from transform) that the total could
+not have priced at all.
+
+So before measuring a saving, ask **which line item the change removes**, and
+measure that. Two useful habits fall out:
+
+- **Reach for the decomposition that already exists.** `make bench-dsp`
+  reports every per-block stage against the 65.5 ms budget. A stage-level
+  answer was one command away and a total took four twenty-second runs.
+- **Take two independent routes and require them to agree.** The stage table
+  put the Scope path at 9.09% of a block; the process's own CPU said 9.4-9.6%.
+  Agreement to half a point is what makes the remainder -- acquisition and the
+  loop -- a measured quantity rather than a hope. When they disagree, see
+  `check-claims` on suspecting the harness's constants first.

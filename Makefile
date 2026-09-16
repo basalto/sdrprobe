@@ -1286,6 +1286,10 @@ screens: sdrprobe
 	@mkdir -p $(SCREEN_DIR)
 	$(Q)NAMES="$(NAMES)" sh scripts/screens.sh $(SCREEN_DIR) $(SCREEN_W) $(SCREEN_H)
 
+#: [Diagnostics] what --serve costs per subscription, live (SUBS_SERVE=, FFT_SERVE=)
+bench-serve: sdrprobe
+	$(Q)sh scripts/serve_cost.sh
+
 #: [Diagnostics] what the DSP costs against the 65.5 ms a block covers (BENCH_ARCH=-march=native)
 bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 	@mkdir -p $(BUILD)

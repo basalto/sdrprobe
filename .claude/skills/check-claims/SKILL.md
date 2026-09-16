@@ -1,6 +1,6 @@
 ---
 name: check-claims
-description: Write check assertions that hold, and read a failing one correctly. Use when adding to tests/, when a check you just wrote fails, or when deciding whether a failure means the code is wrong or the claim is.
+description: Write claims that hold -- in check assertions, and in the tickets, headers and commit messages that assert how the program behaves. Use when adding to tests/, when a check you just wrote fails, when deciding whether a failure means the code is wrong or the claim is, or before writing down what the program does based on having read it.
 ---
 
 # The claim is as likely to be wrong as the code
@@ -237,3 +237,63 @@ measurement condition rather than the measurement**.
 So when a result matters and you built the thing that produced it, the
 question is not "is this code right" but "what would disagree with this if it
 were wrong, and does it?"
+
+## A claim read off the source is not a measurement
+
+Everything above is about a claim that was measured badly. This is the class
+where **nothing was measured at all**: the code was read, the behaviour was
+inferred, and the inference was written into a ticket, a header or a commit
+message with the file and line number attached -- which is what made it look
+like evidence. Two in one session, 2026-09-16, in one ticket.
+
+**"This does not busy-spin -- `viewer_session.c:165` paces every iteration on
+`viewer_link_poll()`."** Every word about the code was true. `viewer_link_poll()`
+does take a 20 ms timeout, it does register a client for writing only when a
+slot has unsent bytes, and it is the loop's pacing. Measured, the loop ran at
+**100 000 iterations a second and 98.6% of a core**, because the publish that
+runs just before it *queues without sending*, so there was always something
+pending and the timeout was never reached. A feedback loop across three
+functions, each of which does exactly what its own comment says.
+
+**"The transform is what the five decode tabs do not need."** Inferred from
+grepping which views read `app->frame`. Every decode view draws a waterfall,
+which is the spectrum -- six call sites, all of them
+`draw_waterfall_rect_with_markers()`. The grep asked what the views read from
+one struct and the claim was about what they *draw*.
+
+### Why reading cannot answer this
+
+A composition is not visible in its parts. Each of those functions was
+individually correct and individually documented, and the fault lived in the
+order they run in -- which no file states, because no file owns it. Re-reading
+is the one move guaranteed not to help: a second read re-makes the same
+inference. It is the same conclusion "What the three have in common" reaches
+about instruments, arrived at from the other side.
+
+### The rule
+
+**Before writing down how the program behaves, say how you know.** There are
+only three honest answers, and they are not interchangeable:
+
+- *I measured it* -- name the number and the condition.
+- *A check pins it* -- name the check.
+- *I read the code* -- then say that, in those words, in the claim itself.
+
+The third is a legitimate thing to write. What is not legitimate is writing it
+in the voice of the first two. A claim carrying a file and a line number reads
+as though somebody watched it happen.
+
+### The tell
+
+**A claim that something does *not* happen, offered as a reason not to
+investigate.** Both of the above were dismissals -- "checked and not a risk",
+"the tabs do not need it" -- and a dismissal is exactly the claim nobody
+follows up. If a negative claim is load-bearing enough to write down, it is
+worth the one command that would falsify it. Both of these cost about ninety
+seconds to check and had stood for a day, in a ticket, being read as settled.
+
+Cheapest instruments here, in order: a counter and a `fprintf` in the loop you
+are theorising about (this is what found the spin, in one build); `/proc/<pid>/stat`
+for what a process actually costs; `make bench-dsp` for what a stage costs; and
+`grep -c` across *every* file in the set before saying "all of them" or "none
+of them" -- the set is usually larger than the three files you looked at.
