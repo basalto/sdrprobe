@@ -22,7 +22,6 @@
    recomputing a percentage every block would be noise wearing the shape
    of a measurement (ticket 08). The sent/dropped counts and high-water
    mark are still published every iteration, same as receiver_state. */
-#define VIEWER_SESSION_HEALTH_INTERVAL_SECONDS 1.0
 
 /*
  * Ticket 06's inbound half, wired to the same path every other retune
@@ -62,7 +61,12 @@ int viewer_session_run(struct app *app) {
     int retuned = 0;
     struct process_cpu_sample cpu_previous;
     double cpu_percent = 0.0;
-    double health_sampled_at = 0.0;
+    /* Negative is "never published" -- see viewer_update_due(). A loop timing
+       from its own start reaches a real 0.0, so 0.0 cannot mean never. */
+    double health_published_at = -1.0;
+    double state_published_at = -1.0;
+    uint32_t state_generation = 0;
+    int state_ever_published = 0;
 
     process_cpu_sample_now(&cpu_previous);
 
@@ -140,27 +144,39 @@ int viewer_session_run(struct app *app) {
             viewer_link_publish_spectrum(&link, &svm, now_ms);
             viewer_link_publish_waterfall_row(&link, &svm, now_ms);
         }
-        /* Every iteration, not gated on spectrum_updated: the tuning can
-           change (the retune above, or a live receiver's own reconnects)
-           independently of whether a spectrum came with this pass, and
-           the replaceable-stream rule means a redundant one costs nothing
-           a client keeps. */
-        viewer_link_publish_receiver_state(&link, &svm, now_ms);
+        /*
+         * Not gated on spectrum_updated -- the tuning can change (the retune
+         * above, or a live receiver's own reconnects) independently of
+         * whether a spectrum came with this pass -- and not published every
+         * iteration either, which is what used to make this loop spin at
+         * ~100 000 iterations a second (viewer_session.h). A retune is
+         * immediate, because the tuning generation is what `changed` asks
+         * about; everything else is the quarter-second heartbeat.
+         */
+        if (viewer_update_due(now, state_published_at,
+                              VIEWER_SESSION_STATE_INTERVAL_SECONDS,
+                              state_ever_published &&
+                                  svm.tuning_generation != state_generation)) {
+            viewer_link_publish_receiver_state(&link, &svm, now_ms);
+            state_published_at = now;
+            state_generation = svm.tuning_generation;
+            state_ever_published = 1;
+        }
 
-        if (now - health_sampled_at >= VIEWER_SESSION_HEALTH_INTERVAL_SECONDS) {
+        if (viewer_update_due(now, health_published_at,
+                              VIEWER_SESSION_HEALTH_INTERVAL_SECONDS, 0)) {
             struct process_cpu_sample cpu_now;
 
             if (process_cpu_sample_now(&cpu_now) == 0) {
                 cpu_percent = process_cpu_percent(&cpu_previous, &cpu_now);
                 cpu_previous = cpu_now;
             }
-            health_sampled_at = now;
+            /* Sampled and published together: the CPU figure cannot be
+               fresher than its own sample, and the sent/dropped counts it
+               carries alongside are a Health panel's, not a meter's. */
+            viewer_link_publish_link_health(&link, cpu_percent, now_ms);
+            health_published_at = now;
         }
-        /* Published every iteration like receiver_state, even though
-           server_cpu_percent itself only refreshes once a second -- the
-           sent/dropped counts and high-water mark it carries alongside
-           are current every time. */
-        viewer_link_publish_link_health(&link, cpu_percent, now_ms);
 
         viewer_link_poll(&link, VIEWER_SESSION_POLL_MS);
 

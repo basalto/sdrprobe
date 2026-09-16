@@ -1,6 +1,6 @@
 # 10 - A metadata subscriber spins the serve loop
 
-Status: needs-triage
+Status: resolved, 2026-09-16
 
 ## What was measured
 
@@ -74,19 +74,93 @@ so far and is probably the same question from another side.
 
 ## Tasks
 
-- [ ] Find why `viewer_link_poll()`'s `select()` does not wait its timeout
-      when a client is subscribed to a per-iteration stream. Instrument the
-      loop rate directly rather than inferring it from message counts.
-- [ ] Decide what the correct publication rate for `receiver_state` is. It
-      carries the applied tuning and ADR-0027's tuning generation, which change
-      only on a retune; "every iteration" was chosen so a retune cannot be
-      missed, and that argument is satisfied by any rate at or above the block
-      rate.
-- [ ] The same question for `link_health`, whose `server_cpu_percent` already
-      refreshes only once a second while the message goes out every iteration.
-- [ ] Whatever the fix, pin the rate in `check-viewer-link` so a stream cannot
-      quietly return to free-running.
-- [ ] Re-measure all five rows above afterwards and record them here.
+- [x] Find why `viewer_link_poll()`'s `select()` does not wait its timeout
+      when a client is subscribed to a per-iteration stream.
+- [x] Decide what the correct publication rate for `receiver_state` is.
+- [x] The same question for `link_health`.
+- [x] Pin the rate in a check so a stream cannot quietly return to
+      free-running.
+- [x] Re-measure all five rows above afterwards and record them here.
+
+## The cause
+
+**`select()` was never at fault, and neither was the poll.** Instrumented
+directly -- counting calls, their mean duration, and which sets came back
+ready -- the two cases are unambiguous:
+
+```
+no client:        45 calls/s, mean 20.383 ms, 0 under 1ms, 45 timed out,
+                  ready: listen 0 read 0 write 0
+receiver_state:   101749 calls/s, mean 0.001 ms, 101749 under 1ms, 0 timed
+                  out, ready: listen 0 read 0 write 101749
+```
+
+With no client the poll waits its whole 20 ms timeout, every time. With a
+subscriber the write set is ready on **every one of a hundred thousand calls**
+and not one of them times out.
+
+The reason is one line in `viewer_link_publish_receiver_state()`: it **queues
+and does not send**, setting `slot->length` with `slot->sent` at 0.
+`viewer_link_poll()` then correctly registers that client for writing, and a
+loopback socket is always writable, so `select()` returns at once. The 20 ms
+timeout is the loop's only pacing, and publishing unconditionally on every
+iteration guaranteed there was always something pending -- so the timeout
+could never be reached. Publish, return immediately, flush, publish again.
+
+It is a feedback loop rather than a leak, which is why nothing looked wrong at
+any single point: every part behaves exactly as its own comment says. The
+fault is the composition, and it is invisible from the source of any one of
+them.
+
+`spectrum` never showed it because it is published only on `spectrum_updated`
+-- 15.2 a second -- so between blocks nothing is pending and the poll idles.
+
+## The fix
+
+`receiver_state` carries centre, rate, correction, tuning generation and full
+scale, and **every one of those changes only on a retune**. So it is published
+when the tuning generation differs from the one last sent -- which makes a
+retune immediate -- and otherwise on a quarter-second heartbeat that bounds
+how long a newly connected Viewer waits to be told where the receiver is
+pointed. `link_health` goes out with its own CPU sample, once a second,
+because `server_cpu_percent` cannot be fresher than that.
+
+`viewer_update_due()` in `viewer_session.h` is the decision, and it is a
+header function rather than an `if` in the loop because the loop takes
+`struct app` and nothing windowless can reach it (ADR-0012). It is checked by
+**`check-viewer-session`** rather than `check-viewer-link` as this ticket
+first assumed: the pacing is the session's, not the link's, and a check in the
+link's suite would have been testing a file it does not own.
+
+Two details the check pins because both are easy to get wrong. "Never
+published" is a **negative** sentinel, not 0.0 -- a loop timing from its own
+start reaches a real 0.0, and a check using 0.0 for both would pass either
+way. And a change beats the interval, which is what stops a Viewer drawing a
+quarter second of measurements under the previous frequency.
+
+## After
+
+Same receiver, same 20 s windows, same measurement:
+
+| subscribed streams | before | after |
+| --- | --- | --- |
+| no client at all | 9.8% | 9.6% |
+| `spectrum` | 10.0% | 9.5% |
+| `receiver_state` | 98.6% | **9.7%** |
+| `link_health` | 97.7% | **9.5%** |
+| `receiver_state,link_health` | 61.3%, 63.5% | **9.4%** |
+
+And the streams still arrive, at the rates they were designed for -- 8 s with
+all three subscribed: `spectrum` 122 messages (15.25/s, the block rate),
+`receiver_state` 31 (3.9/s), `link_health` 8 (1.0/s). Loopback throughput went
+from 121 Mbps to 2.0, and all of the 2.0 is now spectrum.
+
+A retune still reaches a Viewer at once rather than waiting out the heartbeat:
+with a scripted retune five seconds in, a subscribed client reads ten
+`receiver_state` messages at 100 MHz and generation 0, then one at 104 MHz and
+generation 1.
+
+`make check`: 21624 checks in 77 suites, no failures.
 
 ## Not in scope
 

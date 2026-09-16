@@ -163,6 +163,16 @@ check-receiver-runtime: $(TESTS)/receiver_runtime_test.c $(TESTS)/check.h \
 	$(Q)./$(BUILD)/receiver_runtime_test
 
 # The per-block dispatch, with every callee faked -- see the file comment.
+# No raylib and no sockets: viewer_session.h's pacing decision is a header
+# function precisely so a check can reach it without the loop it lives in.
+check-viewer-session: $(TESTS)/viewer_session_test.c $(TESTS)/check.h \
+		$(SRC)/viewer_session.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+		-o $(BUILD)/viewer_session_test \
+		$(TESTS)/viewer_session_test.c -lm
+	$(Q)./$(BUILD)/viewer_session_test
+
 # `--cflags raylib` alone (no `--libs`) is the point: app.h needs raylib's
 # types, and frame_advance.c must not need its library.
 check-frame-advance: $(TESTS)/frame_advance_test.c $(TESTS)/check.h \
@@ -893,7 +903,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-scope-view-model check-survey-view-model check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-survey-view-model check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \
