@@ -876,6 +876,127 @@ static void test_the_environment_answers_the_same_questions(void) {
     clear_env();
 }
 
+/*
+ * The command word: `sdrprobe`, `sdrprobe server`, `sdrprobe web`.
+ *
+ * A command names the frontend and nothing else -- window, browser, socket
+ * -- so this checks that it sets exactly the flags a caller could have set
+ * directly, that it is recognised only at argv[1], and that everything the
+ * Viewer link cannot honour (a different screen, a different headless mode)
+ * is refused rather than silently dropped.
+ */
+static void test_the_command_word(void) {
+    struct options options;
+    const char *window[] = { "sdrprobe" };
+    const char *window_flag[] = { "sdrprobe", "--frequency", "100M" };
+    const char *server[] = { "sdrprobe", "server" };
+    const char *web[] = { "sdrprobe", "web" };
+    const char *equivalent[] = { "sdrprobe", "--headless", "--serve" };
+    const char *bad[] = { "sdrprobe", "serv" };
+    const char *second[] = { "sdrprobe", "--duration", "1", "web" };
+    const char *with_port[] = { "sdrprobe", "server", "--serve-port", "9000" };
+    const char *serve_alone[] = { "sdrprobe", "--serve" };
+    const char *serve_view[] = { "sdrprobe", "server", "--view", "lte" };
+    const char *serve_shot[] = { "sdrprobe", "server", "--screenshot",
+                                 "x.png", "--duration", "1" };
+    const char *serve_analysis[] = { "sdrprobe", "server", "--analysis" };
+    const char *serve_calibrate[] = { "sdrprobe", "server", "--calibrate",
+                                      "gsm", "--arfcn", "113" };
+    const char *serve_survey[] = { "sdrprobe", "server", "--survey" };
+    const char *serve_decode[] = { "sdrprobe", "server", "--decode",
+                                   "--technology", "gsm" };
+    const char *serve_lte_scan[] = { "sdrprobe", "server", "--lte-scan",
+                                     "20" };
+    const char *serve_lte_chain[] = { "sdrprobe", "server", "--lte-chain",
+                                      "--earfcn", "6200" };
+
+    check_int("no command reaches the window",
+              parse_options(1, (char **)window, &options), 0);
+    check_int("COMMAND_WINDOW is the default", options.command,
+              COMMAND_WINDOW);
+    check_int("and headless is off", options.headless, 0);
+    check_int("and serve is off", options.serve, 0);
+
+    check_int("a flag with no command is unaffected",
+              parse_options(3, (char **)window_flag, &options), 0);
+    check_int("still the window", options.command, COMMAND_WINDOW);
+
+    check_int("server parses", parse_options(2, (char **)server, &options),
+              0);
+    check_int("as COMMAND_SERVER", options.command, COMMAND_SERVER);
+    check_int("headless follows", options.headless, 1);
+    check_int("and serve follows", options.serve, 1);
+
+    check_int("web parses", parse_options(2, (char **)web, &options), 0);
+    check_int("as COMMAND_WEB", options.command, COMMAND_WEB);
+    check_int("headless follows", options.headless, 1);
+    check_int("and serve follows", options.serve, 1);
+
+    /*
+     * The command is sugar, not a second code path: server sets exactly
+     * what the two flags together already set, on the fields every other
+     * check in this file reads.
+     */
+    check_int("the flag pair parses", parse_options(3, (char **)equivalent,
+                                                    &options), 0);
+    check_int("server and --headless --serve agree on headless",
+              options.headless, 1);
+    check_int("and on serve", options.serve, 1);
+    check_int("though the flag pair names no command",
+              options.command, COMMAND_WINDOW);
+
+    /* An unrecognised word at argv[1] is refused, and names itself so a
+       reader is not left with only the usage dump to go on. */
+    options.unknown_command = NULL;
+    check_true("an unknown command refuses",
+               parse_options(2, (char **)bad, &options) < 0);
+    check_true("and says what it saw",
+               options.unknown_command &&
+                   strcmp(options.unknown_command, "serv") == 0);
+
+    /* Recognised only at argv[1] -- anywhere else it is what it always was,
+       an unknown argument, refused with no command recorded. */
+    options.unknown_command = NULL;
+    check_true("web after another argument is not a command",
+               parse_options(4, (char **)second, &options) < 0);
+    check_true("and is not reported as one",
+               options.unknown_command == NULL);
+
+    check_int("a serving command still takes its own flags",
+              parse_options(4, (char **)with_port, &options), 0);
+    check_int("the port", options.serve_port, 9000);
+
+    /*
+     * --serve alone used to open a window, bind no socket and serve
+     * nothing -- reachable live, twice, before this ticket. It has to do
+     * one of the two honest things now.
+     */
+    check_int("--serve alone is headless too", parse_options(
+                  2, (char **)serve_alone, &options), 0);
+    check_int("because serve implies it", options.headless, 1);
+
+    /* What the Viewer link cannot honour is refused, not silently kept. */
+    check_true("a serving command refuses a chosen view",
+               parse_options(4, (char **)serve_view, &options) < 0);
+    check_true("and a screenshot",
+               parse_options(6, (char **)serve_shot, &options) < 0);
+    check_true("and the analysis arrangement",
+               parse_options(3, (char **)serve_analysis, &options) < 0);
+
+    /* Serving is its own run, like the calibration and the survey already
+       are of each other. */
+    check_true("a serving command refuses a calibration",
+               parse_options(6, (char **)serve_calibrate, &options) < 0);
+    check_true("a headless survey",
+               parse_options(3, (char **)serve_survey, &options) < 0);
+    check_true("a headless decode",
+               parse_options(5, (char **)serve_decode, &options) < 0);
+    check_true("an LTE band scan",
+               parse_options(4, (char **)serve_lte_scan, &options) < 0);
+    check_true("and an LTE chain walk",
+               parse_options(5, (char **)serve_lte_chain, &options) < 0);
+}
+
 int main(void) {
     test_receiver_identity_flags();
     test_defaults();
@@ -903,6 +1024,8 @@ int main(void) {
 
     test_who_sees_the_startup_form();
     test_the_environment_answers_the_same_questions();
+
+    test_the_command_word();
 
     return check_report("command line");
 }

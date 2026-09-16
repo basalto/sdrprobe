@@ -17,6 +17,19 @@
 
 void usage(const char *program) {
     fprintf(stderr,
+            /*
+             * The command names the frontend -- window, browser, socket --
+             * and nothing else; everything below this block is a flag,
+             * unchanged by which of the three is running. `server` and
+             * `web` differ only in the browser, and both are `--headless
+             * --serve` underneath, which every flag below still works with
+             * directly.
+             */
+            "Commands:\n"
+            "  %s [flags]           the window (default)\n"
+            "  %s web [flags]       the Viewer link, plus a browser\n"
+            "  %s server [flags]    the Viewer link alone, no window or browser\n"
+            "\n"
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
@@ -99,7 +112,7 @@ void usage(const char *program) {
             "                    generation; not a Viewer command\n"
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
-            program);
+            program, program, program, program);
     printf("\nThe environment answers the same questions the startup form\n"
            "asks, and whether to ask them at all, for a launcher or a unit\n"
            "file that cannot reach the command line. A flag beats a variable\n"
@@ -318,6 +331,7 @@ int parse_options(int argc, char **argv, struct options *options) {
     int view_seen = 0;
     int record_seen = 0;
     int duration_seen = 0;
+    int first_flag = 1;
 
     memset(options, 0, sizeof(*options));
     options->remove_dc = 1;
@@ -325,7 +339,33 @@ int parse_options(int argc, char **argv, struct options *options) {
     options->sample_rate = DEFAULT_SAMPLE_RATE;
     options->gain_kind = GAIN_REQUEST_DEFAULT;
 
-    for (int i = 1; i < argc; i++) {
+    /*
+     * The command word, recognised only here: `argv[1]`, and only when it
+     * does not begin with `-`. Nowhere else in the line is a bare word ever
+     * legal -- the loop's own final `else` already refuses one -- so there
+     * is no positional argument this can collide with and no existing
+     * invocation whose meaning can change. `command` stays `COMMAND_WINDOW`
+     * (0, what the memset above already gave it) for everything else,
+     * `--frequency 100M` included.
+     */
+    if (argc >= 2 && argv[1][0] != '-') {
+        if (strcmp(argv[1], "server") == 0) {
+            options->command = COMMAND_SERVER;
+            first_flag = 2;
+        } else if (strcmp(argv[1], "web") == 0) {
+            options->command = COMMAND_WEB;
+            first_flag = 2;
+        } else {
+            /* Not a flag and not a known command -- refused by name rather
+               than folded into the silent "unknown argument" every bad
+               `--flag` gets below, because this is the one case the parser
+               can say what the reader was reaching for. */
+            options->unknown_command = argv[1];
+            return -1;
+        }
+    }
+
+    for (int i = first_flag; i < argc; i++) {
         const char *option = argv[i];
         const char *argument;
 
@@ -662,6 +702,25 @@ int parse_options(int argc, char **argv, struct options *options) {
         }
     }
 
+    /*
+     * A command sets flags a caller could have set with the pair of flags
+     * directly -- this is the one place it does it, so `--headless --serve`
+     * and `sdrprobe server` reach every check below identically and neither
+     * is a second code path.
+     *
+     * `--serve` implies `--headless` for the plain-flag spelling too:
+     * `./sdrprobe --serve` used to open a window, bind no socket and serve
+     * nothing, which its own help text ("--serve  headless: ...") never
+     * promised. Done here, after the loop, rather than inside the `--serve`
+     * branch itself, so it cannot collide with `--headless`'s own
+     * duplicate-flag guard above when both are written out, in either
+     * order.
+     */
+    if (options->command == COMMAND_SERVER || options->command == COMMAND_WEB)
+        options->serve = 1;
+    if (options->serve)
+        options->headless = 1;
+
     if (options->file_path && options->gain_seen)
         return -1;
     /* A capture cannot come from a receiver that is not being opened, and a
@@ -691,6 +750,26 @@ int parse_options(int argc, char **argv, struct options *options) {
     /* Its own run, like the calibration and the survey. */
     if (options->lte_chain && (options->calibrate || options->survey_seen ||
                                options->decode || options->lte_scan_band))
+        return -1;
+    /*
+     * Serving is its own run too, chosen over the same headless modes
+     * `lte_chain` and `calibrate` already refuse to share -- one process,
+     * one stdout, one thing to be doing. And `viewer_session_run()` pins
+     * the Scope's own view (ADR-0027, ticket 05's "not in scope: any
+     * decode view"), so a request naming a different screen or arrangement
+     * is one this run cannot honour, which is worse silently accepted than
+     * refused. `--view` and `--screenshot` need no entry here: each already
+     * refuses alongside `--headless`, which `--serve` now implies, so there
+     * is nothing to duplicate. `--startup` is not in that list on purpose --
+     * checked rather than assumed: `--headless --startup` is a pre-existing,
+     * silent no-op (`startup_form_wanted()` declines it at runtime, not at
+     * parse time), unrelated to serving, and not this ticket's to change.
+     */
+    if (options->serve && (options->calibrate || options->survey_seen ||
+                           options->decode || options->lte_scan_band ||
+                           options->lte_chain))
+        return -1;
+    if (options->serve && options->analysis)
         return -1;
 
     /*

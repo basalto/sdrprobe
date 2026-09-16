@@ -3073,6 +3073,12 @@ int main(int argc, char **argv) {
 
     struct options options;
     if (parse_options(argc, argv, &options) < 0) {
+        /* The one refusal that can say what the reader meant: every other
+           parse failure is a bad flag or a bad combination, and the usage
+           text is the whole answer there. */
+        if (options.unknown_command)
+            fprintf(stderr, "%s: unknown command \"%s\"\n\n", argv[0],
+                    options.unknown_command);
         usage(argv[0]);
         return 1;
     }

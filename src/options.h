@@ -56,6 +56,22 @@ enum start_view {
     START_VIEW_STARTUP
 };
 
+/*
+ * Which frontend the program opens on -- window, browser, or the Viewer
+ * link alone. A command names this and nothing else; every other question
+ * this program can be asked (a band, a capture, a technology) stays a flag,
+ * because none of it changes who is looking.
+ *
+ * COMMAND_WINDOW is 0, so a plain `struct options` memset to zero -- the
+ * first thing `parse_options()` does -- already means "the window", which is
+ * what running with no command at all has always meant.
+ */
+enum start_command {
+    COMMAND_WINDOW = 0,
+    COMMAND_SERVER,           /* the Viewer link alone: --headless --serve */
+    COMMAND_WEB               /* the Viewer link, plus a browser pointed at it */
+};
+
 enum gain_request_kind {
     GAIN_REQUEST_DEFAULT,   /* nearest supported to DEFAULT_GAIN_TENTHS */
     GAIN_REQUEST_MAX,
@@ -72,6 +88,22 @@ struct options {
     int gain_seen;
     int ppm;
     int ppm_seen;
+
+    /*
+     * `web` and `server` (argv[1], recognised nowhere else) set `headless`
+     * and `serve` below exactly as the equivalent flags would -- this is
+     * sugar, not a third code path, and every check and script that drives
+     * the flags directly keeps working unchanged.
+     */
+    enum start_command command;
+    /*
+     * argv[1] itself, when it looked like an attempted command -- neither
+     * "web"/"server" nor a `--flag` -- and was refused for it. NULL for
+     * every other kind of refusal, including an ordinary unknown flag,
+     * which stays the plain usage dump it has always been: a mistyped
+     * command is the one case this parser can say what the reader meant.
+     */
+    const char *unknown_command;
 
     /* Scripted runs: acquire, record and quit without anyone at the window. */
     int device_index;         /* receiver to open */

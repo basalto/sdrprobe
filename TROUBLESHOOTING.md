@@ -6,6 +6,11 @@ a runbook, not a spec -- see `.scratch/web-visualization/` for the tickets and
 `docs/adr/0027-viewer-link-carries-derived-state-over-loopback.md` for the
 decisions behind the shape below.
 
+`sdrprobe server` is `--headless --serve` and `sdrprobe web` adds a browser;
+every command below spells the flags out because each is demonstrating a
+particular combination (a port, a capture, a scripted retune), and the two
+spellings stay interchangeable.
+
 ## 1. Build and run the unit tests first
 
 No server, no browser, no receiver -- if something is broken, this is where

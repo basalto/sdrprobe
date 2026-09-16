@@ -147,7 +147,14 @@ make                 # lists every target and what it is for
 make all             # builds ./sdrprobe
 ./sdrprobe           # live receiver; Survey opens after installation startup
 ./sdrprobe --file testfiles/adsb_modes1.bin   # hardware-free paced playback
+
+./sdrprobe web       # the Viewer link (ADR-0027), plus a browser pointed at it
+./sdrprobe server    # the Viewer link alone -- no window, no browser
 ```
+
+The command names the frontend and nothing else -- window, browser, socket.
+Every flag below works the same under all three; `web` and `server` are
+`--headless --serve` underneath, and that spelling keeps working directly.
 
 ```
 ./sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]

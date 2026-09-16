@@ -1,6 +1,6 @@
 # 01 - The command word
 
-Status: needs-triage
+Status: resolved, 2026-09-16
 
 ## What to build
 
@@ -60,36 +60,36 @@ unchanged.
 
 ## Tasks
 
-- [ ] Add `enum start_command` (or a plain int) and one field to
+- [x] Add `enum start_command` (or a plain int) and one field to
       `struct options`; parse `argv[1]` before the loop and start the loop at
       the first flag.
-- [ ] Refuse an unrecognised command by name, and refuse a command anywhere
+- [x] Refuse an unrecognised command by name, and refuse a command anywhere
       but first.
-- [ ] Make `--serve` imply `--headless` (or refuse; see above) and say so in
+- [x] Make `--serve` imply `--headless` (or refuse; see above) and say so in
       its help text.
-- [ ] Decide, once, which flags are incompatible with a serving command and
+- [x] Decide, once, which flags are incompatible with a serving command and
       refuse them with a sentence naming the command.
-- [ ] Rewrite `usage()` to lead with the three commands before the flag list.
-- [ ] Extend `check-options`: each command's flag mapping, the unknown
+- [x] Rewrite `usage()` to lead with the three commands before the flag list.
+- [x] Extend `check-options`: each command's flag mapping, the unknown
       command, a command in second position, `--serve` alone, and every
       incompatible-flag refusal.
-- [ ] Update `README.md` and `TROUBLESHOOTING.md` to show the commands as the
+- [x] Update `README.md` and `TROUBLESHOOTING.md` to show the commands as the
       way in, with the flags still documented beneath.
-- [ ] Bump MINOR in `src/version.h` (ADR-0016: the command line gained a way
+- [x] Bump MINOR in `src/version.h` (ADR-0016: the command line gained a way
       in and lost none).
 
 ## Acceptance criteria
 
-- [ ] `sdrprobe` with no arguments reaches the window exactly as before, and
+- [x] `sdrprobe` with no arguments reaches the window exactly as before, and
       `make screens` is unchanged.
-- [ ] `sdrprobe server` listens on 127.0.0.1:8765 and opens no window.
-- [ ] `./sdrprobe --serve` (no `--headless`) either listens or refuses --
+- [x] `sdrprobe server` listens on 127.0.0.1:8765 and opens no window.
+- [x] `./sdrprobe --serve` (no `--headless`) either listens or refuses --
       never opens a window and serves nothing.
-- [ ] `--headless --serve` keeps working unchanged; `tests/pipelines.sh`,
+- [x] `--headless --serve` keeps working unchanged; `tests/pipelines.sh`,
       `scripts/serve_cost.sh` and `scripts/screens.sh` need no edits.
-- [ ] An unknown command names itself in the refusal.
-- [ ] `check-options` covers every row of the table above and every refusal.
-- [ ] `make check` passes.
+- [x] An unknown command names itself in the refusal.
+- [x] `check-options` covers every row of the table above and every refusal.
+- [x] `make check` passes.
 
 ## Not in scope
 
@@ -97,3 +97,72 @@ unchanged.
 - A command for the headless reports (`--decode`, `--survey`, `--calibrate`).
   The spec says why the rule predicts one and why this does not build it.
 - Removing or renaming any existing flag.
+
+## Done, 2026-09-16
+
+`argv[1]` is recognised before the parse loop and only there: `web` and
+`server` set `command`, the loop's own start index moves to `argv[2]`, and
+anything else that does not begin with `-` is refused with
+`options->unknown_command` pointed at it -- `main()` prints
+`unknown command "serv"` ahead of the usage dump, which is the one refusal
+in this parser that now says what the reader meant rather than only what it
+did not accept.
+
+**The two flags stay authoritative.** `command == COMMAND_SERVER` or
+`COMMAND_WEB` sets `serve`, and `serve` sets `headless` -- both post-loop,
+which is what let `--serve` gain the same implication without colliding
+with `--headless`'s own duplicate-flag guard regardless of which order a
+caller writes them in. `server` is exactly `--headless --serve` on the
+fields every other check in this file already reads, checked directly:
+`test_the_command_word()` asserts the two spellings agree.
+
+**The bug is fixed as a side effect of needing it fixed.** `./sdrprobe
+--serve` used to open a window, bind no socket and serve nothing -- its own
+help text said "headless:" and the parser did not enforce it. It could not
+be left that way and still have `sdrprobe server` mean anything, since
+`server` has no separate code path to fall back on.
+
+**The incompatible-flag question turned out mostly already answered.**
+`--view` and `--screenshot` already refuse alongside `--headless`, so
+implying `headless` from `serve` closes both for free -- no new check
+needed beyond confirming it, which `test_the_command_word()` does.
+`--analysis` did not have an existing refusal (it is a harmless no-op under
+plain `--headless` and stays one there) and gets one specific to `serve`:
+the Viewer serves only the Scope, so asking for a decode view's analysis
+arrangement is a request the link cannot honour. And `serve` joins the same
+"its own run" exclusion `lte_chain` and `calibrate` already enforce against
+each other -- `calibrate`, `survey`, `decode`, `lte-scan` and `lte-chain`
+each refuse alongside it now, closing a gap that predates this ticket:
+`sdrprobe --headless --calibrate gsm --arfcn 73 --serve` was accepted
+before, and which of the two runs actually won depended on `run_headless()`'s
+own if-chain order rather than anything the command line said.
+
+**One claim caught before it was written down wrong.** A first version of
+the "nothing needed here" list included `--startup`, reasoning from the
+same pattern as `--view`/`--screenshot`. Tried live: `sdrprobe server
+--startup` does not refuse, it runs -- `startup_form_wanted()` declines the
+form at runtime rather than `parse_options()` refusing the flag, a
+pre-existing and unrelated no-op this ticket has no business changing. The
+comment says so now instead of the false claim.
+
+**Five mutations, all caught**: dropping the `serve` -> `headless`
+implication, dropping the `command` -> `serve` implication, dropping the
+`--analysis` refusal, dropping `lte_chain` from the exclusion list, and
+letting a command be recognised anywhere instead of only `argv[1]`.
+`check-options`: 348 checks, all passing on the first run before any
+mutation.
+
+**Verified live**, receiver attached: `sdrprobe server` and `sdrprobe web`
+both bind `127.0.0.1:8765` and log the same listening line `--headless
+--serve` always has; `sdrprobe server --file testfiles/gsm_arfcn_69.bin`
+serves a capture; `sdrprobe serv` refuses and names itself; `sdrprobe server
+--view lte`, `--screenshot`, `--analysis` and `--calibrate gsm --arfcn 113`
+each refuse. No leaked process in any case.
+
+`src/version.h` MINOR bumped to 61 (ADR-0016): the command line gained a way
+in and lost none. `usage()` leads with the three commands; `README.md` and
+`TROUBLESHOOTING.md` introduce them without rewriting every existing
+`--headless --serve` recipe, each of which is demonstrating a specific flag
+combination rather than the way in.
+
+`make check`: 21707 checks in 77 suites, no failures.
