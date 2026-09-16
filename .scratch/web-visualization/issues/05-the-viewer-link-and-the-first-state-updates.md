@@ -224,3 +224,34 @@ checks, output unchanged. `check-viewer-link`: 73 checks (up from 58 --
 the per-client stats report was exercised by the existing test's
 disconnects with no new one needed; the cross-stream interleaving fix
 above earned its own, `test_no_cross_stream_interleaving_under_backpressure`).
+
+### 2026-09-16 -- the interleaving bug's diagnostics, made permanent
+
+Finding the cross-stream interleaving bug took a scratch raw-byte client
+and temporary `fprintf` instrumentation, both deleted once the fix
+landed. That is the wrong place for it to have lived: the next time a
+Viewer stalls in some new way, whoever is debugging it starts from
+nothing again. `viewer_link.c` now calls this repository's existing
+`--debug-log` facility (`debug_log_write`, keyword `viewer`) instead --
+`debug_log.h` includes only `<stddef.h>`, so this costs the module
+neither `app.h` nor raylib, and the fast path when logging is off is
+`debug_log.c`'s own one-pointer check.
+
+What it logs, deliberately not the per-message trace that was used to
+find the bug: a client connecting, a subscription changing, and a
+stream's `inflight_stream` transition -- stalled (with the byte offset
+it stalled at) and cleared (with how many bytes were still pending).
+Three rare, discrete events per connection, the same shape as every
+other `debug_log_write` call site in this program and exactly what
+`debug_log.h`'s own comment asks for ("must never become a frame-rate
+trace"). Confirmed live: `--debug-log FILE` against the same `--slow`
+scenario reproduces the whole incident in four lines --
+```
+1.098  viewer    client fd 6 connected
+1.158  viewer    client fd 6 subscribed: spectrum waterfall receiver_state
+1.214  viewer    client fd 6 stream waterfall stalled at 65084/65566 bytes
+4.151  viewer    client fd 6 stream waterfall stall cleared (482 bytes were still pending)
+```
+`check-viewer-link` now also builds and links `src/debug_log.c`; `make
+check` (21403 checks) and `check-pipelines` (34 checks) both still pass
+unchanged.

@@ -198,12 +198,13 @@ check-websocket: $(TESTS)/websocket_test.c $(TESTS)/check.h \
 check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
 		$(SRC)/viewer_link.c $(SRC)/viewer_link.h $(SRC)/viewer_page.h \
 		$(SRC)/websocket.c $(SRC)/websocket.h \
-		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h
+		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h \
+		$(SRC)/debug_log.c $(SRC)/debug_log.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/viewer_link_test \
 		$(TESTS)/viewer_link_test.c $(SRC)/viewer_link.c $(SRC)/websocket.c \
-		$(SRC)/scope_view_model.c -lm
+		$(SRC)/scope_view_model.c $(SRC)/debug_log.c -lm
 	$(Q)./$(BUILD)/viewer_link_test
 
 check-signal-frame: $(TESTS)/signal_frame_test.c $(TESTS)/check.h \

@@ -2,6 +2,8 @@
 
 #include "viewer_link.h"
 
+#include "debug_log.h"
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -266,6 +268,20 @@ static void handle_subscribe_line(struct viewer_client *c, const char *line,
         }
     }
     memcpy(c->subscribed, wanted, sizeof(wanted));
+    if (debug_log_active()) {
+        char summary[64] = "";
+        int s;
+
+        for (s = 0; s < VIEWER_STREAM_COUNT; s++)
+            if (wanted[s]) {
+                if (summary[0])
+                    strncat(summary, " ", sizeof(summary) - strlen(summary) - 1);
+                strncat(summary, stream_names[s],
+                       sizeof(summary) - strlen(summary) - 1);
+            }
+        debug_log_write("viewer", "client fd %d subscribed: %s", c->fd,
+                        summary[0] ? summary : "(nothing)");
+    }
 }
 
 /*
@@ -458,6 +474,7 @@ static void accept_new(struct viewer_link *link) {
         slot->fd = fd;
         slot->state = VIEWER_CLIENT_HANDSHAKING;
         slot->inflight_stream = -1;
+        debug_log_write("viewer", "client fd %d connected", fd);
     }
 }
 
@@ -481,12 +498,18 @@ static void flush_client(struct viewer_client *c) {
 
     if (c->inflight_stream >= 0) {
         struct viewer_stream_slot *slot = &c->slot[c->inflight_stream];
+        size_t was_pending = slot->length - slot->sent;
 
         try_flush_slot(c, (enum viewer_stream)c->inflight_stream);
         if (c->state == VIEWER_CLIENT_CLOSED)
             return;
         if (slot->length > slot->sent)
             return; /* still not on the wire; nothing else may go ahead of it */
+        /* try_flush_slot() already zeroed length/sent on completion, so
+           the remaining count has to be captured before calling it. */
+        debug_log_write("viewer", "client fd %d stream %s stall cleared "
+                        "(%zu bytes were still pending)",
+                        c->fd, stream_names[c->inflight_stream], was_pending);
         c->inflight_stream = -1;
     }
     for (stream = 0; stream < VIEWER_STREAM_COUNT; stream++) {
@@ -498,6 +521,10 @@ static void flush_client(struct viewer_client *c) {
         if (c->state == VIEWER_CLIENT_CLOSED)
             return;
         if (slot->length > slot->sent) {
+            debug_log_write("viewer", "client fd %d stream %s stalled at "
+                            "%zu/%zu bytes",
+                            c->fd, stream_names[stream], slot->sent,
+                            slot->length);
             c->inflight_stream = stream;
             return; /* blocked on this one; the rest wait for next time */
         }
