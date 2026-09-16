@@ -31,6 +31,10 @@ Usage:
     # Link health only -- sent/dropped/high-water and server CPU (ticket 08):
     python3 scripts/viewer_client.py --subscribe link_health --count 5
 
+    # Retune the receiver and watch the command_result (ticket 06) --
+    # needs a live receiver; a capture refuses every retune:
+    python3 scripts/viewer_client.py --send "tune 948400000" --count 5
+
     # A deliberately slow client: read nothing for N seconds, then resume
     # and report what came back -- the one behaviour ADR-0027's whole
     # transport design exists to prove (a Viewer stays current, never
@@ -105,6 +109,12 @@ class ViewerClient:
 
     def subscribe(self, streams):
         self._send_text("subscribe " + " ".join(streams))
+
+    def send(self, line):
+        """A raw command line (ticket 06) -- `tune <hz>`, whitespace-
+        delimited, exactly what a Viewer sends. No parsing here; the
+        server's own viewer_command.h owns what a line means."""
+        self._send_text(line)
 
     def _send_text(self, text):
         self._send_frame(OPCODE_TEXT, text.encode())
@@ -242,6 +252,9 @@ def run_print(client, count):
                      f"dropped={state['receiver_state_dropped']} "
                      f"high_water={state['send_queue_high_water']} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            elif state.get("type") == "command_result":
+                print(f"command_result  command={state['command']!r} "
+                     f"ok={state['ok']} error={state['error']}")
             else:
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "
                      f"rate={state['sample_rate_hz'] / 1e6:.3f} MS/s "
@@ -328,6 +341,10 @@ def main():
                        help="do not read for SECONDS before starting "
                             "(pairs with --stats to show what a resumed "
                             "slow client receives)")
+    parser.add_argument("--send", action="append", metavar="LINE",
+                       help="a raw command line to send after subscribing "
+                            "(ticket 06), e.g. --send 'tune 948400000'; "
+                            "repeatable, sent in order")
     args = parser.parse_args()
 
     streams = [s.strip() for s in args.subscribe.split(",") if s.strip()]
@@ -339,6 +356,9 @@ def main():
     client.subscribe(streams)
     print(f"subscribed to {', '.join(streams)} at "
          f"{args.host}:{args.port}", file=sys.stderr)
+    for line in args.send or []:
+        client.send(line)
+        print(f"sent: {line}", file=sys.stderr)
 
     try:
         if args.slow is not None:

@@ -103,8 +103,8 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/signal_analysis.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
-	$(SRC)/debug_log.c $(SRC)/process_cpu.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_page.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_page.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h $(SRC)/startup_session.h \
@@ -199,12 +199,13 @@ check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
 		$(SRC)/viewer_link.c $(SRC)/viewer_link.h $(SRC)/viewer_page.h \
 		$(SRC)/websocket.c $(SRC)/websocket.h \
 		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h \
-		$(SRC)/debug_log.c $(SRC)/debug_log.h
+		$(SRC)/debug_log.c $(SRC)/debug_log.h \
+		$(SRC)/viewer_command.c $(SRC)/viewer_command.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/viewer_link_test \
 		$(TESTS)/viewer_link_test.c $(SRC)/viewer_link.c $(SRC)/websocket.c \
-		$(SRC)/scope_view_model.c $(SRC)/debug_log.c -lm
+		$(SRC)/scope_view_model.c $(SRC)/debug_log.c $(SRC)/viewer_command.c -lm
 	$(Q)./$(BUILD)/viewer_link_test
 
 # The percentage arithmetic behind the Health panel's server-CPU reading,
@@ -215,6 +216,16 @@ check-process-cpu: $(TESTS)/process_cpu_test.c $(TESTS)/check.h \
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) -o $(BUILD)/process_cpu_test \
 		$(TESTS)/process_cpu_test.c $(SRC)/process_cpu.c -lm
 	$(Q)./$(BUILD)/process_cpu_test
+
+# The Viewer command line parser (ticket 06), alone: no socket, no
+# struct app, no receiver -- what it accepts and, deliberately more of
+# what it rejects.
+check-viewer-command: $(TESTS)/viewer_command_test.c $(TESTS)/check.h \
+		$(SRC)/viewer_command.c $(SRC)/viewer_command.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) -o $(BUILD)/viewer_command_test \
+		$(TESTS)/viewer_command_test.c $(SRC)/viewer_command.c -lm
+	$(Q)./$(BUILD)/viewer_command_test
 
 check-signal-frame: $(TESTS)/signal_frame_test.c $(TESTS)/check.h \
 		$(SRC)/signal_frame.c $(SRC)/signal_frame.h \
@@ -866,7 +877,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-scope-view-model check-websocket check-viewer-link check-process-cpu check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-scope-view-model check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \

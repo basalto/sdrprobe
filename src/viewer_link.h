@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "scope_view_model.h"
+#include "viewer_command.h"
 #include "websocket.h"
 
 /*
@@ -27,13 +28,23 @@
  * else to gate a technology's per-block cost with (ticket 05's own point).
  *
  * Binary down, text up: `spectrum` and `waterfall_row` are binary WS
- * frames with a small fixed header (below); `receiver_state` and
- * `link_health` (ticket 08) are JSON text frames, because writing JSON
- * is already solved (`survey_json_escape()`, src/survey_store.c) and
- * nothing here parses it. The one thing read from a client --
- * `subscribe <stream> ...` -- is a whitespace-delimited line, on the
- * same principle `src/capture_sidecar.h` states outright: this is not a
- * JSON parser and must not become one.
+ * frames with a small fixed header (below); `receiver_state`,
+ * `link_health` (ticket 08) and `command_result` (ticket 06) are JSON
+ * text frames, because writing JSON is already solved
+ * (`survey_json_escape()`, src/survey_store.c) and nothing here parses
+ * it. The two things read from a client -- `subscribe <stream> ...` and
+ * a command line (`tune <hz>`) -- are both whitespace-delimited lines,
+ * on the same principle `src/capture_sidecar.h` states outright: this is
+ * not a JSON parser and must not become one. `src/viewer_command.h` owns
+ * what a command line actually says; this module only decides that a
+ * line is one (anything that is not `subscribe ...`) and what happens to
+ * its result.
+ *
+ * A third rule, ticket 06's own: a Viewer command is reliable and
+ * ordered, unlike a State update. `command_result` does not follow the
+ * replaceable-slot rule above -- it is a small FIFO per client instead,
+ * because a dropped retune is not a stale picture, it is a receiver
+ * pointed somewhere nobody asked for.
  */
 
 /* -------------------------------------------------------------------- */
@@ -76,6 +87,7 @@ enum viewer_stream {
     VIEWER_STREAM_WATERFALL,
     VIEWER_STREAM_RECEIVER_STATE,
     VIEWER_STREAM_LINK_HEALTH,
+    VIEWER_STREAM_COMMAND_RESULT,
     VIEWER_STREAM_COUNT
 };
 
@@ -96,6 +108,13 @@ struct viewer_stream_slot {
     uint64_t sent_count;
     uint64_t dropped_count;
 };
+
+/* How many command results (ticket 06) a client's own FIFO holds before
+   this module refuses to enqueue another, and how large one JSON result
+   text is allowed to be. Sized for a human typing commands, not for a
+   sustained stream of them -- see viewer_link.c's enqueue_command_result(). */
+#define VIEWER_COMMAND_RESULT_QUEUE_DEPTH 16
+#define VIEWER_COMMAND_RESULT_JSON_MAX 256
 
 struct viewer_client {
     enum viewer_client_state state;
@@ -129,13 +148,42 @@ struct viewer_client {
      * viewer_link_poll()'s flush_client().
      */
     int inflight_stream;
+
+    /*
+     * Reliable, ordered results for ticket 06's commands -- a FIFO, not
+     * a replaceable slot: `slot[VIEWER_STREAM_COMMAND_RESULT]` above
+     * still carries whichever result is currently on the wire (or about
+     * to be), following the exact same single-frame-in-flight discipline
+     * every other stream does; this is the queue of ones not yet loaded
+     * into it. 16 deep is headroom for a human typing commands, not a
+     * tuned capacity -- see viewer_link.c's enqueue_command_result().
+     */
+    char result_queue[VIEWER_COMMAND_RESULT_QUEUE_DEPTH][VIEWER_COMMAND_RESULT_JSON_MAX];
+    int result_queue_len[VIEWER_COMMAND_RESULT_QUEUE_DEPTH];
+    int result_queue_head;
+    int result_queue_count;
 };
 
 #define VIEWER_LINK_MAX_CLIENTS 8
 
+/*
+ * Executes one parsed command against the receiver -- the only place
+ * this module reaches outside itself, and it reaches through an opaque
+ * function pointer rather than a `struct app*`, the same seam
+ * `device_backend.h` uses to keep hardware out of code that does not
+ * need it. Returns 0 on success; on failure, writes a reason into
+ * `error` (bounded by `error_cap`, always left NUL-terminated) --
+ * expected to be `app->receiver_error` quoted, not a generic failure
+ * (ticket 06's own acceptance criterion).
+ */
+typedef int (*viewer_command_handler)(void *ctx, const struct viewer_command *cmd,
+                                      char *error, size_t error_cap);
+
 struct viewer_link {
     int listen_fd;
     struct viewer_client clients[VIEWER_LINK_MAX_CLIENTS];
+    viewer_command_handler command_handler;
+    void *command_handler_ctx;
 };
 
 /* Binds and listens on 127.0.0.1:`port` (ADR-0027: loopback only -- this
@@ -195,5 +243,16 @@ void viewer_link_publish_link_health(struct viewer_link *link,
 
 /* How many clients are currently open -- for a status line, or a check. */
 int viewer_link_client_count(const struct viewer_link *link);
+
+/*
+ * Wires ticket 06's inbound half to whatever can execute a command --
+ * viewer_session.c, in production, via retune_receiver(). `ctx` is
+ * handed back unchanged as `handler`'s first argument. Without a handler
+ * set, a well-formed command is refused with a fixed reason rather than
+ * silently doing nothing (see viewer_link.c's dispatch_command_line()).
+ */
+void viewer_link_set_command_handler(struct viewer_link *link,
+                                     viewer_command_handler handler,
+                                     void *ctx);
 
 #endif

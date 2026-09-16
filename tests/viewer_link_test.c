@@ -44,6 +44,8 @@ struct test_client {
     int fd;
     uint8_t buf[1 << 20];
     size_t have;
+    size_t read_pos; /* bytes at the front already handed out by
+                        client_next_frame() -- see its own comment */
 };
 
 /*
@@ -70,6 +72,7 @@ static int client_connect_rcvbuf(struct test_client *tc, uint16_t port,
 
     tc->fd = socket(AF_INET, SOCK_STREAM, 0);
     tc->have = 0;
+    tc->read_pos = 0;
     if (rcvbuf > 0)
         setsockopt(tc->fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
     flags = fcntl(tc->fd, F_GETFL, 0);
@@ -167,11 +170,30 @@ static void client_pump(struct test_client *tc, int rounds) {
 /* Decodes exactly one frame from the front of the client's buffer, per
    RFC 6455 -- server frames are never masked, which this asserts rather
    than assumes. */
+/*
+ * Decodes exactly one frame, leaving `*payload` valid until the *next*
+ * call -- this one only compacts away whatever the *previous* call
+ * returned, deferred rather than done before returning. It used to
+ * memmove() the just-returned frame's own bytes out of the buffer before
+ * handing `*payload` back, which is safe only when nothing follows it
+ * (the common case: publish one message, read it, repeat) and silently
+ * wrong the moment more than one frame is already buffered -- the
+ * memmove overwrites the very bytes `*payload` points to with whatever
+ * comes after them, before the caller ever reads a byte of it. Found by
+ * ticket 06's own reliability test, which is the first thing here to
+ * drain many buffered frames in one loop and check more than an opcode
+ * off each one.
+ */
 static int client_next_frame(struct test_client *tc, int *opcode,
                             const uint8_t **payload, size_t *len) {
     size_t off;
     size_t length;
 
+    if (tc->read_pos > 0) {
+        memmove(tc->buf, tc->buf + tc->read_pos, tc->have - tc->read_pos);
+        tc->have -= tc->read_pos;
+        tc->read_pos = 0;
+    }
     if (tc->have < 2)
         return 0;
     check_true("a server frame is never masked", (tc->buf[1] & 0x80) == 0);
@@ -188,8 +210,7 @@ static int client_next_frame(struct test_client *tc, int *opcode,
         return 0;
     *payload = tc->buf + off;
     *len = length;
-    memmove(tc->buf, tc->buf + off + length, tc->have - (off + length));
-    tc->have -= off + length;
+    tc->read_pos = off + length;
     return 1;
 }
 
@@ -709,6 +730,183 @@ static void test_two_clients_are_independent(void) {
     viewer_link_close(&vlink);
 }
 
+/*
+ * Ticket 06's inbound half: a fake handler in place of retune_receiver(),
+ * so what is checked is this module's dispatch (parse, call, report),
+ * not the receiver runtime -- which has its own check (check-receiver-runtime).
+ */
+static int fake_tune_handler(void *ctx, const struct viewer_command *cmd,
+                             char *error, size_t error_cap) {
+    uint32_t *last_hz = ctx;
+
+    check_int("the handler only ever sees TUNE", cmd->type, VIEWER_COMMAND_TUNE);
+    if (cmd->hz == 0) {
+        snprintf(error, error_cap, "refused: 0 Hz is not a real frequency");
+        return -1;
+    }
+    *last_hz = cmd->hz;
+    return 0;
+}
+
+static int never_called_handler(void *ctx, const struct viewer_command *cmd,
+                                char *error, size_t error_cap) {
+    int *called = ctx;
+
+    (void)cmd;
+    (void)error;
+    (void)error_cap;
+    *called = 1;
+    return 0;
+}
+
+static void test_a_valid_tune_command_is_executed_and_reported_ok(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    uint32_t last_hz = 0;
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    viewer_link_set_command_handler(&vlink, fake_tune_handler, &last_hz);
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "tune 948400000");
+    client_pump(&tc, 30);
+
+    check_true("a command_result arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a text frame", opcode, WEBSOCKET_OP_TEXT);
+    check_true("it names the type", contains(payload, len, "\"type\":\"command_result\""));
+    check_true("it echoes the command", contains(payload, len, "tune 948400000"));
+    check_true("it reports success", contains(payload, len, "\"ok\":true"));
+    check_true("its error is null", contains(payload, len, "\"error\":null"));
+    check_true("the handler actually ran", last_hz == 948400000u);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_a_malformed_command_is_refused_without_calling_the_handler(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    int called = 0;
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    viewer_link_set_command_handler(&vlink, never_called_handler, &called);
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "tune abc");
+    client_pump(&tc, 30);
+
+    check_true("a command_result arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_true("it reports failure", contains(payload, len, "\"ok\":false"));
+    check_true("its error is not null", !contains(payload, len, "\"error\":null"));
+    check_int("the handler was never called for a line the parser refused",
+             called, 0);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_a_command_with_no_handler_set_reports_why(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    client_connect(&tc, port); /* no viewer_link_set_command_handler() call */
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "tune 948400000");
+    client_pump(&tc, 30);
+
+    check_true("a command_result arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_true("it reports failure", contains(payload, len, "\"ok\":false"));
+    check_true("it says no receiver is attached",
+              contains(payload, len, "no receiver attached"));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+/*
+ * Ticket 06's own acceptance criterion, asserted in one run: while
+ * spectrum -- a State update -- is genuinely dropping under
+ * backpressure, every command sent alongside it still gets exactly one
+ * result, in order, none lost. The same never-reads setup as
+ * test_a_client_that_never_reads_drops_not_queues, with five commands
+ * queued into the same unread socket before the flood, so this also
+ * exercises the result FIFO going more than one deep.
+ */
+static void test_commands_are_never_dropped_while_state_updates_are(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct scope_view_model svm = a_view_model();
+    uint32_t last_hz = 0;
+    int i;
+    int command_results = 0;
+    int ok_count = 0;
+
+    viewer_link_set_command_handler(&vlink, fake_tune_handler, &last_hz);
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe spectrum");
+    client_pump(&tc, 10);
+
+    for (i = 0; i < 5; i++) {
+        char line[32];
+
+        snprintf(line, sizeof(line), "tune %u", 900000000u + (unsigned)i);
+        client_send_text(&tc, line);
+    }
+
+    /* Flood spectrum with nothing reading, same as the drops-not-queues
+       test -- this also drives the server to read (and dispatch) the
+       five queued commands above, since that is the read side of the
+       same poll() calls building up the write side's backpressure. */
+    for (i = 0; i < 200; i++) {
+        svm.tuning_generation = (uint32_t)i;
+        viewer_link_publish_spectrum(&vlink, &svm, (uint64_t)i);
+        viewer_link_poll(&vlink, 0);
+    }
+
+    check_true("spectrum genuinely dropped under the same load",
+              vlink.clients[0].slot[VIEWER_STREAM_SPECTRUM].dropped_count > 0);
+
+    client_pump(&tc, 100);
+    {
+        int opcode;
+        const uint8_t *payload;
+        size_t len;
+
+        while (client_next_frame(&tc, &opcode, &payload, &len)) {
+            if (opcode == WEBSOCKET_OP_TEXT &&
+                contains(payload, len, "\"type\":\"command_result\"")) {
+                command_results++;
+                if (contains(payload, len, "\"ok\":true"))
+                    ok_count++;
+            }
+        }
+    }
+
+    check_int("all five commands got exactly one result each",
+             command_results, 5);
+    check_int("all five were executed successfully", ok_count, 5);
+    check_true("not one command result was ever dropped",
+              vlink.clients[0].slot[VIEWER_STREAM_COMMAND_RESULT].dropped_count == 0);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 int main(void) {
     test_plain_get_serves_the_page();
     test_upgrade_and_receiver_state();
@@ -723,5 +921,9 @@ int main(void) {
     test_ping_answered_by_pong();
     test_close_handshake();
     test_two_clients_are_independent();
+    test_a_valid_tune_command_is_executed_and_reported_ok();
+    test_a_malformed_command_is_refused_without_calling_the_handler();
+    test_a_command_with_no_handler_set_reports_why();
+    test_commands_are_never_dropped_while_state_updates_are();
     return check_report("the Viewer link over real loopback sockets");
 }

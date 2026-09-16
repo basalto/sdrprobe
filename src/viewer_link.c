@@ -73,7 +73,7 @@ int viewer_link_open(struct viewer_link *link, uint16_t port) {
 }
 
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
-    "spectrum", "waterfall", "receiver_state", "link_health"
+    "spectrum", "waterfall", "receiver_state", "link_health", "command_result"
 };
 
 /*
@@ -131,6 +131,13 @@ int viewer_link_client_count(const struct viewer_link *link) {
         if (link->clients[i].state != VIEWER_CLIENT_CLOSED)
             n++;
     return n;
+}
+
+void viewer_link_set_command_handler(struct viewer_link *link,
+                                     viewer_command_handler handler,
+                                     void *ctx) {
+    link->command_handler = handler;
+    link->command_handler_ctx = ctx;
 }
 
 /*
@@ -287,6 +294,171 @@ static void handle_subscribe_line(struct viewer_client *c, const char *line,
     }
 }
 
+static int starts_with_word(const char *data, size_t len, const char *word) {
+    size_t word_len = strlen(word);
+
+    if (len < word_len)
+        return 0;
+    if (memcmp(data, word, word_len) != 0)
+        return 0;
+    return len == word_len || data[word_len] == ' ';
+}
+
+/*
+ * A small JSON string escaper, scoped to this file rather than reusing
+ * `survey_json_escape()` (src/survey_store.c) -- that would pull in the
+ * whole survey/installation header graph for one function, exactly the
+ * coupling this module goes out of its way to avoid (no app.h, no
+ * raylib). Truncates on overflow rather than refusing outright: a
+ * command result is diagnostic text for a person, not data anything
+ * parses back, so a clipped echo is a smaller loss than no result.
+ */
+static void json_escape_into(char *out, size_t out_cap, const char *in, size_t in_len) {
+    size_t used = 0;
+    size_t i;
+
+    if (out_cap == 0)
+        return;
+    for (i = 0; i < in_len && used + 1 < out_cap; i++) {
+        unsigned char ch = (unsigned char)in[i];
+        const char *replacement = NULL;
+
+        switch (ch) {
+        case '"':  replacement = "\\\""; break;
+        case '\\': replacement = "\\\\"; break;
+        case '\n': replacement = "\\n"; break;
+        case '\r': replacement = "\\r"; break;
+        case '\t': replacement = "\\t"; break;
+        default:
+            if (ch < 0x20)
+                replacement = "\\ufffd";
+            break;
+        }
+        if (replacement) {
+            size_t rlen = strlen(replacement);
+
+            if (used + rlen >= out_cap)
+                break;
+            memcpy(out + used, replacement, rlen);
+            used += rlen;
+        } else {
+            out[used++] = (char)ch;
+        }
+    }
+    out[used] = '\0';
+}
+
+static size_t build_command_result_json(char *out, size_t out_cap,
+                                        const char *command, size_t command_len,
+                                        int ok, const char *error) {
+    char command_escaped[96];
+    char error_json[176];
+    int written;
+
+    json_escape_into(command_escaped, sizeof(command_escaped), command, command_len);
+    if (error) {
+        char error_escaped[160];
+
+        json_escape_into(error_escaped, sizeof(error_escaped), error, strlen(error));
+        snprintf(error_json, sizeof(error_json), "\"%s\"", error_escaped);
+    } else {
+        snprintf(error_json, sizeof(error_json), "null");
+    }
+    written = snprintf(out, out_cap,
+                       "{\"type\":\"command_result\",\"command\":\"%s\","
+                       "\"ok\":%s,\"error\":%s}",
+                       command_escaped, ok ? "true" : "false", error_json);
+    return written > 0 ? (size_t)written : 0;
+}
+
+/*
+ * If the command-result slot is free and something is queued, this is
+ * the only place a queued result is ever loaded into it -- called right
+ * after enqueuing (the common case: nothing else pending) and once more
+ * at the end of flush_client() (the case that matters: an earlier result
+ * was still in flight when this one queued behind it, and has just
+ * finished). Unlike every other stream's slot, this one is never
+ * replaced by a fresher message -- only ever advanced to the next one in
+ * line, which is the whole of what "reliable and ordered" means here.
+ */
+static void load_command_result_into_slot(struct viewer_client *c) {
+    struct viewer_stream_slot *slot = &c->slot[VIEWER_STREAM_COMMAND_RESULT];
+    size_t frame_len;
+    int idx;
+
+    if (slot->length > 0 || c->result_queue_count == 0)
+        return;
+    idx = c->result_queue_head;
+    frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                       WEBSOCKET_OP_TEXT,
+                                       (const uint8_t *)c->result_queue[idx],
+                                       (size_t)c->result_queue_len[idx]);
+    c->result_queue_head = (idx + 1) % VIEWER_COMMAND_RESULT_QUEUE_DEPTH;
+    c->result_queue_count--;
+    if (frame_len == 0)
+        return; /* cannot happen: the slot is sized for the worst case */
+    slot->length = frame_len;
+    slot->sent = 0;
+}
+
+static void enqueue_command_result(struct viewer_client *c, const char *json,
+                                   size_t json_len) {
+    int idx;
+
+    if (json_len >= VIEWER_COMMAND_RESULT_JSON_MAX)
+        json_len = VIEWER_COMMAND_RESULT_JSON_MAX - 1;
+    if (c->result_queue_count >= VIEWER_COMMAND_RESULT_QUEUE_DEPTH) {
+        /* The documented bound (viewer_link.h): far past any human-paced
+           command stream this ticket is for. Refusing to enqueue a 17th
+           pending result is the honest choice over silently discarding
+           one to make room for it. */
+        return;
+    }
+    idx = (c->result_queue_head + c->result_queue_count) %
+        VIEWER_COMMAND_RESULT_QUEUE_DEPTH;
+    memcpy(c->result_queue[idx], json, json_len);
+    c->result_queue[idx][json_len] = '\0';
+    c->result_queue_len[idx] = (int)json_len;
+    c->result_queue_count++;
+    load_command_result_into_slot(c);
+}
+
+/*
+ * The inbound half of ticket 06: a text line that is not a subscription
+ * is a command. `viewer_command.h` owns what it says; this decides what
+ * happens to the answer -- parsed but refused (a malformed line, quoting
+ * the parser's own reason), parsed and executed (via whatever
+ * `viewer_link_set_command_handler()` wired in -- `retune_receiver()`,
+ * in production, through `viewer_session.c`), or parsed with nowhere to
+ * send it (no handler set at all, which a unit check can exercise
+ * without a receiver).
+ */
+static void dispatch_command_line(struct viewer_link *link, struct viewer_client *c,
+                                  const char *line, size_t len) {
+    struct viewer_command cmd;
+    char error[160];
+    char json[VIEWER_COMMAND_RESULT_JSON_MAX];
+    size_t json_len;
+    int ok;
+
+    if (viewer_command_parse(line, len, &cmd, error, sizeof(error)) < 0) {
+        json_len = build_command_result_json(json, sizeof(json), line, len, 0,
+                                             error);
+        enqueue_command_result(c, json, json_len);
+        return;
+    }
+    if (link->command_handler) {
+        ok = link->command_handler(link->command_handler_ctx, &cmd, error,
+                                   sizeof(error)) == 0;
+    } else {
+        snprintf(error, sizeof(error), "no receiver attached to this link");
+        ok = 0;
+    }
+    json_len = build_command_result_json(json, sizeof(json), line, len, ok,
+                                         ok ? NULL : error);
+    enqueue_command_result(c, json, json_len);
+}
+
 /*
  * Whether a stream's slot may be overwritten with a new message.
  *
@@ -346,7 +518,7 @@ static void try_flush_slot(struct viewer_client *c, enum viewer_stream stream) {
         c->send_queue_high_water = queued;
 }
 
-static void handle_open_data(struct viewer_client *c) {
+static void handle_open_data(struct viewer_link *link, struct viewer_client *c) {
     for (;;) {
         struct websocket_frame frame;
         long consumed = websocket_frame_decode(c->read_buf, c->read_have,
@@ -385,8 +557,12 @@ static void handle_open_data(struct viewer_client *c) {
                 client_close(c);
                 return;
             }
-            if (fed == 1 && opcode == WEBSOCKET_OP_TEXT)
-                handle_subscribe_line(c, (const char *)data, len);
+            if (fed == 1 && opcode == WEBSOCKET_OP_TEXT) {
+                if (starts_with_word((const char *)data, len, "subscribe"))
+                    handle_subscribe_line(c, (const char *)data, len);
+                else
+                    dispatch_command_line(link, c, (const char *)data, len);
+            }
         }
 
         memmove(c->read_buf, c->read_buf + consumed,
@@ -395,7 +571,7 @@ static void handle_open_data(struct viewer_client *c) {
     }
 }
 
-static void handle_readable(struct viewer_client *c) {
+static void handle_readable(struct viewer_link *link, struct viewer_client *c) {
     if (c->state == VIEWER_CLIENT_HANDSHAKING) {
         ssize_t n;
 
@@ -429,7 +605,7 @@ static void handle_readable(struct viewer_client *c) {
             return;
         }
         c->read_have += (size_t)n;
-        handle_open_data(c);
+        handle_open_data(link, c);
     }
 }
 
@@ -502,6 +678,7 @@ static void flush_client(struct viewer_client *c) {
     if (c->inflight_stream >= 0) {
         struct viewer_stream_slot *slot = &c->slot[c->inflight_stream];
         size_t was_pending = slot->length - slot->sent;
+        int cleared_stream = c->inflight_stream;
 
         try_flush_slot(c, (enum viewer_stream)c->inflight_stream);
         if (c->state == VIEWER_CLIENT_CLOSED)
@@ -512,8 +689,13 @@ static void flush_client(struct viewer_client *c) {
            the remaining count has to be captured before calling it. */
         debug_log_write("viewer", "client fd %d stream %s stall cleared "
                         "(%zu bytes were still pending)",
-                        c->fd, stream_names[c->inflight_stream], was_pending);
+                        c->fd, stream_names[cleared_stream], was_pending);
         c->inflight_stream = -1;
+        /* Ticket 06: the one stream with a queue behind its slot rather
+           than a fresher message replacing it -- if another result was
+           waiting, this is what loads it in to go out next. */
+        if (cleared_stream == VIEWER_STREAM_COMMAND_RESULT)
+            load_command_result_into_slot(c);
     }
     for (stream = 0; stream < VIEWER_STREAM_COUNT; stream++) {
         struct viewer_stream_slot *slot = &c->slot[stream];
@@ -531,6 +713,8 @@ static void flush_client(struct viewer_client *c) {
             c->inflight_stream = stream;
             return; /* blocked on this one; the rest wait for next time */
         }
+        if (stream == VIEWER_STREAM_COMMAND_RESULT)
+            load_command_result_into_slot(c);
     }
 }
 
@@ -575,7 +759,7 @@ void viewer_link_poll(struct viewer_link *link, int timeout_ms) {
         if (c->state == VIEWER_CLIENT_CLOSED)
             continue;
         if (FD_ISSET(c->fd, &read_set))
-            handle_readable(c);
+            handle_readable(link, c);
         if (c->state == VIEWER_CLIENT_CLOSED)
             continue;
         if (FD_ISSET(c->fd, &write_set))

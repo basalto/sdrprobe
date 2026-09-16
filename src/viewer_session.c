@@ -24,6 +24,31 @@
    mark are still published every iteration, same as receiver_state. */
 #define VIEWER_SESSION_HEALTH_INTERVAL_SECONDS 1.0
 
+/*
+ * Ticket 06's inbound half, wired to the same path every other retune
+ * caller uses -- `retune_receiver()` and the transaction in
+ * receiver_runtime.c, stop/apply/flush/read-back/restart with rollback
+ * at each step. This does not get its own path, and on failure it quotes
+ * `app->receiver_error`, the one buffer that already owns the reason a
+ * retune failed, rather than inventing a second message for the wire.
+ */
+static int viewer_session_handle_command(void *ctx, const struct viewer_command *cmd,
+                                         char *error, size_t error_cap) {
+    struct app *app = ctx;
+
+    switch (cmd->type) {
+    case VIEWER_COMMAND_TUNE:
+        if (retune_receiver(app, cmd->hz, app->applied.ppm) < 0) {
+            snprintf(error, error_cap, "%s", app->receiver_error);
+            return -1;
+        }
+        return 0;
+    default:
+        snprintf(error, error_cap, "unimplemented command");
+        return -1;
+    }
+}
+
 int viewer_session_run(struct app *app) {
     /* struct viewer_link is ~12 MB (VIEWER_LINK_MAX_CLIENTS clients, each
        carrying a slot per stream sized to the largest message this link
@@ -80,6 +105,7 @@ int viewer_session_run(struct app *app) {
                 port);
         return -1;
     }
+    viewer_link_set_command_handler(&link, viewer_session_handle_command, app);
     fprintf(stderr,
            "Viewer link listening on 127.0.0.1:%d -- open "
            "http://127.0.0.1:%d/ in a browser. Ctrl-C to stop.\n",
@@ -94,9 +120,10 @@ int viewer_session_run(struct app *app) {
 
         /*
          * A scripted, one-shot retune for exercising the tuning generation
-         * -- see options.h's comment on serve_retune_after_seconds. Not a
-         * Viewer command: nothing on the wire can retune this receiver
-         * until ticket 06.
+         * without a Viewer -- see options.h's comment on
+         * serve_retune_after_seconds. Independent of ticket 06's `tune`
+         * command, which goes through the same retune_receiver() call
+         * right below rather than a path of its own.
          */
         if (!retuned && app->options.serve_retune_after_seconds > 0.0 &&
             now >= app->options.serve_retune_after_seconds) {
