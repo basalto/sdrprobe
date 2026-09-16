@@ -28,6 +28,9 @@ Usage:
     # Only some streams:
     python3 scripts/viewer_client.py --subscribe spectrum,receiver_state
 
+    # Link health only -- sent/dropped/high-water and server CPU (ticket 08):
+    python3 scripts/viewer_client.py --subscribe link_health --count 5
+
     # A deliberately slow client: read nothing for N seconds, then resume
     # and report what came back -- the one behaviour ADR-0027's whole
     # transport design exists to prove (a Viewer stays current, never
@@ -64,7 +67,7 @@ OPCODE_PONG = 0xA
 
 MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall"}
 
-ALL_STREAMS = ("spectrum", "waterfall", "receiver_state")
+ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health")
 
 
 class ViewerClient:
@@ -229,10 +232,21 @@ def run_print(client, count):
         now_ms = time.monotonic() * 1000.0
         if opcode == OPCODE_TEXT:
             state = json.loads(payload)
-            print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "
-                 f"rate={state['sample_rate_hz'] / 1e6:.3f} MS/s "
-                 f"ppm={state['ppm']:+d} generation={state['tuning_generation']} "
-                 f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            if state.get("type") == "link_health":
+                print(f"link_health     server_cpu={state['server_cpu_percent']:.1f}% "
+                     f"spectrum sent={state['spectrum_sent']} "
+                     f"dropped={state['spectrum_dropped']} "
+                     f"waterfall sent={state['waterfall_sent']} "
+                     f"dropped={state['waterfall_dropped']} "
+                     f"receiver_state sent={state['receiver_state_sent']} "
+                     f"dropped={state['receiver_state_dropped']} "
+                     f"high_water={state['send_queue_high_water']} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            else:
+                print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "
+                     f"rate={state['sample_rate_hz'] / 1e6:.3f} MS/s "
+                     f"ppm={state['ppm']:+d} generation={state['tuning_generation']} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
         else:
             msg = decode_binary(payload)
             print(f"{msg['stream']:<14}  bins={msg['bins']:<6} "
@@ -259,7 +273,7 @@ def run_stats(client, seconds):
         now_ms = time.monotonic() * 1000.0
         if opcode == OPCODE_TEXT:
             state = json.loads(payload)
-            stream = "receiver_state"
+            stream = state.get("type", "receiver_state")
             ts_ms = state["timestamp_ms"]
         else:
             msg = decode_binary(payload)
@@ -304,7 +318,7 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--subscribe", default=",".join(ALL_STREAMS),
                        help="comma-separated streams: spectrum,waterfall,"
-                            "receiver_state (default: all three)")
+                            "receiver_state,link_health (default: all four)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--count", type=int, metavar="N",
                      help="print N messages, then exit")
