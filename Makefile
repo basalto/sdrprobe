@@ -93,7 +93,7 @@ DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c $(SRC)/srd_dsp.c $(SRC)/srd_frame.c
 APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/backend_uhd.c \
-	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/frame_advance.c $(SRC)/scope_view_model.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
+	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/frame_advance.c $(SRC)/scope_view_model.c $(SRC)/websocket.c $(SRC)/viewer_link.c $(SRC)/viewer_session.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
 	$(SRC)/view_srd.c \
 	$(SRC)/view_survey.c \
@@ -104,7 +104,7 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
 	$(SRC)/debug_log.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_page.h $(SRC)/viewer_session.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h $(SRC)/startup_session.h \
@@ -190,6 +190,21 @@ check-websocket: $(TESTS)/websocket_test.c $(TESTS)/check.h \
 		-o $(BUILD)/websocket_test \
 		$(TESTS)/websocket_test.c $(SRC)/websocket.c -lm
 	$(Q)./$(BUILD)/websocket_test
+
+# The Viewer link over real loopback sockets -- no window, no receiver, no
+# hardware. --cflags raylib for scope_view_model.h's app.h dependency
+# (types only); --libs raylib is deliberately absent, and check-viewer-link
+# is the proof: nothing here needs it to link.
+check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
+		$(SRC)/viewer_link.c $(SRC)/viewer_link.h $(SRC)/viewer_page.h \
+		$(SRC)/websocket.c $(SRC)/websocket.h \
+		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(shell pkg-config --cflags raylib) \
+		-o $(BUILD)/viewer_link_test \
+		$(TESTS)/viewer_link_test.c $(SRC)/viewer_link.c $(SRC)/websocket.c \
+		$(SRC)/scope_view_model.c -lm
+	$(Q)./$(BUILD)/viewer_link_test
 
 check-signal-frame: $(TESTS)/signal_frame_test.c $(TESTS)/check.h \
 		$(SRC)/signal_frame.c $(SRC)/signal_frame.h \
@@ -841,7 +856,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-scope-view-model check-websocket check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-scope-view-model check-websocket check-viewer-link check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \

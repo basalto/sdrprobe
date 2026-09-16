@@ -66,6 +66,30 @@ int recreate_scatter(struct app *app, Rectangle plot) {
     return 0;
 }
 
+/*
+ * The waterfall ring's own allocation -- the one part of
+ * `recreate_waterfall()` with no GL dependency, so headless serving
+ * (`viewer_session.c`, which has no plot rectangle and no texture to go
+ * with it) can call this alone rather than duplicating the realloc.
+ * Returns 0 and leaves `app->sv.waterfall_dbfs`/`waterfall_capacity` sized
+ * for at least `rows`, or -1 on allocation failure.
+ */
+int allocate_waterfall_history(struct app *app, int rows) {
+    if (!app->sv.waterfall_dbfs || rows > app->sv.waterfall_capacity) {
+        float *history = realloc(
+            app->sv.waterfall_dbfs,
+            (size_t)rows * SDR_DSP_FFT_MAX * sizeof(*history));
+        if (!history) {
+            fprintf(stderr, "Failed to allocate %d waterfall history rows.\n",
+                    rows);
+            return -1;
+        }
+        app->sv.waterfall_dbfs = history;
+        app->sv.waterfall_capacity = rows;
+    }
+    return 0;
+}
+
 int recreate_waterfall(struct app *app, Rectangle plot,
                               int clear_history) {
     int width = (int)plot.width;
@@ -87,19 +111,10 @@ int recreate_waterfall(struct app *app, Rectangle plot,
         return -1;
     }
 
-    if (!app->sv.waterfall_dbfs || height > app->sv.waterfall_capacity) {
-        float *history = realloc(
-            app->sv.waterfall_dbfs,
-            (size_t)height * SDR_DSP_FFT_MAX * sizeof(*history));
-        if (!history) {
-            fprintf(stderr, "Failed to allocate %d waterfall history rows.\n",
-                    height);
-            UnloadTexture(texture);
-            free(pixels);
-            return -1;
-        }
-        app->sv.waterfall_dbfs = history;
-        app->sv.waterfall_capacity = height;
+    if (allocate_waterfall_history(app, height) < 0) {
+        UnloadTexture(texture);
+        free(pixels);
+        return -1;
     }
     if (app->sv.waterfall_ready)
         UnloadTexture(app->sv.waterfall);

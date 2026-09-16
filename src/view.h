@@ -282,6 +282,7 @@ void draw_scope_header(const struct app *app);
 void clear_scatter(struct app *app);
 int recreate_scatter(struct app *app, Rectangle plot);
 int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);
+int allocate_waterfall_history(struct app *app, int rows);
 void render_waterfall(struct app *app);
 /*
  * advance_waterfall_row and advance_scatter_history are the data halves of

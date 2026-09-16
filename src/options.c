@@ -90,6 +90,13 @@ void usage(const char *program) {
             "  --screenshot      write the last frame to a PNG before quitting,\n"
             "                    so a view can be looked at without a person;\n"
             "                    pair with --duration\n"
+            "  --serve           headless: serve the Scope's view model to a\n"
+            "                    loopback Viewer link (ws://127.0.0.1:PORT)\n"
+            "                    instead of a window (ADR-0027)\n"
+            "  --serve-port      the Viewer link's port; defaults to 8765\n"
+            "  --serve-retune-after  SECONDS:HZ -- a scripted one-shot retune\n"
+            "                    during --serve, for testing the tuning\n"
+            "                    generation; not a Viewer command\n"
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
             program);
@@ -436,6 +443,34 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->survey_report)
                 return -1;
             options->survey_report = 1;
+        } else if (strcmp(option, "--serve") == 0) {
+            if (options->serve)
+                return -1;
+            options->serve = 1;
+        } else if (strcmp(option, "--serve-port") == 0) {
+            uint32_t port;
+
+            if (options->serve_port || i + 1 >= argc ||
+                parse_u32(argv[++i], &port) < 0 || port == 0 || port > 65535)
+                return -1;
+            options->serve_port = (int)port;
+        } else if (strcmp(option, "--serve-retune-after") == 0) {
+            /* SECONDS:HZ, the same "A:B" shape --zoom and --survey-range
+               already take. */
+            char text[64];
+            char *colon;
+
+            if (options->serve_retune_after_seconds > 0.0 || i + 1 >= argc)
+                return -1;
+            snprintf(text, sizeof(text), "%s", argv[++i]);
+            colon = strchr(text, ':');
+            if (!colon)
+                return -1;
+            *colon = '\0';
+            if (parse_seconds(text, &options->serve_retune_after_seconds) < 0 ||
+                options->serve_retune_after_seconds <= 0.0 ||
+                parse_frequency(colon + 1, &options->serve_retune_to_hz) < 0)
+                return -1;
         } else if (strcmp(option, "--once") == 0) {
             if (options->play_once)
                 return -1;

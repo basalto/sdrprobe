@@ -116,6 +116,16 @@ struct options {
     /* headless: sweep and print the candidates found, so an agent can read a
        survey without a window or a person to click one. */
     int survey_report;
+    /* headless: serve the Scope's view model to a loopback Viewer link
+       (ADR-0027) instead of drawing it. 0 = off. `serve_port` is the
+       listening port, 0 meaning the link's own default. */
+    int serve;
+    int serve_port;
+    /* A scripted, one-shot retune during a --serve session, for exercising
+       the tuning generation without a Viewer command -- retuning from the
+       wire is ticket 06's, not this one's. 0 seconds means disabled. */
+    double serve_retune_after_seconds;
+    uint32_t serve_retune_to_hz;
     /* Run the confirmation pass as soon as a survey started from the command
        line finishes. The pass is otherwise a button, and a decision reachable
        only by clicking is one no check can reach (ADR-0012). */

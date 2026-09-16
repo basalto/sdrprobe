@@ -16,6 +16,7 @@
 #include <time.h>
 
 #include "frame_advance.h"
+#include "viewer_session.h"
 #include "sdr_dsp.h"
 #include "gsm_dsp.h"
 #include "adsb_dsp.h"
@@ -2987,6 +2988,14 @@ static int run_headless(struct app *app) {
         if (stop_acquisition(app) < 0)
             survey_result = -1;
         return survey_result;
+    }
+
+    if (app->options.serve) {
+        int serve_result = viewer_session_run(app);
+
+        if (stop_acquisition(app) < 0)
+            serve_result = -1;
+        return serve_result;
     }
 
     enum decode_kind decoder = DECODE_ADSB;
