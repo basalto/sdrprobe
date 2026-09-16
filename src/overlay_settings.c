@@ -115,7 +115,16 @@ int apply_settings(struct app *app) {
         app->applied.ppm = ppm;
         app->remove_dc = app->set.remove_dc;
         signal_frame_invalidate(&app->frame);
-        if (recreate_waterfall(app, app->plot, 1) < 0) {
+        /*
+         * A capture has no gain to change (the panel shows "capture, not
+         * adjustable"), and PPM and DC removal are both cases
+         * `sdr_dsp_gain_change_clears_waterfall()` answers "no" to on their
+         * own -- so passing it the same value on both sides says exactly
+         * that, rather than a bare 0 a reader has to take on faith.
+         */
+        if (recreate_waterfall(app, app->plot,
+                               sdr_dsp_gain_change_clears_waterfall(
+                                   0, 0, 0, 0)) < 0) {
             snprintf(app->set.error, sizeof(app->set.error),
                      "Could not reset waterfall for the new frequency");
             return -1;
@@ -165,6 +174,23 @@ int apply_settings(struct app *app) {
         return -1;
     }
 
+    /*
+     * Whether this Apply clears the waterfall or leaves it standing.
+     *
+     * Computed from `had`/`want` before they are overwritten below -- of
+     * everything this panel can change, only a gain change answers yes
+     * (`sdr_dsp_gain_change_clears_waterfall()`). A PPM change moves the true
+     * tuning by well under one bin at any setting this panel accepts, which
+     * the *existing* per-frame shift already resolves to zero on its own
+     * (`app->applied.frequency_hz` itself does not move for a PPM-only
+     * apply, so there is nothing here to shift); DC removal touches one bin.
+     * This panel used to clear on every Apply, which is what took **7 rows**
+     * of waterfall history down to nothing on a plain PPM or DC-removal
+     * change, for no reason connected to what actually moved.
+     */
+    int clear_waterfall = sdr_dsp_gain_change_clears_waterfall(
+        had.manual, had.tenths, want.manual, want.tenths);
+
     app->applied_manual_gain = want.manual;
     app->applied_gain_tenths = want.tenths;
     app->options.frequency = frequency;
@@ -178,7 +204,7 @@ int apply_settings(struct app *app) {
      * generation advanced with the frequency put back. The panel still says
      * so, because a blank chart with no explanation is worse.
      */
-    if (recreate_waterfall(app, app->plot, 1) < 0) {
+    if (recreate_waterfall(app, app->plot, clear_waterfall) < 0) {
         snprintf(app->set.error, sizeof(app->set.error),
                  "Could not reset waterfall for the new frequency");
         return -1;

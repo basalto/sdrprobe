@@ -1001,8 +1001,33 @@ static void test_a_retune_moves_a_row_rather_than_voiding_it(void) {
     }
 }
 
+/*
+ * A gain change means the waterfall's history should clear; nothing else
+ * `apply_settings()` can do to a receiver does. This is the ticket
+ * `.scratch/settings-waterfall/issues/01-*` opened: the panel used to clear
+ * on every Apply, which took a waterfall's history from 7 rows to 0 on a
+ * plain PPM or DC-removal change with no connection to what actually moved
+ * -- the same shape of loss `sdr_dsp_retune_bin_shift()` was written to fix
+ * for an ordinary retune, reopened by a second path that had not learned it.
+ */
+static void test_a_gain_change_is_what_clears_the_waterfall(void) {
+    check_int("no change at all does not clear",
+              sdr_dsp_gain_change_clears_waterfall(0, 0, 0, 0), 0);
+    check_int("the same manual gain, restated, does not clear",
+              sdr_dsp_gain_change_clears_waterfall(1, 297, 1, 297), 0);
+    check_int("a different gain at the same mode clears",
+              sdr_dsp_gain_change_clears_waterfall(1, 297, 1, 496), 1);
+    check_int("manual to automatic clears, even at the same recorded tenths",
+              sdr_dsp_gain_change_clears_waterfall(1, 297, 0, 297), 1);
+    check_int("and automatic to manual",
+              sdr_dsp_gain_change_clears_waterfall(0, 0, 1, 297), 1);
+    check_int("automatic to automatic, restated, does not clear",
+              sdr_dsp_gain_change_clears_waterfall(0, 0, 0, 0), 0);
+}
+
 int main(void) {
     test_a_retune_moves_a_row_rather_than_voiding_it();
+    test_a_gain_change_is_what_clears_the_waterfall();
     g_probe_device = device_profile_rtlsdr("check", DEVICE_TUNER_R820T, NULL, 0);
     test_conversion();
     test_standard_block();

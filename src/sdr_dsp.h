@@ -316,6 +316,37 @@ static inline void sdr_dsp_shift_row(float *row, int bins, int shift,
     }
 }
 
+/*
+ * Whether a gain change should clear the waterfall's history rather than
+ * leave it standing.
+ *
+ * `sdr_dsp_retune_bin_shift()` already covers every retune that moves the
+ * received frequency, including a PPM correction change: at typical
+ * settings that moves the true tuning by well under one bin (100 Hz at
+ * 100 MHz for one ppm), and the shift above rounds that to zero on its own
+ * -- there is no second implementation to write for it, and none is added
+ * here. Toggling DC removal touches one bin. Neither is a parameter below,
+ * deliberately: this function answers one question and the caller decides
+ * the others by not clearing.
+ *
+ * A gain change is different in kind rather than degree. It moves nothing
+ * in frequency, so the shift above has nothing to say about it -- but every
+ * row already on screen was measured at the old gain, and the waterfall's
+ * colour scale means a different level afterwards. A history whose top half
+ * reads high or low for a reason that is not the signal is worse than a
+ * short one, so this clears.
+ *
+ * `manual` is compared as well as `tenths`: switching to automatic gain
+ * with the same last-known tenths on record is still a change, because
+ * automatic is not pinned to that number going forward.
+ */
+static inline int sdr_dsp_gain_change_clears_waterfall(int old_manual,
+                                                       int old_gain_tenths,
+                                                       int new_manual,
+                                                       int new_gain_tenths) {
+    return old_manual != new_manual || old_gain_tenths != new_gain_tenths;
+}
+
 /* A dBFS no receiver reports, standing for "this bin was never measured". */
 #define SDR_DSP_UNMEASURED_DBFS (-300.0f)
 
