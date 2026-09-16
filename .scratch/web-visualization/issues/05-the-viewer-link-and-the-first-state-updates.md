@@ -291,3 +291,12 @@ an empty waterfall history never exercises the state this bug needed
 to show up in; a bound as basic as "does this get slower as the
 picture fills" was not part of what ticket 05 asked to prove, and
 should have been.
+
+### Architecture review, 2026-09-16 -- publication is not computation demand
+
+The ticket's transport half is complete, but its rule that a subscription says
+what to compute is not. `viewer_link` keeps subscriptions private and uses them
+to suppress sends; `viewer_session` always selects Scope/Spectrum before
+`frame_advance()`, so the FFT and waterfall row are produced even with no
+subscriber or with metadata-only demand. The remaining work is split into
+ticket 09 rather than reopening this resolved transport ticket.

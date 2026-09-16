@@ -117,6 +117,18 @@ a read-only snapshot. Decide from Phase 1 whether DC filtering is receiver
 state or signal-frame policy rather than moving it by proximity. Delete each
 old `app` field only after its readers use the snapshot.
 
+Migrate the Settings path first. It currently performs its own
+stop/gain/correction/frequency/flush/read-back/restart transaction in
+`overlay_settings.c`, writes `app->applied` directly and does not advance
+`receiver_applied.generation`. ADR-0027 now sends that generation beside every
+Viewer State update, making tuning identity plus generation part of an external
+interface rather than an incidental counter. The window and Viewer are
+alternative frontends, so a Settings change cannot currently race a live
+Viewer; the present fault is still two writers defining the same tuning
+identity differently. A successful transition must publish the applied
+snapshot and advance its generation as one operation; a rollback must publish
+neither.
+
 Files: `src/app.h`, `src/receiver_runtime.{c,h}`, settings/calibration and
 every view currently reading `app->applied_*` or `app->receiver_mode`.
 
@@ -162,6 +174,13 @@ Focused checks while iterating: the new runtime check,
 - [ ] Move acquisition start/stop behind the runtime without changing callers.
 - [x] Move frequency/rate transactions and preserve their error text.
 - [ ] Move applied settings and make the runtime their only writer.
+- [ ] Route Settings through the runtime transaction; remove its duplicate
+  stop/apply/flush/read-back/restart and rollback implementation.
+- [ ] Make every successful tuning-identity change advance
+  `receiver_applied.generation` in the same operation that publishes the
+  new applied snapshot.
+- [ ] Check that a Settings success advances centre/correction and generation
+  together, while every Settings failure preserves all three.
 - [ ] Decide `receiver_mode` as capability, source kind or deletion from UHD
   evidence.
 - [x] Decide `remove_dc` ownership with ticket 11 rather than moving it
@@ -177,6 +196,8 @@ Focused checks while iterating: the new runtime check,
 ## Acceptance criteria
 
 - Applied frequency, rate, correction and gain have one writer.
+- Applied tuning identity and tuning generation never move separately,
+  including changes made through Settings and Viewer commands.
 - A failed transition leaves the prior applied snapshot and lease intact.
 - Worker stop/start and backend rollback are checked as one sequence.
 - Views do not inspect receiver mode to decide whether an operation is legal;
@@ -334,3 +355,19 @@ librtlsdr's own hole both return success and read back -- so nothing in the
 program notices a tuning the tuner could not honour. `device_profile` carries
 the reach (ticket 05). Whether the runtime should check it before asking is a
 decision this ticket now has the evidence to make.
+
+### Architecture review, 2026-09-16 -- tuning generation exposes the second writer
+
+ADR-0027 made Phase 4's ownership gap part of an external interface. The
+`scope_view_model` copies `receiver_applied.generation` into every State update
+so a Viewer can reject measurements from an earlier tuning. Viewer commands
+use `retune_receiver()` and advance that generation; Settings still owns a
+second stop/apply/flush/read-back/restart transaction and writes the applied
+frequency and correction without doing so. The window and Viewer do not run at
+the same time, so this is not a current browser race; it is concrete evidence
+that two writers assign different semantics to the same applied-state value.
+
+This does not clear the UHD dependency for common gain and source-capability
+ownership, so the ticket remains `needs-info`. It does sharpen the first Phase
+4 migration and its check: Settings goes first, and applied tuning plus
+generation is one atomic result rather than fields callers coordinate.

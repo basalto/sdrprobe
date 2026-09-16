@@ -42,7 +42,22 @@ measured wrong.
 
 ## Still open
 
+- Subscription-driven computation. Ticket 09 makes the Viewer link's aggregate
+  demand reach frame advancement; today subscriptions suppress sends only,
+  after the Scope work has already run.
 - The input half of the seam. 161 raylib input call sites, hit-testing done
   inline against rectangles that exist only while drawing. A Viewer command is
   not a click, so nothing on this path is blocked by it.
 - Whether more than one Viewer may send commands at once.
+
+## Tickets
+
+1. `issues/01-stream-derived-state-to-a-web-client.md`
+2. `issues/02-one-advance-step-the-window-and-headless-both-drive.md`
+3. `issues/03-the-scope-view-model-and-its-first-reader.md`
+4. `issues/04-a-websocket-server-with-nothing-wired-to-it.md`
+5. `issues/05-the-viewer-link-and-the-first-state-updates.md`
+6. `issues/06-viewer-commands.md`
+7. `issues/07-migrating-the-remaining-views.md`
+8. `issues/08-viewer-link-health.md`
+9. `issues/09-subscriptions-drive-scope-computation.md`
