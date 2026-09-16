@@ -90,21 +90,61 @@ the design.**
 3. **Intermittent WebSocket framing corruption under sustained backpressure
    with 2+ subscribed streams**, reproduced deterministically with both a
    hand-written C client and `scripts/viewer_client.py` (ruling out a
-   client-side bug). The proximate bugs were two: `try_flush_slot()` looped
-   back into a zero-length `send()` after a fully successful flush, which
-   returns 0 and matched neither the success nor the EAGAIN branch, falling
-   through to `client_close()` right after the first flush; and
-   `slot_ready_for_new_message()` allowed overwriting a slot's buffer
-   whenever `length > 0`, even mid-send (`sent > 0`), splicing two frames
-   together on the wire. Both are fixed. What is **not** fully pinned down
-   is why two send paths racing was needed to expose it at all: after
-   removing the optimistic immediate `try_flush_slot()` call inside
-   `publish_binary()`/`viewer_link_publish_receiver_state()` -- so every
-   send now goes through exactly one path, `viewer_link_poll()`'s
-   `select()`-gated write-ready branch -- the corruption did not recur in
-   20+ trials. This is reported as an empirical finding rather than a fully
-   explained one: only one code path may ever call `send()`/mutate a
-   slot's pending-buffer state, and this link now keeps that invariant.
+   client-side bug). Two proximate bugs were found and fixed early:
+   `try_flush_slot()` looped back into a zero-length `send()` after a
+   fully successful flush, which returns 0 and matched neither the
+   success nor the EAGAIN branch, falling through to `client_close()`
+   right after the first flush; and `slot_ready_for_new_message()`
+   allowed overwriting a slot's buffer whenever `length > 0`, even
+   mid-send (`sent > 0`), splicing two frames together on the wire.
+   Removing a second, optimistic `try_flush_slot()` call site (so every
+   send went through `viewer_link_poll()`'s `select()`-gated branch
+   alone) made the corruption stop recurring in 20+ trials, and this
+   ticket first closed on that as an empirical fix without a confirmed
+   mechanism.
+
+   **It was not the fix.** A follow-up raw-byte diagnostic (a client that
+   parses the wire with no framing assumptions, unlike a real Viewer or
+   this file's own test client, both of which trust a length field once
+   they have read one) reproduced the exact same corruption again,
+   deterministically, against the already-"fixed" build. Correlating it
+   against server-side send-call logging found the real mechanism:
+   **`viewer_link_poll()` flushed all three of a client's streams every
+   cycle, in a fixed order, over the one TCP socket they share.** When a
+   stream's send partially completed (kernel buffer full mid-message) and
+   stayed stuck across several later poll cycles -- because
+   `slot_ready_for_new_message()` correctly refuses to let a fresh publish
+   overwrite it while `sent > 0` -- the *other*, unstuck streams kept
+   refreshing and getting queued every cycle (correctly, since their own
+   `sent == 0` each time). The moment the socket had room again, the old
+   per-stream loop sent an unrelated stream's whole fresh frame *first*,
+   ahead of finishing the stalled stream's leftover bytes -- and since
+   both share one socket, "ahead of" means spliced into the middle of the
+   stalled frame's payload. No per-message length or checksum can catch
+   that; it only surfaces as a bogus header several hundred KB later, at
+   the byte offset the stalled frame's own declared length promised it
+   would end.
+
+   Fixed properly: `struct viewer_client` gained `int inflight_stream`,
+   and `viewer_link_poll()`'s per-stream loop was replaced with
+   `flush_client()`, which never attempts a second stream while an
+   earlier one still has `length > sent` -- at most one of a client's
+   frames is ever mid-wire at a time, full stop, regardless of what else
+   is ready. `tests/viewer_link_test.c` gained
+   `test_no_cross_stream_interleaving_under_backpressure`, which drives
+   the exact stalled-slot state directly (a real partial `send()`, not a
+   simulated one) rather than depending on how many rounds a given
+   machine's TCP tuning takes to reproduce it under load -- confirmed to
+   fail without the fix (4 checks) and pass with it. Re-verified live
+   afterward: 12 additional raw-byte-diagnostic trials against the real
+   `--serve` binary under the original `--slow` backpressure scenario,
+   including two with a concurrent fast client, all clean.
+
+   The earlier "empirical fix" is left in the code (removing the second
+   call site was a real simplification -- this queue never needed two
+   ways to reach `send()`) but the comment above it now says plainly that
+   it was not what stopped the corruption, so a future reader does not
+   inherit the same wrong conclusion.
 
 **A fourth bug, found while taking the measurements below rather than
 while building the transport.** `--fft 16384` had no effect under
@@ -179,7 +219,8 @@ real `sdrprobe` binary's own object files -- no raylib symbol referenced
 by any of them. `sdrprobe` itself still links raylib for the window, which
 is what the criterion was never about.
 
-`make check`: 21388 checks, 73 suites, no failures. `check-pipelines`: 34
-checks, output unchanged. `check-viewer-link`: 58 checks (up from 58 --
-the new per-client stats report was exercised by the existing test's
-disconnects rather than needing a new one).
+`make check`: 21403 checks, 73 suites, no failures. `check-pipelines`: 34
+checks, output unchanged. `check-viewer-link`: 73 checks (up from 58 --
+the per-client stats report was exercised by the existing test's
+disconnects with no new one needed; the cross-stream interleaving fix
+above earned its own, `test_no_cross_stream_interleaving_under_backpressure`).

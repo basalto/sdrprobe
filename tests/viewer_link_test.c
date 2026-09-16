@@ -53,12 +53,25 @@ struct test_client {
  * interleaves with a poll() instead, the same shape client_pump() already
  * uses for reading a response after a request is sent.
  */
-static int client_connect(struct test_client *tc, uint16_t port) {
+/*
+ * `rcvbuf`, when nonzero, is set before connect() -- the window a TCP
+ * handshake advertises is fixed at that point, so shrinking SO_RCVBUF
+ * afterwards does not un-advertise a larger window already given out.
+ * Used by the interleaving test below to make its peer's window close
+ * quickly and on purpose rather than depending on how many rounds a
+ * tight, unpaced loop happens to need to fill the kernel's own buffer --
+ * observed to vary between "never in 5000 rounds" and "in one jump,
+ * never landing on a partial write" on this machine.
+ */
+static int client_connect_rcvbuf(struct test_client *tc, uint16_t port,
+                                 int rcvbuf) {
     struct sockaddr_in addr;
     int flags;
 
     tc->fd = socket(AF_INET, SOCK_STREAM, 0);
     tc->have = 0;
+    if (rcvbuf > 0)
+        setsockopt(tc->fd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
     flags = fcntl(tc->fd, F_GETFL, 0);
     fcntl(tc->fd, F_SETFL, flags | O_NONBLOCK);
     memset(&addr, 0, sizeof(addr));
@@ -67,6 +80,10 @@ static int client_connect(struct test_client *tc, uint16_t port) {
     addr.sin_port = htons(port);
     connect(tc->fd, (struct sockaddr *)&addr, sizeof(addr)); /* EINPROGRESS ok */
     return 0;
+}
+
+static int client_connect(struct test_client *tc, uint16_t port) {
+    return client_connect_rcvbuf(tc, port, 0);
 }
 
 static int client_handshake(struct test_client *tc) {
@@ -436,6 +453,104 @@ static void test_a_client_that_never_reads_drops_not_queues(void) {
     viewer_link_close(&vlink);
 }
 
+/*
+ * Two binary streams over one socket: whichever one only partly reached
+ * the wire on an earlier poll() (sent > 0, < length) owns the connection
+ * until it finishes. This is the exact condition flush_client() exists
+ * for -- before it, viewer_link_poll() flushed every stream with pending
+ * data on every call, in a fixed order, whether or not an *earlier*
+ * stream still had bytes in flight. Under real backpressure (a slow
+ * Viewer's kernel buffer filling while its socket stays writable enough
+ * for occasional partial sends) that let a fresh, fully-ready frame reach
+ * send() ahead of another frame's leftover bytes -- and since both go
+ * out on the *same* socket, "ahead of" means spliced into the middle of
+ * it, which corrupts framing no per-message length or checksum can
+ * express. Found with a raw-byte diagnostic client that trusts no
+ * framing assumptions, unlike this file's own client_next_frame(), which
+ * -- like a real Viewer -- believes a length field once it has read one.
+ *
+ * A genuine partial send needs real kernel backpressure, and how many
+ * rounds that takes turned out to depend on this machine's TCP tuning
+ * more than on anything worth pinning a check to -- a tight, unpaced
+ * loop was observed to either fill the send buffer in one jump (the
+ * window closes to exactly 0 and every further send() is refused
+ * outright, never partial) or never fill it at all in 5000 rounds. So
+ * this drives the exact state a real partial send leaves behind directly
+ * -- one stream's slot with 0 < sent < length -- and checks the one
+ * thing that state must guarantee: nothing else on this client's socket
+ * moves until that stream's own remaining bytes do.
+ */
+static void test_no_cross_stream_interleaving_under_backpressure(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct scope_view_model svm = a_view_model();
+    struct viewer_client *c;
+    struct viewer_stream_slot *wf, *sp;
+    size_t wf_stalled_at;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe spectrum waterfall");
+    client_pump(&tc, 10);
+
+    c = &vlink.clients[0];
+    wf = &c->slot[VIEWER_STREAM_WATERFALL];
+    sp = &c->slot[VIEWER_STREAM_SPECTRUM];
+
+    /* A real waterfall frame, actually half-written to the real socket --
+       not just accounted as such -- so the client genuinely holds the
+       first half of it, exactly as a real partial send() leaves things,
+       however many rounds that happens to take on a given machine. */
+    viewer_link_publish_waterfall_row(&vlink, &svm, 0);
+    check_true("the waterfall frame was queued", wf->length > 0);
+    wf_stalled_at = wf->length / 2;
+    check_size("the simulated partial send actually reached the socket",
+              (size_t)send(c->fd, wf->data, wf_stalled_at, MSG_NOSIGNAL),
+              wf_stalled_at);
+    wf->sent = wf_stalled_at;
+    c->inflight_stream = VIEWER_STREAM_WATERFALL;
+
+    /* A fresh, fully-ready spectrum frame -- exactly what a real block's
+       publish leaves queued alongside a stalled stream. */
+    viewer_link_publish_spectrum(&vlink, &svm, 0);
+    check_true("the spectrum frame was queued", sp->length > 0);
+    check_size("spectrum has not been touched yet", sp->sent, 0);
+
+    /* One poll: the socket is genuinely writable here (nothing upstream
+       is actually full), so an unguarded per-stream loop would send
+       spectrum's whole frame in this same call, ahead of finishing
+       waterfall's stalled remainder. */
+    viewer_link_poll(&vlink, 5);
+
+    check_size("spectrum was not sent ahead of the in-flight waterfall frame",
+              sp->sent, 0);
+    check_true("the in-flight waterfall frame made progress instead",
+              wf->length == 0 || wf->sent > wf_stalled_at);
+
+    /* Let it fully drain, then confirm spectrum only goes out once
+       waterfall's stall is behind it, and both arrive as one clean
+       binary frame each -- no third, spliced frame in between. */
+    client_pump(&tc, 50);
+    {
+        int opcode;
+        const uint8_t *payload;
+        size_t len;
+
+        check_true("a frame arrived", client_next_frame(&tc, &opcode, &payload, &len));
+        check_int("...binary", opcode, WEBSOCKET_OP_BINARY);
+        check_true("a second frame arrived",
+                  client_next_frame(&tc, &opcode, &payload, &len));
+        check_int("...binary, too", opcode, WEBSOCKET_OP_BINARY);
+        check_true("nothing else follows",
+                  !client_next_frame(&tc, &opcode, &payload, &len));
+        check_size("nothing undecodable left over", tc.have, 0);
+    }
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 static void test_ping_answered_by_pong(void) {
     uint16_t port = open_test_link();
     struct test_client tc;
@@ -531,6 +646,7 @@ int main(void) {
     test_unsubscribed_stream_receives_nothing();
     test_resubscribe_replaces_the_whole_set();
     test_a_client_that_never_reads_drops_not_queues();
+    test_no_cross_stream_interleaving_under_backpressure();
     test_ping_answered_by_pong();
     test_close_handshake();
     test_two_clients_are_independent();

@@ -116,6 +116,18 @@ struct viewer_client {
        and a fact about the kernel's own queue, not this module's one-slot
        one. */
     int send_queue_high_water;
+
+    /*
+     * Three streams, one socket: whichever stream is only partly on the
+     * wire (slot[stream].sent > 0, < length) owns this connection's next
+     * byte until it finishes. -1 when nothing is in flight. Without this,
+     * a client one poll cycle behind can have its partially-sent frame
+     * pre-empted by a *different*, fully-ready stream's frame -- both
+     * write to the same fd, so the pre-emption does not queue behind the
+     * partial send, it splices into the middle of it. See
+     * viewer_link_poll()'s flush_client().
+     */
+    int inflight_stream;
 };
 
 #define VIEWER_LINK_MAX_CLIENTS 8

@@ -457,6 +457,50 @@ static void accept_new(struct viewer_link *link) {
         memset(slot, 0, sizeof(*slot));
         slot->fd = fd;
         slot->state = VIEWER_CLIENT_HANDSHAKING;
+        slot->inflight_stream = -1;
+    }
+}
+
+/*
+ * The three streams share one socket, so "flush whatever is pending" has
+ * to mean one frame at a time, not one stream at a time. A stream that
+ * only partly reached the wire on an earlier call is finished first,
+ * and nothing else is attempted until it is -- discovered by the
+ * raw-byte diagnostic this ticket asked for, in the --slow scenario
+ * that scenario exists to exercise: with the slow client not draining
+ * the socket, spectrum and receiver_state (both replaceable while
+ * `sent == 0`) kept refreshing every block while a partially-sent
+ * waterfall frame sat waiting for room, and the moment the socket had
+ * room again the old per-stream loop sent spectrum's *whole* fresh
+ * frame before returning to finish waterfall's leftover bytes --
+ * splicing a foreign frame into the middle of another one's payload,
+ * which is corruption no per-frame length or checksum can express.
+ */
+static void flush_client(struct viewer_client *c) {
+    int stream;
+
+    if (c->inflight_stream >= 0) {
+        struct viewer_stream_slot *slot = &c->slot[c->inflight_stream];
+
+        try_flush_slot(c, (enum viewer_stream)c->inflight_stream);
+        if (c->state == VIEWER_CLIENT_CLOSED)
+            return;
+        if (slot->length > slot->sent)
+            return; /* still not on the wire; nothing else may go ahead of it */
+        c->inflight_stream = -1;
+    }
+    for (stream = 0; stream < VIEWER_STREAM_COUNT; stream++) {
+        struct viewer_stream_slot *slot = &c->slot[stream];
+
+        if (slot->length <= slot->sent)
+            continue;
+        try_flush_slot(c, (enum viewer_stream)stream);
+        if (c->state == VIEWER_CLIENT_CLOSED)
+            return;
+        if (slot->length > slot->sent) {
+            c->inflight_stream = stream;
+            return; /* blocked on this one; the rest wait for next time */
+        }
     }
 }
 
@@ -497,7 +541,6 @@ void viewer_link_poll(struct viewer_link *link, int timeout_ms) {
 
     for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
         struct viewer_client *c = &link->clients[i];
-        int stream;
 
         if (c->state == VIEWER_CLIENT_CLOSED)
             continue;
@@ -506,8 +549,7 @@ void viewer_link_poll(struct viewer_link *link, int timeout_ms) {
         if (c->state == VIEWER_CLIENT_CLOSED)
             continue;
         if (FD_ISSET(c->fd, &write_set))
-            for (stream = 0; stream < VIEWER_STREAM_COUNT; stream++)
-                try_flush_slot(c, (enum viewer_stream)stream);
+            flush_client(c);
     }
 }
 
@@ -555,19 +597,21 @@ static uint8_t *put_floats_le(uint8_t *p, const float *values, int count) {
  *
  * Queues only -- it does not call try_flush_slot() itself. Every actual
  * send() happens from viewer_link_poll()'s write-ready branch, gated on
- * select() having said this socket can take bytes right now. An earlier
- * version sent optimistically the moment a message was queued, on the
- * reasoning that a socket with room is safe to write to immediately
- * without waiting for the next poll cycle. Under sustained backpressure
- * (ticket 05's own --slow scenario) that produced framing an RFC 6455
- * decoder cannot parse -- reproducible, deterministic given the same
- * capture, and gone the moment the optimistic call was removed, across
- * dozens of trials at a deliberately tiny send buffer where it had
- * reproduced on the majority of runs before. The exact kernel-level
- * interaction was never pinned down; what is certain is that a second,
- * ad hoc call path into a socket's send queue, running outside the event
- * loop's own readiness bookkeeping, is a correctness risk this module does
- * not need to take on. One path -- poll()'s -- now owns every send().
+ * select() having said this socket can take bytes right now, and
+ * ordered by flush_client() so that at most one of a client's three
+ * streams is ever mid-frame on the wire at a time (see its own comment).
+ *
+ * An earlier version also sent optimistically the moment a message was
+ * queued here, reasoning that a socket with room is safe to write to
+ * immediately without waiting for the next poll cycle. That was removed
+ * because it produced framing an RFC 6455 decoder could not parse under
+ * sustained backpressure -- but the removal was a correlated fix, not
+ * the actual one: it changed the timing enough to make the real bug
+ * rarer, not gone, which is why one further raw-byte diagnostic run of
+ * the exact --slow scenario still reproduced it (see flush_client()).
+ * The lesson is not "avoid a second call site"; it is that this queue
+ * never needed one in the first place, since select()'s write-ready
+ * event already tells poll() everything it needs to flush on time.
  */
 static void publish_binary(struct viewer_link *link, enum viewer_stream stream,
                           enum viewer_message_type type,
