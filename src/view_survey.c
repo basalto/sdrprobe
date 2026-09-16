@@ -17,6 +17,7 @@
 #include "survey_bands.h"
 #include "lte_dsp.h"
 #include "scope_layout.h"
+#include "survey_view_model.h"
 #include "sdrgui.h"
 
 /*
@@ -272,35 +273,18 @@ static void freq_window_put(struct survey_view *s,
  * What is suspicious about a frequency this survey found. The bandwidth is
  * only known once the candidate has been measured, so it is passed as 0 until
  * then and the two frequency tests carry the warning on their own.
- */
-/*
+ *
  * ADR-0018's key is doing the work here: arriving at a site where this
  * receiver has been calibrated restores that measurement, and a correction
  * measured with this receiver somewhere else is not evidence about what this
  * crystal is doing here today.
+ *
+ * survey_reading_clock() and survey_tuning_from() -- the four facts a
+ * candidate needs, read out of `struct app` -- moved to survey_view_model.c:
+ * this file draws, and check-survey-view-model needs a file that does not, so
+ * the same functions cannot go on being defined here. Their declarations
+ * stay in view.h, which both this file and survey_report.c already include.
  */
-struct reading_clock survey_reading_clock(const struct app *app) {
-    struct reading_clock clock = { 0.0, 0.0 };
-    int calibrated = 0;
-
-    if (!app)
-        return clock;
-    if (installation_ppm(&app->installation, &calibrated))
-        clock.crystal_ppm = (double)calibrated;
-    clock.applied_ppm = (double)app->applied.ppm;
-    return clock;
-}
-
-void survey_tuning_from(struct survey_record_tuning *out,
-                        const struct app *app) {
-    memset(out, 0, sizeof(*out));
-    out->centre_hz = (double)app->applied.frequency_hz;
-    out->sample_rate_hz = (double)app->applied.sample_rate_hz;
-    out->reference_clock_hz = app->device.reference_clock_hz;
-    out->remove_dc = app->remove_dc;
-    out->clock = survey_reading_clock(app);
-}
-
 static unsigned survey_suspect_at(const struct app *app, double hz,
                                   double bandwidth_hz) {
     struct survey_record_tuning t;
@@ -530,13 +514,6 @@ static void survey_history_refresh(struct app *app) {
         return;
     }
     survey_session_set_history(ss, &history, 1);
-}
-
-/* Which signal a maximum belongs to, or NULL. The list and the popup both ask,
-   because a reader points at a bump and wants to know about the carrier. */
-static const struct survey_carrier *survey_carrier_at(const struct survey_view *s,
-                                                      double hz) {
-    return survey_session_carrier_at(&s->session, hz);
 }
 
 /* What the popup says about one remembered signal. */
@@ -1719,7 +1696,8 @@ static unsigned survey_confirmed_flags_at(const struct app *app, double hz) {
     return survey_session_confirmed_flags_at(&app->survey.session, hz);
 }
 
-static void draw_peak_list(const struct app *app, Rectangle rect) {
+static void draw_peak_list(const struct app *app, Rectangle rect,
+                           const struct survey_view_model *svm) {
     const struct survey_session *ss = &app->survey.session;
     const struct survey_view *s = &app->survey;
     char text[160];
@@ -1794,25 +1772,20 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
         } else if (i == s->hover) {
             color = (Color){ 255, 255, 255, 255 };
         }
-        double hz = survey_bin_hz(s, ss->peaks[i].index);
         /*
-         * Through the carrier this maximum belongs to, not through its own
-         * frequency. The pass asks about carriers at their measured centre,
-         * and a station's shoulders are maxima of the same signal several
-         * kilohertz away -- matching each on its own frequency against a
-         * 2.4 kHz tolerance found nothing at all, and the count in the header
-         * disagreed with the rows. survey_store.c matches the same way and
-         * for the same reason.
+         * The candidate view model already worked out this peak's carrier,
+         * shape, flags and history mark -- through the carrier's centre
+         * where there is one, not through the peak's own frequency, for the
+         * reason the survey_store.c matcher shares: a station's shoulders
+         * are maxima of the same signal several kilohertz away.
          */
-        const struct survey_carrier *row_carrier = survey_carrier_at(s, hz);
-        unsigned asked = survey_confirmed_flags_at(
-            app, row_carrier ? row_carrier->centre_hz : hz);
-        unsigned flags = survey_suspect_at(app, hz, 0.0) | asked;
+        const struct survey_candidate_view *c = &svm->candidates[i];
+        unsigned flags = c->flags;
         int suspect = survey_suspect_warns(flags);
         /* Its own marker, because it is its own finding: the receiver's comb
            says unplug the antenna, and this says the frequency is empty
            however often it was seen. */
-        int empty = survey_suspect_empty(asked);
+        int empty = survey_suspect_empty(flags);
         /* And its own again: on the comb, and yet it reads displaced, so
            something real is there. `*!` rather than a fourth character,
            because it is the cross plus a contradiction and reads as one
@@ -1823,39 +1796,20 @@ static void draw_peak_list(const struct app *app, Rectangle rect) {
            longest line in the panel, where sdrgui_text_fit ellipsised it away
            on exactly the rows that needed it. */
         {
-            /*
-             * What was measured, what shape it is, and what this site has
-             * heard of it before. The prominence gave way to the width and
-             * the shape: prominence is already why the row is here at all,
-             * and how wide a thing is says more about what it is.
-             */
-            const struct survey_carrier *carrier = survey_carrier_at(s, hz);
-            const struct site_entry *known =
-                ss->history_loaded
-                    ? site_history_find(&ss->history,
-                                        carrier ? carrier->centre_hz : hz,
-                                        ss->plan.bin_hz > 0.0 ? ss->plan.bin_hz
-                                                             : 1e5)
-                    : NULL;
-            enum site_seen seen = ss->history_loaded
-                ? site_history_seen(&ss->history, known, 1) : SITE_SEEN_UNKNOWN;
             char width[16];
 
-            if (carrier && carrier->width_hz >= 1e6)
-                snprintf(width, sizeof(width), "%.1fM", carrier->width_hz / 1e6);
-            else if (carrier)
-                snprintf(width, sizeof(width), "%.0fk", carrier->width_hz / 1e3);
+            if (c->has_carrier && c->width_hz >= 1e6)
+                snprintf(width, sizeof(width), "%.1fM", c->width_hz / 1e6);
+            else if (c->has_carrier)
+                snprintf(width, sizeof(width), "%.0fk", c->width_hz / 1e3);
             else
                 snprintf(width, sizeof(width), "-");
             snprintf(text, sizeof(text),
                      "%s %10.4f MHz  %6.1f dBFS  %6s  %-9s  %s",
                      empty ? "~" : contested ? "*!" : suspect ? "*" : " ",
-                     hz / 1e6,
-                     (double)ss->peaks[i].power_dbfs, width,
-                     carrier ? survey_shape_name(
-                                   survey_carrier_shape(carrier->width_hz))
-                             : "-",
-                     site_seen_name(seen));
+                     c->hz / 1e6, (double)c->power_dbfs, width,
+                     c->has_carrier ? survey_shape_name(c->shape) : "-",
+                     site_seen_name(c->seen));
         }
         if ((suspect || empty) && i != s->selected && i != s->hover)
             color = (Color){ 178, 168, 140, 255 };
@@ -2462,29 +2416,27 @@ void draw_survey(struct app *app) {
         NULL   /* peak_flags: filled in below where the chart is drawn */
     };
     /*
+     * The candidate view model decides once, in the same order as ss->peaks,
+     * what used to be a second copy of the candidate list's own flags
+     * computation -- see survey_view_model.h.
+     */
+    static struct survey_view_model svm;
+    survey_view_model_build(app, &svm);
+    /*
      * One flag word per peak, in the order the chart reads them, so a spur, an
-     * empty frequency and a station do not draw the same mark. Through the
-     * carrier each maximum belongs to, for the reason the candidate list
-     * records: the pass asks about carriers at their measured centre and a
-     * station's shoulders are maxima several kilohertz away.
+     * empty frequency and a station do not draw the same mark.
      */
     {
         static unsigned flags[SURVEY_MAX_PEAKS];
         int i;
 
-        for (i = 0; i < ss->peak_count && i < SURVEY_MAX_PEAKS; i++) {
-            double hz = survey_bin_hz(s, ss->peaks[i].index);
-            const struct survey_carrier *held = survey_carrier_at(s, hz);
-
-            flags[i] = survey_suspect_at(app, hz, 0.0) |
-                       survey_confirmed_flags_at(app,
-                                                 held ? held->centre_hz : hz);
-        }
+        for (i = 0; i < svm.candidate_count; i++)
+            flags[i] = svm.candidates[i].flags;
         params.peak_flags = flags;
     }
     sdrgui_survey_chart(&params);
     survey_draw_history_marks(app, &l, &params);
-    draw_peak_list(app, l.peak_list);
+    draw_peak_list(app, l.peak_list, &svm);
     draw_detail(app, &l);
     /* Last, so they sit over the chart and the panels rather than under. */
     survey_draw_pickers(app, &l);
