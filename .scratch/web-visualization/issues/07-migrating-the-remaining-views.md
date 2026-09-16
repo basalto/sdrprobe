@@ -48,6 +48,28 @@ Per view, not for the ticket as a whole:
 - [ ] `make check` and `tests/pipelines.sh` unchanged.
 - [ ] The view model carries no raylib type.
 
+## Comments
+
+**2026-09-16** -- A first, narrower step on the survey, not the full
+ticket-03-style migration this ticket describes. Building the survey's
+candidate list (`draw_peak_list()`) and the chart's per-peak marks
+(`draw_survey()`) had drifted into computing the same decision twice --
+carrier lookup, suspicion flags, shape, site-history mark -- line for
+line. `src/survey_view_model.{c,h}` (commit `04c9dd0`) pulls that one
+decision out into `struct survey_candidate_view`, checkable with `-lm`
+alone (`check-survey-view-model`), and both drawings now read it instead
+of recomputing it.
+
+**What this does not do, and the acceptance criteria above still want**:
+the survey chart's own data -- `ss->power`, `bins`, the sweep's step and
+status, the drag/zoom window -- still comes straight out of
+`struct app` in `draw_survey()`, the same as before. A faithful repeat of
+ticket 03 would put that in the view model too, the way
+`scope_view_model.h` carries the Scope's whole spectrum and waterfall
+row rather than only its candidate marks. This step was worth taking on
+its own because the duplication it fixes was a real, already-diverging
+decision (ADR-0012), not because it closes the survey's box above.
+
 ## Not in scope
 
 - Retiring the raylib window. ADR-0027 records that it remains the primary
