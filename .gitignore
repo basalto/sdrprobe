@@ -31,3 +31,13 @@
 # baseline. docs/band-surveys.md documents the format; the data stays here.
 /surveys/
 __pycache__/
+
+# Local AI-tool wiring and editor config: machine-specific, not this
+# project's business, and not something every clone should inherit.
+/.claude/CLAUDE.md
+/.claude/settings.json
+/.codegraph/
+/.codex/
+/.mcp.json
+/.vscode/
+/opencode.jsonc
