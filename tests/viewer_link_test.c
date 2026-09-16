@@ -296,6 +296,77 @@ static void test_upgrade_and_receiver_state(void) {
     viewer_link_close(&vlink);
 }
 
+/*
+ * Ticket 08: what only the server knows about the link -- per-stream
+ * sent/dropped counts and the kernel send-queue high-water mark -- read
+ * back out of a real subscribed client, against known values driven in
+ * through the same publish functions every other test uses. Unlike
+ * receiver_state this is per client rather than one shared payload, so
+ * the values checked are this one client's own.
+ */
+static void test_link_health_reports_this_clients_own_counters(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct scope_view_model svm = a_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe spectrum link_health");
+    client_pump(&tc, 10);
+
+    /* One spectrum message sent, one dropped -- queued twice with no
+       poll() in between, so the first is replaced-unsent rather than
+       reaching the wire (the same freshness rule ticket 05 pins). */
+    viewer_link_publish_spectrum(&vlink, &svm, 0);
+    viewer_link_publish_spectrum(&vlink, &svm, 0);
+    client_pump(&tc, 10);
+    check_true("the first spectrum frame arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+
+    vlink.clients[0].send_queue_high_water = 4096;
+    viewer_link_publish_link_health(&vlink, 42.5, 999);
+    client_pump(&tc, 10);
+
+    check_true("a link_health message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a text frame", opcode, WEBSOCKET_OP_TEXT);
+    check_true("it names the type", contains(payload, len, "\"type\":\"link_health\""));
+    check_true("it reports one spectrum message sent",
+              contains(payload, len, "\"spectrum_sent\":1"));
+    check_true("it reports one spectrum message dropped",
+              contains(payload, len, "\"spectrum_dropped\":1"));
+    check_true("it reports the send-queue high-water mark",
+              contains(payload, len, "\"send_queue_high_water\":4096"));
+    check_true("it reports the server CPU percentage handed in",
+              contains(payload, len, "\"server_cpu_percent\":42.50"));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_link_health_is_not_sent_when_unsubscribed(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe spectrum"); /* not link_health */
+    client_pump(&tc, 10);
+
+    viewer_link_publish_link_health(&vlink, 10.0, 0);
+    client_pump(&tc, 10);
+
+    check_size("nothing arrives for a stream never subscribed to", tc.have, 0);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 static void test_spectrum_wire_format(void) {
     uint16_t port = open_test_link();
     struct test_client tc;
@@ -641,6 +712,8 @@ static void test_two_clients_are_independent(void) {
 int main(void) {
     test_plain_get_serves_the_page();
     test_upgrade_and_receiver_state();
+    test_link_health_reports_this_clients_own_counters();
+    test_link_health_is_not_sent_when_unsubscribed();
     test_spectrum_wire_format();
     test_waterfall_wire_format();
     test_unsubscribed_stream_receives_nothing();

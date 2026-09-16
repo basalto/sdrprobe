@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "frame_advance.h"
+#include "process_cpu.h"
 #include "scope_view_model.h"
 #include "view.h"
 #include "viewer_link.h"
@@ -15,6 +16,13 @@
    costs nothing -- select() inside viewer_link_poll() sleeps the
    difference rather than this loop spinning. */
 #define VIEWER_SESSION_POLL_MS 20
+
+/* How often the server-CPU half of link_health is re-sampled -- a block
+   is 65.5 ms and the counters it feeds barely move in that time, so
+   recomputing a percentage every block would be noise wearing the shape
+   of a measurement (ticket 08). The sent/dropped counts and high-water
+   mark are still published every iteration, same as receiver_state. */
+#define VIEWER_SESSION_HEALTH_INTERVAL_SECONDS 1.0
 
 int viewer_session_run(struct app *app) {
     /* struct viewer_link is ~12 MB (VIEWER_LINK_MAX_CLIENTS clients, each
@@ -27,6 +35,11 @@ int viewer_session_run(struct app *app) {
     int port = app->options.serve_port > 0 ? app->options.serve_port
                                            : VIEWER_SESSION_DEFAULT_PORT;
     int retuned = 0;
+    struct process_cpu_sample cpu_previous;
+    double cpu_percent = 0.0;
+    double health_sampled_at = 0.0;
+
+    process_cpu_sample_now(&cpu_previous);
 
     sdr_dsp_init(&app->frame.dsp);
     /* Headless has no tabs to choose from; the Scope is the only screen
@@ -106,6 +119,21 @@ int viewer_session_run(struct app *app) {
            the replaceable-stream rule means a redundant one costs nothing
            a client keeps. */
         viewer_link_publish_receiver_state(&link, &svm, now_ms);
+
+        if (now - health_sampled_at >= VIEWER_SESSION_HEALTH_INTERVAL_SECONDS) {
+            struct process_cpu_sample cpu_now;
+
+            if (process_cpu_sample_now(&cpu_now) == 0) {
+                cpu_percent = process_cpu_percent(&cpu_previous, &cpu_now);
+                cpu_previous = cpu_now;
+            }
+            health_sampled_at = now;
+        }
+        /* Published every iteration like receiver_state, even though
+           server_cpu_percent itself only refreshes once a second -- the
+           sent/dropped counts and high-water mark it carries alongside
+           are current every time. */
+        viewer_link_publish_link_health(&link, cpu_percent, now_ms);
 
         viewer_link_poll(&link, VIEWER_SESSION_POLL_MS);
 

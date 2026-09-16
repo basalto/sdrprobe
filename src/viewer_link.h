@@ -27,13 +27,13 @@
  * else to gate a technology's per-block cost with (ticket 05's own point).
  *
  * Binary down, text up: `spectrum` and `waterfall_row` are binary WS
- * frames with a small fixed header (below); `receiver_state` is a JSON
- * text frame, because writing JSON is already solved
- * (`survey_json_escape()`, src/survey_store.c) and nothing here parses it.
- * The one thing read from a client -- `subscribe <stream> ...` -- is a
- * whitespace-delimited line, on the same principle
- * `src/capture_sidecar.h` states outright: this is not a JSON parser and
- * must not become one.
+ * frames with a small fixed header (below); `receiver_state` and
+ * `link_health` (ticket 08) are JSON text frames, because writing JSON
+ * is already solved (`survey_json_escape()`, src/survey_store.c) and
+ * nothing here parses it. The one thing read from a client --
+ * `subscribe <stream> ...` -- is a whitespace-delimited line, on the
+ * same principle `src/capture_sidecar.h` states outright: this is not a
+ * JSON parser and must not become one.
  */
 
 /* -------------------------------------------------------------------- */
@@ -75,6 +75,7 @@ enum viewer_stream {
     VIEWER_STREAM_SPECTRUM = 0,
     VIEWER_STREAM_WATERFALL,
     VIEWER_STREAM_RECEIVER_STATE,
+    VIEWER_STREAM_LINK_HEALTH,
     VIEWER_STREAM_COUNT
 };
 
@@ -178,6 +179,19 @@ void viewer_link_publish_waterfall_row(struct viewer_link *link,
 void viewer_link_publish_receiver_state(struct viewer_link *link,
                                         const struct scope_view_model *svm,
                                         uint64_t now_ms);
+
+/*
+ * Ticket 08's Health panel: what only the server knows about the link
+ * itself, unlike the other three streams this is *not* one shared
+ * payload -- each client's own sent/dropped/high-water counts are its
+ * own, so this builds one JSON message per subscribed client rather
+ * than encoding once and fanning it out. `server_cpu_percent` is handed
+ * in already computed (`process_cpu.h`); this module stays as decoupled
+ * from process accounting as it already is from raylib.
+ */
+void viewer_link_publish_link_health(struct viewer_link *link,
+                                     double server_cpu_percent,
+                                     uint64_t now_ms);
 
 /* How many clients are currently open -- for a status line, or a check. */
 int viewer_link_client_count(const struct viewer_link *link);

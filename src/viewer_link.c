@@ -73,7 +73,7 @@ int viewer_link_open(struct viewer_link *link, uint16_t port) {
 }
 
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
-    "spectrum", "waterfall", "receiver_state"
+    "spectrum", "waterfall", "receiver_state", "link_health"
 };
 
 /*
@@ -265,6 +265,9 @@ static void handle_subscribe_line(struct viewer_client *c, const char *line,
             else if (tok_len == 14 &&
                     memcmp(line + start, "receiver_state", 14) == 0)
                 wanted[VIEWER_STREAM_RECEIVER_STATE] = 1;
+            else if (tok_len == 11 &&
+                    memcmp(line + start, "link_health", 11) == 0)
+                wanted[VIEWER_STREAM_LINK_HEALTH] = 1;
         }
     }
     memcpy(c->subscribed, wanted, sizeof(wanted));
@@ -741,6 +744,69 @@ void viewer_link_publish_receiver_state(struct viewer_link *link,
             !c->subscribed[VIEWER_STREAM_RECEIVER_STATE])
             continue;
         slot = &c->slot[VIEWER_STREAM_RECEIVER_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
+/*
+ * Unlike the three streams above, this is not one payload fanned out to
+ * every subscriber: each client's own sent/dropped/high-water counts are
+ * its own, so the JSON is built once per subscribed client rather than
+ * once per publish. `server_cpu_percent` is the one field every client
+ * shares, computed by the caller (viewer_session.c, via process_cpu.h) --
+ * this module reads no clock and touches no process accounting of its
+ * own, the same way it touches no raylib.
+ */
+void viewer_link_publish_link_health(struct viewer_link *link,
+                                     double server_cpu_percent,
+                                     uint64_t now_ms) {
+    int i;
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        char json[320];
+        int json_len;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_LINK_HEALTH])
+            continue;
+        json_len = snprintf(json, sizeof(json),
+                            "{\"type\":\"link_health\","
+                            "\"timestamp_ms\":%llu,"
+                            "\"server_cpu_percent\":%.2f,"
+                            "\"spectrum_sent\":%llu,\"spectrum_dropped\":%llu,"
+                            "\"waterfall_sent\":%llu,\"waterfall_dropped\":%llu,"
+                            "\"receiver_state_sent\":%llu,"
+                            "\"receiver_state_dropped\":%llu,"
+                            "\"send_queue_high_water\":%d}",
+                            (unsigned long long)now_ms, server_cpu_percent,
+                            (unsigned long long)
+                                c->slot[VIEWER_STREAM_SPECTRUM].sent_count,
+                            (unsigned long long)
+                                c->slot[VIEWER_STREAM_SPECTRUM].dropped_count,
+                            (unsigned long long)
+                                c->slot[VIEWER_STREAM_WATERFALL].sent_count,
+                            (unsigned long long)
+                                c->slot[VIEWER_STREAM_WATERFALL].dropped_count,
+                            (unsigned long long)
+                                c->slot[VIEWER_STREAM_RECEIVER_STATE].sent_count,
+                            (unsigned long long)
+                                c->slot[VIEWER_STREAM_RECEIVER_STATE].dropped_count,
+                            c->send_queue_high_water);
+        if (json_len <= 0)
+            continue;
+        slot = &c->slot[VIEWER_STREAM_LINK_HEALTH];
         if (!slot_ready_for_new_message(slot))
             continue;
         frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,

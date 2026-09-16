@@ -388,3 +388,7 @@ _Avoid_: Request, RPC, message
 **Tuning generation**:
 A counter advanced on every retune and stamped on every State update, so a Viewer can tell that measurements in flight belong to the previous tuning and decline to draw them under the new one.
 _Avoid_: Sequence number, epoch, version
+
+**Link health**:
+What the Viewer link and the Viewer each know about the connection between them that the other side cannot: per-stream sent and dropped counts and the send-queue high-water mark from the server, since a dropped State update never reaches a Viewer to be counted there; received throughput and this tab's own JS busy time from the Viewer, since neither is a fact the server could observe about a browser it never runs code in. It is a State update like any other — one replaceable message on its own stream — about the transport rather than the receiver; a Viewer measuring its own busy time is not the Viewer owning receiver state, which is what that rule guards against.
+_Avoid_: Telemetry, metrics, diagnostics
