@@ -183,6 +183,14 @@ check-scope-view-model: $(TESTS)/scope_view_model_test.c $(TESTS)/check.h \
 		$(TESTS)/scope_view_model_test.c $(SRC)/scope_view_model.c -lm
 	$(Q)./$(BUILD)/scope_view_model_test
 
+check-websocket: $(TESTS)/websocket_test.c $(TESTS)/check.h \
+		$(SRC)/websocket.c $(SRC)/websocket.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+		-o $(BUILD)/websocket_test \
+		$(TESTS)/websocket_test.c $(SRC)/websocket.c -lm
+	$(Q)./$(BUILD)/websocket_test
+
 check-signal-frame: $(TESTS)/signal_frame_test.c $(TESTS)/check.h \
 		$(SRC)/signal_frame.c $(SRC)/signal_frame.h \
 		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(SRC)/device_profile.h
@@ -638,6 +646,16 @@ $(BUILD)/testfiles16/%.bin: testfiles/%.bin testfiles/%.json \
 rescale-capture: $(BUILD)/rescale_capture
 	$(Q)./$(BUILD)/rescale_capture $(FILE_RESCALE) $(OUT_RESCALE)
 
+$(BUILD)/websocket_echo_server: scripts/websocket_echo_server.c \
+		$(SRC)/websocket.c $(SRC)/websocket.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $@ scripts/websocket_echo_server.c \
+		$(SRC)/websocket.c
+
+#: [Tools] a throwaway HTTP+WebSocket echo server for the manual browser proof ticket 04 asks for (PORT_WEBSOCKET=8765)
+websocket-echo-server: $(BUILD)/websocket_echo_server
+	$(Q)./$(BUILD)/websocket_echo_server $(PORT_WEBSOCKET)
+
 # Threading a new parameter through a function with dozens of call sites, which
 # this repository keeps needing: a device profile through sdr_dsp's three
 # functions across six files, a full scale through LTE's three, a reference
@@ -823,7 +841,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-scope-view-model check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-scope-view-model check-websocket check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \
