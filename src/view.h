@@ -6,6 +6,7 @@
 #include "app.h"
 #include "survey_record.h"
 #include "lte_dsp.h"
+#include "scope_view_model.h"
 
 struct sdrgui_waterfall_marker;
 
@@ -313,11 +314,18 @@ void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mod
                                       int marker_count,
                                       int *out_clicked_marker_id,
                                       int *out_hovered_marker_id);
-void draw_waterfall(const struct app *app);
+/*
+ * The Scope's own four views. Each reads its measurements from a
+ * `struct scope_view_model` (scope_view_model.h) rather than `app->frame` or
+ * `app->applied` directly -- `app` is still passed for what stays
+ * view-owned: the plot rectangle, the zoom/pan/drag window, and the GPU
+ * resources (the scatter and waterfall textures) that cannot be plain data.
+ */
+void draw_waterfall(const struct app *app, const struct scope_view_model *svm);
 void draw_base_hud(const struct app *app, const struct slot_snapshot *snapshot);
-void draw_magnitude(const struct app *app);
-void draw_spectrum(const struct app *app);
-void draw_scatter(const struct app *app);
+void draw_magnitude(const struct app *app, const struct scope_view_model *svm);
+void draw_spectrum(const struct app *app, const struct scope_view_model *svm);
+void draw_scatter(const struct app *app, const struct scope_view_model *svm);
 void view_scope_defaults(struct app *app);
 int view_scope_resize_if_needed(struct app *app, Rectangle plot);
 void view_scope_release(struct app *app);

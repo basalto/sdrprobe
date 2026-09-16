@@ -8,6 +8,7 @@
 #include "chrome_layout.h"
 #include "view.h"
 #include "scope_layout.h"
+#include "scope_view_model.h"
 #include "sdrgui.h"
 
 /*
@@ -287,15 +288,15 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
  * view already passes its own rectangle, so with no flag left there is no way
  * to draw a waterfall anywhere but where a layout put it.
  */
-void draw_waterfall(const struct app *app) {
+void draw_waterfall(const struct app *app, const struct scope_view_model *svm) {
     const struct freq_window *w = &app->sv.window.freq;
     double span = w->view_upper_hz - w->view_lower_hz;
     double data = w->data_upper_hz - w->data_lower_hz;
     struct sdrgui_waterfall_params params = {
-        app->plot, app->sv.waterfall, (double)app->applied.frequency_hz,
-        (double)app->applied.sample_rate_hz, 0, 0,
+        app->plot, app->sv.waterfall, (double)svm->center_hz,
+        (double)svm->sample_rate_hz, 0, 0,
         0.0, 0.0,
-        app->sv.waterfall_rows, app->sv.waterfall_height, app->frame.pair_count,
+        app->sv.waterfall_rows, app->sv.waterfall_height, svm->pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, 124,
         "ARFCN", "GSM 900 ARFCN (200 kHz spacing)", "outside GSM 900",
@@ -489,21 +490,20 @@ void draw_base_hud(const struct app *app,
     }
 }
 
-void draw_magnitude(const struct app *app) {
-    double duration_ms = app->frame.have_samples
-                             ? (double)app->frame.pair_count * 1000.0 /
-                                   app->applied.sample_rate_hz
-                             : 0.0;
+void draw_magnitude(const struct app *app, const struct scope_view_model *svm) {
+    /* app->sv.magnitude_peaks/bin_count/lower/upper stay view-owned: they
+       are a reduction to app->plot.width, which means nothing to a
+       frontend with a different width -- see scope_view_model.h. */
     struct sdrgui_magnitude_params params = {
-        app->plot, app->frame.have_samples, app->sv.magnitude_peaks,
+        app->plot, svm->have_samples, app->sv.magnitude_peaks,
         app->sv.magnitude_bin_count, app->sv.magnitude_lower, app->sv.magnitude_upper,
-        app->frame.magnitude_min, app->frame.magnitude_mean, app->frame.magnitude_max,
-        duration_ms, device_magnitude_max(&app->device)
+        svm->magnitude_min, svm->magnitude_mean, svm->magnitude_max,
+        svm->duration_ms, svm->physical_magnitude_max
     };
     sdrgui_magnitude(&params);
 }
 
-void draw_spectrum(const struct app *app) {
+void draw_spectrum(const struct app *app, const struct scope_view_model *svm) {
     const struct freq_window *w = &app->sv.window.freq;
     struct sdrgui_spectrum_params params;
     double span = w->view_upper_hz - w->view_lower_hz;
@@ -511,15 +511,15 @@ void draw_spectrum(const struct app *app) {
 
     memset(&params, 0, sizeof(params));
     params.plot = app->plot;
-    params.center_hz = (double)app->applied.frequency_hz;
-    params.sample_rate = (double)app->applied.sample_rate_hz;
-    params.ready = app->frame.spectrum_ready;
-    params.average = app->frame.spectrum_average;
-    params.peak = app->frame.spectrum_peak;
-    params.bins = app->frame.spectrum_bins;
+    params.center_hz = (double)svm->center_hz;
+    params.sample_rate = (double)svm->sample_rate_hz;
+    params.ready = svm->spectrum_ready;
+    params.average = svm->spectrum_average;
+    params.peak = svm->spectrum_peak;
+    params.bins = svm->spectrum_bins;
     params.lower_dbfs = app->sv.spectrum_lower_dbfs;
     params.top_dbfs = SPECTRUM_TOP_DBFS;
-    params.windows = app->frame.spectrum_windows;
+    params.windows = svm->spectrum_windows;
     if (span > 0.0 && data > 0.0 && span < data - 1.0) {
         params.view_lower_hz = w->view_lower_hz;
         params.view_upper_hz = w->view_upper_hz;
@@ -539,10 +539,10 @@ void draw_spectrum(const struct app *app) {
     sdrgui_spectrum(&params);
 }
 
-void draw_scatter(const struct app *app) {
+void draw_scatter(const struct app *app, const struct scope_view_model *svm) {
     struct sdrgui_scatter_params params = {
         app->plot, app->sv.scatter.texture, app->sv.scatter_axis_limit,
-        app->sv.scatter_inserted
+        svm->scatter_count
     };
     sdrgui_scatter(&params);
 }

@@ -29,11 +29,23 @@
  * later phases move the state in behind it.
  */
 
-/* What the receiver is currently doing. One owner: whoever passes it in. */
+/*
+ * What the receiver is currently doing. One owner: whoever passes it in.
+ *
+ * `generation` is ADR-0027's tuning generation: a plain counter, bumped by
+ * `retune_receiver()` in `sdrprobe.c` on a successful retune and nowhere
+ * else. It exists so a consumer downstream of this struct -- a Viewer,
+ * later -- can tell that a measurement in flight belongs to the tuning
+ * before this one and decline to draw it under the new frequency. It is not
+ * bumped by the Settings panel's own apply path (`overlay_settings.c`),
+ * which is a separate, older transaction that does not yet go through
+ * `retune_receiver()` -- a known gap, not a silent one.
+ */
 struct receiver_applied {
     uint32_t frequency_hz;
     uint32_t sample_rate_hz;
     int ppm;
+    uint32_t generation;
 };
 
 /*

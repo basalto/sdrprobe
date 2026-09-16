@@ -641,6 +641,7 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
     result = receiver_runtime_tune_at_rate(&rt, frequency, sample_rate, ppm);
     tune_result_logged(app, result);
     if (result == 0) {
+        app->applied.generation++;
         iq_ring_configure(&app->acq.ring, app->applied.sample_rate_hz,
                           app->device.format, app->device.full_scale,
                           app->applied.frequency_hz, app->applied_gain_tenths,
@@ -778,6 +779,10 @@ int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
                     frequency / 1e6, ppm, app->applied.frequency_hz / 1e6);
     result = receiver_runtime_tune(&rt, frequency, ppm);
     tune_result_logged(app, result);
+    /* ADR-0027's tuning generation: bumped on a genuine move so a later
+       reader can tell a measurement in flight is from before this retune. */
+    if (result == 0)
+        app->applied.generation++;
     /*
      * Every spectrum was measured across a different span and is now
      * meaningless, whether the move took or was rolled back. The waterfall's
@@ -1922,16 +1927,19 @@ static int run_gui(struct app *app) {
             } else if (app->tab == TAB_SURVEY) {
                 draw_survey(app);
             } else {
+                struct scope_view_model svm;
+
+                scope_view_model_build(app, &svm);
                 draw_base_hud(app, &snapshot);
                 draw_scope_header(app);
                 if (app->view == VIEW_MAGNITUDE)
-                    draw_magnitude(app);
+                    draw_magnitude(app, &svm);
                 else if (app->view == VIEW_SPECTRUM)
-                    draw_spectrum(app);
+                    draw_spectrum(app, &svm);
                 else if (app->view == VIEW_SCATTER)
-                    draw_scatter(app);
+                    draw_scatter(app, &svm);
                 else
-                    draw_waterfall(app);
+                    draw_waterfall(app, &svm);
             }
             draw_header(app);
             if (app->set.open)

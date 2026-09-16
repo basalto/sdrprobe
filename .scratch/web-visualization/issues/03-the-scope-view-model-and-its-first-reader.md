@@ -1,6 +1,6 @@
 # 03 - The Scope view model, and its first reader
 
-Status: ready-for-agent
+Status: resolved, 2026-09-16
 
 ## Goal
 
@@ -70,3 +70,66 @@ stays where it is.
   raylib input call sites, with hit-testing done inline against rectangles
   that exist only during drawing -- and it is not attempted here.
 - Serialization. The Viewer link is ticket 05.
+
+## Comments
+
+### 2026-09-16 -- done
+
+`src/scope_view_model.h`/`.c` (new): `scope_view_model_build(const struct app
+*app, struct scope_view_model *out)` fills a plain struct from the frame,
+the applied tuning, the device profile and the Scope's own scatter/waterfall
+state. It aliases rather than copies -- the pointers it hands out point into
+`app`'s own storage, valid for the one frame it is built for -- since a
+same-process, same-frame consumer gains nothing from copying a 512 KB
+magnitude array or a 128 KB spectrum pair, and ticket 05's serializer reads
+out of the same pointers once, later.
+
+`draw_magnitude()`, `draw_spectrum()`, `draw_scatter()` and `draw_waterfall()`
+in `view_scope.c` now take `(const struct app *app, const struct
+scope_view_model *svm)`: the measurements come from `svm`, and `app` supplies
+only what stays view-owned -- the plot rectangle, the zoom/pan/drag window,
+and the scatter/waterfall GPU textures, which cannot be plain data by
+definition. One thing this surfaced and this ticket deliberately does not
+fix: `app->sv.magnitude_peaks`/`magnitude_bin_count`/`magnitude_lower`/
+`magnitude_upper` are a reduction to `app->plot.width` (raylib's pixel
+geometry), computed by `recompute_magnitude_bins()` at advance time. A
+browser Viewer would bin to its own width and discard this regardless, so it
+stays view-owned rather than moving into the view model -- named in the
+header comment rather than silently carried over.
+
+Two fields the raylib Scope does not read yet -- `waterfall_row` and the
+`scatter_i`/`scatter_q`/`scatter_count` triple -- are populated anyway,
+because ticket 05's Viewer needs exactly this subset and building it now
+means ticket 05 does not re-derive the same description of this screen.
+
+**ADR-0027's tuning generation is real, not a placeholder field.**
+`struct receiver_applied` (`receiver_runtime.h`) gained a `generation`
+counter, bumped by `retune_receiver()` and `retune_receiver_at_rate()`
+(`sdrprobe.c`) on a successful retune and nowhere else. Named limitation:
+the Settings panel's own apply path (`overlay_settings.c`) is a separate,
+older transaction that does not yet run through either function, so a
+retune from Settings does not bump it -- a known gap, not a silent one.
+
+Acceptance criteria against the ticket:
+
+- `check-scope-view-model`: 39 checks against known inputs (measurement
+  pass-through, the zero-samples case, the waterfall ring's front slot, the
+  empty and both wrap/no-wrap scatter-history cases), `-lm` alone --
+  `pkg-config --cflags raylib` for `struct app`'s types, never `--libs`.
+  `ldd` on the test binary confirms no `libraylib`. In `CHECK_UNITS`, headers
+  in the Makefile's header list.
+- `view_scope.c`'s four Scope views read the view model for their
+  measurements; `app` supplies only the view-owned state described above.
+- `make check`: 21252 checks, 71 suites, no failures.
+- `tests/pipelines.sh`: byte-identical apart from the ADS-B recording's
+  wall-clock filename.
+- Screens: cropping the volatile HUD strip (which reports the block counters
+  a paced run varies by, per the finding in ticket 02) out of `magnitude`,
+  `spectrum` and `scatter` shows **0** pixel difference for `magnitude` and
+  the same pre-existing jitter magnitude for `spectrum`/`scatter` as two runs
+  of an *unchanged* binary already show (see
+  `spectrum-scatter-screenshots-are-not-byte-reproducible` in memory) --
+  confirming no regression rather than asserting a byte-diff that this pair
+  of screens cannot pass even doing nothing.
+- No raylib type in `scope_view_model.h`, confirmed by grep; no raylib call
+  in `scope_view_model.c`, confirmed by `nm -u` showing only `memset`.
