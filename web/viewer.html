@@ -1,0 +1,49 @@
+<!doctype html><title>sdrprobe Viewer</title>
+<style>
+  body { background:#0c131c; color:#c7d3dc; font:14px monospace; margin:0; padding:16px; }
+  h1 { font-size:16px; color:#e8edf0; margin:0 0 10px; }
+  #hud { margin-bottom:10px; color:#5adca4; }
+  #hud .stale { color:#ff6864; }
+  canvas { display:block; background:#0a0f16; margin-bottom:14px; max-width:100%; }
+  .label { color:#8291a0; margin:4px 0; }
+  #health { margin:10px 0 14px; color:#8291a0; border-top:1px solid #232f3b; padding-top:8px; }
+  #health span { color:#c7d3dc; }
+  #health .row { margin:2px 0; }
+  #tabs { margin-bottom:14px; }
+  #tabs button { background:#16202c; color:#8291a0; border:1px solid #232f3b; font:14px monospace; padding:6px 16px; cursor:pointer; }
+  #tabs button.active { background:#1d3b3a; color:#5adca4; border-color:#2e5a58; }
+  table { border-collapse:collapse; width:100%; margin-bottom:14px; }
+  th, td { text-align:left; padding:3px 10px 3px 0; font:13px monospace; }
+  th { color:#8291a0; border-bottom:1px solid #232f3b; }
+  td { color:#c7d3dc; }
+  .mark-signal { color:#5adcc8; }
+  .mark-empty { color:#8291a0; }
+  .mark-receiver { color:#ff9b64; }
+  .mark-contested { color:#ff6864; }
+</style>
+<h1>sdrprobe -- live Viewer</h1>
+<div id="tabs">
+  <button id="tab-scope" class="active">Scope</button>
+  <button id="tab-survey">Survey</button>
+</div>
+<div id="hud">connecting...</div>
+<div id="panel-scope">
+  <div class="label">spectrum (average: cyan, peak hold: orange)</div>
+  <canvas id="spectrum" width="900" height="260"></canvas>
+  <div class="label">waterfall (built from rows in this browser; never re-sent)</div>
+  <canvas id="waterfall" width="900" height="200"></canvas>
+</div>
+<div id="panel-survey" hidden>
+  <div class="label" id="survey-status">no sweep yet</div>
+  <canvas id="survey-chart" width="900" height="260"></canvas>
+  <div class="label">candidates (<span id="survey-count">0</span>)</div>
+  <table>
+    <thead><tr><th></th><th>frequency</th><th>level</th><th>width</th><th>shape</th></tr></thead>
+    <tbody id="survey-rows"></tbody>
+  </table>
+</div>
+<div class="label">link health</div>
+<div id="health">awaiting link_health...</div>
+<script>
+/*BUILD:SCRIPT*/
+</script>

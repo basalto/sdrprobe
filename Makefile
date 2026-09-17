@@ -104,7 +104,7 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
 	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c $(SRC)/browser.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_page.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h $(SRC)/browser.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h $(SRC)/startup_session.h \
@@ -132,6 +132,30 @@ GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
 RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 
+# The Viewer page (ticket 13): a person edits these, `scripts/embed_web.py`
+# turns them into the C string `viewer_link.c` links in. Named here, once,
+# rather than a glob -- the order the JS files concatenate in is a decision
+# (ticket 14's later split makes it one with several files), not something
+# a directory listing should decide by accident of filename.
+WEB_HTML=web/viewer.html
+WEB_JS=web/viewer.js
+WEB_SRC=$(WEB_HTML) $(WEB_JS)
+
+# `build/` and not `src/`, per ticket 13: it keeps `src/` free of generated
+# files and keeps the `MISSING:` audit below (`ls src/*.h` must be in
+# APP_HDR) meaning what it says, at the cost of this -I on every compile
+# that reaches `viewer_link.c`.
+WEB_CFLAGS=-I$(BUILD)
+
+# A real prerequisite, not a convention -- CLAUDE.md records `version.h`
+# sitting outside APP_HDR as the shape of fault this guards against: "the
+# header says one version, `make` reports nothing to do, and the binary
+# keeps claiming" the page it was last built from.
+$(BUILD)/viewer_page.h: scripts/embed_web.py $(WEB_SRC)
+	@mkdir -p $(BUILD)
+	$(Q)printf '  gen %s\n' $@
+	$(Q)python3 scripts/embed_web.py $(WEB_HTML) $@
+
 # The vendored raygui header is not -Wall -W clean; compile it in isolation.
 # The one intermediate object lives under $(BUILD)/ to keep the root tidy.
 $(BUILD)/raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
@@ -141,9 +165,9 @@ $(BUILD)/raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
 
 #: [Build] build ./sdrprobe (needs librtlsdr and raylib dev headers)
 sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
-		$(GUI_SRC) $(GUI_HDR) $(BUILD)/raygui_impl.o
+		$(GUI_SRC) $(GUI_HDR) $(BUILD)/raygui_impl.o $(BUILD)/viewer_page.h
 	$(Q)printf '  cc  %s\n' $@
-	$(Q)$(CC) $(CFLAGS) $(RAYGUI_FLAGS) -pthread \
+	$(Q)$(CC) $(CFLAGS) $(RAYGUI_FLAGS) $(WEB_CFLAGS) -pthread \
 		-o $@ $(SRC)/sdrprobe.c $(APP_SRC) $(DSP_SRC) $(GUI_SRC) \
 		$(BUILD)/raygui_impl.o \
 		$(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs raylib) -pthread
@@ -222,14 +246,14 @@ check-websocket: $(TESTS)/websocket_test.c $(TESTS)/check.h \
 # (types only); --libs raylib is deliberately absent, and check-viewer-link
 # is the proof: nothing here needs it to link.
 check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
-		$(SRC)/viewer_link.c $(SRC)/viewer_link.h $(SRC)/viewer_page.h \
+		$(SRC)/viewer_link.c $(SRC)/viewer_link.h $(BUILD)/viewer_page.h \
 		$(SRC)/websocket.c $(SRC)/websocket.h \
 		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h \
 		$(SRC)/survey_view_model.h $(SRC)/sdrgui.h \
 		$(SRC)/debug_log.c $(SRC)/debug_log.h \
 		$(SRC)/viewer_command.c $(SRC)/viewer_command.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(WEB_CFLAGS) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/viewer_link_test \
 		$(TESTS)/viewer_link_test.c $(SRC)/viewer_link.c $(SRC)/websocket.c \
 		$(SRC)/scope_view_model.c $(SRC)/debug_log.c $(SRC)/viewer_command.c -lm

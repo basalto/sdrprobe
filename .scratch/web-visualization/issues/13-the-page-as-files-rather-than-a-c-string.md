@@ -1,6 +1,6 @@
 # 13 - The page as files a person can edit, rather than a C string literal
 
-Status: needs-triage
+Status: resolved, 2026-09-17
 
 ## What it is today
 
@@ -132,16 +132,18 @@ so a compiler error still points at a recognisable place.
 
 ## Acceptance criteria
 
-- [ ] `web/viewer.html` (and any split siblings) are the source of truth, with
+- [x] `web/viewer.html` (and any split siblings) are the source of truth, with
       no C escaping in them.
-- [ ] Editing one and running `make` changes the served page -- verified by
+- [x] Editing one and running `make` changes the served page -- verified by
       fetching it, not by reading the Makefile.
-- [ ] The generated header is gitignored and never committed.
-- [ ] The bytes served are **identical** to today's, before any other change:
+- [x] The generated header is gitignored and never committed.
+- [x] The bytes served are **identical** to today's, before any other change:
       this is a move, and a move is measured by nothing changing
       (`curl -s localhost:PORT | cmp - <reference>`).
-- [ ] `viewer_page.h`'s rationale survives somewhere a reader will find it.
-- [ ] Ticket 11's DOM-shim check can load the page's JavaScript as a file.
+- [x] `viewer_page.h`'s rationale survives somewhere a reader will find it.
+- [ ] Ticket 11's DOM-shim check can load the page's JavaScript as a file --
+      not attempted here; ticket 11 is a separate ticket and this only clears
+      the way for it (a plain file at `web/viewer.js`, no extractor needed).
 
 ## Relationship to the other tickets
 
@@ -149,3 +151,54 @@ so a compiler error still points at a recognisable place.
   have to own. Do this first.
 - Ticket 07's remaining views each add to this page; every one of them is
   cheaper after this and more expensive before it.
+
+## Comments
+
+**Done as decided, one file split into two.** `web/viewer.html` (the
+markup and `<style>`, ending in a `<script>` tag holding one marker,
+`/*BUILD:SCRIPT*/`) and `web/viewer.js` (what fills it) are the two source
+files; three files (a separate `.css`) was considered and dropped -- nothing
+here needs a colour or a layout changed independently of the markup that
+uses it, and a third file is a third thing to keep in dependency order once
+ticket 14's later split adds more JS files. `scripts/embed_web.py`
+concatenates (today, one file; `JS_ORDER` is the list ticket 14's later
+phases extend) and emits one C string literal per source line into
+`build/viewer_page.h`, which is a real prerequisite of both `sdrprobe` and
+`check-viewer-link` -- not a convention -- so editing `web/viewer.html` and
+running `make` rebuilds the binary with the edit, verified by serving it and
+`curl`ing the result rather than by reading the Makefile.
+
+**Byte-identical, checked three ways.** The 341-line C literal was
+unescaped programmatically (Python's own string-literal grammar reads a C
+`"...\n"` segment identically) and diffed byte-for-byte against what the
+*unmodified* binary served over a real socket before any file here changed
+-- that comparison is the ground truth the rest of this ticket was
+measured against, not a re-derivation from the new source. After the split:
+the generated header, compiled standalone and dumped, matches that
+reference exactly; the rebuilt `sdrprobe`, served over a real socket again,
+matches it exactly; and editing `web/viewer.html`, rebuilding, and serving
+again shows the edit -- confirming the dependency is real rather than
+merely declared. `make check` (21774 checks, 77 suites) and `make
+check-pipelines` both pass unchanged.
+
+**The rationale comment moved into the generated header itself**, not into
+`viewer_link.c` or a `web/README.md` as the ticket's decision 3 offered:
+`scripts/embed_web.py` writes it at the top of `build/viewer_page.h`,
+immediately above `VIEWER_PAGE_HTML`, which is where a reader who greps for
+that symbol or opens the header (to see what shipped) lands -- one hop
+closer than a comment living beside `serve_page()` in a different file
+entirely. It does not ship to the browser: it is C-only, above the string
+literal, never inside the HTML or `<script>` tag.
+
+**`-Wall -W` clean cost one rewrite.** The header comment's own prose used
+"web/views/*.js" to describe a future file, and `/` immediately before `*`
+reads as `/*` to a C compiler scanning a `/* ... */` comment for a nested
+open -- a real `-Wcomment` warning, caught by compiling the generated
+header standalone before wiring it into the Makefile at all. Rephrased to
+name the directory without the glob.
+
+**`web/lib/`, `web/wire.js` and `web/views/` are not built yet.** That is
+ticket 14's Phase 2, a separate step with its own behavioural verification
+(this ticket's byte-identical page is the *mechanical* half; ticket 14's
+Phase 2 is the *seam* half, splitting the one `web/viewer.js` this ticket
+produced into the layers ADR-0007 already decided on).

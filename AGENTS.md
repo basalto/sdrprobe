@@ -300,7 +300,8 @@ by 1024 while displayed under a "KB"/"MB" label -- that mismatch shipped
 once, in the Viewer link's Health panel (ticket 08): `send_queue_high_water`
 and the received-throughput figure were both computed with `/1024` and
 labelled "KB"/"KB/s", which is a KiB value wearing a decimal name. Fixed in
-`src/viewer_page.h` (`formatBytes()`/`formatBitsPerSecond()`),
+`web/viewer.js` (`formatBytes()`/`formatBitsPerSecond()`, compiled into
+`src/viewer_link.c`'s served page by `scripts/embed_web.py` since ticket 13),
 `src/viewer_link.c` (`format_bytes_decimal()`, the stderr disconnect
 report) and `scripts/viewer_client.py` (`format_bytes()`/`format_bps()`).
 
