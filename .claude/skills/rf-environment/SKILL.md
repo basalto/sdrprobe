@@ -122,7 +122,7 @@ Once both gates pass, rank on what the repository actually gets:
 ## Recording another sweep
 
 ```sh
-./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
+./sdrprobe headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
     | ./scripts/survey_tool.py ingest --note "antenna, gain, where, why"
 ```
 

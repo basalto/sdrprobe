@@ -184,7 +184,7 @@ There is a fifth way, and it does not look like a mistake: measuring the
 **whole** cost when the decision is about a **part** of it.
 
 A ticket proposed skipping the Scope path for a Viewer that had not asked for
-a spectrum. `--serve` with no client measured 9.6% of a core, which is a
+a spectrum. `server` with no client measured 9.6% of a core, which is a
 correct number and does not decide anything -- the ticket's question is which
 *part* of that would go. `make bench-dsp` splits it: conversion 0.096 ms a
 block, statistics 0.949, peak bins 0.120, and the transform **4.789** -- so

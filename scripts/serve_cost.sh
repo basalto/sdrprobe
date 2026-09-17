@@ -1,5 +1,5 @@
 #!/bin/sh
-# What `--serve` costs, per subscription, measured from /proc.
+# What `server` costs, per subscription, measured from /proc.
 #
 # Written three times into a scratch directory before it became this: once to
 # find that a `receiver_state` subscriber pinned a core (98.6% against 9.8%
@@ -34,7 +34,7 @@ TMP="${TMPDIR:-/tmp}/serve_cost.$$"
 mkdir -p "$TMP" || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
-"$BIN" --headless --serve --serve-port "$PORT" --frequency "$FREQ" \
+"$BIN" server --serve-port "$PORT" --frequency "$FREQ" \
     --fft "$FFT" >"$TMP/server.out" 2>&1 &
 PID=$!
 # Long enough for the device to open and the first blocks to flow; a

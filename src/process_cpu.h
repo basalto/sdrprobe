@@ -5,7 +5,7 @@
  * This process's own CPU cost against wall time -- the "server CPU"
  * ticket 08's Health panel shows, and nothing else. No `struct app`, no
  * raylib: a fact about the OS process, read the same way whether this is
- * running headless under `--serve` or under a window.
+ * running headless under `server`/`web` or under a window.
  *
  * Split into a sample (the impure half, one syscall each) and a pure
  * percentage over two samples, on the same principle CLAUDE.md states for

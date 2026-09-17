@@ -171,8 +171,8 @@ exactly, checked before either is served (`token_authorized()`,
 `viewer_link.c`). Loopback with no token is completely unchanged: the
 default is still `SERVE_BIND_LOOPBACK`, still needs nothing else, and
 every existing caller (the window's own headless serve, every test, every
-capture-driven `--serve` invocation this repository has) is unaffected
-byte-for-byte.
+capture-driven `server`/`web` invocation this repository has) is
+unaffected byte-for-byte.
 
 **What a shared secret in a URL is not.** It is not per-user identity --
 every device with the token is indistinguishable from every other. It is
@@ -191,7 +191,7 @@ a trusted-home-LAN operator asked for and the maximum this amendment
 claims.
 
 **What was measured before this shipped**, live against a real
-`sdrprobe --serve` process bound to a non-loopback address (`127.0.0.2`,
+`sdrprobe server` process bound to a non-loopback address (`127.0.0.2`,
 routed over loopback but exercising the real non-default `bind()` path
 rather than a synthetic one): a request with no token and a request with
 the wrong token are both refused with `401 Unauthorized` before an
@@ -205,7 +205,7 @@ alongside this amendment**: `viewer_session_run()`'s loop never read
 `app->options.duration_seconds` at all, checking only
 `stop_requested()` (SIGINT/SIGTERM) -- unlike `sdrprobe.c`'s other
 headless loop (decode/playback), which has always honoured its own
-duration. Every `--serve ... --duration N` invocation, with or without
+duration. Every `server ... --duration N` invocation, with or without
 this amendment's flags, silently ran until killed rather than stopping
 at N seconds. `viewer_duration_elapsed()` (`viewer_session.h`, mirroring
 `viewer_update_due()`'s own shape as a pulled-out decision, ADR-0012) is
@@ -220,3 +220,15 @@ connection, not a lockout); and multiple tokens or any notion of which
 device is which. Each is a real gap for a network this amendment does
 not claim to cover -- anything other than a small, trusted home LAN
 should keep using the SSH tunnel this amendment does not replace.
+
+**A second, separate cleanup landed the same day and touches this ADR's
+own vocabulary**: `--headless` and `--serve`, named as flags throughout
+the text above, are gone. `headless`, `server` and `web` are command
+words now (`options.h`'s own `enum start_command`), for the reason
+`server`/`web` already were: which frontend is running is one answer per
+run, never a flag combining freely with everything else the way
+`--decode` or `--survey` do. Every invocation on this page written as
+`--headless --serve` or `--serve` alone reads today as `server`, and a
+capture-driven `--headless --decode` reads as `headless --decode` --
+mechanical renames of what these paragraphs already meant, not a second
+decision about what a Viewer link is.

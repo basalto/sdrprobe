@@ -9,7 +9,7 @@ struct app;
 #define VIEWER_SESSION_DEFAULT_PORT 8765
 
 /*
- * `--headless --serve`: drives ticket 02's advance step with no window,
+ * `server`/`web`: drives ticket 02's advance step with no window,
  * builds ticket 03's view model each block, and publishes it over ticket
  * 04's WebSocket server (joined by src/viewer_link.c) instead of drawing
  * it. Runs until Ctrl-C (`stop_requested()`) or, for file playback, until

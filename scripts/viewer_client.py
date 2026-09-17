@@ -13,7 +13,7 @@ server.
 
 Usage:
 
-    ./sdrprobe --headless --serve --file testfiles/gsm_arfcn_69.bin &
+    ./sdrprobe server --file testfiles/gsm_arfcn_69.bin &
 
     # Print messages as they arrive, forever:
     python3 scripts/viewer_client.py
@@ -36,7 +36,7 @@ Usage:
     python3 scripts/viewer_client.py --send "tune 948400000" --count 5
 
     # Against a server bound beyond loopback (ADR-0027's 2026-09-17
-    # amendment, e.g. `--serve --serve-bind any --serve-token XXXXXXXX`):
+    # amendment, e.g. `server --serve-bind any --serve-token XXXXXXXX`):
     python3 scripts/viewer_client.py --host 192.168.1.5 --token XXXXXXXX \
         --count 5
 

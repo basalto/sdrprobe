@@ -87,7 +87,7 @@ check_gsm() {
     expected=$3
     have "$capture" || return 0
     checked
-    output=$(run --file "$capture" --headless --arfcn "$arfcn" --decode --once)
+    output=$(run headless --file "$capture" --arfcn "$arfcn" --decode --once)
     decodes=$(printf '%s\n' "$output" | grep -c "^SCH ")
     wrong=$(printf '%s\n' "$output" | grep "^SCH " | grep -cv "BSIC $expected ")
 
@@ -130,8 +130,8 @@ printf '  FM RDS decode\n'
 check_fm() {
 have testfiles/fm_rds_tsf.bin || return 0
 checked
-fm=$(run --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
-         --frequency 89.5M --headless --technology fm --decode --once)
+fm=$(run headless --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
+         --frequency 89.5M --technology fm --decode --once)
 if ! printf '%s\n' "$fm" | grep -q "^FM   station 0x8343"; then
     fail "fm_rds_tsf did not identify TSF; got: $(printf '%s\n' "$fm" |
          grep '^FM ' | head -1)"
@@ -159,8 +159,8 @@ report "fm_rds_tsf.bin" "station 0x8343 at 89.500, TSF, news"
 # And the same capture twice gives the same answer, which a chain carrying
 # state across blocks is the natural place to lose.
 checked
-fm2=$(run --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
-          --frequency 89.5M --headless --technology fm --decode --once)
+fm2=$(run headless --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
+          --frequency 89.5M --technology fm --decode --once)
 if [ "$fm" != "$fm2" ]; then
     fail "fm_rds_tsf decoded differently the second time"
 fi
@@ -172,7 +172,7 @@ printf '  LTE decode\n'
 check_lte() {
 have testfiles/lte_b20_pci28.bin || return 0
 checked
-lte=$(run --file testfiles/lte_b20_pci28.bin --headless --earfcn 6200 \
+lte=$(run headless --file testfiles/lte_b20_pci28.bin --earfcn 6200 \
           --decode --once)
 mibs=$(printf '%s\n' "$lte" | grep -c "^MIB ")
 if ! printf '%s\n' "$lte" | grep -q "^LTE  cell 28 (N_ID_1 9, N_ID_2 1)"; then
@@ -202,7 +202,7 @@ fi
 # arithmetic is that grid, and resampling silently would be worse than saying
 # no (ADR-0014).
 checked
-if run --headless --technology lte --sample-rate 2M --decode --once \
+if run headless --technology lte --sample-rate 2M --decode --once \
        --file testfiles/lte_b20_pci28.bin | grep -q "^Usage:"; then
     report "--technology lte" "refuses a sample rate that is not 1.92 MS/s"
 else
@@ -212,7 +212,7 @@ fi
 # A band scan needs a receiver and cannot share stdout with a decode; both
 # refusals are the command line's, so they can be checked without one.
 checked
-if run --lte-scan 20 --headless --file testfiles/lte_b20_pci28.bin |
+if run headless --lte-scan 20 --file testfiles/lte_b20_pci28.bin |
        grep -q "^Usage:"; then
     report "--lte-scan" "refuses a capture; a scan needs a receiver"
 else
@@ -224,7 +224,7 @@ check_lte
 # --- TETRA: whose network is this -----------------------------------------
 printf '  TETRA decode\n'
 decode_tetra() {
-    run --file "$1" --headless --technology tetra --sample-rate 2000000 \
+    run headless --file "$1" --technology tetra --sample-rate 2000000 \
         --decode --once
 }
 
@@ -268,7 +268,7 @@ fi
 # --- ADS-B: frames, and a position that needed two of them ----------------
 printf '  Mode S decode\n'
 decode_adsb() {
-    run --file testfiles/adsb_cpr_pair.bin --headless --technology adsb \
+    run headless --file testfiles/adsb_cpr_pair.bin --technology adsb \
         --decode --once
 }
 if have testfiles/adsb_cpr_pair.bin; then
@@ -309,7 +309,7 @@ fi
 # capture was recorded.
 printf '  Broadcast\n'
 broadcast() {
-    run --file testfiles/gsm_arfcn_69.bin --headless --arfcn 69 --decode --once
+    run headless --file testfiles/gsm_arfcn_69.bin --arfcn 69 --decode --once
 }
 if have testfiles/gsm_arfcn_69.bin; then
 checked
@@ -352,7 +352,7 @@ fi
 # rather than fitting the one cell it was written against.
 if have testfiles/gsm_arfcn_113.bin; then
 checked
-other=$(run --file testfiles/gsm_arfcn_113.bin --headless --arfcn 113 --decode \
+other=$(run headless --file testfiles/gsm_arfcn_113.bin --arfcn 113 --decode \
             --once | grep "^BCCH ")
 if ! printf '%s\n' "$other" | grep -q "MCC 268 MNC 06 .*LAC 8420  CI 16134"; then
     fail "ARFCN 113 did not report MCC 268 MNC 06, LAC 8420, Cell 16134"
@@ -370,7 +370,7 @@ fi
 # survey of it is one step, and the answer is the same every run.
 printf '  Survey\n'
 survey_gsm() {
-    run --file testfiles/gsm_arfcn_69.bin --frequency 948.4M --headless \
+    run headless --file testfiles/gsm_arfcn_69.bin --frequency 948.4M \
         --survey --once
 }
 if have testfiles/gsm_arfcn_69.bin; then
@@ -421,7 +421,7 @@ fi
 # decoded frames from the same capture corroborate.
 if have testfiles/adsb_cpr_pair.bin; then
 checked
-adsb_survey=$(run --file testfiles/adsb_cpr_pair.bin --headless --survey --once)
+adsb_survey=$(run headless --file testfiles/adsb_cpr_pair.bin --survey --once)
 adsb_hz=$(printf '%s\n' "$adsb_survey" | grep "^candidate " | head -1 | cut -d' ' -f2)
 if [ -z "$adsb_hz" ]; then
     fail "the Mode S capture surveyed to no candidate; 1090 MHz is there"
@@ -440,7 +440,7 @@ printf '  Recording\n'
 if have testfiles/adsb_cpr_pair.bin; then
 checked
 before=$(ls captures/ 2>/dev/null | wc -l)
-run --file testfiles/adsb_cpr_pair.bin --headless --record-seconds 1 \
+run headless --file testfiles/adsb_cpr_pair.bin --record-seconds 1 \
     --technology adsb >/dev/null
 recorded=$(ls -t captures/*.bin 2>/dev/null | head -1)
 sidecar=${recorded%.bin}.json
@@ -500,7 +500,7 @@ check_wide_container() {
          "$corpus/fm_rds_tsf.bin" || return 0
 
     checked
-    output=$(run --file "$corpus/gsm_arfcn_69.bin" --headless --arfcn 69 \
+    output=$(run headless --file "$corpus/gsm_arfcn_69.bin" --arfcn 69 \
                  --decode --once)
     if printf '%s\n' "$output" | grep -q "BSIC 59 (NCC 7, BCC 3)"; then
         report "gsm_arfcn_69 16-bit" "BSIC 59, the same identity"
@@ -522,7 +522,7 @@ check_wide_container() {
     fi
 
     checked
-    output=$(run --file "$corpus/tetra_cc17.bin" --headless --technology tetra \
+    output=$(run headless --file "$corpus/tetra_cc17.bin" --technology tetra \
                  --sample-rate 2000000 --decode --once)
     if printf '%s\n' "$output" | grep -q "MCC 268  MNC 3  colour 17  LA 4375"; then
         report "tetra_cc17 16-bit" "MCC 268, colour 17, LA 4375"
@@ -531,7 +531,7 @@ check_wide_container() {
     fi
 
     checked
-    output=$(run --file "$corpus/lte_b20_pci28.bin" --headless --technology lte \
+    output=$(run headless --file "$corpus/lte_b20_pci28.bin" --technology lte \
                  --sample-rate 1920000 --decode --once)
     mibs=$(printf '%s\n' "$output" | grep -c "^MIB ")
     if printf '%s\n' "$output" | grep -q "cell 28 .*normal CP" &&
@@ -551,7 +551,7 @@ has halved again"
     fi
 
     checked
-    output=$(run --file "$corpus/adsb_cpr_pair.bin" --headless \
+    output=$(run headless --file "$corpus/adsb_cpr_pair.bin" \
                  --technology adsb --decode --once)
     positions=$(printf '%s\n' "$output" | grep -c " POS ")
     if [ "$positions" -ge 1 ]; then
@@ -561,8 +561,8 @@ has halved again"
     fi
 
     checked
-    output=$(run --file "$corpus/fm_rds_tsf.bin" --sample-rate 2048000 \
-                 --frequency 89.5M --headless --technology fm --decode --once)
+    output=$(run headless --file "$corpus/fm_rds_tsf.bin" --sample-rate 2048000 \
+                 --frequency 89.5M --technology fm --decode --once)
     if printf '%s\n' "$output" | grep -q "0x8343" &&
        printf '%s\n' "$output" | grep -q "TSF"; then
         report "fm_rds_tsf 16-bit" "station 0x8343, TSF"
@@ -581,7 +581,7 @@ check_wide_container
 # frames with the protocol header and trailer.
 printf '  An SRD remote control at 434 MHz\n'
 srd_remote_control_survey() {
-    run --file "$1" --frequency "$2" --headless --survey --once |
+    run headless --file "$1" --frequency "$2" --survey --once |
         grep "^candidate " | sort -k3 -g -r | head -1 | cut -d' ' -f2
 }
 
@@ -601,7 +601,7 @@ check_srd_remote_control() {
 
     # Headless decode over the assembled program
     checked
-    decode_a=$(run --file "$remote" --headless --technology srd --decode --once)
+    decode_a=$(run headless --file "$remote" --technology srd --decode --once)
     frames_a=$(printf '%s\n' "$decode_a" | grep -c "^SRD ")
     if [ "$frames_a" -lt 4 ]; then
         fail "expected at least 4 SRD frames in $remote, got $frames_a"
@@ -617,7 +617,7 @@ check_srd_remote_control
 printf '  Flags\n'
 if have testfiles/adsb_cpr_pair.bin; then
 checked
-if ! run --file testfiles/adsb_cpr_pair.bin --headless --technology adsb \
+if ! run headless --file testfiles/adsb_cpr_pair.bin --technology adsb \
         --decode --once | grep -q "End of capture."; then
     fail "--once did not stop at the end of the capture"
 else
@@ -627,9 +627,9 @@ fi
 
 if have testfiles/gsm_arfcn_73.bin; then
 checked
-quiet=$(run --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode \
+quiet=$(run headless --file testfiles/gsm_arfcn_73.bin --arfcn 73 --decode \
             --once --gsm-features none | grep -c "^SCH ")
-loud=$(run --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode \
+loud=$(run headless --file testfiles/gsm_arfcn_73.bin --arfcn 73 --decode \
            --once --gsm-features filter,finecfo,trellis | grep -c "^SCH ")
 if [ "$loud" -le "$quiet" ]; then
     fail "the SCH refinements decoded $loud bursts against $quiet without them"

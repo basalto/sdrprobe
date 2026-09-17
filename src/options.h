@@ -57,19 +57,32 @@ enum start_view {
 };
 
 /*
- * Which frontend the program opens on -- window, browser, or the Viewer
- * link alone. A command names this and nothing else; every other question
- * this program can be asked (a band, a capture, a technology) stays a flag,
+ * Which frontend the program opens on -- window, no window at all, the
+ * Viewer link with no window, or the Viewer link plus a browser. A
+ * command names this and nothing else; every other question this
+ * program can be asked (a band, a capture, a technology) stays a flag,
  * because none of it changes who is looking.
  *
  * COMMAND_WINDOW is 0, so a plain `struct options` memset to zero -- the
  * first thing `parse_options()` does -- already means "the window", which is
  * what running with no command at all has always meant.
+ *
+ * `--headless` and `--serve` were flags once, and are gone: `headless`
+ * (no window, nothing further implied), `server` and `web` (both imply
+ * `headless`, and additionally open the Viewer link) are now the only
+ * way to ask for any of this, the same command-word shape `server`/`web`
+ * already had. A flag combining freely with everything else was right
+ * for `--decode`/`--survey`/`--record-seconds`/etc., which name a
+ * question about *what* to do; it was never right for a question about
+ * *who is looking*, which is what this enum is -- one answer per run,
+ * never two at once, exactly what a command word (not a flag) means.
  */
 enum start_command {
     COMMAND_WINDOW = 0,
-    COMMAND_SERVER,           /* the Viewer link alone: --headless --serve */
-    COMMAND_WEB               /* the Viewer link, plus a browser pointed at it */
+    COMMAND_HEADLESS,         /* no window; nothing further implied */
+    COMMAND_SERVER,           /* headless, plus the Viewer link */
+    COMMAND_WEB               /* headless, the Viewer link, and a browser
+                                  pointed at it */
 };
 
 enum gain_request_kind {
@@ -120,7 +133,9 @@ struct options {
     int device_index;         /* receiver to open */
     int list_devices;         /* print the receivers and exit */
     int show_version;         /* print the version and exit */
-    int headless;             /* acquire with no window */
+    int headless;             /* acquire with no window -- set from `command`
+                                  (HEADLESS/SERVER/WEB), never directly by a
+                                  flag of its own any more */
     double record_seconds;    /* 0 = do not record at startup */
     double duration_seconds;  /* 0 = run until quit */
     enum start_view view;
@@ -163,8 +178,12 @@ struct options {
        survey without a window or a person to click one. */
     int survey_report;
     /* headless: serve the Scope's view model to a loopback Viewer link
-       (ADR-0027) instead of drawing it. 0 = off. `serve_port` is the
-       listening port, 0 meaning the link's own default. */
+       (ADR-0027) instead of drawing it. 0 = off, set only by `command`
+       being COMMAND_SERVER or COMMAND_WEB -- there is no `--serve` flag
+       of its own any more; `server`/`web` are the only way to ask for
+       this, the same command-word shape they already had.
+       `serve_port` is the listening port, 0 meaning the link's own
+       default. */
     int serve;
     int serve_port;
     /* ADR-0027's amendment, 2026-09-17: the bind address is loopback

@@ -107,7 +107,7 @@ static void test_a_run_of_the_loop_publishes_at_the_interval(void) {
  * `--duration`: never read inside this loop until a live test for a
  * separate ticket sat past it -- `sdrprobe.c`'s other headless loop
  * (decode/playback) has always honoured its own duration, and this one
- * checked only `stop_requested()` (SIGINT/SIGTERM). Every `--serve
+ * checked only `stop_requested()` (SIGINT/SIGTERM). Every `server
  * --duration N` run before that fix outlived N silently.
  */
 static void test_no_budget_means_no_duration_limit(void) {

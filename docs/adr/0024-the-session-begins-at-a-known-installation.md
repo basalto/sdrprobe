@@ -96,7 +96,7 @@ moment.
 
 A run that already states its installation has nothing to be asked.
 `startup_form_wanted()` in `options.c` is the whole rule, pure and checked:
-`--headless`, `--file`, `--duration`, `--view`, `--ppm`, `--site` and
+`headless`, `--file`, `--duration`, `--view`, `--ppm`, `--site` and
 `--no-startup` each skip it. `SDRPROBE_SITE`, `SDRPROBE_ANTENNA`,
 `SDRPROBE_RECEIVER_LABEL` and `SDRPROBE_NO_STARTUP` do the same from the
 environment, for a launcher or a unit file that cannot reach the command line.
@@ -204,7 +204,7 @@ It is a request plus three refusals rather than seven refusals:
   a request in either order**, so the pair never resolves by argument
   position. Neither changes the default any more; they are kept so a launcher
   or unit file carrying one keeps meaning what it meant.
-- `--headless` and `--file` refuse because the form cannot work: no window and
+- `headless` and `--file` refuse because the form cannot work: no window and
   nobody to answer it, and a capture whose correction is already in its
   samples has no crystal to measure.
 - `--ppm` refuses because it is a **provenance** guard rather than an

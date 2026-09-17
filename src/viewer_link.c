@@ -170,7 +170,7 @@ void viewer_link_set_command_handler(struct viewer_link *link,
  *
  * Every send() in this file passes MSG_NOSIGNAL. Without it, sending on a
  * socket the peer has already reset raises SIGPIPE, whose default
- * disposition kills the whole process -- so an operator's --serve session
+ * disposition kills the whole process -- so an operator's server/web session
  * on a live receiver used to die the moment a browser tab was closed
  * mid-stream, taking the acquisition down with it. MSG_NOSIGNAL turns
  * that into an ordinary send() failure (errno EPIPE), which the existing
