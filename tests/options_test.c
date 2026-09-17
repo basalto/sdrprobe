@@ -1159,6 +1159,8 @@ static void test_serve_bind_and_token(void) {
 
     check_true("--serve-bind any with no token is refused",
               parse_options(4, (char **)bind_any_no_token, &options) < 0);
+    check_true("and names --serve-token as what is missing",
+              strstr(options.serve_bind_error, "--serve-token") != NULL);
     check_true("--serve-bind ADDRESS with no token is refused",
               parse_options(4, (char **)bind_address_no_token, &options) < 0);
 
@@ -1179,17 +1181,25 @@ static void test_serve_bind_and_token(void) {
 
     check_true("neither \"any\" nor a parseable address is refused",
               parse_options(6, (char **)bind_not_an_address, &options) < 0);
+    check_true("and the refusal names the bad value itself",
+              strstr(options.serve_bind_error, "not-an-address") != NULL);
     check_true("a token under 8 characters is refused",
               parse_options(6, (char **)token_too_short, &options) < 0);
+    check_true("and the refusal says how many characters it counted",
+              strstr(options.serve_bind_error, "got 7") != NULL);
     memset(long_token, '1', sizeof(long_token) - 1);
     long_token[sizeof(long_token) - 1] = '\0';
     check_int("the long token is exactly 129 characters",
              (int)strlen(long_token), 129);
     check_true("a token over 128 characters is refused",
               parse_options(6, (char **)token_too_long, &options) < 0);
+    check_true("and the refusal says how many characters it counted, too",
+              strstr(options.serve_bind_error, "got 129") != NULL);
     check_true("a token with a character a URL query string cannot carry "
               "unescaped is refused",
               parse_options(6, (char **)token_bad_char, &options) < 0);
+    check_true("and the refusal names the offending character",
+              strstr(options.serve_bind_error, "' '") != NULL);
 
     /* A token with no --serve-bind at all is pointless but harmless --
        refusing it would only make a future run that adds --serve-bind

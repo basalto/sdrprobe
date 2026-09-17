@@ -517,8 +517,13 @@ int parse_options(int argc, char **argv, struct options *options) {
             struct in_addr parsed;
 
             if (options->serve_bind_kind != SERVE_BIND_LOOPBACK ||
-                i + 1 >= argc)
+                i + 1 >= argc) {
+                snprintf(options->serve_bind_error,
+                        sizeof(options->serve_bind_error),
+                        "--serve-bind needs a value (\"any\" or an IPv4 "
+                        "address), and only once");
                 return -1;
+            }
             options->serve_bind_text = argv[++i];
             if (strcmp(options->serve_bind_text, "any") == 0) {
                 options->serve_bind_kind = SERVE_BIND_ANY;
@@ -527,7 +532,13 @@ int parse_options(int argc, char **argv, struct options *options) {
                 options->serve_bind_kind = SERVE_BIND_ADDRESS;
                 options->serve_bind_addr = ntohl(parsed.s_addr);
             } else {
-                return -1; /* neither "any" nor a parseable IPv4 address */
+                /* neither "any" nor a parseable IPv4 address */
+                snprintf(options->serve_bind_error,
+                        sizeof(options->serve_bind_error),
+                        "--serve-bind \"%.90s\" is neither \"any\" nor a "
+                        "parseable IPv4 address",
+                        options->serve_bind_text);
+                return -1;
             }
         } else if (strcmp(option, "--serve-token") == 0) {
             /* Required alongside --serve-bind (checked once, after the
@@ -539,18 +550,34 @@ int parse_options(int argc, char **argv, struct options *options) {
                (viewer_link.c's own token_authorized() states the same
                principle about reading one back). */
             const char *p;
+            size_t token_len;
 
-            if (options->serve_token || i + 1 >= argc)
+            if (options->serve_token || i + 1 >= argc) {
+                snprintf(options->serve_bind_error,
+                        sizeof(options->serve_bind_error),
+                        "--serve-token needs a value, and only once");
                 return -1;
+            }
             options->serve_token = argv[++i];
-            if (strlen(options->serve_token) < 8 ||
-                strlen(options->serve_token) > 128)
-                return -1; /* too short to be a secret, or too long for
-                              the fixed buffers a printed URL uses */
+            token_len = strlen(options->serve_token);
+            if (token_len < 8 || token_len > 128) {
+                /* too short to be a secret, or too long for the fixed
+                   buffers a printed URL uses */
+                snprintf(options->serve_bind_error,
+                        sizeof(options->serve_bind_error),
+                        "--serve-token must be 8-128 characters (got %zu)",
+                        token_len);
+                return -1;
+            }
             for (p = options->serve_token; *p; p++)
                 if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
-                      (*p >= '0' && *p <= '9') || *p == '-' || *p == '_'))
+                      (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) {
+                    snprintf(options->serve_bind_error,
+                            sizeof(options->serve_bind_error),
+                            "--serve-token may only contain letters, "
+                            "digits, - or _ (found '%c')", *p);
                     return -1;
+                }
         } else if (strcmp(option, "--serve-retune-after") == 0) {
             /* SECONDS:HZ, the same "A:B" shape --zoom and --survey-range
                already take. */
@@ -789,8 +816,12 @@ int parse_options(int argc, char **argv, struct options *options) {
      * should not have to remember to re-add these two as well.
      */
     if (options->serve && options->serve_bind_kind != SERVE_BIND_LOOPBACK &&
-        !options->serve_token)
+        !options->serve_token) {
+        snprintf(options->serve_bind_error, sizeof(options->serve_bind_error),
+                "--serve-bind beyond loopback requires --serve-token "
+                "(ADR-0027's 2026-09-17 amendment)");
         return -1;
+    }
 
     if (options->file_path && options->gain_seen)
         return -1;

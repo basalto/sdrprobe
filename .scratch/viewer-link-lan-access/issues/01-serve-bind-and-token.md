@@ -85,11 +85,51 @@ is what found it, and it is now fixed rather than filed and left.
 - **No rotation, no expiry, no rate limiting.** A wrong token costs one
   refused TCP connection, nothing more; a leaked token is compromised
   until the operator changes it by hand.
-- The web page's own JavaScript was not touched to add UI for entering
-  a token -- it forwards whatever query string loaded the page
-  (`location.search`) onto its own WebSocket open call, which already
-  works with no change, since the token travels with the page's own
-  URL.
+- No UI for entering a token was added to the web page. One line in
+  `src/viewer_page.h`'s `connect()` forwards whatever query string
+  loaded the page (`location.search`) onto its own WebSocket open call
+  -- the token travels with the page's own URL, so the one thing an
+  operator types (the URL) is the only thing either check reads.
+
+## The error was not clear, and is fixed
+
+**First reported live**, against the actual built binary, not found by
+any check: `--serve --serve-bind any --serve-token` (no value) and
+`--serve-bind any --serve-token 12345` (5 characters) both refused
+correctly but printed nothing beyond the full usage dump -- the same
+treatment every other bad flag combination gets, and for most of them
+that is right, per `main()`'s own comment: *"every other parse failure
+is a bad flag or a bad combination, and the usage text is the whole
+answer there."* These two are not that shape: an address that fails
+`inet_pton()` and a token of the wrong length are rules specific to one
+flag each, nameable exactly, and a first-time reader has no way to
+guess the token's charset or length bounds from a 100-line usage dump.
+
+**Fixed the way `unknown_command` already sets the precedent for**:
+`options->serve_bind_error[160]`, filled in at the exact point of
+refusal (each of five clauses: `--serve-bind` with no value or given
+twice, an address `inet_pton()` refuses, `--serve-token` with no value
+or given twice, a token outside 8-128 characters, a token with a
+disallowed character, and the post-loop "beyond loopback with no
+token" refusal), printed by `main()` before the usage dump exactly as
+`unknown_command` already is. Every message names the specific value
+or count involved (`"--serve-token must be 8-128 characters (got 5)"`,
+`"--serve-bind \"not-an-address\" is neither..."`) rather than a generic
+restatement of the rule. Five new `check-options` assertions pin the
+message content, not just the refusal (388 checks, up from 383).
+
+Verified against the exact two commands reported:
+
+```
+$ ./sdrprobe --serve --serve-bind any --serve-token
+./sdrprobe: --serve-token needs a value, and only once
+
+$ ./sdrprobe --serve --serve-bind any --serve-token 12345
+./sdrprobe: --serve-token must be 8-128 characters (got 5)
+```
+
+both followed by the usage dump as before, but no longer *only* the
+usage dump.
 
 ## Relationship to other tickets
 

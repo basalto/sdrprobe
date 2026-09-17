@@ -180,6 +180,16 @@ struct options {
     uint32_t serve_bind_addr;
     const char *serve_bind_text;
     const char *serve_token;
+    /* Which clause refused --serve-bind or --serve-token, if either did:
+       empty ("") ordinarily, since a plain `struct options` memset to
+       zero already makes it so. Unlike every other flag combination's
+       refusal, this one names its own reason -- the same exception
+       `unknown_command` already is, and for the same stated reason
+       (main()'s own comment): a bad address or a token that fails one
+       specific, nameable rule is not "a bad flag or a bad combination"
+       the usage text already answers, it is a rule this flag alone has
+       that a first-time reader has no way to guess at from the dump. */
+    char serve_bind_error[160];
     /* A scripted, one-shot retune during a --serve session, for exercising
        the tuning generation without a Viewer command -- retuning from the
        wire is ticket 06's, not this one's. 0 seconds means disabled. */
