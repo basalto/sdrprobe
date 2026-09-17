@@ -53,6 +53,10 @@ measured wrong.
   161 raylib input call sites in all, hit-testing done inline against
   rectangles that exist only while drawing.
 - Whether more than one Viewer may send commands at once.
+- **Nobody can look at the browser page.** `make screens` is raylib-shaped to
+  its foundations -- `--screenshot` dumps this process's last frame -- so the
+  one surface this project added has no equivalent of the rule every other
+  drawing here is held to. Ticket 11.
 
 ## Tickets
 
@@ -65,3 +69,6 @@ measured wrong.
 7. `issues/07-migrating-the-remaining-views.md`
 8. `issues/08-viewer-link-health.md`
 9. `issues/09-subscriptions-drive-scope-computation.md`
+10. `issues/10-a-metadata-subscriber-spins-the-serve-loop.md`
+11. `issues/11-looking-at-the-browser-page.md`
+12. `issues/12-three-faults-with-no-check-behind-them.md`
