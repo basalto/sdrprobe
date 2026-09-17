@@ -1212,6 +1212,59 @@ static void test_serve_bind_and_token(void) {
               parse_options(8, (char **)token_twice, &options) < 0);
 }
 
+/*
+ * `--not-token`: an explicit acknowledgement that --serve-bind is
+ * reachable with no authentication at all, not an inference from
+ * silence -- --serve-bind alone still refuses, exactly as before this
+ * flag existed.
+ */
+static void test_not_token(void) {
+    struct options options;
+    const char *bind_any_not_token[] = { "sdrprobe", "server", "--serve-bind",
+                                         "any", "--not-token" };
+    const char *bind_address_not_token[] = { "sdrprobe", "server",
+                                             "--serve-bind", "192.168.1.5",
+                                             "--not-token" };
+    const char *both[] = { "sdrprobe", "server", "--serve-bind", "any",
+                          "--serve-token", "eight1234", "--not-token" };
+    const char *both_reversed[] = { "sdrprobe", "server", "--serve-bind",
+                                   "any", "--not-token", "--serve-token",
+                                   "eight1234" };
+    const char *twice[] = { "sdrprobe", "server", "--serve-bind", "any",
+                           "--not-token", "--not-token" };
+    const char *alone[] = { "sdrprobe", "server", "--not-token" };
+
+    check_int("--serve-bind any --not-token parses",
+             parse_options(5, (char **)bind_any_not_token, &options), 0);
+    check_int("as SERVE_BIND_ANY", options.serve_bind_kind, SERVE_BIND_ANY);
+    check_int("with no token", (int)(options.serve_token != NULL), 0);
+    check_int("and the acknowledgement recorded",
+             options.serve_allow_no_token, 1);
+
+    check_int("--serve-bind ADDRESS --not-token parses",
+             parse_options(5, (char **)bind_address_not_token, &options), 0);
+    check_int("as SERVE_BIND_ADDRESS", options.serve_bind_kind,
+             SERVE_BIND_ADDRESS);
+
+    check_true("--serve-token and --not-token together contradict, refused",
+              parse_options(7, (char **)both, &options) < 0);
+    check_true("in either order",
+              parse_options(7, (char **)both_reversed, &options) < 0);
+    check_true("and the refusal names the contradiction",
+              strstr(options.serve_bind_error, "--not-token") != NULL);
+
+    check_true("--not-token given twice is refused",
+              parse_options(6, (char **)twice, &options) < 0);
+
+    /* Harmless alone, on the same principle a token alone is: nothing to
+       acknowledge yet without --serve-bind, and a future run that adds
+       it should not need to remember to add this too. */
+    check_int("--not-token with no --serve-bind is accepted",
+             parse_options(3, (char **)alone, &options), 0);
+    check_int("still SERVE_BIND_LOOPBACK", options.serve_bind_kind,
+             SERVE_BIND_LOOPBACK);
+}
+
 int main(void) {
     test_receiver_identity_flags();
     test_defaults();
@@ -1243,6 +1296,7 @@ int main(void) {
     test_the_command_word();
     test_the_browser();
     test_serve_bind_and_token();
+    test_not_token();
 
     return check_report("command line");
 }

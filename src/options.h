@@ -192,13 +192,21 @@ struct options {
        SERVE_BIND_ADDRESS; `serve_bind_text` is the raw argument, kept
        for messages and tests rather than reconstructed from the parsed
        form. Refused at parse time (see parse_options()) unless
-       `serve_token` also names a token: the bind address was the whole
-       authorization boundary, and this is what stands in its place once
-       reaching the socket no longer implies a login on this machine. */
+       `serve_token` also names a token, or `serve_allow_no_token` names
+       the choice to run without one: the bind address was the whole
+       authorization boundary, and one of these two is what stands in
+       its place once reaching the socket no longer implies a login on
+       this machine. */
     enum serve_bind_kind serve_bind_kind;
     uint32_t serve_bind_addr;
     const char *serve_bind_text;
     const char *serve_token;
+    /* `--not-token`: an explicit acknowledgement that --serve-bind is
+       reachable with no authentication at all, not an inference from
+       silence. Refused together with `serve_token` -- naming a token
+       and then also declaring "no token" is a contradiction this ought
+       to catch rather than quietly pick a side of. */
+    int serve_allow_no_token;
     /* Which clause refused --serve-bind or --serve-token, if either did:
        empty ("") ordinarily, since a plain `struct options` memset to
        zero already makes it so. Unlike every other flag combination's
