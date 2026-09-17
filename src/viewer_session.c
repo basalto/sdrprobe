@@ -197,6 +197,16 @@ int viewer_session_run(struct app *app) {
         }
         viewer_link_set_command_handler(&link, viewer_session_handle_command,
                                         app);
+        /* `--not-token`: the loud warning parse_options() already refused
+           silence about -- printed before the ordinary listening line,
+           not folded into it, so it reads as what it is rather than one
+           clause among several. */
+        if (app->options.serve_bind_kind != SERVE_BIND_LOOPBACK &&
+            !app->options.serve_token)
+            fprintf(stderr,
+                   "WARNING: --not-token -- this Viewer link is reachable "
+                   "with NO authentication at all. Anything that can reach "
+                   "this port can view and control the receiver.\n");
         if (bind_display) {
             if (app->options.serve_token)
                 fprintf(stderr,
@@ -210,7 +220,7 @@ int viewer_session_run(struct app *app) {
                        "Viewer link listening on %s:%d -- open "
                        "http://%s:%d/ in a browser. Ctrl-C to stop.\n",
                        bind_display, port, bind_display, port);
-        } else {
+        } else if (app->options.serve_token) {
             /* SERVE_BIND_ANY: every interface, so there is no one address
                to print -- the operator knows which of this machine's own
                addresses the other laptop can reach. */
@@ -221,6 +231,15 @@ int viewer_session_run(struct app *app) {
                    "from here. Ctrl-C to stop.\n",
                    port, port, app->options.serve_token, port,
                    app->options.serve_token);
+        } else {
+            /* SERVE_BIND_ANY with --not-token: no token to fold into
+               either URL. */
+            fprintf(stderr,
+                   "Viewer link listening on port %d, every interface -- "
+                   "open http://<this machine's LAN address>:%d/ from "
+                   "another machine, or http://127.0.0.1:%d/ from here. "
+                   "Ctrl-C to stop.\n",
+                   port, port, port);
         }
     }
 
