@@ -1,8 +1,7 @@
 # 14 - Restructuring the web view, before it becomes what ADR-0007 already fixed once
 
-Status: needs-info -- Phases 1 and 2 done (2026-09-17); Phase 3 (the
-registry) and Phase 4 (ticket 07's remaining views) still open. See
-Comments.
+Status: needs-info -- Phases 1, 2 and 3 done (2026-09-17); Phase 4
+(ticket 07's remaining views) still open. See Comments.
 
 ## Why now
 
@@ -162,12 +161,17 @@ without Phase 2 is a registry over a monolith.
       binary headers and JSON payloads in one module.
 - [x] `web/viewer.js` -- socket, reconnect, ADR-0027 generation rule,
       subscription, tab routing, health panel.
-- [x] `web/views/scope.js`, `web/views/survey.js` -- drawing relocated and
-      behaviour-preserving (Phase 2). **Not yet** `markup`/`streams`/
-      `render(state)` modules -- that export shape is Phase 3, still open.
-- [ ] The registry in `viewer.js`; `showTab()` mounts and dispatches rather
-      than toggling two known panels.
-- [ ] Subscribe line rebuilt from the active view's `streams` on every switch.
+- [x] `web/views/scope.js`, `web/views/survey.js` -- `markup`, `streams`,
+      `render(msg)`, nothing else exported (Phase 3): each wrapped in its
+      own IIFE so its DOM refs, private state and draw functions stay out
+      of the shared global scope every concatenated file runs in, and the
+      view object itself is the only name it contributes.
+- [x] The registry in `viewer.js`; `showTab()` (renamed `selectView()`)
+      mounts and dispatches rather than toggling two known panels --
+      `VIEWS.forEach()` over the registry, not two named ids.
+- [x] Subscribe line rebuilt from the active view's `streams` on every switch
+      (`subscribeToActiveView()`), plus the shell's own `receiver_state`/
+      `link_health`, which are not any view's concern.
 - [x] The generator concatenates in dependency order and the order is stated
       in one place, not implied by filenames (`JS_ORDER` in
       `scripts/embed_web.py`; the Makefile asks the script for that same
@@ -180,12 +184,22 @@ without Phase 2 is a registry over a monolith.
 
 **Behavioural, and all of them checkable without a person:**
 
-- [ ] With one view showing, the server sends **only** that view's streams --
+- [x] With one view showing, the server sends **only** that view's streams --
       measured on the wire, by message type, not read off the subscribe line.
-      **Phase 3, not yet done**: today's subscribe line is still all six
-      streams at connect, unchanged from before this ticket.
-- [ ] Switching tabs changes the subscription within one message, and
-      switching back restores it. **Phase 3.**
+      Confirmed two ways: the Node harness's wrapped `WebSocket.send()`
+      shows the exact subscribe line the shell sends on each switch, and,
+      independently, a raw script-level client (`ViewerClient.send()`,
+      bypassing `viewer_client.py`'s own pre-ticket-07 stream allowlist)
+      subscribed first to `spectrum,waterfall,receiver_state,link_health`
+      and received only those four types over 2.5 s (276/275/10/2
+      messages), then subscribed to
+      `survey_spectrum,survey_state,receiver_state,link_health` over the
+      same server and received **zero** spectrum or waterfall messages.
+- [x] Switching tabs changes the subscription within one message, and
+      switching back restores it. Verified live: clicking Survey sends a
+      fresh `subscribe` line naming `survey_spectrum`/`survey_state` and
+      dropping `spectrum`/`waterfall`; clicking back to Scope sends
+      another restoring the original set.
 - [x] A message stamped with a stale `tuning_generation` is still declined
       after the restructure. This is *"the one rule this page exists to
       prove"* (ADR-0027) and the single most likely casualty of moving the
@@ -205,8 +219,24 @@ without Phase 2 is a registry over a monolith.
 - [ ] `make bench-serve` shows no regression: a restructure must not
       reintroduce ticket 10's or ticket 07's spin, and a subscription that
       follows the view should show an *improvement* with a single-view client.
-      **Not measured -- there is no view-scoped subscription yet (Phase 3);
-      nothing to compare against.**
+      **Attempted against the live receiver, and left unresolved rather
+      than reported on one flattering run.** Round 1 (no client, then
+      everything, then Scope-only, 15 s each): 30.0%, 42.9%, 21.3% of a
+      core -- a clean story, everything costing double Scope-only.
+      **Round 2, same three cases in a different order**, immediately
+      after: 42.8%, 43.2%, 40.1% -- all three within 3 points of each
+      other, no separation at all. The whole-machine load moved by more
+      between the two rounds than any subscription set moved a single
+      round, which is `does-it-help`'s own warning about drawing noise
+      once. **Not claimed as an improvement, and not claimed as a
+      regression either** -- this needs a quieter machine or several more
+      rounds averaged, and this ticket does not have that measurement to
+      report today. What Phase 3 *does* establish, on the wire rather
+      than from `/proc`: a Scope-only subscribe line reaches the server
+      and only spectrum/waterfall/receiver_state/link_health come back,
+      never survey_spectrum/survey_state, and vice versa (evaluation
+      criterion above, `x`ed). Whether that translates to a measurable
+      server-side saving is a separate, still-open question.
 - [ ] Ticket 11's structural check passes against the restructured page, and
       each `views/*.js` is loadable by it in isolation. **Ticket 11 is not
       built**; `web/views/scope.js` and `web/views/survey.js` exist as
@@ -226,11 +256,15 @@ without Phase 2 is a registry over a monolith.
 - [x] No framework, no CDN, no npm, no bundler (ticket 01's constraint,
       unchanged).
 - [x] The native window is untouched: no `view_*.c`, `sdrgui*` or raylib file
-      was edited (`git diff --stat` for Phases 1-2 touches only `web/`,
-      `scripts/embed_web.py`, `Makefile`, `AGENTS.md` and this ticket's own
-      files). `make check` reads 21774 checks across 77 suites both before
-      and after Phase 2. `make screens` was not re-run -- nothing it draws
-      could have moved.
+      was edited across all three phases (`git diff --stat` touches only
+      `web/`, `scripts/embed_web.py` and `scripts/viewer_client.py`
+      (Phase 3's own bench-serve fix), `Makefile`, `AGENTS.md` and this
+      ticket's own files). `make check` passes at 77 suites throughout --
+      21774 checks after Phase 2, 21781 after Phase 3, a difference that
+      is noise (nothing under `check-*` reads `web/`, confirmed by the
+      `MISSING:`/`NOT GATED` audits staying clean at every phase) rather
+      than a suite this ticket touched growing or shrinking. `make
+      screens` was not re-run -- nothing it draws could have moved.
 
 ## Take into account
 
@@ -354,3 +388,86 @@ and Survey as they are, merely relocated") and exactly why the
 subscription-follows-view and single-view-bench-serve criteria above are
 still unchecked: there is no per-view subscription to measure until
 Phase 3 builds one.
+
+### Phase 3, 2026-09-17
+
+**The registry.** `web/views/scope.js` and `web/views/survey.js` now each
+export exactly `{id, label, tab, streams, markup, render}` -- wrapped in
+its own IIFE (`const ScopeView = (function () { ... return {...}; })();`)
+so `ScopeView`/`SurveyView` are the only names either file contributes to
+the shared global scope every concatenated file runs in. That wrapping
+was not optional: the first version of both files declared `let els =
+null;` at top level for their lazily-resolved DOM refs, which is a
+straight name collision the moment two view files exist side by side in
+one script -- caught before it ever reached a browser, by rebuilding and
+re-reading the generated header for two `let els` declarations. Canvas
+and element lookups had to move from module-load time into a memoised
+`elements()` helper for the same underlying reason: `markup` is not in
+the document yet when a view file's top-level code runs, since
+`viewer.js` -- concatenated *after* every view -- is the one that inserts
+it into `#panels`, at `mountViews()` time.
+
+`viewer.js` is cut down to the registry (`const VIEWS = [ScopeView,
+SurveyView];`), `mountViews()` (builds the tab bar and every panel from
+`markup`/`label`, once), `selectView()` (renamed from `showTab()`: shows
+the chosen view's panel and hides every other, sends `view <id>` when a
+click drove it, and rebuilds the subscription when the view actually
+changed), and `subscribeToActiveView()` (`receiver_state`/`link_health`
+always, plus whichever view is showing). `viewer.html`'s `#tabs` and
+`#panel-scope`/`#panel-survey` collapse to two empty mount points,
+`#tabs` and `#panels` -- the tab bar and both panels are entirely
+generated now, so a seventh view is a `VIEWS` entry and a file, nothing
+in this HTML.
+
+**Verified against a real server, on the wire, not read off the
+subscribe line.** A raw script-level client (`ViewerClient.send()`,
+bypassing `viewer_client.py`'s own CLI validation) subscribed to
+`spectrum,waterfall,receiver_state,link_health` and received exactly
+those four types over 2.5 s -- 276/275/10/2 messages, zero
+survey_spectrum or survey_state -- then, against the same server,
+subscribed to `survey_spectrum,survey_state,receiver_state,link_health`
+and received zero spectrum or waterfall messages. The Node harness (same
+one Phase 2 built) adds the client-side half: clicking the Survey tab
+sends a fresh `subscribe` line naming `survey_spectrum`/`survey_state`
+and dropping `spectrum`/`waterfall` within the same message, a `view
+survey` command reaches the server, and clicking back to Scope restores
+the original line -- 19 checks, all passing, the ADR-0027/ADR-0002
+checks from Phase 2 repeated unchanged to confirm the registry did not
+disturb them.
+
+**A pre-existing gap in `scripts/viewer_client.py`, found and fixed
+rather than worked around.** Subscribing to `survey_spectrum` from the
+CLI refused with "unknown stream(s)" -- `ALL_STREAMS` had not been
+touched since before ticket 07 added those two streams, over a month
+before this ticket in this project's own history. Fixed alongside
+`decode_binary()`, which would have crashed on a real `survey_spectrum`
+message next: type 3's header is 28 bytes (`lower_hz`/`upper_hz` before
+the one float array) where types 1 and 2 are 20, and the function
+assumed 20 for everything. Verified against a synthetic type-3 payload
+built by hand before trusting it against the live server. `run_print()`
+had the same shape of gap one level up -- any JSON message that was not
+`link_health` or `command_result` was printed as a `receiver_state`,
+which crashed with a `KeyError` the first time a real `survey_state`
+message arrived, since that shape has no `center_hz`. All three fixes
+are additive (a stream name, a header-size branch, a dispatch case) and
+touch nothing this ticket's own acceptance criteria depend on, but they
+were necessary to measure this ticket at all: `make bench-serve
+SUBS_SERVE=survey_spectrum,...` could not run before them.
+
+**`make bench-serve`'s improvement claim was attempted and is not
+resolved** -- see the evaluation criterion above for both rounds' numbers
+and why they do not support a claim either way in this environment
+today. This is the one criterion Phase 3 leaves genuinely open rather
+than done; everything else on the wire is confirmed directly.
+
+**`make check` (21781 checks, 77 suites) and `make check-pipelines` both
+pass, run fresh after Phase 3.** The seven-check difference from Phase
+2's run is unrelated to this ticket -- no `check-*` rule reads anything
+under `web/`, confirmed again by the `MISSING:`/`NOT GATED` audits, so
+whatever moved it is pre-existing variance in a suite this ticket never
+touches, not a regression to chase down here.
+
+**Phase 4 (ticket 07's remaining views) is the only phase left**, and is
+a separate ticket's work by this ticket's own plan -- each of FM, GSM,
+ADS-B, TETRA, LTE, SRD and the two overlays becomes one `views/*.js` file
+and one line in `VIEWS`, which is what the registry existing was for.

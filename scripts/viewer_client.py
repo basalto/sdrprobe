@@ -69,9 +69,17 @@ OPCODE_CLOSE = 0x8
 OPCODE_PING = 0x9
 OPCODE_PONG = 0xA
 
-MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall"}
+MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall", 3: "survey_spectrum"}
 
-ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health")
+# survey_spectrum and survey_state (ticket 07) were missing here until
+# ticket 14 needed to subscribe to them for a bench-serve comparison and
+# found `--subscribe survey_spectrum` refused as an "unknown stream" --
+# this script's own copy of the stream list had not been touched since
+# before those two existed. `decode_binary()`'s header offsets below
+# needed the same catch-up (viewer_link.h's own comment on
+# VIEWER_MESSAGE_SURVEY_SPECTRUM is what they are transcribed from).
+ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
+               "survey_spectrum", "survey_state")
 
 
 class ViewerClient:
@@ -206,26 +214,41 @@ class ViewerClient:
 
 def decode_binary(payload):
     """The wire format viewer_link.h documents: version, type, reserved,
-    tuning_generation, timestamp_ms, bins, then `bins` or `2*bins` float32,
-    all little-endian. Returns a dict; raises on a payload too short for
-    its own declared header, which a version mismatch would produce."""
+    tuning_generation, timestamp_ms, bins, then the type's own arrays, all
+    little-endian. Returns a dict; raises on a payload too short for its
+    own declared header, which a version mismatch would produce.
+
+    Type 3 (survey_spectrum, ticket 07) has a wider header than the other
+    two -- `lower_hz`/`upper_hz` at offsets 20/24 before the one float32
+    array, rather than starting the array at 20 -- because a bin index
+    means nothing without the range it was swept over beside it
+    (viewer_link.h's own comment on VIEWER_MESSAGE_SURVEY_SPECTRUM)."""
     if len(payload) < 20:
         raise ValueError(f"binary message too short: {len(payload)} bytes")
     version, mtype = payload[0], payload[1]
     generation, timestamp_ms, bins = struct.unpack_from("<IQI", payload, 4)
-    arrays_bytes = len(payload) - 20
-    array_count = 2 if mtype == 1 else 1
+    lower_hz = upper_hz = None
+    if mtype == 3:
+        header_len = 28
+        array_count = 1
+        if len(payload) < header_len:
+            raise ValueError(f"binary message too short: {len(payload)} bytes")
+        lower_hz, upper_hz = struct.unpack_from("<II", payload, 20)
+    else:
+        header_len = 20
+        array_count = 2 if mtype == 1 else 1
+    arrays_bytes = len(payload) - header_len
     expected = bins * 4 * array_count
     if arrays_bytes != expected:
         raise ValueError(
             f"type {mtype} declares {bins} bins ({expected} bytes) but "
             f"carries {arrays_bytes}")
     arrays = []
-    offset = 20
+    offset = header_len
     for _ in range(array_count):
         arrays.append(struct.unpack_from(f"<{bins}f", payload, offset))
         offset += bins * 4
-    return {
+    result = {
         "stream": MESSAGE_TYPE_NAMES.get(mtype, f"type{mtype}"),
         "version": version,
         "tuning_generation": generation,
@@ -233,6 +256,10 @@ def decode_binary(payload):
         "bins": bins,
         "arrays": arrays,
     }
+    if mtype == 3:
+        result["lower_hz"] = lower_hz
+        result["upper_hz"] = upper_hz
+    return result
 
 
 def run_print(client, count):
@@ -255,6 +282,10 @@ def run_print(client, count):
             elif state.get("type") == "command_result":
                 print(f"command_result  command={state['command']!r} "
                      f"ok={state['ok']} error={state['error']}")
+            elif state.get("type") == "survey_state":
+                print(f"survey_state    status={state['status']!r} "
+                     f"candidates={state['candidate_count']} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
             else:
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "
                      f"rate={state['sample_rate_hz'] / 1e6:.3f} MS/s "

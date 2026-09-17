@@ -1,34 +1,68 @@
-// The shell: the socket, reconnect, ADR-0027's generation rule, the
-// subscription line, tab routing and the Health panel. Composes the
-// pieces in lib/, wire.js and views/*.js; draws nothing itself.
+// The shell (ticket 14, Phase 3): the socket, reconnect, ADR-0027's
+// generation rule, the subscription -- now following whichever view is
+// active -- tab routing through a registry, and the Health panel.
+// Composes `VIEWS`; draws nothing itself.
 const hud = document.getElementById('hud');
 const health = document.getElementById('health');
-const panelScope = document.getElementById('panel-scope');
-const panelSurvey = document.getElementById('panel-survey');
-const tabScope = document.getElementById('tab-scope');
-const tabSurvey = document.getElementById('tab-survey');
 
+// The registry. Ticket 07's remaining views each add one entry here and
+// one file under web/views/ -- no other file, and no other change to
+// this one.
+const VIEWS = [ScopeView, SurveyView];
+
+let activeView = null;
 let latestGeneration = 0; // the newest tuning_generation receiver_state has named
 let sent = 0, dropped = 0; // this Viewer's own count of what it drew vs discarded
 let ws = null; // module-scope so the tab buttons can send on it
 
-// Ticket 07: which tab is showing, and which the server has confirmed.
-// The click switches the panel at once -- a browser waiting a round
-// trip to redraw a button press reads as broken -- and `receiver_state`
-// corrects it afterwards if the two ever disagree (another Viewer
-// switching it, or this page reconnecting mid-session with no `view`
-// of its own yet sent). 0 is TAB_SURVEY, 1 is TAB_SCOPE
-// (input_route.h's enum active_tab), matched here rather than
-// reinvented, since receiver_state.tab is that enum's own int.
-function showTab(tab) {
-  const survey = tab === 0;
-  panelScope.hidden = survey;
-  panelSurvey.hidden = !survey;
-  tabScope.classList.toggle('active', !survey);
-  tabSurvey.classList.toggle('active', survey);
+function viewForTab(tab) {
+  return VIEWS.find((v) => v.tab === tab) || VIEWS[0];
 }
-tabScope.onclick = () => { showTab(1); if (ws) ws.send('view scope'); };
-tabSurvey.onclick = () => { showTab(0); if (ws) ws.send('view survey'); };
+
+// Builds the tab bar and every view's panel from the registry, once, at
+// load. A view exports `markup` and `label`; this is the only place that
+// reads either.
+function mountViews() {
+  const tabs = document.getElementById('tabs');
+  const panels = document.getElementById('panels');
+  tabs.innerHTML = VIEWS.map((v) => '<button id="tab-' + v.id + '">' + v.label + '</button>').join('');
+  panels.innerHTML = VIEWS.map((v) => '<div id="panel-' + v.id + '" hidden>' + v.markup + '</div>').join('');
+  VIEWS.forEach((v) => {
+    document.getElementById('tab-' + v.id).onclick = () => selectView(v, true);
+  });
+}
+
+// Ticket 07: which view is showing, and which the server has confirmed.
+// The click switches the panel at once -- a browser waiting a round trip
+// to redraw a button press reads as broken -- and `receiver_state`
+// corrects it afterwards if the two ever disagree (another Viewer
+// switching it, or this page reconnecting mid-session with no `view` of
+// its own yet sent).
+//
+// Ticket 14 Phase 3: a change of view also rebuilds the subscribe line,
+// which is the point of the registry existing at all -- the server
+// should send only what whichever view is showing actually draws.
+function selectView(view, sendCommand) {
+  const changed = view !== activeView;
+  activeView = view;
+  VIEWS.forEach((v) => {
+    document.getElementById('panel-' + v.id).hidden = (v !== view);
+    document.getElementById('tab-' + v.id).classList.toggle('active', v === view);
+  });
+  if (sendCommand && ws) ws.send('view ' + view.id);
+  if (changed) subscribeToActiveView();
+}
+
+// receiver_state and link_health are the shell's own concern, not a
+// view's -- both always asked for regardless of which view shows;
+// everything else in the line is whichever view is active right now.
+function subscribeToActiveView() {
+  if (!ws) return;
+  ws.send('subscribe receiver_state link_health ' + activeView.streams.join(' '));
+}
+
+mountViews();
+selectView(ScopeView, false); // this page's own default, unchanged by the registry
 
 // Ticket 08's Health panel: what this page can measure about itself
 // (received bytes/sec, its own JS busy time), rolled up once a second
@@ -49,7 +83,7 @@ function connect() {
   ws = new WebSocket('ws://' + location.host + '/viewer');
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
-    ws.send('subscribe spectrum waterfall receiver_state link_health survey_spectrum survey_state');
+    subscribeToActiveView();
     hud.textContent = 'connected, awaiting receiver state...';
   };
   ws.onclose = () => { hud.textContent = 'disconnected -- retrying...'; setTimeout(connect, 1000); };
@@ -66,9 +100,7 @@ function connect() {
       if (msg.kind === 'stale') { dropped++; return; } // ADR-0027
       if (msg.kind === 'state') { handleState(msg.state); return; }
       sent++;
-      if (msg.kind === 'spectrum') drawSpectrum(msg.average, msg.peak); // views/scope.js
-      else if (msg.kind === 'waterfall_row') drawWaterfall(msg.row); // views/scope.js
-      else if (msg.kind === 'survey_spectrum') drawSurveyChart(msg.lowerHz, msg.upperHz, msg.power); // views/survey.js
+      activeView.render(msg); // ticket 14 Phase 3: the registry dispatches
     } finally {
       busyMs += performance.now() - t0;
     }
@@ -83,16 +115,22 @@ function handleState(state) {
   // the panel, and spending less time here is less time not reading
   // the socket, which is less backpressure this page itself causes.
   if (state.type === 'link_health') { lastHealth = state; return; }
-  if (state.type === 'survey_state') { renderSurveyState(state); return; } // views/survey.js
-  if (state.type !== 'receiver_state') return;
-  latestGeneration = state.tuning_generation;
-  showTab(state.tab); // corrects a click sent before the server answered,
-                      // and reflects another Viewer's own switch
-  hud.innerHTML = 'center ' + (state.center_hz / 1e6).toFixed(6) + ' MHz &nbsp; '
-    + 'rate ' + (state.sample_rate_hz / 1e6).toFixed(3) + ' MS/s &nbsp; '
-    + 'ppm ' + state.ppm + ' &nbsp; '
-    + 'generation ' + state.tuning_generation + ' &nbsp; '
-    + 'drawn ' + sent + ' declined ' + dropped;
+  if (state.type === 'receiver_state') {
+    latestGeneration = state.tuning_generation;
+    selectView(viewForTab(state.tab), false); // corrects a click sent before the
+                                              // server answered, and reflects
+                                              // another Viewer's own switch
+    hud.innerHTML = 'center ' + (state.center_hz / 1e6).toFixed(6) + ' MHz &nbsp; '
+      + 'rate ' + (state.sample_rate_hz / 1e6).toFixed(3) + ' MS/s &nbsp; '
+      + 'ppm ' + state.ppm + ' &nbsp; '
+      + 'generation ' + state.tuning_generation + ' &nbsp; '
+      + 'drawn ' + sent + ' declined ' + dropped;
+    return;
+  }
+  // Anything else is a view's own state (survey_state today) -- the
+  // shell does not know its shape, only that whichever view subscribed
+  // to the stream it arrived on is the one that should read it.
+  activeView.render({ kind: 'state', state });
 }
 
 // Per-stream sent/dropped/high-water are the server's own facts about

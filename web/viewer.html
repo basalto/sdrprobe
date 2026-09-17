@@ -22,26 +22,13 @@
   .mark-contested { color:#ff6864; }
 </style>
 <h1>sdrprobe -- live Viewer</h1>
-<div id="tabs">
-  <button id="tab-scope" class="active">Scope</button>
-  <button id="tab-survey">Survey</button>
-</div>
+<!-- Ticket 14, Phase 3: the tab bar and every panel are built from
+     web/views/*.js's own registry (`VIEWS` in viewer.js), not written
+     out here -- adding a view touches views/ and the registry line, not
+     this file. -->
+<div id="tabs"></div>
 <div id="hud">connecting...</div>
-<div id="panel-scope">
-  <div class="label">spectrum (average: cyan, peak hold: orange)</div>
-  <canvas id="spectrum" width="900" height="260"></canvas>
-  <div class="label">waterfall (built from rows in this browser; never re-sent)</div>
-  <canvas id="waterfall" width="900" height="200"></canvas>
-</div>
-<div id="panel-survey" hidden>
-  <div class="label" id="survey-status">no sweep yet</div>
-  <canvas id="survey-chart" width="900" height="260"></canvas>
-  <div class="label">candidates (<span id="survey-count">0</span>)</div>
-  <table>
-    <thead><tr><th></th><th>frequency</th><th>level</th><th>width</th><th>shape</th></tr></thead>
-    <tbody id="survey-rows"></tbody>
-  </table>
-</div>
+<div id="panels"></div>
 <div class="label">link health</div>
 <div id="health">awaiting link_health...</div>
 <script>
