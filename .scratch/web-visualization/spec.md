@@ -56,7 +56,10 @@ measured wrong.
 - **Nobody can look at the browser page.** `make screens` is raylib-shaped to
   its foundations -- `--screenshot` dumps this process's last frame -- so the
   one surface this project added has no equivalent of the rule every other
-  drawing here is held to. Ticket 11.
+  drawing here is held to. Ticket 11, which depends on ticket 13.
+- **The page is a C string literal**, 307 hand-escaped lines of HTML, CSS and
+  JavaScript in `src/viewer_page.h`. Nobody can comfortably edit it and no
+  check can read it without extracting it first. Ticket 13.
 
 ## Tickets
 
@@ -72,3 +75,4 @@ measured wrong.
 10. `issues/10-a-metadata-subscriber-spins-the-serve-loop.md`
 11. `issues/11-looking-at-the-browser-page.md`
 12. `issues/12-three-faults-with-no-check-behind-them.md`
+13. `issues/13-the-page-as-files-rather-than-a-c-string.md`

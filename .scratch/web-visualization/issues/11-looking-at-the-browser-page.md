@@ -94,3 +94,58 @@ and a ticket naming the next four callers is that evidence.
 
 - Retiring `make screens` or the raylib screens. ADR-0027 keeps the window
   primary; this adds a second thing to look at, and takes nothing away.
+
+## Implementation notes -- what to take into account
+
+**Do ticket 13 first.** The page is 307 adjacent C string literals today, so
+(a)'s check would have to un-escape and extract its own subject before it
+could run it -- an untested extractor between the check and the thing checked.
+Ticket 13 makes `web/viewer.js` a file; this check then loads it. Attempting
+(a) first means writing the extractor and then deleting it.
+
+**For (a), the structural check.** What the scratch harness did, and what to
+rebuild properly: start `./sdrprobe --serve` on a port, open a WebSocket from
+Node, and run the page's own script under a minimal DOM shim -- stubs for
+`document.getElementById`, `canvas.getContext` (the 2d calls can be
+no-ops that count invocations), `performance.now`, `setInterval` and
+`WebSocket`. Then assert what the page *decided*: `panel-survey.hidden`
+follows `receiver_state.tab`, the status line matches what the server sent,
+the candidate row count matches `survey_state`, and a message stamped with an
+old `tuning_generation` is declined (ADR-0027's one rule this page exists to
+prove).
+
+Take into account:
+
+- **This needs a running server, so it is not a `-lm` unit.** Its natural
+  neighbour is `check-pipelines` -- the POSIX `sh` script that runs the built
+  binary and greps stdout -- rather than `CHECK_UNITS`. Decide which, and
+  whichever it is, put it in the list: `CLAUDE.md`'s `NOT GATED` audit exists
+  because `check-signal-probe` was green, picked up by `check-touched`, and
+  never run by the gate.
+- **It needs node.** Nothing in this build does today. A missing node must be
+  a **skip that says so**, the way `tests/pipelines.sh` guards its captures
+  with `have` -- *"reports a missing capture as a skip rather than silently
+  omitting coverage"*. A silent skip here is worse than no check.
+- **A capture, not the receiver.** `--serve` with `--file` gives a repeatable
+  spectrum; the survey half needs `--survey-range`, which now combines with
+  `--serve` (ticket 07) but sweeps only on a live receiver. So the survey
+  assertions may have to be driven by feeding `survey_state` directly rather
+  than by running a real sweep -- decide, and say which, because a check that
+  quietly needs a dongle is a check that does not run.
+
+**For (b), the picture.** Avenues not yet tried, in the order worth trying:
+`--virtual-time-budget` (Chromium's own answer to "render after the async
+work"), an explicit settle between page load and capture, and a headful
+capture under the compositor `scripts/screenshot.sh` already drives with
+`hyprctl`. Whatever works, the recipe must assert that **text** rendered, not
+just that a PNG was written -- the failure mode measured in ticket 07 is a
+perfectly valid PNG with the canvas drawn and every value blank.
+
+If none of them work, this ticket's honest outcome is to record that, and say
+that (a) is what the repository has -- the same shape as ADR-0022's amendment,
+where a promise that could not be kept was written down as not kept rather
+than left implied.
+
+**Sizing the screens recipe.** `scripts/screens.sh` takes width and height and
+all 21 recipes render at 1500x950. A browser recipe should match, so a web
+capture and a window capture of the same screen can be put side by side.

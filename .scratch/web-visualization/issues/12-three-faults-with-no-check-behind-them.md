@@ -157,3 +157,85 @@ the next stream reads that file to find the function they are about to call.
 - The browser page's own verification: ticket 11.
 - Ticket 09's subscription-driven computation. Gating a *publish* on fresh
   data is not the same question as not computing what nobody asked for.
+
+## Implementation notes -- where each piece goes
+
+Written out because this ticket will be picked up cold, and because two of
+the three touch files whose checks already exist and only need extending.
+
+**1. The negative elapsed.** Both functions are `static inline` in
+`src/survey_sweep.h` -- `survey_step_phase_at()` (line ~323) and
+`survey_measure_settled()` (~335). Check goes in `tests/survey_sweep_test.c`
+(`make check-survey-sweep`), which already links `-lm` alone and needs no new
+fixture: these take doubles and return an enum.
+
+The open decision, and it is the whole of the work: **what a negative elapsed
+should do.** Three candidates, none obviously right --
+
+- *Clamp to zero* -- simplest, and wrong: it turns the fault into a sweep that
+  merely starts its settle late, which is silent, which is how this one
+  survived 75 seconds.
+- *Return a new `SURVEY_STEP_IMPOSSIBLE`* -- honest, but every caller then has
+  a case to handle and most would handle it by ignoring the block, which is
+  `SETTLING` again by another name.
+- *Refuse loudly* -- `debug_log_write()` is not reachable from a header of
+  `static inline` functions with no state, and an `assert()` in a shipping
+  path is a decision this repository has not made anywhere else.
+
+Prefer whichever makes the *caller* say what it saw.
+`survey_session.c:521` is the one call site (`now - s->step_started_at`) and it
+has a session, a log and somewhere to put an error string -- so the likeliest
+answer is that the header exposes the predicate (`survey_elapsed_sane()`) and
+the *session* refuses, which keeps the header pure and puts the noise where
+something can hear it. Decide it in the ticket, not in the commit.
+
+**2. The publish predicate.** `viewer_session.c` already has the pattern to
+copy: `viewer_update_due()` (added by ticket 10, covered by
+`check-viewer-session`, `tests/viewer_session_test.c` -- today one report
+line, *"when a Viewer metadata update is due"*). Four streams decide inline in
+`viewer_session_run()` and two go through the predicate; the work is making
+that one and enumerating it over `VIEWER_STREAM_COUNT`.
+
+Take into account: the two families are **not** paced the same way and the
+predicate must not flatten them. `receiver_state`/`link_health` are paced on
+*time* (they change without a block arriving); `spectrum`/`waterfall_row`/
+`survey_spectrum`/`survey_state` are gated on *new data* (`spectrum_updated`).
+A single "is this due?" that ignores the difference would either spin the
+metadata streams or stall the data ones. One predicate, two reasons, both
+named.
+
+`make bench-serve` is the live confirmation. Idle `--serve` measured 9.8% CPU
+and 98.6% with a metadata subscriber before ticket 10; a stream added ungated
+shows up there immediately.
+
+**3. The two tables.** `stream_names[]` is `src/viewer_link.c:76`, declared
+`static const char *const stream_names[VIEWER_STREAM_COUNT]` -- sized by the
+enum, so a short initializer yields NULL entries rather than an overrun.
+Exposing it is one small public function (`viewer_link_stream_name()`),
+which is also what lets the debug-log summary and any future client share one
+spelling.
+
+`handle_subscribe_line()` is `src/viewer_link.c:267`. `tests/viewer_link_test.c`
+(`make check-viewer-link`) already connects over **real loopback sockets** with
+a from-scratch masking client, so the round trip is a loop over names, not new
+scaffolding.
+
+Take into account: **`VIEWER_STREAM_COMMAND_RESULT` is deliberately not
+subscribable** -- a command's answer goes to whoever sent the command -- so a
+blind loop over the enum would fail on a correct exemption. Pin it by name,
+with the reason, so the next stream that is exempt has to say why.
+
+**Both audits apply to anything added here**, and both are one line in
+`CLAUDE.md`: a new `check-*` rule that is not in `CHECK_UNITS` passes, is
+picked up by `check-touched`, and is never run by the gate or the pre-push
+hook; a new `src/*.h` not in `APP_HDR` means editing it does not rebuild the
+binary. Run both after, not before.
+
+## What "done" is not
+
+Not a fourth check that passes today because the bug is fixed. Each of these
+has to fail against the **reintroduced** fault -- revert the fix, watch the
+check go red, restore it. That is this repository's mutation discipline
+(`.claude/skills/check-claims`), and on this ticket it is the whole point:
+all three faults are already fixed, so a check written against the fixed code
+and never run against the broken code proves nothing at all.
