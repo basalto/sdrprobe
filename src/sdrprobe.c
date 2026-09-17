@@ -61,7 +61,7 @@ int stop_requested(void) {
     return signal_stop_requested != 0;
 }
 
-void set_tab(struct app *app, int new_tab);
+void set_tab(struct app *app, int new_tab, double now);
 static struct input_state input_state_now(const struct app *app);
 void set_decode(struct app *app, int kind);
 
@@ -940,7 +940,7 @@ static void draw_tab_bar(const struct app *app) {
 /* Switch tabs. The GSM decode view retunes the receiver, so leaving the Decode
    tab (while on the GSM view) restores tuning. Calibration is a separate global
    overlay (a button), not a tab, so tabs do not touch it. */
-void set_tab(struct app *app, int new_tab) {
+void set_tab(struct app *app, int new_tab, double now) {
     if (new_tab == (int)app->tab)
         return;
     if (app->tab == TAB_DECODE && app->decode == DECODE_GSM)
@@ -958,7 +958,7 @@ void set_tab(struct app *app, int new_tab) {
     app->set.open = 0;
     app->tab = new_tab;
     if (new_tab == TAB_SURVEY)
-        view_survey_enter(app);
+        view_survey_enter(app, now);
     if (new_tab == TAB_DECODE && app->decode == DECODE_GSM)
         enter_gsm(app);
     if (new_tab == TAB_DECODE && app->decode == DECODE_FM)
@@ -1247,7 +1247,7 @@ static void debug_log_frame_keys(const struct app *app,
 static int handle_tab_input(struct app *app) {
     for (int i = 0; i < TAB_COUNT; i++) {
         if (clicked(tab_rect(i))) {
-            set_tab(app, i);
+            set_tab(app, i, GetTime());
             return 1;
         }
     }
@@ -1453,11 +1453,11 @@ static int run_gui(struct app *app) {
        and immediately leave it again, retuning twice on the way to ADS-B. */
     switch (app->options.view) {
     case START_VIEW_MAGNITUDE: app->view = VIEW_MAGNITUDE;
-                               set_tab(app, TAB_SCOPE); break;
+                               set_tab(app, TAB_SCOPE, GetTime()); break;
     case START_VIEW_SPECTRUM:  app->view = VIEW_SPECTRUM;
-                               set_tab(app, TAB_SCOPE); break;
+                               set_tab(app, TAB_SCOPE, GetTime()); break;
     case START_VIEW_SCATTER:   app->view = VIEW_SCATTER;
-                               set_tab(app, TAB_SCOPE); break;
+                               set_tab(app, TAB_SCOPE, GetTime()); break;
     case START_VIEW_SURVEY:
         /*
          * Entered explicitly, not through set_tab.
@@ -1468,24 +1468,24 @@ static int run_gui(struct app *app) {
          * starting a sweep. Nothing failed: the window opened on the survey,
          * which is where it opens anyway, and the sweep simply never began.
          */
-        set_tab(app, TAB_SURVEY);
-        view_survey_enter(app);
+        set_tab(app, TAB_SURVEY, GetTime());
+        view_survey_enter(app, GetTime());
         app->survey.band_menu_open = app->options.survey_bands;
         if (app->options.survey_band > 0)
             survey_choose_band(app, app->options.survey_band);
         break;
     case START_VIEW_GSM:       set_decode(app, DECODE_GSM);
-                               set_tab(app, TAB_DECODE); break;
+                               set_tab(app, TAB_DECODE, GetTime()); break;
     case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB);
-                               set_tab(app, TAB_DECODE); break;
+                               set_tab(app, TAB_DECODE, GetTime()); break;
     case START_VIEW_FM:        set_decode(app, DECODE_FM);
-                               set_tab(app, TAB_DECODE); break;
+                               set_tab(app, TAB_DECODE, GetTime()); break;
     case START_VIEW_TETRA:     set_decode(app, DECODE_TETRA);
-                               set_tab(app, TAB_DECODE); break;
+                               set_tab(app, TAB_DECODE, GetTime()); break;
     case START_VIEW_SRD:       set_decode(app, DECODE_SRD);
-                               set_tab(app, TAB_DECODE); break;
+                               set_tab(app, TAB_DECODE, GetTime()); break;
     case START_VIEW_LTE:       set_decode(app, DECODE_LTE);
-                               set_tab(app, TAB_DECODE); break;
+                               set_tab(app, TAB_DECODE, GetTime()); break;
     case START_VIEW_CALIBRATION:
         open_calibration(app);
         /* --calibrate says which technology, so the overlay can be opened on
@@ -1531,12 +1531,12 @@ static int run_gui(struct app *app) {
     }
     if (app->options.fm_play) {
         set_decode(app, DECODE_FM);
-        set_tab(app, TAB_DECODE);
+        set_tab(app, TAB_DECODE, GetTime());
         fm_play(app);
     }
     if (app->options.fm_scan) {
         set_decode(app, DECODE_FM);
-        set_tab(app, TAB_DECODE);
+        set_tab(app, TAB_DECODE, GetTime());
         fm_scan_begin(app);
     }
     /*

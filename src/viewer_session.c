@@ -9,6 +9,7 @@
 #include "frame_advance.h"
 #include "process_cpu.h"
 #include "scope_view_model.h"
+#include "survey_view_model.h"
 #include "view.h"
 #include "viewer_link.h"
 
@@ -24,6 +25,28 @@
    recomputing a percentage every block would be noise wearing the shape
    of a measurement (ticket 08). The sent/dropped counts and high-water
    mark are still published every iteration, same as receiver_state. */
+
+/*
+ * The loop's own clock origin (`viewer_session_run()`'s `started`), so
+ * `viewer_session_handle_command()` -- called from inside
+ * `viewer_link_poll()`, not from the loop body -- can hand `survey_start()`
+ * a `now` on the *same* clock `update_survey()` ticks every iteration
+ * (`monotonic_seconds() - started`), rather than the raw, unrelated origin
+ * `monotonic_seconds()` alone reads from.
+ *
+ * This is not the `GetTime()`-before-`InitWindow()` fault the rest of this
+ * file's `now`-threading fixed -- `monotonic_seconds()` is always a real
+ * clock -- but it is the same *shape* of fault: two callers of one function
+ * disagreeing about what `now` means. Found live, not read: a scripted
+ * `view survey` retuned once and the sweep never advanced past its first
+ * step, because `s->step_started_at` was set from this handler's raw
+ * `monotonic_seconds()` (tens of thousands of seconds of host uptime) while
+ * every later tick measured elapsed time against the loop's small,
+ * relative-to-`started` `now` -- `now - step_started_at` was deeply
+ * negative and stayed that way, which `survey_step_phase_at()` reads as
+ * "still settling" forever.
+ */
+static double viewer_session_started_at;
 
 /*
  * Ticket 06's inbound half, wired to the same path every other retune
@@ -43,6 +66,23 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
             snprintf(error, error_cap, "%s", app->receiver_error);
             return -1;
         }
+        return 0;
+    case VIEWER_COMMAND_VIEW:
+        /*
+         * `set_tab()` is the same function every tab-bar click in the
+         * window goes through, not a headless shortcut around it --
+         * ticket 07's whole point is one seam, not a second one that
+         * happens to agree with the first today. `monotonic_seconds()`
+         * rather than a `now` threaded in from the caller: this handler
+         * runs from inside `viewer_link_poll()`, at a moment between
+         * blocks that frame_advance()'s own `now` does not reach, and
+         * unlike raylib's `GetTime()` -- which is what `set_tab()` used to
+         * call before ticket 07, and which is exactly `0.0` before
+         * `InitWindow()` -- this is a real, always-valid clock read.
+         */
+        set_tab(app, cmd->screen == VIEWER_SCREEN_SURVEY ? TAB_SURVEY
+                                                         : TAB_SCOPE,
+               monotonic_seconds() - viewer_session_started_at);
         return 0;
     default:
         snprintf(error, error_cap, "unimplemented command");
@@ -67,6 +107,8 @@ int viewer_session_run(struct app *app) {
        a stack local. */
     static struct viewer_link link;
     double started = monotonic_seconds();
+
+    viewer_session_started_at = started;
     int port = app->options.serve_port > 0 ? app->options.serve_port
                                            : VIEWER_SESSION_DEFAULT_PORT;
     int retuned = 0;
@@ -160,6 +202,7 @@ int viewer_session_run(struct app *app) {
         double now = monotonic_seconds() - started;
         int spectrum_updated;
         struct scope_view_model svm;
+        struct survey_view_model survey_svm;
         uint64_t now_ms;
 
         /*
@@ -183,6 +226,23 @@ int viewer_session_run(struct app *app) {
         if (spectrum_updated) {
             viewer_link_publish_spectrum(&link, &svm, now_ms);
             viewer_link_publish_waterfall_row(&link, &svm, now_ms);
+            /*
+             * Ticket 07's Survey tab, gated on the same signal and for the
+             * same reason spectrum/waterfall already are: `publish_*()`
+             * queues rather than sends, so publishing on every loop
+             * iteration -- rather than on every genuinely new block --
+             * is exactly ticket 10's spin, measured again here before this
+             * gate existed: **234216 survey_spectrum messages in 10
+             * seconds**, an unbounded loop rather than the 15.26/s a live
+             * receiver's own block rate would have capped it at. Building
+             * the view model inside the same gate, not just publishing it,
+             * because there is nothing new to build when no block arrived
+             * either.
+             */
+            survey_view_model_build(app, &survey_svm);
+            viewer_link_publish_survey_spectrum(&link, &survey_svm,
+                                                svm.tuning_generation, now_ms);
+            viewer_link_publish_survey_state(&link, &survey_svm, now_ms);
         }
         /*
          * Not gated on spectrum_updated -- the tuning can change (the retune

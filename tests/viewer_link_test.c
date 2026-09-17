@@ -1,6 +1,7 @@
 #include "check.h"
 
 #include "scope_view_model.h"
+#include "survey_view_model.h"
 #include "viewer_link.h"
 #include "websocket.h"
 
@@ -258,6 +259,170 @@ static struct scope_view_model a_view_model(void) {
     svm.tuning_generation = 1;
     svm.full_scale = 127.5f;
     return svm;
+}
+
+/*
+ * Ticket 07's Survey tab: a small swept range, a few candidates, and a
+ * status/sweeping pair distinct enough from each other and from the
+ * defaults that a wire test cannot pass by accident.
+ */
+static struct survey_view_model a_survey_view_model(void) {
+    static float power[8];
+    struct survey_view_model svm;
+    int i;
+
+    memset(&svm, 0, sizeof(svm));
+    for (i = 0; i < 8; i++)
+        power[i] = -60.0f - (float)i;
+    svm.sweeping = 1;
+    snprintf(svm.status, sizeof(svm.status),
+            "Sweeping 88.000 - 108.000 MHz in 13 steps");
+    svm.lower_hz = 88000000.0;
+    svm.upper_hz = 108000000.0;
+    svm.bins = 8;
+    memcpy(svm.power, power, sizeof(power));
+    svm.candidate_count = 1;
+    svm.candidates[0].hz = 103400000.0;
+    svm.candidates[0].power_dbfs = -12.5f;
+    svm.candidates[0].has_carrier = 1;
+    svm.candidates[0].width_hz = 150000.0;
+    svm.candidates[0].shape = SURVEY_SHAPE_MEDIUM;
+    svm.candidates[0].seen = SITE_SEEN_STEADY;
+    return svm;
+}
+
+static void test_survey_spectrum_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct survey_view_model svm = a_survey_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t generation, bins, lower_hz, upper_hz;
+    uint64_t timestamp_ms;
+    float first_power;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe survey_spectrum");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_survey_spectrum(&vlink, &svm, 7, 999);
+    client_pump(&tc, 10);
+
+    check_true("a survey_spectrum message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a binary frame", opcode, WEBSOCKET_OP_BINARY);
+    check_size("its length matches the wider survey header plus 8 bins",
+              len, 28 + 8 * 4);
+    check_int("the protocol version is 1", payload[0], 1);
+    check_int("the message type is survey_spectrum (3)", payload[1], 3);
+    memcpy(&generation, payload + 4, 4);
+    check_int("the tuning generation round-trips", (int)generation, 7);
+    memcpy(&timestamp_ms, payload + 8, 8);
+    check_int("the timestamp round-trips", (int)timestamp_ms, 999);
+    memcpy(&bins, payload + 16, 4);
+    check_int("bins round-trips", (int)bins, 8);
+    memcpy(&lower_hz, payload + 20, 4);
+    memcpy(&upper_hz, payload + 24, 4);
+    check_int("lower_hz round-trips", (int)lower_hz, 88000000);
+    check_int("upper_hz round-trips", (int)upper_hz, 108000000);
+    memcpy(&first_power, payload + 28, 4);
+    check_close("the first power bin matches what was published",
+               first_power, -60.0, 1e-6);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+/* A survey nobody has swept has zero bins, and zero bins publishes nothing
+   -- not a zero-length payload a client would have to special-case. */
+static void test_survey_spectrum_with_no_bins_publishes_nothing(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct survey_view_model svm = a_survey_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    svm.bins = 0;
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe survey_spectrum");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_survey_spectrum(&vlink, &svm, 1, 0);
+    client_pump(&tc, 10);
+
+    check_true("nothing arrived",
+              !client_next_frame(&tc, &opcode, &payload, &len));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_survey_state_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct survey_view_model svm = a_survey_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe survey_state");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_survey_state(&vlink, &svm, 500);
+    client_pump(&tc, 10);
+
+    check_true("a survey_state message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a text frame", opcode, WEBSOCKET_OP_TEXT);
+    check_true("carries its type", contains(payload, len,
+              "\"type\":\"survey_state\""));
+    check_true("carries sweeping", contains(payload, len,
+              "\"sweeping\":true"));
+    check_true("carries the status verbatim", contains(payload, len,
+              "Sweeping 88.000 - 108.000 MHz in 13 steps"));
+    check_true("carries the candidate count", contains(payload, len,
+              "\"candidate_count\":1"));
+    check_true("carries the candidate's frequency", contains(payload, len,
+              "\"hz\":103400000"));
+    check_true("carries its shape by name", contains(payload, len,
+              "\"shape\":\"medium\""));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_survey_streams_are_not_sent_when_unsubscribed(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct survey_view_model svm = a_survey_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe receiver_state");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_survey_spectrum(&vlink, &svm, 1, 0);
+    viewer_link_publish_survey_state(&vlink, &svm, 0);
+    client_pump(&tc, 10);
+
+    check_true("neither new stream reaches a client that did not ask",
+              !client_next_frame(&tc, &opcode, &payload, &len));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
 }
 
 static void test_plain_get_serves_the_page(void) {
@@ -925,5 +1090,9 @@ int main(void) {
     test_a_malformed_command_is_refused_without_calling_the_handler();
     test_a_command_with_no_handler_set_reports_why();
     test_commands_are_never_dropped_while_state_updates_are();
+    test_survey_spectrum_wire_format();
+    test_survey_spectrum_with_no_bins_publishes_nothing();
+    test_survey_state_wire_format();
+    test_survey_streams_are_not_sent_when_unsubscribed();
     return check_report("the Viewer link over real loopback sockets");
 }

@@ -45,6 +45,13 @@ struct app;
 struct scope_view_model {
     int have_samples;
 
+    /* Which top-level tab is active -- `enum active_tab`'s own int, not a
+       Viewer-side redefinition of it. Ticket 07: `view survey`/`view scope`
+       change `app->tab`, and a client that sent one has no other way to
+       learn whether it landed, or which tab a browser reconnecting mid-
+       session should show. */
+    int tab;
+
     /* The receiver's applied tuning, rate and ppm -- Probe language. */
     uint32_t center_hz;
     uint32_t sample_rate_hz;

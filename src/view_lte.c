@@ -1081,7 +1081,7 @@ void handle_lte_input(struct app *app) {
     int i;
 
     if (IsKeyPressed(KEY_ESCAPE)) {
-        set_tab(app, TAB_SCOPE);
+        set_tab(app, TAB_SCOPE, GetTime());
         return;
     }
     if (clicked(l.view_toggle)) {

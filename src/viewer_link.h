@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "scope_view_model.h"
+#include "survey_view_model.h"
 #include "viewer_command.h"
 #include "websocket.h"
 
@@ -71,8 +72,25 @@
 
 enum viewer_message_type {
     VIEWER_MESSAGE_SPECTRUM = 1,
-    VIEWER_MESSAGE_WATERFALL_ROW = 2
+    VIEWER_MESSAGE_WATERFALL_ROW = 2,
+    /* Ticket 07's survey chart: its own header (below) is 8 bytes wider
+       than the two above, carrying the swept range -- a survey's spectrum
+       has no fixed frequency grid the way the Scope's does, so a bin index
+       alone says nothing without it. */
+    VIEWER_MESSAGE_SURVEY_SPECTRUM = 3
 };
+
+/*
+ * `VIEWER_MESSAGE_SURVEY_SPECTRUM`'s own header, wider than
+ * `VIEWER_LINK_HEADER_BYTES` by the swept range: the first 20 bytes are
+ * identical to every other binary message (version, type, reserved,
+ * generation, timestamp, bins), followed by
+ *
+ *   offset 20  u32  lower_hz
+ *   offset 24  u32  upper_hz
+ *   offset 28  ...  payload: `bins` float32 power, dBFS
+ */
+#define VIEWER_SURVEY_HEADER_BYTES (VIEWER_LINK_HEADER_BYTES + 8)
 
 /* The largest a message this link ever sends can be: a spectrum at the
    widest transform the Scope's resolution stepper reaches
@@ -82,12 +100,27 @@ enum viewer_message_type {
 #define VIEWER_STREAM_MESSAGE_MAX \
     (VIEWER_LINK_HEADER_BYTES + 2 * SDR_DSP_FFT_MAX * (int)sizeof(float))
 
+/*
+ * `SURVEY_VIEW_MODEL_MAX_BINS` (`SURVEY_BINS`, 8192) floats plus the wider
+ * survey header -- smaller than `VIEWER_STREAM_MESSAGE_MAX` above with room
+ * to spare (one array against a spectrum's two, at half the bin cap), kept
+ * as its own constant so a future change to either does not silently resize
+ * the other's slot.
+ */
+#define VIEWER_SURVEY_MESSAGE_MAX \
+    (VIEWER_SURVEY_HEADER_BYTES + SURVEY_VIEW_MODEL_MAX_BINS * (int)sizeof(float))
+
 enum viewer_stream {
     VIEWER_STREAM_SPECTRUM = 0,
     VIEWER_STREAM_WATERFALL,
     VIEWER_STREAM_RECEIVER_STATE,
     VIEWER_STREAM_LINK_HEALTH,
     VIEWER_STREAM_COMMAND_RESULT,
+    /* Ticket 07: the Survey tab's own two streams, mirroring the Scope's
+       binary/JSON split -- the bulk float array binary, the small
+       structured state (status, sweeping, candidates) JSON. */
+    VIEWER_STREAM_SURVEY_SPECTRUM,
+    VIEWER_STREAM_SURVEY_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -227,6 +260,26 @@ void viewer_link_publish_waterfall_row(struct viewer_link *link,
 void viewer_link_publish_receiver_state(struct viewer_link *link,
                                         const struct scope_view_model *svm,
                                         uint64_t now_ms);
+
+/*
+ * Ticket 07's Survey tab, mirroring the pair above: the swept spectrum as a
+ * binary message with its own range-carrying header (`VIEWER_MESSAGE_SURVEY_SPECTRUM`),
+ * and the structured sweep state -- status, sweeping, candidates -- as one
+ * JSON message per subscribed client, the same reason `link_health` is one
+ * per client rather than encoded once: nothing else here is per-connection,
+ * but this has no reason to be if a second one ever needs a reason to
+ * differ.
+ *
+ * A caller with nobody subscribed to either stream should still call both,
+ * cheaply, on the same principle as the pair above.
+ */
+void viewer_link_publish_survey_spectrum(struct viewer_link *link,
+                                         const struct survey_view_model *svm,
+                                         uint32_t tuning_generation,
+                                         uint64_t now_ms);
+void viewer_link_publish_survey_state(struct viewer_link *link,
+                                      const struct survey_view_model *svm,
+                                      uint64_t now_ms);
 
 /*
  * Ticket 08's Health panel: what only the server knows about the link

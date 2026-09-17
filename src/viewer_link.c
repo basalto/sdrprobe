@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "sdrgui.h"
 #include "viewer_page.h"
 
 static int set_nonblocking(int fd) {
@@ -73,7 +74,8 @@ int viewer_link_open(struct viewer_link *link, uint16_t port) {
 }
 
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
-    "spectrum", "waterfall", "receiver_state", "link_health", "command_result"
+    "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
+    "survey_spectrum", "survey_state"
 };
 
 /*
@@ -291,11 +293,23 @@ static void handle_subscribe_line(struct viewer_client *c, const char *line,
             else if (tok_len == 11 &&
                     memcmp(line + start, "link_health", 11) == 0)
                 wanted[VIEWER_STREAM_LINK_HEALTH] = 1;
+            else if (tok_len == 15 &&
+                    memcmp(line + start, "survey_spectrum", 15) == 0)
+                wanted[VIEWER_STREAM_SURVEY_SPECTRUM] = 1;
+            else if (tok_len == 12 &&
+                    memcmp(line + start, "survey_state", 12) == 0)
+                wanted[VIEWER_STREAM_SURVEY_STATE] = 1;
         }
     }
     memcpy(c->subscribed, wanted, sizeof(wanted));
     if (debug_log_active()) {
-        char summary[64] = "";
+        /* Every stream name, space-separated, plus the terminator -- 90
+           bytes for all seven today. Sized generously rather than exactly:
+           this was 64 and silently truncated mid-word the moment ticket
+           07 added a sixth and seventh name, found live rather than
+           read -- a log line truncated is a log line lying about what a
+           client asked for, which is what this line exists to answer. */
+        char summary[160] = "";
         int s;
 
         for (s = 0; s < VIEWER_STREAM_COUNT; s++)
@@ -915,6 +929,146 @@ void viewer_link_publish_waterfall_row(struct viewer_link *link,
                    (uint32_t)svm->spectrum_bins, svm->waterfall_row, NULL);
 }
 
+/*
+ * Ticket 07's survey chart: the same binary framing every other stream
+ * uses, with the swept range spliced into the header because a survey's
+ * spectrum has no fixed frequency grid the way the Scope's does -- a bin
+ * index means nothing here without `lower_hz`/`upper_hz` beside it.
+ *
+ * A separate function from `publish_binary()` rather than a wider,
+ * optional header on it: the extra eight bytes exist for exactly one
+ * stream, and a parameter every other caller passes zero for is a
+ * question the reader of `viewer_link_publish_spectrum()` should not have
+ * to answer.
+ */
+void viewer_link_publish_survey_spectrum(struct viewer_link *link,
+                                         const struct survey_view_model *svm,
+                                         uint32_t tuning_generation,
+                                         uint64_t now_ms) {
+    uint8_t app_payload[VIEWER_SURVEY_MESSAGE_MAX];
+    uint8_t *p = app_payload;
+    size_t app_len;
+    int i;
+
+    if (svm->bins <= 0 || svm->bins > SURVEY_VIEW_MODEL_MAX_BINS)
+        return;
+
+    p[0] = VIEWER_LINK_PROTOCOL_VERSION;
+    p[1] = (uint8_t)VIEWER_MESSAGE_SURVEY_SPECTRUM;
+    p = put_u16le(p + 2, 0);
+    p = put_u32le(p, tuning_generation);
+    p = put_u64le(p, now_ms);
+    p = put_u32le(p, (uint32_t)svm->bins);
+    p = put_u32le(p, (uint32_t)svm->lower_hz);
+    p = put_u32le(p, (uint32_t)svm->upper_hz);
+    p = put_floats_le(p, svm->power, svm->bins);
+    app_len = (size_t)(p - app_payload);
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_SURVEY_SPECTRUM])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_SURVEY_SPECTRUM];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_BINARY, app_payload,
+                                          app_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
+/*
+ * Ticket 07's sweep status, alongside the chart above: what the window's
+ * own status line would say, whether a sweep is walking the range, and the
+ * candidate list -- each candidate's mark named the way `sdrgui.h` already
+ * names the four the chart draws (`sdrgui_survey_peak_mark()`), so a
+ * browser reads the same verdict the window's marks encode rather than
+ * reinterpreting the flag word itself.
+ *
+ * Built once and fanned out, like `receiver_state`: nothing here is
+ * per-connection.
+ */
+void viewer_link_publish_survey_state(struct viewer_link *link,
+                                      const struct survey_view_model *svm,
+                                      uint64_t now_ms) {
+    /* One candidate's JSON is at most about 110 bytes with a 200-byte
+       margin for the escaped status string and the wrapper; SURVEY_MAX_PEAKS
+       (512) of them comfortably inside 64 KiB. */
+    static char json[65536];
+    size_t len = 0;
+    char status_escaped[400];
+    int i;
+    int n = svm->candidate_count;
+
+    if (n < 0)
+        n = 0;
+    if (n > SURVEY_MAX_PEAKS)
+        n = SURVEY_MAX_PEAKS;
+
+    json_escape_into(status_escaped, sizeof(status_escaped), svm->status,
+                    strlen(svm->status));
+
+    len += (size_t)snprintf(json + len, sizeof(json) - len,
+                            "{\"type\":\"survey_state\","
+                            "\"timestamp_ms\":%llu,"
+                            "\"sweeping\":%s,"
+                            "\"status\":\"%s\","
+                            "\"lower_hz\":%.0f,\"upper_hz\":%.0f,"
+                            "\"candidate_count\":%d,\"candidates\":[",
+                            (unsigned long long)now_ms,
+                            svm->sweeping ? "true" : "false",
+                            status_escaped, svm->lower_hz, svm->upper_hz, n);
+    for (i = 0; i < n && len < sizeof(json) - 200; i++) {
+        const struct survey_candidate_view *cnd = &svm->candidates[i];
+
+        len += (size_t)snprintf(json + len, sizeof(json) - len,
+                                "%s{\"hz\":%.0f,\"power_dbfs\":%.1f,"
+                                "\"has_carrier\":%s,\"width_hz\":%.0f,"
+                                "\"shape\":\"%s\",\"seen\":%d,"
+                                "\"mark\":%d}",
+                                i == 0 ? "" : ",", cnd->hz,
+                                (double)cnd->power_dbfs,
+                                cnd->has_carrier ? "true" : "false",
+                                cnd->has_carrier ? cnd->width_hz : 0.0,
+                                cnd->has_carrier
+                                    ? survey_shape_name(cnd->shape) : "-",
+                                (int)cnd->seen,
+                                (int)sdrgui_survey_peak_mark(cnd->flags));
+    }
+    if (len < sizeof(json) - 2) {
+        json[len++] = ']';
+        json[len++] = '}';
+    }
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_SURVEY_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_SURVEY_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json, len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
 void viewer_link_publish_receiver_state(struct viewer_link *link,
                                         const struct scope_view_model *svm,
                                         uint64_t now_ms) {
@@ -923,12 +1077,14 @@ void viewer_link_publish_receiver_state(struct viewer_link *link,
     int i;
 
     json_len = snprintf(json, sizeof(json),
-                        "{\"type\":\"receiver_state\",\"center_hz\":%u,"
+                        "{\"type\":\"receiver_state\",\"tab\":%d,"
+                        "\"center_hz\":%u,"
                         "\"sample_rate_hz\":%u,\"ppm\":%d,"
                         "\"tuning_generation\":%u,\"full_scale\":%g,"
                         "\"timestamp_ms\":%llu}",
-                        svm->center_hz, svm->sample_rate_hz, svm->ppm,
-                        svm->tuning_generation, (double)svm->full_scale,
+                        svm->tab, svm->center_hz, svm->sample_rate_hz,
+                        svm->ppm, svm->tuning_generation,
+                        (double)svm->full_scale,
                         (unsigned long long)now_ms);
     if (json_len <= 0)
         return;

@@ -734,11 +734,24 @@ int parse_options(int argc, char **argv, struct options *options) {
        window that is not being opened has no screen to start on. */
     if (options->file_path && device_seen)
         return -1;
-    /* --survey-range names a range to sweep; on its own it also opens the
-       survey view, which needs a window. With --survey it is a range for the
-       headless sweep instead, and no view is implied. */
-    if (options->headless && (view_seen ||
-                              (options->survey_seen && !options->survey_report)))
+    /* A view named with no window and no Viewer link to draw it in either
+       -- `--headless --view X` -- has nowhere to go, whichever screen X
+       names; unaffected by --serve, which has its own reason to refuse a
+       named --view (below) rather than none at all. */
+    if (options->headless && view_seen)
+        return -1;
+    /*
+     * --survey-range names a range to sweep; on its own it also opens the
+     * survey view, which needs a window -- **unless the receiver is being
+     * served**, which reaches the same view through `view survey`
+     * (ticket 07's own command) and seeds its sweep from exactly this
+     * option the moment that tab is entered (`view_survey_enter()`, which
+     * has read it since before this ticket and never knew whether it was
+     * drawing for a window). With --survey it is a range for the headless
+     * sweep instead, and no view is implied either way.
+     */
+    if (options->headless && !options->serve && options->survey_seen &&
+        !options->survey_report)
         return -1;
     if (options->survey_seen && view_seen &&
         options->view != START_VIEW_SURVEY)
@@ -759,23 +772,41 @@ int parse_options(int argc, char **argv, struct options *options) {
                                options->decode || options->lte_scan_band))
         return -1;
     /*
-     * Serving is its own run too, chosen over the same headless modes
-     * `lte_chain` and `calibrate` already refuse to share -- one process,
-     * one stdout, one thing to be doing. And `viewer_session_run()` pins
-     * the Scope's own view (ADR-0027, ticket 05's "not in scope: any
-     * decode view"), so a request naming a different screen or arrangement
-     * is one this run cannot honour, which is worse silently accepted than
-     * refused. `--view` and `--screenshot` need no entry here: each already
-     * refuses alongside `--headless`, which `--serve` now implies, so there
-     * is nothing to duplicate. `--startup` is not in that list on purpose --
-     * checked rather than assumed: `--headless --startup` is a pre-existing,
-     * silent no-op (`startup_form_wanted()` declines it at runtime, not at
-     * parse time), unrelated to serving, and not this ticket's to change.
+     * Serving is its own run too, chosen over the same one-shot headless
+     * modes `lte_chain` and `calibrate` already refuse to share -- one
+     * process, one stdout, one thing to be doing. `--survey`
+     * (`survey_report`) is exactly that kind of one-shot run --
+     * `survey_report_run()` sweeps, prints and exits -- and stays refused
+     * here for the same reason.
+     *
+     * `--survey-range` and friends (`survey_seen`) are deliberately **not**
+     * in this list, and that is ticket 07, not an oversight: the Survey
+     * tab has its own view model and its own `view survey` Viewer command
+     * now, and `view_survey_enter()` already reads exactly these options to
+     * seed a sweep the moment that tab is entered -- windowed or not, since
+     * that function never knew which it was drawing for. A capture range
+     * combined with `--serve` was refused for as long as the tab it seeds
+     * was unreachable from a Viewer; it is not any more, and the check
+     * this repository asks for (ADR-0012, `does-it-help`) was: try it,
+     * live, and see whether the sweep it seeds actually runs.
+     *
+     * `--view` and `--screenshot` need no entry here: each already refuses
+     * alongside `--headless`, which `--serve` now implies. `--startup` is
+     * not in this list on purpose -- checked rather than assumed:
+     * `--headless --startup` is a pre-existing, silent no-op
+     * (`startup_form_wanted()` declines it at runtime, not at parse time),
+     * unrelated to serving.
      */
-    if (options->serve && (options->calibrate || options->survey_seen ||
+    if (options->serve && (options->calibrate || options->survey_report ||
                            options->decode || options->lte_scan_band ||
                            options->lte_chain))
         return -1;
+    /*
+     * `--analysis` stays refused: it names a decode view's charts-vs-log
+     * arrangement, and the Viewer link serves the Scope and the Survey, no
+     * decode view yet -- unlike the survey range above, nothing here reads
+     * this option at all, so there is no seam for it to reach through.
+     */
     if (options->serve && options->analysis)
         return -1;
 

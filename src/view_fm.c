@@ -917,7 +917,7 @@ void handle_fm_input(struct app *app) {
         if (app->fm.typing)
             app->fm.typing = 0;
         else
-            set_tab(app, TAB_SCOPE);
+            set_tab(app, TAB_SCOPE, GetTime());
         return;
     }
 

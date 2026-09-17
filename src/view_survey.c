@@ -41,13 +41,13 @@
  * touches.
  */
 
-static int survey_start(struct app *app);
+static int survey_start(struct app *app, double now);
 static void survey_keep_current(struct survey_view *s);
 static void survey_sweep_span(struct app *app, double from, double to);
 static int survey_sweep_target(const struct survey_view *s, double *from,
                                double *to);
 static void survey_history_refresh(struct app *app);
-static void survey_select(struct app *app, int index);
+static void survey_select(struct app *app, int index, double now);
 
 /* Back into the spelling the field takes, so a range given on the command
    line reads the way someone would have typed it. */
@@ -159,8 +159,18 @@ void survey_print_confirm_summary(const struct survey_session *ss) {
  * holds one and says when it changed, and only the program knows which
  * installation it belongs to (ADR-0022).
  */
+/*
+ * `now` is the caller's clock (`frame_advance.h`'s own rule): this used to
+ * call raylib's `GetTime()` itself, which is exactly `0.0` before
+ * `InitWindow()` -- confirmed, not assumed -- and every function in this
+ * file that reached it is one step from being called from the headless
+ * Viewer session, which never calls `InitWindow()` at all. Threaded through
+ * from here down to `survey_obey()`, `survey_select()`,
+ * `survey_confirm_if_asked()` and `survey_start()`.
+ */
 static void survey_obey(struct app *app,
-                        const struct survey_session_event *event) {
+                        const struct survey_session_event *event,
+                        double now) {
     struct survey_view *s = &app->survey;
     struct survey_session *ss = &s->session;
 
@@ -220,7 +230,7 @@ static void survey_obey(struct app *app,
             /* The settle starts when the tuner moved, not when it was asked
                to: a retune costs about a tenth of a second, which is the
                whole of the settle. */
-            survey_session_retuned(ss, GetTime());
+            survey_session_retuned(ss, now);
         } else {
             struct survey_session_event refusal;
 
@@ -736,7 +746,7 @@ void view_survey_defaults(struct app *app) {
 /* Remember the tuning to come back to: a sweep walks the receiver away from
    wherever the operator had it, and leaving the view should not strand them
    at 1766 MHz. */
-void view_survey_enter(struct app *app) {
+void view_survey_enter(struct app *app, double now) {
     struct survey_view *s = &app->survey;
 
     survey_load_installation(app);
@@ -759,7 +769,7 @@ void view_survey_enter(struct app *app) {
             s->dwell_length = (int)strlen(s->dwell);
         }
         app->options.survey_seen = 0;   /* only the first entry */
-        survey_start(app);
+        survey_start(app, now);
     }
 }
 
@@ -781,7 +791,7 @@ static void survey_clear(struct survey_view *s) {
     s->hover = -1;
 }
 
-static int survey_start(struct app *app) {
+static int survey_start(struct app *app, double now) {
     struct survey_view *s = &app->survey;
     struct survey_session *ss = &s->session;
     struct survey_session_event event;
@@ -809,7 +819,7 @@ static int survey_start(struct app *app) {
 
     if (survey_session_sweep(ss, (double)from_hz, (double)to_hz,
                              (double)app->applied.sample_rate_hz, dwell,
-                             GetTime(), &event) != SURVEY_PLAN_OK)
+                             now, &event) != SURVEY_PLAN_OK)
         return -1;
     /*
      * A watch asked for on the command line arms itself, which is the only
@@ -821,14 +831,14 @@ static int survey_start(struct app *app) {
         app->config.site[0]) {
         struct survey_session_event armed;
 
-        survey_session_watch(ss, 1, app->options.survey_watch, GetTime(),
+        survey_session_watch(ss, 1, app->options.survey_watch, now,
                              &armed);
     }
     /* The drawing follows the range that is about to be swept. */
     survey_clear(s);
     survey_reset_view(s);
-    view_survey_enter(app);
-    survey_obey(app, &event);
+    view_survey_enter(app, now);
+    survey_obey(app, &event, now);
     return survey_session_sweeping(ss) ? 0 : -1;
 }
 
@@ -845,7 +855,7 @@ static int survey_start(struct app *app) {
  * nothing for the rest of the run, which is what a transcript in
  * .scratch/phantom-candidates/ shows and nobody could read from it.
  */
-static void survey_confirm_if_asked(struct app *app) {
+static void survey_confirm_if_asked(struct app *app, double now) {
     struct survey_view *s = &app->survey;
     struct survey_session_event event;
 
@@ -853,10 +863,10 @@ static void survey_confirm_if_asked(struct app *app) {
         survey_session_confirming(&s->session))
         return;
     app->options.survey_confirm = 0;
-    if (survey_session_confirm_changes(&s->session, GetTime(), &event) > 0) {
+    if (survey_session_confirm_changes(&s->session, now, &event) > 0) {
         s->confirm_printed = 1;
         survey_print_confirm_header();
-        survey_obey(app, &event);
+        survey_obey(app, &event, now);
     } else {
         fprintf(stderr, "Nothing to ask again about: the sweep found nothing "
                         "this site has not heard before.\n");
@@ -960,7 +970,7 @@ static int survey_strongest_visible(const struct survey_view *s, int rank) {
    placed off centre on purpose: the receiver's own DC spike sits at the middle
    of the span, and a carrier measured on top of it would be measuring the
    receiver -- survey_session_measure() owns that offset. */
-static void survey_select(struct app *app, int index) {
+static void survey_select(struct app *app, int index, double now) {
     struct survey_view *s = &app->survey;
     struct survey_session *ss = &s->session;
     struct survey_session_event event;
@@ -988,8 +998,8 @@ static void survey_select(struct app *app, int index) {
                  hz / 1e6);
         return;
     }
-    survey_session_measure(ss, hz, GetTime(), &event);
-    survey_obey(app, &event);
+    survey_session_measure(ss, hz, now, &event);
+    survey_obey(app, &event, now);
 }
 
 /*
@@ -1017,12 +1027,13 @@ static void survey_follow_selection(struct app *app, Rectangle list) {
                                            row_list_rows(list, SURVEY_LIST_METRICS));
 }
 
-static void survey_walk_to(struct app *app, int rank, Rectangle list) {
+static void survey_walk_to(struct app *app, int rank, Rectangle list,
+                           double now) {
     int index = survey_nth_visible(&app->survey, rank);
 
     if (index < 0)
         return;
-    survey_select(app, index);
+    survey_select(app, index, now);
     survey_follow_selection(app, list);
 }
 
@@ -1036,9 +1047,9 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
     survey_session_tick(ss, &block, spectrum_updated, now, &event);
     if (was_sweeping && event.sweep_finished) {
         debug_log_write("survey", "sweep done, %d peaks", ss->peak_count);
-        survey_confirm_if_asked(app);
+        survey_confirm_if_asked(app, now);
     }
-    survey_obey(app, &event);
+    survey_obey(app, &event, now);
     /*
      * And a script may ask for a candidate to be selected and measured.
      *
@@ -1054,7 +1065,7 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
         int best = survey_strongest_visible(s, rank);
         app->options.survey_select = 0;
         if (best >= 0)
-            survey_select(app, best);
+            survey_select(app, best, now);
     }
 }
 
@@ -1098,7 +1109,7 @@ static void survey_sweep_span(struct app *app, double from, double to) {
     s->from_length = (int)strlen(s->from);
     survey_format_hz(s->to, sizeof(s->to), (uint32_t)llround(to));
     s->to_length = (int)strlen(s->to);
-    survey_start(app);
+    survey_start(app, GetTime());
 }
 
 void handle_survey_input(struct app *app) {
@@ -1180,7 +1191,7 @@ void handle_survey_input(struct app *app) {
             struct survey_session_event event;
 
             survey_session_confirm_abandon(ss, &event);
-            survey_obey(app, &event);
+            survey_obey(app, &event, GetTime());
         }
         return;
     }
@@ -1281,7 +1292,7 @@ void handle_survey_input(struct app *app) {
                 if (!app->config.site[0])
                     s->focus = 3;
             } else {
-                survey_obey(app, &event);
+                survey_obey(app, &event, GetTime());
             }
         }
         return;
@@ -1299,7 +1310,7 @@ void handle_survey_input(struct app *app) {
             snprintf(ss->status, sizeof(ss->status),
                      "Asking again needs a live receiver.");
         else if (survey_session_confirm_changes(ss, GetTime(), &event) > 0)
-            survey_obey(app, &event);
+            survey_obey(app, &event, GetTime());
         return;
     }
     if (clicked(l.save_button)) {
@@ -1329,7 +1340,7 @@ void handle_survey_input(struct app *app) {
             survey_keep_current(s);
             survey_sweep_span(app, from, to);
         } else {
-            survey_start(app);
+            survey_start(app, GetTime());
         }
         return;
     }
@@ -1337,7 +1348,7 @@ void handle_survey_input(struct app *app) {
         struct survey_session_event event;
 
         survey_session_stop(ss, &event);
-        survey_obey(app, &event);
+        survey_obey(app, &event, GetTime());
         return;
     }
 
@@ -1412,7 +1423,7 @@ void handle_survey_input(struct app *app) {
     if (visible > 0 &&
         (IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN))) {
         int rank = s->selected >= 0 ? survey_visible_rank(s, s->selected) : -1;
-        survey_walk_to(app, (rank + 1) % visible, l.peak_list);
+        survey_walk_to(app, (rank + 1) % visible, l.peak_list, GetTime());
         return;
     }
     if (visible > 0 &&
@@ -1420,7 +1431,7 @@ void handle_survey_input(struct app *app) {
         int rank = s->selected >= 0 ? survey_visible_rank(s, s->selected) : 0;
         if (rank <= 0)
             rank = visible;
-        survey_walk_to(app, rank - 1, l.peak_list);
+        survey_walk_to(app, rank - 1, l.peak_list, GetTime());
         return;
     }
 
@@ -1521,7 +1532,7 @@ void handle_survey_input(struct app *app) {
                 /* A chart peak can be any rank in the list -- the loudest
                    carrier in a band is often fortieth -- so the list follows
                    it rather than highlighting a row it never drew. */
-                survey_select(app, s->hover);
+                survey_select(app, s->hover, GetTime());
                 survey_follow_selection(app, l.peak_list);
             }
             return;
@@ -1535,7 +1546,7 @@ void handle_survey_input(struct app *app) {
                                       count, fits, mouse);
         int index = rank >= 0 ? survey_nth_visible(s, rank) : -1;
         if (index >= 0)
-            survey_select(app, index);
+            survey_select(app, index, GetTime());
         return;
     }
 
@@ -1604,7 +1615,7 @@ void handle_survey_input(struct app *app) {
          * asking for a restore.
          */
         app->view = VIEW_SPECTRUM;
-        set_tab(app, TAB_SCOPE);
+        set_tab(app, TAB_SCOPE, GetTime());
         return;
     }
 
@@ -1620,14 +1631,14 @@ void handle_survey_input(struct app *app) {
             int arfcn = gsm_arfcn_for_hz(ss->report.centre_hz);
             view_survey_leave(app);
             set_decode(app, DECODE_GSM);
-            set_tab(app, TAB_DECODE);
+            set_tab(app, TAB_DECODE, GetTime());
             if (arfcn > 0)
                 gsm_tune_selected(app, arfcn);
             app->gsm.analysis_mode = 1;
         } else if (decoder == BAND_PLAN_ADSB) {
             view_survey_leave(app);
             set_decode(app, DECODE_ADSB);
-            set_tab(app, TAB_DECODE);
+            set_tab(app, TAB_DECODE, GetTime());
             retune_receiver(app, DEFAULT_FREQUENCY, app->applied.ppm);
         } else if (decoder == BAND_PLAN_LTE) {
             /*
@@ -1646,7 +1657,7 @@ void handle_survey_input(struct app *app) {
             if (earfcn > 0 && lte_earfcn_downlink_hz((unsigned int)earfcn,
                                                      &centre) == 0)
                 retune_receiver(app, centre, app->applied.ppm);
-            set_tab(app, TAB_DECODE);
+            set_tab(app, TAB_DECODE, GetTime());
         } else if (decoder == BAND_PLAN_FM) {
             /*
              * Tuned, and deliberately no band scan.
@@ -1667,7 +1678,7 @@ void handle_survey_input(struct app *app) {
                      hz / 1e6);
             app->fm.frequency_length = (int)strlen(app->fm.frequency);
             fm_tune(app, hz);
-            set_tab(app, TAB_DECODE);
+            set_tab(app, TAB_DECODE, GetTime());
         }
     }
 }

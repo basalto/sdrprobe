@@ -153,6 +153,92 @@ static void test_error_is_truncated_to_fit_rather_than_overflowing(void) {
               tiny[sizeof(tiny) - 1] == '\0' || strlen(tiny) < sizeof(tiny));
 }
 
+/*
+ * Ticket 07's second command: "view scope" and "view survey", the same
+ * shape as "tune <hz>" but naming a screen instead of a value.
+ */
+static void test_a_valid_view_scope_line(void) {
+    struct viewer_command cmd;
+
+    check_int("view scope is accepted",
+             viewer_command_parse("view scope", 10, &cmd, NULL, 0), 0);
+    check_int("its type is VIEW", cmd.type, VIEWER_COMMAND_VIEW);
+    check_int("naming the Scope", cmd.screen, VIEWER_SCREEN_SCOPE);
+}
+
+static void test_a_valid_view_survey_line(void) {
+    struct viewer_command cmd;
+
+    check_int("view survey is accepted",
+             viewer_command_parse("view survey", 11, &cmd, NULL, 0), 0);
+    check_int("its type is VIEW", cmd.type, VIEWER_COMMAND_VIEW);
+    check_int("naming the Survey", cmd.screen, VIEWER_SCREEN_SURVEY);
+}
+
+static void test_view_tolerates_the_same_whitespace_tune_does(void) {
+    struct viewer_command cmd;
+    const char *leading = "   view survey";
+    const char *trailing = "view survey   \r\n";
+
+    check_int("leading whitespace before the command word",
+             viewer_command_parse(leading, strlen(leading), &cmd, NULL, 0), 0);
+    check_int("still reads Survey", cmd.screen, VIEWER_SCREEN_SURVEY);
+    check_int("trailing whitespace after the screen name",
+             viewer_command_parse(trailing, strlen(trailing), &cmd, NULL, 0),
+             0);
+    check_int("still reads Survey", cmd.screen, VIEWER_SCREEN_SURVEY);
+}
+
+static void test_view_with_no_screen_is_refused(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("view with nothing after it is refused",
+             viewer_command_parse("view", 4, &cmd, error, sizeof(error)), -1);
+    check_true("it says why", strstr(error, "screen") != NULL);
+}
+
+static void test_view_of_an_unrecognized_screen_is_refused(void) {
+    struct viewer_command cmd;
+    char error[64];
+    const char *line = "view lte";
+
+    check_int("a screen this link does not serve is refused",
+             viewer_command_parse(line, strlen(line), &cmd, error,
+                                  sizeof(error)),
+             -1);
+    check_true("it says why", strstr(error, "screen") != NULL);
+}
+
+static void test_view_with_a_trailing_field_is_refused(void) {
+    struct viewer_command cmd;
+    char error[64];
+    const char *line = "view survey now";
+
+    check_int("a third word is refused",
+             viewer_command_parse(line, strlen(line), &cmd, error,
+                                  sizeof(error)),
+             -1);
+    check_true("it says why", strstr(error, "trailing") != NULL);
+}
+
+/* Two commands, one parser, and each still refuses the word the other
+   command owns as a value/screen it does not recognise the other way --
+   tune does not accept a screen name, view does not accept a frequency. */
+static void test_the_two_commands_do_not_bleed_into_each_other(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("tune with a screen name where a number belongs is refused",
+             viewer_command_parse("tune survey", 11, &cmd, error,
+                                  sizeof(error)),
+             -1);
+    check_int("view with a frequency where a screen name belongs is refused",
+             viewer_command_parse("view 948400000", 14, &cmd, error,
+                                  sizeof(error)),
+             -1);
+}
+
 static void test_a_null_error_buffer_is_accepted(void) {
     struct viewer_command cmd;
 
@@ -174,6 +260,13 @@ int main(void) {
     test_out_of_range_value_is_refused();
     test_a_line_at_the_bound_is_refused();
     test_error_is_truncated_to_fit_rather_than_overflowing();
+    test_a_valid_view_scope_line();
+    test_a_valid_view_survey_line();
+    test_view_tolerates_the_same_whitespace_tune_does();
+    test_view_with_no_screen_is_refused();
+    test_view_of_an_unrecognized_screen_is_refused();
+    test_view_with_a_trailing_field_is_refused();
+    test_the_two_commands_do_not_bleed_into_each_other();
     test_a_null_error_buffer_is_accepted();
     return check_report("the Viewer command line parser");
 }

@@ -521,7 +521,7 @@ void draw_gsm(struct app *app) {
 
 void handle_gsm_input(struct app *app) {
     if (IsKeyPressed(KEY_ESCAPE)) {
-        set_tab(app, TAB_SCOPE);
+        set_tab(app, TAB_SCOPE, GetTime());
         return;
     }
     if (app->bandscan.running)

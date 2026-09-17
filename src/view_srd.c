@@ -260,7 +260,7 @@ void handle_srd_input(struct app *app) {
         } else if (s->typing) {
             s->typing = 0;
         } else {
-            set_tab(app, TAB_SCOPE);
+            set_tab(app, TAB_SCOPE, GetTime());
         }
         return;
     }

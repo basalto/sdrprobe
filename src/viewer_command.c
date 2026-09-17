@@ -47,6 +47,37 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
         set_error(error, error_cap, "malformed command");
         return -1;
     }
+    if (strcmp(word, "view") == 0) {
+        char screen[32];
+        int screen_consumed = 0;
+        size_t i;
+
+        value_start = buf + word_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%31s%n", screen, &screen_consumed) != 1) {
+            set_error(error, error_cap, "view requires a screen name");
+            return -1;
+        }
+        for (i = 0; value_start[screen_consumed + i] != '\0'; i++) {
+            if (!isspace((unsigned char)value_start[screen_consumed + i])) {
+                set_error(error, error_cap, "unexpected trailing field");
+                return -1;
+            }
+        }
+        if (strcmp(screen, "scope") == 0) {
+            out->type = VIEWER_COMMAND_VIEW;
+            out->screen = VIEWER_SCREEN_SCOPE;
+            return 0;
+        }
+        if (strcmp(screen, "survey") == 0) {
+            out->type = VIEWER_COMMAND_VIEW;
+            out->screen = VIEWER_SCREEN_SURVEY;
+            return 0;
+        }
+        set_error(error, error_cap, "unrecognized screen");
+        return -1;
+    }
     if (strcmp(word, "tune") != 0) {
         set_error(error, error_cap, "unrecognized command");
         return -1;

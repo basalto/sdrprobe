@@ -98,7 +98,7 @@ int survey_report_run(struct app *app);
 /* Read the broadcast block that follows this SCH burst, if this is the SCH a
    block follows. Returns 1 when a System Information message came out of it.
    src/view_gsm.c. */
-void set_tab(struct app *app, int new_tab);
+void set_tab(struct app *app, int new_tab, double now);
 void set_decode(struct app *app, int kind);
 void adjust_waterfall_scale(struct app *app, int zoom_in);
 int scan_strongest_arfcn(const struct app *app);
@@ -359,7 +359,7 @@ void adjust_active_scale(struct app *app, int zoom_in);
 /* Band survey (its own tab): sweep a range, find what stands above the local
    floor, and measure whichever candidate is selected. */
 void view_survey_defaults(struct app *app);
-void view_survey_enter(struct app *app);
+void view_survey_enter(struct app *app, double now);
 /* Point the range fields at the nth offerable band, 1-based. */
 int survey_choose_band(struct app *app, int nth);
 void view_survey_leave(struct app *app);

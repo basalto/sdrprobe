@@ -4,6 +4,7 @@
 #include "survey_suspect.h"
 #include "survey_view_model.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /*
@@ -242,6 +243,117 @@ static void test_seen_reads_the_matching_entry(void) {
               (int)svm.candidates[0].seen, (int)SITE_SEEN_STEADY);
 }
 
+/*
+ * The four fields ticket 07's own comment named as still missing on
+ * `survey_candidate_view`'s day: sweep status, sweeping, the range, and the
+ * power array. Each read straight off `struct survey_session`, the same
+ * source `draw_survey()` used to read directly.
+ */
+static void test_sweeping_mirrors_the_session_state(void) {
+    static struct app app;
+
+    zero_app(&app);
+    set_minimal_sweep(&app);
+    app.survey.session.state = SURVEY_SESSION_SWEEPING;
+
+    struct survey_view_model svm;
+    survey_view_model_build(&app, &svm);
+
+    check_int("sweeping is true while the session is",
+              svm.sweeping, 1);
+}
+
+static void test_idle_is_not_sweeping(void) {
+    static struct app app;
+
+    zero_app(&app);
+    set_minimal_sweep(&app);
+    app.survey.session.state = SURVEY_SESSION_IDLE;
+
+    struct survey_view_model svm;
+    survey_view_model_build(&app, &svm);
+
+    check_int("idle is not sweeping", svm.sweeping, 0);
+}
+
+static void test_status_is_copied_verbatim(void) {
+    static struct app app;
+
+    zero_app(&app);
+    set_minimal_sweep(&app);
+    snprintf(app.survey.session.status, sizeof(app.survey.session.status),
+            "Swept 88.000 - 108.000 MHz in 13 steps; 36 candidates found.");
+
+    struct survey_view_model svm;
+    survey_view_model_build(&app, &svm);
+
+    check_str("the window's own status line, unchanged", svm.status,
+             "Swept 88.000 - 108.000 MHz in 13 steps; 36 candidates found.");
+}
+
+static void test_the_swept_range_passes_through(void) {
+    static struct app app;
+
+    zero_app(&app);
+    set_minimal_sweep(&app);
+
+    struct survey_view_model svm;
+    survey_view_model_build(&app, &svm);
+
+    check_close("lower_hz", svm.lower_hz, 100e6, 1.0);
+    check_close("upper_hz", svm.upper_hz, 102e6, 1.0);
+}
+
+static void test_the_power_array_is_copied(void) {
+    static struct app app;
+    int i;
+
+    zero_app(&app);
+    set_minimal_sweep(&app);
+    for (i = 0; i < 200; i++)
+        app.survey.session.power[i] = -90.0f + (float)i * 0.1f;
+
+    struct survey_view_model svm;
+    survey_view_model_build(&app, &svm);
+
+    check_int("bins mirrors the session's own count", svm.bins, 200);
+    check_close("the first bin", (double)svm.power[0], -90.0, 1e-6);
+    check_close("a bin in the middle", (double)svm.power[100], -80.0, 1e-6);
+    check_close("the last bin filled", (double)svm.power[199], -70.1, 1e-3);
+}
+
+/* A survey nobody has swept yet -- SURVEY_BINS is 8192, and `bins` reads 0
+   before anything has measured, not garbage from an uninitialised power
+   array. Zero bins is the honest report: nothing has been measured. */
+static void test_nothing_swept_reads_zero_bins(void) {
+    static struct app app;
+
+    zero_app(&app);
+
+    struct survey_view_model svm;
+    survey_view_model_build(&app, &svm);
+
+    check_int("no bins reported", svm.bins, 0);
+    check_int("not sweeping", svm.sweeping, 0);
+}
+
+/* The cap this ticket added to protect a fixed-size wire message: `bins`
+   above SURVEY_VIEW_MODEL_MAX_BINS (== SURVEY_BINS, so this can only be
+   reached if the session's own field is ever widened past its buffer) is
+   clamped rather than overrunning `power[]`. */
+static void test_bins_past_the_cap_are_clamped(void) {
+    static struct app app;
+
+    zero_app(&app);
+    set_minimal_sweep(&app);
+    app.survey.session.bins = SURVEY_VIEW_MODEL_MAX_BINS + 1000;
+
+    struct survey_view_model svm;
+    survey_view_model_build(&app, &svm);
+
+    check_int("clamped to the cap", svm.bins, SURVEY_VIEW_MODEL_MAX_BINS);
+}
+
 int main(void) {
     test_candidate_count_mirrors_peak_count();
     test_hz_is_the_bin_centre();
@@ -253,6 +365,13 @@ int main(void) {
     test_seen_is_unknown_with_no_history_loaded();
     test_seen_new_with_no_matching_entry();
     test_seen_reads_the_matching_entry();
+    test_sweeping_mirrors_the_session_state();
+    test_idle_is_not_sweeping();
+    test_status_is_copied_verbatim();
+    test_the_swept_range_passes_through();
+    test_the_power_array_is_copied();
+    test_nothing_swept_reads_zero_bins();
+    test_bins_past_the_cap_are_clamped();
     return check_report(
         "the survey's candidate view model, built from known inputs");
 }

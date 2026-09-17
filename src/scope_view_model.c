@@ -9,6 +9,7 @@
 void scope_view_model_build(const struct app *app, struct scope_view_model *out) {
     memset(out, 0, sizeof(*out));
 
+    out->tab = (int)app->tab;
     out->have_samples = app->frame.have_samples;
 
     out->center_hz = app->applied.frequency_hz;

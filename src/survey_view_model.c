@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <stdio.h>
 #include <string.h>
 
 #include "survey_view_model.h"
@@ -59,6 +60,16 @@ void survey_view_model_build(const struct app *app,
     int i;
 
     memset(out, 0, sizeof(*out));
+
+    out->sweeping = survey_session_sweeping(ss);
+    snprintf(out->status, sizeof(out->status), "%s", ss->status);
+    out->lower_hz = ss->lower_hz;
+    out->upper_hz = ss->upper_hz;
+    out->bins = ss->bins;
+    if (out->bins > SURVEY_VIEW_MODEL_MAX_BINS)
+        out->bins = SURVEY_VIEW_MODEL_MAX_BINS;
+    if (out->bins > 0)
+        memcpy(out->power, ss->power, (size_t)out->bins * sizeof(*out->power));
 
     out->candidate_count = ss->peak_count;
     if (out->candidate_count > SURVEY_MAX_PEAKS)

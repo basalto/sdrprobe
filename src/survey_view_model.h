@@ -51,9 +51,42 @@ struct survey_candidate_view {
     enum site_seen seen;
 };
 
+/*
+ * Everything ticket 07's own comment names as still missing, on
+ * `survey_candidate_view`'s day: `ss->power`, `bins`, the sweep's step and
+ * status. **Not the drag/zoom window** -- that is an input-mapping concern
+ * (the chart's own frequency-to-pixel arithmetic under a narrowed view), and
+ * this ticket's browser reader has no drag to map yet; a faithful copy of
+ * the window's zoom state with nothing on the far end to use it would be
+ * exactly the "half a screen modelled" fault `CLAUDE.md` names about layout
+ * headers, moved to a view model instead.
+ *
+ * `power` is capped at `SURVEY_VIEW_MODEL_MAX_BINS` -- `SURVEY_BINS` itself,
+ * so nothing is ever truncated; the cap exists so a reader sizing a buffer
+ * from this header needs no other one.
+ */
+#define SURVEY_VIEW_MODEL_MAX_BINS SURVEY_BINS
+
 struct survey_view_model {
     struct survey_candidate_view candidates[SURVEY_MAX_PEAKS];
     int candidate_count;
+
+    /* Whether a sweep is currently walking the range below, and what the
+       window's own status line would say -- "sweeping...", "nothing found",
+       a count of candidates, a refusal. One string rather than the several
+       booleans a reader would otherwise have to recombine into the same
+       sentence the window already wrote. */
+    int sweeping;
+    char status[200];
+
+    /* The range actually swept, and its own spectrum -- power against
+       frequency, the chart's whole data. Zero bins and zero-valued bounds
+       before anything has ever swept, which is a fact rather than a
+       placeholder: nothing has been measured yet. */
+    double lower_hz;
+    double upper_hz;
+    int bins;
+    float power[SURVEY_VIEW_MODEL_MAX_BINS];
 };
 
 /*

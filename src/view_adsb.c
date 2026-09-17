@@ -200,7 +200,7 @@ void handle_adsb_input(struct app *app) {
     struct adsb_layout l = adsb_layout_now();
 
     if (IsKeyPressed(KEY_ESCAPE)) {
-        set_tab(app, TAB_SCOPE);
+        set_tab(app, TAB_SCOPE, GetTime());
         return;
     }
     if (clicked(l.view_toggle)) {

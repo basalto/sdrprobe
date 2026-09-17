@@ -1017,6 +1017,12 @@ static void test_the_command_word(void) {
                                      "20" };
     const char *serve_lte_chain[] = { "sdrprobe", "server", "--lte-chain",
                                       "--earfcn", "6200" };
+    /* Ticket 07: a range no longer refuses alongside a serving command --
+       it seeds the Survey tab's own sweep the moment `view survey` selects
+       it, through the same view_survey_enter() every windowed launch
+       already goes through. */
+    const char *serve_survey_range[] = { "sdrprobe", "server",
+                                         "--survey-range", "88M:108M" };
 
     check_int("no command reaches the window",
               parse_options(1, (char **)window, &options), 0);
@@ -1097,6 +1103,8 @@ static void test_the_command_word(void) {
                parse_options(6, (char **)serve_calibrate, &options) < 0);
     check_true("a headless survey",
                parse_options(3, (char **)serve_survey, &options) < 0);
+    check_int("but a survey range is not that survey -- it seeds the tab",
+              parse_options(4, (char **)serve_survey_range, &options), 0);
     check_true("a headless decode",
                parse_options(5, (char **)serve_decode, &options) < 0);
     check_true("an LTE band scan",
