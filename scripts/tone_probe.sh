@@ -41,7 +41,7 @@ HI=$(( FREQ + SPAN / 2 ))
 
 [ "$APPLIED" = "$PPM" ] && PPMARG="" || PPMARG="--ppm $APPLIED"
 
-OUT=$(./sdrprobe --headless $PPMARG --survey \
+OUT=$(./sdrprobe headless $PPMARG --survey \
         --survey-range "${LO}:${HI}" --survey-dwell "$DWELL" 2>/dev/null \
         | grep '^candidate' || true)
 

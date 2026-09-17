@@ -276,7 +276,7 @@ static void test_stop_wakes_a_waiting_publisher(void) {
  * handoff on: every byte of the file must arrive exactly once, in order, and
  * the worker must report a clean end rather than an error.
  *
- * This is the path `--file ... --headless --decode --once` takes, and the
+ * This is the path `--file ... headless --decode --once` takes, and the
  * reason a capture decodes the same messages every run.
  */
 static void test_file_worker_reads_a_capture_whole(void) {

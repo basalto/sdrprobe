@@ -54,7 +54,7 @@ Concretely, three layers, in the order they should be reached for:
 
 2. **Headless pipelines.** Whole paths that genuinely need acquisition,
    decoding or the receiver are driven through the command line and assert on
-   machine-readable output: `--headless --decode --once` over a capture,
+   machine-readable output: `headless --decode --once` over a capture,
    `--record-seconds` with its sidecar, `--survey-range`. These prove that the
    units are wired together correctly, which unit checks by construction
    cannot. They are slower and fewer.
@@ -89,7 +89,7 @@ recording because they will be proposed again:
   and test the wrapper rather than the function. Direct unit checks are faster,
   sharper, and closer to the code. The CLI earns its place at layer 2, where
   the thing being tested genuinely *is* the assembled program — and there it
-  should keep growing, because an agent driving `--headless --decode --once`
+  should keep growing, because an agent driving `headless --decode --once`
   and reading stdout is the cheapest end-to-end verification available.
 
 ## Consequences

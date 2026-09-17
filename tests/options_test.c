@@ -2,7 +2,9 @@
 #include "gsm_dsp.h"
 #include "options.h"
 
+#include <arpa/inet.h>
 #include <math.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -157,12 +159,12 @@ static void test_conflicting_flags(void) {
     rejects("--file testfiles/adsb_modes1.bin --gain 30");
     rejects("--file testfiles/adsb_modes1.bin --device 1");
     /* A screen has no meaning without a window. */
-    rejects("--headless --view adsb");
-    rejects("--headless --survey-range 88M:108M");
+    rejects("headless --view adsb");
+    rejects("headless --survey-range 88M:108M");
     /* Decoding needs a window-free run and something to decode. */
     rejects("--decode");
     rejects("--decode --technology adsb");
-    rejects("--headless --decode");
+    rejects("headless --decode");
     /* An ARFCN is a frequency; naming both leaves no way to say which wins. */
     rejects("--arfcn 73 --frequency 900M");
     rejects("--earfcn 6200 --frequency 796M");
@@ -175,18 +177,18 @@ static void test_conflicting_flags(void) {
     rejects("--technology lte --sample-rate 2400000");
     /* A band scan walks the band; a decode reads one tuning; a survey prints
        its own list. No two of them share a stdout or a receiver. */
-    rejects("--lte-scan 20");                       /* needs --headless */
-    rejects("--lte-scan 20 --headless --decode");
-    rejects("--lte-scan 20 --headless --survey --survey-range 791M:821M");
-    rejects("--lte-scan 20 --headless --earfcn 6200");
-    rejects("--lte-scan 20 --headless --file testfiles/lte_b20_pci28.bin");
-    rejects("--lte-scan 3 --headless");             /* out of a dongle's reach */
-    rejects("--lte-scan 0 --headless");
-    rejects("--lte-scan 20 --headless --technology gsm");
+    rejects("--lte-scan 20");                       /* needs headless */
+    rejects("headless --lte-scan 20 --decode");
+    rejects("headless --lte-scan 20 --survey --survey-range 791M:821M");
+    rejects("headless --lte-scan 20 --earfcn 6200");
+    rejects("headless --lte-scan 20 --file testfiles/lte_b20_pci28.bin");
+    rejects("headless --lte-scan 3");             /* out of a dongle's reach */
+    rejects("headless --lte-scan 0");
+    rejects("headless --lte-scan 20 --technology gsm");
     /* A picture of a frame needs a frame, and a run that never ends never
        takes one -- which would read as a hang rather than a refusal. */
     rejects("--screenshot shot.png");
-    rejects("--screenshot shot.png --headless --duration 5");
+    rejects("headless --screenshot shot.png --duration 5");
     rejects("--view lte --screenshot");
     rejects("--arfcn 73 --technology adsb");
     rejects("--arfcn 0");
@@ -199,7 +201,11 @@ static void test_conflicting_flags(void) {
     rejects("--survey-range 88M:");
     /* Repeats are a typo, not an override. */
     rejects("--frequency 100M --frequency 200M");
-    rejects("--headless --headless");
+    /* A command word is recognised only at argv[1] (headless/server/web
+       have no flag of their own any more to repeat) -- a second bare word
+       afterwards is just an unrecognised argument, the same as any other
+       word that is not a `--flag`. */
+    rejects("headless headless");
     /* Values that are missing entirely. */
     rejects("--frequency");
     rejects("--survey-dwell");
@@ -207,33 +213,33 @@ static void test_conflicting_flags(void) {
 
     /* A headless survey prints candidates; the rules around it. */
     rejects("--survey");                       /* needs a window-free run */
-    rejects("--headless --survey");            /* nothing said about what */
-    rejects("--headless --survey --decode --technology adsb");
-    rejects("--headless --survey --survey --survey-range 88M:108M");
+    rejects("headless --survey");              /* nothing said about what */
+    rejects("headless --survey --decode --technology adsb");
+    rejects("headless --survey --survey --survey-range 88M:108M");
     /* A capture holds one tuning, so its own span is the only range there
        is; naming another would be asking it for samples it does not hold. */
-    rejects("--file testfiles/gsm_arfcn_69.bin --headless --survey"
+    rejects("headless --file testfiles/gsm_arfcn_69.bin --survey"
             " --survey-range 88M:108M");
     /* Without --survey, a range still means the survey view, which needs a
        window. */
-    rejects("--headless --survey-range 88M:108M");
+    rejects("headless --survey-range 88M:108M");
 
     /* And the combinations that must keep working. */
-    accepts("--headless --survey --survey-range 88M:108M");
-    accepts("--headless --survey --survey-range 470M:690M --survey-dwell 0.5");
-    accepts("--file testfiles/gsm_arfcn_69.bin --frequency 948.4M --headless"
+    accepts("headless --survey --survey-range 88M:108M");
+    accepts("headless --survey --survey-range 470M:690M --survey-dwell 0.5");
+    accepts("headless --file testfiles/gsm_arfcn_69.bin --frequency 948.4M"
             " --survey --once");
-    accepts("--headless --record-seconds 3 --technology adsb");
-    accepts("--file testfiles/adsb_cpr_pair.bin --headless --technology adsb"
+    accepts("headless --record-seconds 3 --technology adsb");
+    accepts("headless --file testfiles/adsb_cpr_pair.bin --technology adsb"
             " --decode --once");
-    accepts("--arfcn 73 --decode --headless --gsm-features none");
-    accepts("--earfcn 6200 --decode --headless --once "
+    accepts("headless --arfcn 73 --decode --gsm-features none");
+    accepts("headless --earfcn 6200 --decode --once "
             "--file testfiles/lte_b20_pci28.bin");
     accepts("--earfcn 6200 --sample-rate 1920000");
-    accepts("--lte-scan 20 --headless");
+    accepts("headless --lte-scan 20");
     accepts("--view spectrum --duration 5 --screenshot shot.png");
-    accepts("--lte-scan 28 --headless --gain max");
-    accepts("--technology lte --headless --record-seconds 2");
+    accepts("headless --lte-scan 28 --gain max");
+    accepts("headless --technology lte --record-seconds 2");
     accepts("--survey-range 88M:108M --survey-dwell 0.5");
     accepts("--view survey --duration 20 --dc-filter off");
     accepts("--list-devices");
@@ -264,7 +270,7 @@ static void test_implications(void) {
                "--earfcn did not set LTE's sample grid");
     }
 
-    if (parse_line("--lte-scan 8 --headless", &options) < 0) {
+    if (parse_line("headless --lte-scan 8", &options) < 0) {
         fail("--lte-scan 8 was rejected");
     } else {
         expect(options.lte_scan_band == 8, "--lte-scan did not record a band");
@@ -479,7 +485,7 @@ static void test_saving_a_scripted_sweep(void) {
     struct options options;
     /* A survey already needs a range or a file to sweep; saving needs a
        survey on top of that. */
-    const char *ok[] = { "sdrprobe", "--headless", "--survey",
+    const char *ok[] = { "sdrprobe", "headless", "--survey",
                          "--survey-range", "88M:108M", "--survey-save" };
     const char *bare[] = { "sdrprobe", "--survey-save" };
 
@@ -730,8 +736,8 @@ static void test_who_sees_the_startup_form(void) {
 
     /* The two impossibility refusals, which outrank the request: there is no
        window to draw the form in, and a capture has no crystal to measure. */
-    check_int("--startup --headless parses",
-              parse_line("--startup --headless", &options), 0);
+    check_int("--startup with headless parses",
+              parse_line("headless --startup", &options), 0);
     check_int("and is never asked -- no window, and nobody to answer",
               startup_form_wanted(&options), 0);
 
@@ -999,11 +1005,10 @@ static void test_the_command_word(void) {
     const char *window_flag[] = { "sdrprobe", "--frequency", "100M" };
     const char *server[] = { "sdrprobe", "server" };
     const char *web[] = { "sdrprobe", "web" };
-    const char *equivalent[] = { "sdrprobe", "--headless", "--serve" };
+    const char *headless[] = { "sdrprobe", "headless" };
     const char *bad[] = { "sdrprobe", "serv" };
     const char *second[] = { "sdrprobe", "--duration", "1", "web" };
     const char *with_port[] = { "sdrprobe", "server", "--serve-port", "9000" };
-    const char *serve_alone[] = { "sdrprobe", "--serve" };
     const char *serve_view[] = { "sdrprobe", "server", "--view", "lte" };
     const char *serve_shot[] = { "sdrprobe", "server", "--screenshot",
                                  "x.png", "--duration", "1" };
@@ -1047,17 +1052,20 @@ static void test_the_command_word(void) {
     check_int("and serve follows", options.serve, 1);
 
     /*
-     * The command is sugar, not a second code path: server sets exactly
-     * what the two flags together already set, on the fields every other
-     * check in this file reads.
+     * `headless` is the third command word, and the one that draws the
+     * line `server`/`web` don't need to: no window, and nothing further
+     * implied. `--headless` and `--serve` were flags once, implying each
+     * other in whichever order they were written; a command word has
+     * exactly one answer and no ordering question to have -- there is
+     * nothing left here for a "the flag pair parses the same as a
+     * command" check to be about.
      */
-    check_int("the flag pair parses", parse_options(3, (char **)equivalent,
-                                                    &options), 0);
-    check_int("server and --headless --serve agree on headless",
-              options.headless, 1);
-    check_int("and on serve", options.serve, 1);
-    check_int("though the flag pair names no command",
-              options.command, COMMAND_WINDOW);
+    check_int("headless parses", parse_options(2, (char **)headless,
+                                               &options), 0);
+    check_int("as COMMAND_HEADLESS", options.command, COMMAND_HEADLESS);
+    check_int("headless follows", options.headless, 1);
+    check_int("but serve does not -- headless alone opens no Viewer link",
+             options.serve, 0);
 
     /* An unrecognised word at argv[1] is refused, and names itself so a
        reader is not left with only the usage dump to go on. */
@@ -1079,15 +1087,6 @@ static void test_the_command_word(void) {
     check_int("a serving command still takes its own flags",
               parse_options(4, (char **)with_port, &options), 0);
     check_int("the port", options.serve_port, 9000);
-
-    /*
-     * --serve alone used to open a window, bind no socket and serve
-     * nothing -- reachable live, twice, before this ticket. It has to do
-     * one of the two honest things now.
-     */
-    check_int("--serve alone is headless too", parse_options(
-                  2, (char **)serve_alone, &options), 0);
-    check_int("because serve implies it", options.headless, 1);
 
     /* What the Viewer link cannot honour is refused, not silently kept. */
     check_true("a serving command refuses a chosen view",
@@ -1111,6 +1110,106 @@ static void test_the_command_word(void) {
                parse_options(4, (char **)serve_lte_scan, &options) < 0);
     check_true("and an LTE chain walk",
                parse_options(5, (char **)serve_lte_chain, &options) < 0);
+}
+
+/*
+ * ADR-0027's amendment (2026-09-17): the bind address is a configuration
+ * option now, and binding beyond loopback owes a token before it allows
+ * control -- refused at parse time, not left to start an unauthenticated
+ * listener a firewall happens to be the only thing standing in front of.
+ */
+static void test_serve_bind_and_token(void) {
+    struct options options;
+    const char *bind_any_no_token[] = { "sdrprobe", "server", "--serve-bind",
+                                        "any" };
+    const char *bind_address_no_token[] = { "sdrprobe", "server",
+                                            "--serve-bind", "192.168.1.5" };
+    const char *bind_any_with_token[] = { "sdrprobe", "server", "--serve-bind",
+                                          "any", "--serve-token",
+                                          "eight1234" };
+    const char *bind_address_with_token[] = { "sdrprobe", "server",
+                                              "--serve-bind", "192.168.1.5",
+                                              "--serve-token", "eight1234" };
+    const char *bind_not_an_address[] = { "sdrprobe", "server", "--serve-bind",
+                                          "not-an-address", "--serve-token",
+                                          "eight1234" };
+    const char *token_too_short[] = { "sdrprobe", "server", "--serve-bind",
+                                      "any", "--serve-token", "seven12" };
+    /* 129 characters -- one past the 128-character cap. Built with
+       memset() rather than a hand-typed literal: a 124-character literal
+       here once, meant to be "over 128", silently tested nothing past
+       124 -- counting to 129 by eye is exactly how that happened. */
+    char long_token[130];
+    const char *token_too_long[] = { "sdrprobe", "server", "--serve-bind",
+                                     "any", "--serve-token", long_token };
+    const char *token_bad_char[] = { "sdrprobe", "server", "--serve-bind",
+                                     "any", "--serve-token", "has a space" };
+    const char *token_alone[] = { "sdrprobe", "server", "--serve-token",
+                                  "eight1234" };
+    const char *bind_twice[] = { "sdrprobe", "server", "--serve-bind", "any",
+                                "--serve-bind", "any", "--serve-token",
+                                "eight1234" };
+    const char *token_twice[] = { "sdrprobe", "server", "--serve-bind", "any",
+                                 "--serve-token", "eight1234", "--serve-token",
+                                 "eight1234" };
+    struct in_addr expected;
+
+    check_true("--serve-bind any with no token is refused",
+              parse_options(4, (char **)bind_any_no_token, &options) < 0);
+    check_true("and names --serve-token as what is missing",
+              strstr(options.serve_bind_error, "--serve-token") != NULL);
+    check_true("--serve-bind ADDRESS with no token is refused",
+              parse_options(4, (char **)bind_address_no_token, &options) < 0);
+
+    check_int("--serve-bind any with a token parses",
+             parse_options(6, (char **)bind_any_with_token, &options), 0);
+    check_int("as SERVE_BIND_ANY", options.serve_bind_kind, SERVE_BIND_ANY);
+
+    check_int("--serve-bind ADDRESS with a token parses",
+             parse_options(6, (char **)bind_address_with_token, &options), 0);
+    check_int("as SERVE_BIND_ADDRESS", options.serve_bind_kind,
+             SERVE_BIND_ADDRESS);
+    check_true("the address round-trips through inet_pton",
+              inet_pton(AF_INET, "192.168.1.5", &expected) == 1);
+    check_int("into host byte order, exactly what viewer_link_open() takes",
+             (int)options.serve_bind_addr, (int)ntohl(expected.s_addr));
+    check_str("and the raw text is kept for messages", options.serve_bind_text,
+             "192.168.1.5");
+
+    check_true("neither \"any\" nor a parseable address is refused",
+              parse_options(6, (char **)bind_not_an_address, &options) < 0);
+    check_true("and the refusal names the bad value itself",
+              strstr(options.serve_bind_error, "not-an-address") != NULL);
+    check_true("a token under 8 characters is refused",
+              parse_options(6, (char **)token_too_short, &options) < 0);
+    check_true("and the refusal says how many characters it counted",
+              strstr(options.serve_bind_error, "got 7") != NULL);
+    memset(long_token, '1', sizeof(long_token) - 1);
+    long_token[sizeof(long_token) - 1] = '\0';
+    check_int("the long token is exactly 129 characters",
+             (int)strlen(long_token), 129);
+    check_true("a token over 128 characters is refused",
+              parse_options(6, (char **)token_too_long, &options) < 0);
+    check_true("and the refusal says how many characters it counted, too",
+              strstr(options.serve_bind_error, "got 129") != NULL);
+    check_true("a token with a character a URL query string cannot carry "
+              "unescaped is refused",
+              parse_options(6, (char **)token_bad_char, &options) < 0);
+    check_true("and the refusal names the offending character",
+              strstr(options.serve_bind_error, "' '") != NULL);
+
+    /* A token with no --serve-bind at all is pointless but harmless --
+       refusing it would only make a future run that adds --serve-bind
+       have to remember to re-add the token too. */
+    check_int("a token with no --serve-bind is accepted",
+             parse_options(4, (char **)token_alone, &options), 0);
+    check_int("still SERVE_BIND_LOOPBACK", options.serve_bind_kind,
+             SERVE_BIND_LOOPBACK);
+
+    check_true("--serve-bind given twice is refused",
+              parse_options(8, (char **)bind_twice, &options) < 0);
+    check_true("--serve-token given twice is refused",
+              parse_options(8, (char **)token_twice, &options) < 0);
 }
 
 int main(void) {
@@ -1143,6 +1242,7 @@ int main(void) {
 
     test_the_command_word();
     test_the_browser();
+    test_serve_bind_and_token();
 
     return check_report("command line");
 }

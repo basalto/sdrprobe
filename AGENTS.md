@@ -114,21 +114,21 @@ transmitted information lives in a second bounded context (see
   plus the scripted flags: `--list-devices` (what is attached and whether it can
   be opened, which is how a busy dongle announces itself), `--device N`,
   `--view NAME` to open on a screen, `--record-seconds N` with `--technology`
-  to capture from startup, `--duration N` to quit by itself, and `--headless`
-  to acquire with no window at all. `--headless --record-seconds N` is the way
-  to make a capture without a display; it prints the path on stdout. Recording
+  to capture from startup, `--duration N` to quit by itself, and the `headless`
+  command to acquire with no window at all. `headless --record-seconds N` is the
+  way to make a capture without a display; it prints the path on stdout. Recording
   tees off inside the acquisition thread, so a headless capture is the same
   bytes a windowed one would be -- re-recording a capture through it decodes
   identically. `--arfcn N` tunes a GSM 900 downlink channel the way clicking it
   in the scan chart does (centre 400 kHz below the carrier) and labels a
   recording with the channel and offset; `--gsm-features filter,finecfo,trellis`
   (or `none`) picks the SCH refinements; `--dc-filter on|off` and `--once`
-  (play a capture through once instead of looping) round it out. `--headless
+  (play a capture through once instead of looping) round it out. `headless
   --decode` prints decoded messages to stdout -- SCH lines for GSM, message-log
   rows for ADS-B -- which is how to check a capture from a script:
-  `./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode
+  `./sdrprobe headless --file testfiles/gsm_arfcn_73.bin --arfcn 73 --decode
   --once` prints BSIC 56, the invariant CLAUDE.md records for that file.
-  `--headless --survey` does the same for the band survey, which is otherwise
+  `headless --survey` does the same for the band survey, which is otherwise
   reachable only by clicking: with `--file` it surveys the capture's own
   tuning in one step, and with a receiver it sweeps `--survey-range`. It
   prints one `candidate` record per line -- the frequency the sweep found, the

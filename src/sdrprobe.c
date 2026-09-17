@@ -3073,12 +3073,23 @@ int main(int argc, char **argv) {
 
     struct options options;
     if (parse_options(argc, argv, &options) < 0) {
-        /* The one refusal that can say what the reader meant: every other
-           parse failure is a bad flag or a bad combination, and the usage
-           text is the whole answer there. */
+        /*
+         * Two refusals that can say what the reader meant: every other
+         * parse failure is a bad flag or a bad combination, and the usage
+         * text is the whole answer there. `serve_bind_error` joined
+         * `unknown_command` here rather than getting its own dump-free
+         * path, because --serve-bind/--serve-token found the same gap
+         * `unknown_command` was written against: a rule specific to one
+         * flag (an address that does not parse, a token the wrong length)
+         * is not "a bad combination" a reader can find by re-reading the
+         * usage text -- it is a rule that text does not state anywhere
+         * near the flag it governs.
+         */
         if (options.unknown_command)
             fprintf(stderr, "%s: unknown command \"%s\"\n\n", argv[0],
                     options.unknown_command);
+        else if (options.serve_bind_error[0])
+            fprintf(stderr, "%s: %s\n\n", argv[0], options.serve_bind_error);
         usage(argv[0]);
         return 1;
     }

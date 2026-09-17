@@ -80,7 +80,12 @@ setInterval(() => {
 }, 1000);
 
 function connect() {
-  ws = new WebSocket('ws://' + location.host + '/viewer');
+  // ADR-0027's amendment (2026-09-17): whatever query string loaded this
+  // page -- '?token=...', once the server was started with --serve-bind
+  // beyond loopback -- is forwarded onto the socket's own path unchanged,
+  // since the same string satisfies the same check there. location.search
+  // is '' when there is none, so a token-free server is unaffected.
+  ws = new WebSocket('ws://' + location.host + '/viewer' + location.search);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
     subscribeToActiveView();

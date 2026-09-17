@@ -142,3 +142,93 @@ only during drawing -- immediate mode entangles input with layout by
 construction. A Viewer command is not a click and does not need this solved. A
 browser reproducing the window's *interactions* would, and nothing here
 claims it can.
+
+## Amendment, 2026-09-17 -- binding beyond loopback, behind a token
+
+The original decision read, in `viewer_link.c`'s own comment: "Loopback
+only -- this is not a configuration option here." That line is no longer
+true, and this amendment is what makes the change deliberate rather than
+a quiet erosion of it.
+
+**Why now.** An operator on the same LAN as the receiver -- a second
+laptop, a phone -- has no route to the Viewer today short of an SSH
+tunnel, which works but is a separate credential to manage for what is
+often a single trusted home network. The "Considered options" section
+above already named the alternative and declined it for a specific,
+narrow reason: *"it makes authentication, transport security and a
+threat model prerequisites of the control path rather than later
+work."* This amendment is that work, done rather than deferred, and
+scoped no wider than the LAN case that asked for it.
+
+**What changed.** `viewer_link_open()` takes a bind address
+(`INADDR_LOOPBACK`, `INADDR_ANY`, or one interface's own) and an optional
+required token. `options.c` refuses the combination that matters --
+binding beyond loopback with no token -- at parse time, before a socket
+is ever opened: `--serve-bind any|ADDRESS` requires `--serve-token
+SECRET` in the same invocation. Every HTTP request the link receives,
+upgrade or plain page, must then carry `?token=SECRET` in its path
+exactly, checked before either is served (`token_authorized()`,
+`viewer_link.c`). Loopback with no token is completely unchanged: the
+default is still `SERVE_BIND_LOOPBACK`, still needs nothing else, and
+every existing caller (the window's own headless serve, every test, every
+capture-driven `server`/`web` invocation this repository has) is
+unaffected byte-for-byte.
+
+**What a shared secret in a URL is not.** It is not per-user identity --
+every device with the token is indistinguishable from every other. It is
+not transport security -- the token crosses the LAN in plaintext inside
+an unencrypted WebSocket handshake, visible to anything else on that
+network segment that can see the traffic at all. It is not durable
+against the token leaking -- browser history, a saved bookmark, a proxy's
+access log, or a screenshot showing the URL bar all compromise it until
+it is changed, and there is no rotation and no expiry. It does not
+protect a network with an untrusted device already on it, which is
+exactly the case loopback's original reasoning ("reaching 127.0.0.1
+already requires an account on this machine") never had to consider. What
+it does provide: a device without the token gets nothing at all -- not a
+page, not a state stream, not a command channel -- which is the minimum
+a trusted-home-LAN operator asked for and the maximum this amendment
+claims.
+
+**What was measured before this shipped**, live against a real
+`sdrprobe server` process bound to a non-loopback address (`127.0.0.2`,
+routed over loopback but exercising the real non-default `bind()` path
+rather than a synthetic one): a request with no token and a request with
+the wrong token are both refused with `401 Unauthorized` before an
+upgrade is attempted or the page is sent; the correct token succeeds for
+both the plain page and the WebSocket upgrade; and the default (no
+`--serve-bind`) path is unchanged, confirmed by diffing its startup
+message and behaviour against what it printed before this amendment.
+
+**A pre-existing, unrelated bug surfaced during that testing and is fixed
+alongside this amendment**: `viewer_session_run()`'s loop never read
+`app->options.duration_seconds` at all, checking only
+`stop_requested()` (SIGINT/SIGTERM) -- unlike `sdrprobe.c`'s other
+headless loop (decode/playback), which has always honoured its own
+duration. Every `server ... --duration N` invocation, with or without
+this amendment's flags, silently ran until killed rather than stopping
+at N seconds. `viewer_duration_elapsed()` (`viewer_session.h`, mirroring
+`viewer_update_due()`'s own shape as a pulled-out decision, ADR-0012) is
+the fix, unit-tested in isolation from the loop it now gates.
+
+**Not addressed, and named rather than left implicit**: TLS (a
+self-signed certificate a browser would warn about on every connection,
+for a tool meant to be opened without ceremony, was judged worse than
+the plaintext token for this use case); token rotation or expiry; rate
+limiting on failed attempts (a wrong token costs one refused TCP
+connection, not a lockout); and multiple tokens or any notion of which
+device is which. Each is a real gap for a network this amendment does
+not claim to cover -- anything other than a small, trusted home LAN
+should keep using the SSH tunnel this amendment does not replace.
+
+**A second, separate cleanup landed the same day and touches this ADR's
+own vocabulary**: `--headless` and `--serve`, named as flags throughout
+the text above, are gone. `headless`, `server` and `web` are command
+words now (`options.h`'s own `enum start_command`), for the reason
+`server`/`web` already were: which frontend is running is one answer per
+run, never a flag combining freely with everything else the way
+`--decode` or `--survey` do. Every invocation on this page written as
+`--headless --serve` or `--serve` alone reads today as `server`, and a
+capture-driven `--headless --decode` reads as `headless --decode` --
+mechanical renames of what these paragraphs already meant, not a second
+decision about what a Viewer link is.

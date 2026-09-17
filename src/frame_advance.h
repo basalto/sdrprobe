@@ -16,7 +16,7 @@ struct app;
  *
  * It contains no GL or raylib call. It decides what to compute this block
  * and dispatches to the functions that compute it -- several of which
- * already run headlessly today, from the `--headless --decode` paths in
+ * already run headlessly today, from the `headless --decode` paths in
  * `sdrprobe.c`. `check-frame-advance` proves the dispatch itself: which
  * callee runs under which combination of tab, decode kind and whether a
  * block arrived, checked against fakes standing in for those callees. It

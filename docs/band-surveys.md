@@ -195,7 +195,7 @@ the third is why it needed a third answer.
 window has a site history to lean on, so it revisits only what changed -- what
 this site has never heard, and what it has heard and did not this time. A
 headless sweep may be the first this site has ever taken, and its output *is*
-the report, so `--headless --survey ... --survey-confirm` revisits **every
+the report, so `headless --survey ... --survey-confirm` revisits **every
 signal the sweep found**, strongest first, up to twenty-four.
 
 That is what tells a standing transmitter from a moment of noise, and above
@@ -314,7 +314,7 @@ that placed it, and the better placement wins when they merge.
 ## Recording one from a script
 
 ```sh
-./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
+./sdrprobe headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
     --survey-save
 ```
 
@@ -332,7 +332,7 @@ It refuses without a site, for the same reason the button does. Piping through
 ## Recording one by hand
 
 ```sh
-./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
+./sdrprobe headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
     | ./scripts/survey_tool.py ingest --note "where the antenna was, and why"
 ```
 

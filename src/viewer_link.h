@@ -46,6 +46,21 @@
  * replaceable-slot rule above -- it is a small FIFO per client instead,
  * because a dropped retune is not a stale picture, it is a receiver
  * pointed somewhere nobody asked for.
+ *
+ * ADR-0027's amendment, 2026-09-17: the bind address is no longer
+ * unconditionally loopback. It is still the default, and still requires
+ * nothing else when it is loopback -- reaching 127.0.0.1 already needs a
+ * login on this machine, exactly as the ADR reasoned. Binding beyond it
+ * (a LAN interface, `INADDR_ANY`) is now possible, and `options.c`
+ * refuses that combination unless a shared-secret token accompanies it
+ * (`--serve-token`), which every request must then carry as
+ * `?token=...` in its path. A shared secret in a URL is a much weaker
+ * boundary than "an account on this machine" -- no per-user identity, no
+ * transport encryption, a token that leaks into browser history or a
+ * proxy's access log is compromised until changed -- and this module
+ * makes none of those claims for it; it is what the amendment decided is
+ * enough for a trusted home LAN, not a substitute for real
+ * authentication on a network that is not.
  */
 
 /* -------------------------------------------------------------------- */
@@ -217,12 +232,35 @@ struct viewer_link {
     struct viewer_client clients[VIEWER_LINK_MAX_CLIENTS];
     viewer_command_handler command_handler;
     void *command_handler_ctx;
+    /* ADR-0027's amendment of 2026-09-17: NULL (the default) means the
+       bind address itself is still the whole authorization boundary,
+       exactly as the ADR originally decided. Non-NULL means the caller
+       chose to bind somewhere reachable beyond loopback and is relying on
+       this instead -- every request, upgrade or plain page, must carry
+       `?token=<this value>` in its path or is refused before it gets
+       either. Not copied; the caller's string must outlive the link. */
+    const char *required_token;
 };
 
-/* Binds and listens on 127.0.0.1:`port` (ADR-0027: loopback only -- this
-   is not a configuration option here). Returns 0 on success, -1 on
-   failure with a reason on stderr. */
-int viewer_link_open(struct viewer_link *link, uint16_t port);
+/*
+ * Binds and listens on `port`, at `bind_addr` (host byte order --
+ * `INADDR_LOOPBACK` for the original, unconditional default;
+ * `INADDR_ANY` or a specific interface's address to reach beyond it).
+ *
+ * ADR-0027 originally read "this is not a configuration option here",
+ * because the bind address was the *only* authorization check a Viewer
+ * command had. Its 2026-09-17 amendment is what makes this a parameter
+ * at all: binding beyond loopback now requires `required_token` to be
+ * non-NULL (options.c refuses the combination that leaves it NULL before
+ * this function is ever called), which is what stands in the bind
+ * address's place once reaching the socket no longer implies a login on
+ * this machine. `required_token`, if non-NULL, is the exact string every
+ * request's `?token=` must equal -- not copied; must outlive `link`.
+ *
+ * Returns 0 on success, -1 on failure with a reason on stderr.
+ */
+int viewer_link_open(struct viewer_link *link, uint16_t port,
+                     uint32_t bind_addr, const char *required_token);
 
 /* Closes every client and the listening socket. */
 void viewer_link_close(struct viewer_link *link);

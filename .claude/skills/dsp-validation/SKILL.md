@@ -184,12 +184,12 @@ different gains, one draw of noise -- and `does-it-help` carries those.
 | Question | Reach for |
 | --- | --- |
 | Where in the chain does it break? | `make probe-gsm-chain`, `probe-adsb-chain`, `probe-lte-chain FILE_LTE=...` -- a block-by-block walk, ending in a stated conclusion |
-| What exactly did it decode? | `--headless --decode --once`, exact and untruncated |
+| What exactly did it decode? | `headless --decode --once`, exact and untruncated |
 | Did the change help or hurt? | the same headless run before and after, on the same capture |
 | Does it still fit the block budget? | `make bench-dsp`, against 65.5 ms a block (68.3 for LTE at 1.92 MS/s) |
 | Does it draw correctly? | the `screenshot` skill -- for looking, not for reading values off |
 | Is something on air, or is that noise? | `make probe-signal FILE_SIGNAL=... AT_SIGNAL=... CONTROLS_SIGNAL=...` -- the same measurement at the signal and where nothing should be |
 
-`--headless` file playback is lossless and unpaced, so a scripted decode sees
+`headless` file playback is lossless and unpaced, so a scripted decode sees
 every block and gives the same answer twice. That repeatability is what makes a
 before-and-after comparison mean anything.
