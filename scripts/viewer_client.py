@@ -35,6 +35,11 @@ Usage:
     # needs a live receiver; a capture refuses every retune:
     python3 scripts/viewer_client.py --send "tune 948400000" --count 5
 
+    # Against a server bound beyond loopback (ADR-0027's 2026-09-17
+    # amendment, e.g. `--serve --serve-bind any --serve-token XXXXXXXX`):
+    python3 scripts/viewer_client.py --host 192.168.1.5 --token XXXXXXXX \
+        --count 5
+
     # A deliberately slow client: read nothing for N seconds, then resume
     # and report what came back -- the one behaviour ADR-0027's whole
     # transport design exists to prove (a Viewer stays current, never
@@ -79,15 +84,21 @@ class ViewerClient:
     Viewer link sends, nothing about sdrprobe's own frame layout baked in
     beyond the header this script deliberately knows how to decode."""
 
-    def __init__(self, host, port, timeout=10):
+    def __init__(self, host, port, timeout=10, token=None):
         self.sock = socket.create_connection((host, port), timeout=timeout)
         self._buf = b""
-        self._handshake(host, port)
+        self._handshake(host, port, token)
 
-    def _handshake(self, host, port):
+    def _handshake(self, host, port, token=None):
+        # ADR-0027's amendment (2026-09-17): --serve-bind beyond loopback
+        # requires --serve-token, and every request -- this handshake
+        # included -- must then carry it back as `?token=...`, exactly
+        # (viewer_link.c's token_authorized() does not URL-decode it, so
+        # neither does this).
+        path = f"/viewer?token={token}" if token else "/viewer"
         key = base64.b64encode(os.urandom(16)).decode()
         request = (
-            f"GET /viewer HTTP/1.1\r\n"
+            f"GET {path} HTTP/1.1\r\n"
             f"Host: {host}:{port}\r\n"
             f"Upgrade: websocket\r\n"
             f"Connection: Upgrade\r\n"
@@ -347,6 +358,10 @@ def main():
                    "for testing without a browser.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--token", default=None,
+                       help="the --serve-token value, required once the "
+                            "server was started with --serve-bind beyond "
+                            "loopback (ADR-0027's 2026-09-17 amendment)")
     parser.add_argument("--subscribe", default=",".join(ALL_STREAMS),
                        help="comma-separated streams: spectrum,waterfall,"
                             "receiver_state,link_health (default: all four)")
@@ -370,7 +385,7 @@ def main():
     if unknown:
         parser.error(f"unknown stream(s): {', '.join(sorted(unknown))}")
 
-    client = ViewerClient(args.host, args.port)
+    client = ViewerClient(args.host, args.port, token=args.token)
     client.subscribe(streams)
     print(f"subscribed to {', '.join(streams)} at "
          f"{args.host}:{args.port}", file=sys.stderr)

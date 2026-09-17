@@ -2,7 +2,9 @@
 #include "gsm_dsp.h"
 #include "options.h"
 
+#include <arpa/inet.h>
 #include <math.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -1113,6 +1115,96 @@ static void test_the_command_word(void) {
                parse_options(5, (char **)serve_lte_chain, &options) < 0);
 }
 
+/*
+ * ADR-0027's amendment (2026-09-17): the bind address is a configuration
+ * option now, and binding beyond loopback owes a token before it allows
+ * control -- refused at parse time, not left to start an unauthenticated
+ * listener a firewall happens to be the only thing standing in front of.
+ */
+static void test_serve_bind_and_token(void) {
+    struct options options;
+    const char *bind_any_no_token[] = { "sdrprobe", "server", "--serve-bind",
+                                        "any" };
+    const char *bind_address_no_token[] = { "sdrprobe", "server",
+                                            "--serve-bind", "192.168.1.5" };
+    const char *bind_any_with_token[] = { "sdrprobe", "server", "--serve-bind",
+                                          "any", "--serve-token",
+                                          "eight1234" };
+    const char *bind_address_with_token[] = { "sdrprobe", "server",
+                                              "--serve-bind", "192.168.1.5",
+                                              "--serve-token", "eight1234" };
+    const char *bind_not_an_address[] = { "sdrprobe", "server", "--serve-bind",
+                                          "not-an-address", "--serve-token",
+                                          "eight1234" };
+    const char *token_too_short[] = { "sdrprobe", "server", "--serve-bind",
+                                      "any", "--serve-token", "seven12" };
+    /* 129 characters -- one past the 128-character cap. Built with
+       memset() rather than a hand-typed literal: a 124-character literal
+       here once, meant to be "over 128", silently tested nothing past
+       124 -- counting to 129 by eye is exactly how that happened. */
+    char long_token[130];
+    const char *token_too_long[] = { "sdrprobe", "server", "--serve-bind",
+                                     "any", "--serve-token", long_token };
+    const char *token_bad_char[] = { "sdrprobe", "server", "--serve-bind",
+                                     "any", "--serve-token", "has a space" };
+    const char *token_alone[] = { "sdrprobe", "server", "--serve-token",
+                                  "eight1234" };
+    const char *bind_twice[] = { "sdrprobe", "server", "--serve-bind", "any",
+                                "--serve-bind", "any", "--serve-token",
+                                "eight1234" };
+    const char *token_twice[] = { "sdrprobe", "server", "--serve-bind", "any",
+                                 "--serve-token", "eight1234", "--serve-token",
+                                 "eight1234" };
+    struct in_addr expected;
+
+    check_true("--serve-bind any with no token is refused",
+              parse_options(4, (char **)bind_any_no_token, &options) < 0);
+    check_true("--serve-bind ADDRESS with no token is refused",
+              parse_options(4, (char **)bind_address_no_token, &options) < 0);
+
+    check_int("--serve-bind any with a token parses",
+             parse_options(6, (char **)bind_any_with_token, &options), 0);
+    check_int("as SERVE_BIND_ANY", options.serve_bind_kind, SERVE_BIND_ANY);
+
+    check_int("--serve-bind ADDRESS with a token parses",
+             parse_options(6, (char **)bind_address_with_token, &options), 0);
+    check_int("as SERVE_BIND_ADDRESS", options.serve_bind_kind,
+             SERVE_BIND_ADDRESS);
+    check_true("the address round-trips through inet_pton",
+              inet_pton(AF_INET, "192.168.1.5", &expected) == 1);
+    check_int("into host byte order, exactly what viewer_link_open() takes",
+             (int)options.serve_bind_addr, (int)ntohl(expected.s_addr));
+    check_str("and the raw text is kept for messages", options.serve_bind_text,
+             "192.168.1.5");
+
+    check_true("neither \"any\" nor a parseable address is refused",
+              parse_options(6, (char **)bind_not_an_address, &options) < 0);
+    check_true("a token under 8 characters is refused",
+              parse_options(6, (char **)token_too_short, &options) < 0);
+    memset(long_token, '1', sizeof(long_token) - 1);
+    long_token[sizeof(long_token) - 1] = '\0';
+    check_int("the long token is exactly 129 characters",
+             (int)strlen(long_token), 129);
+    check_true("a token over 128 characters is refused",
+              parse_options(6, (char **)token_too_long, &options) < 0);
+    check_true("a token with a character a URL query string cannot carry "
+              "unescaped is refused",
+              parse_options(6, (char **)token_bad_char, &options) < 0);
+
+    /* A token with no --serve-bind at all is pointless but harmless --
+       refusing it would only make a future run that adds --serve-bind
+       have to remember to re-add the token too. */
+    check_int("a token with no --serve-bind is accepted",
+             parse_options(4, (char **)token_alone, &options), 0);
+    check_int("still SERVE_BIND_LOOPBACK", options.serve_bind_kind,
+             SERVE_BIND_LOOPBACK);
+
+    check_true("--serve-bind given twice is refused",
+              parse_options(8, (char **)bind_twice, &options) < 0);
+    check_true("--serve-token given twice is refused",
+              parse_options(8, (char **)token_twice, &options) < 0);
+}
+
 int main(void) {
     test_receiver_identity_flags();
     test_defaults();
@@ -1143,6 +1235,7 @@ int main(void) {
 
     test_the_command_word();
     test_the_browser();
+    test_serve_bind_and_token();
 
     return check_report("command line");
 }

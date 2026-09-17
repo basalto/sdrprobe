@@ -2,6 +2,8 @@
 
 #include "viewer_session.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -157,16 +159,70 @@ int viewer_session_run(struct app *app) {
     }
     app->sv.waterfall_ready = 1;
 
-    if (viewer_link_open(&link, (uint16_t)port) < 0) {
-        fprintf(stderr, "Cannot open the Viewer link on 127.0.0.1:%d.\n",
-                port);
-        return -1;
+    /*
+     * ADR-0027's amendment: the bind address is loopback unless
+     * `--serve-bind` said otherwise, and parse_options() has already
+     * refused that combination without a token, so nothing here needs to
+     * re-check it. `bind_display` is only for the messages below --
+     * `INADDR_ANY` (0.0.0.0) is not itself an address a browser can be
+     * pointed at, so that case gets its own sentence rather than a URL
+     * built from it.
+     */
+    {
+        uint32_t bind_addr_host;
+        const char *bind_display;
+
+        switch (app->options.serve_bind_kind) {
+        case SERVE_BIND_ANY:
+            bind_addr_host = INADDR_ANY;
+            bind_display = NULL;
+            break;
+        case SERVE_BIND_ADDRESS:
+            bind_addr_host = app->options.serve_bind_addr;
+            bind_display = app->options.serve_bind_text;
+            break;
+        case SERVE_BIND_LOOPBACK:
+        default:
+            bind_addr_host = INADDR_LOOPBACK;
+            bind_display = "127.0.0.1";
+            break;
+        }
+
+        if (viewer_link_open(&link, (uint16_t)port, bind_addr_host,
+                             app->options.serve_token) < 0) {
+            fprintf(stderr, "Cannot open the Viewer link on %s:%d.\n",
+                    bind_display ? bind_display : "0.0.0.0 (every interface)",
+                    port);
+            return -1;
+        }
+        viewer_link_set_command_handler(&link, viewer_session_handle_command,
+                                        app);
+        if (bind_display) {
+            if (app->options.serve_token)
+                fprintf(stderr,
+                       "Viewer link listening on %s:%d -- open "
+                       "http://%s:%d/?token=%s in a browser. Ctrl-C to "
+                       "stop.\n",
+                       bind_display, port, bind_display, port,
+                       app->options.serve_token);
+            else
+                fprintf(stderr,
+                       "Viewer link listening on %s:%d -- open "
+                       "http://%s:%d/ in a browser. Ctrl-C to stop.\n",
+                       bind_display, port, bind_display, port);
+        } else {
+            /* SERVE_BIND_ANY: every interface, so there is no one address
+               to print -- the operator knows which of this machine's own
+               addresses the other laptop can reach. */
+            fprintf(stderr,
+                   "Viewer link listening on port %d, every interface -- "
+                   "open http://<this machine's LAN address>:%d/?token=%s "
+                   "from another machine, or http://127.0.0.1:%d/?token=%s "
+                   "from here. Ctrl-C to stop.\n",
+                   port, port, app->options.serve_token, port,
+                   app->options.serve_token);
+        }
     }
-    viewer_link_set_command_handler(&link, viewer_session_handle_command, app);
-    fprintf(stderr,
-           "Viewer link listening on 127.0.0.1:%d -- open "
-           "http://127.0.0.1:%d/ in a browser. Ctrl-C to stop.\n",
-           port, port);
 
     /*
      * The one moment this can happen, and the one time: after the bind
@@ -180,9 +236,18 @@ int viewer_session_run(struct app *app) {
      * on the same stream the listening line above is on.
      */
     {
-        char url[32];
+        /* Long enough for "http://127.0.0.1:" + a port + "/?token=" + the
+           128-byte cap options.c enforces on a token, with room to
+           spare -- sized from that cap rather than guessed, since a
+           truncated token here would silently open a browser to a URL
+           the token check then refuses. */
+        char url[192];
 
-        snprintf(url, sizeof(url), "http://127.0.0.1:%d/", port);
+        if (app->options.serve_token)
+            snprintf(url, sizeof(url), "http://127.0.0.1:%d/?token=%s", port,
+                    app->options.serve_token);
+        else
+            snprintf(url, sizeof(url), "http://127.0.0.1:%d/", port);
         if (browser_wanted(&app->options, environment)) {
             if (browser_open(url) == 0)
                 fprintf(stderr, "Opening it in a browser.\n");
@@ -290,6 +355,8 @@ int viewer_session_run(struct app *app) {
             fprintf(stderr, "End of capture.\n");
             break;
         }
+        if (viewer_duration_elapsed(now, app->options.duration_seconds))
+            break;
     }
 
     viewer_link_close(&link);

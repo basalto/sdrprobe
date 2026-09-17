@@ -27,7 +27,8 @@ static int set_nonblocking(int fd) {
     return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
-int viewer_link_open(struct viewer_link *link, uint16_t port) {
+int viewer_link_open(struct viewer_link *link, uint16_t port,
+                     uint32_t bind_addr, const char *required_token) {
     struct sockaddr_in addr;
     int one = 1;
     int i;
@@ -37,6 +38,7 @@ int viewer_link_open(struct viewer_link *link, uint16_t port) {
         link->clients[i].state = VIEWER_CLIENT_CLOSED;
         link->clients[i].fd = -1;
     }
+    link->required_token = required_token;
 
     link->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (link->listen_fd < 0) {
@@ -47,9 +49,10 @@ int viewer_link_open(struct viewer_link *link, uint16_t port) {
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    /* Loopback only -- ADR-0027 is explicit that this is not a
-       configuration option here. */
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    /* ADR-0027's amendment: the caller decides now, and options.c is the
+       one place that decides it may only be something other than
+       INADDR_LOOPBACK when `required_token` is also set. */
+    addr.sin_addr.s_addr = htonl(bind_addr);
     addr.sin_port = htons(port);
 
     if (bind(link->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
@@ -196,6 +199,67 @@ static int send_best_effort(int fd, const void *data, size_t len) {
     return len == 0 ? 0 : -1;
 }
 
+/*
+ * Whether `req`'s path carries `?token=<link->required_token>` -- an
+ * exact byte match, nothing URL-decoded, on the same principle
+ * websocket.h's own header comment states about itself: this is not a
+ * URL parser and must not become one. A token meant to survive this
+ * check has to be safe unescaped in a URL (letters, digits, `-`, `_`);
+ * `viewer_session.c` is the one place that generates one, and does so
+ * accordingly.
+ *
+ * Always true when `link->required_token` is NULL -- the ADR-0027
+ * default, where the bind address is still the whole boundary and
+ * nothing here has anything to check.
+ */
+static int token_authorized(const struct viewer_link *link,
+                            const struct websocket_request *req) {
+    size_t token_len;
+    const char *q;
+    size_t remaining;
+
+    if (!link->required_token)
+        return 1;
+    token_len = strlen(link->required_token);
+    q = memchr(req->path, '?', req->path_len);
+    if (!q)
+        return 0;
+    remaining = (size_t)(req->path + req->path_len - q - 1);
+    q++;
+    while (remaining > 0) {
+        const char *amp = memchr(q, '&', remaining);
+        size_t pair_len = amp ? (size_t)(amp - q) : remaining;
+
+        if (pair_len > 6 && memcmp(q, "token=", 6) == 0 &&
+            pair_len - 6 == token_len &&
+            memcmp(q + 6, link->required_token, token_len) == 0)
+            return 1;
+        if (!amp)
+            break;
+        remaining -= pair_len + 1;
+        q = amp + 1;
+    }
+    return 0;
+}
+
+/* The one response a request without a valid token gets, upgrade or
+   plain page alike -- refused before either happens, not served a page
+   whose own WebSocket connection would then fail anyway. */
+static void refuse_unauthorized(struct viewer_client *c) {
+    static const char body[] = "401 Unauthorized: missing or wrong ?token=\n";
+    char header[160];
+    int header_len = snprintf(header, sizeof(header),
+                              "HTTP/1.1 401 Unauthorized\r\n"
+                              "Content-Type: text/plain; charset=utf-8\r\n"
+                              "Content-Length: %zu\r\n"
+                              "Connection: close\r\n\r\n",
+                              sizeof(body) - 1);
+
+    if (send_best_effort(c->fd, header, (size_t)header_len) == 0)
+        send_best_effort(c->fd, body, sizeof(body) - 1);
+    client_close(c);
+}
+
 static void serve_page(struct viewer_client *c) {
     char header[256];
     int header_len = snprintf(header, sizeof(header),
@@ -243,7 +307,8 @@ static void serve_upgrade(struct viewer_client *c,
     c->handshake_have = 0;
 }
 
-static void handle_handshake_data(struct viewer_client *c) {
+static void handle_handshake_data(struct viewer_link *link,
+                                  struct viewer_client *c) {
     struct websocket_request req;
     int consumed = websocket_request_parse(c->handshake_buf, c->handshake_have,
                                            &req);
@@ -252,6 +317,13 @@ static void handle_handshake_data(struct viewer_client *c) {
         return; /* not a complete header block yet */
     if (consumed < 0 || c->handshake_have >= sizeof(c->handshake_buf)) {
         client_close(c);
+        return;
+    }
+    /* Checked before either branch below: a request refused here never
+       gets the upgrade response or the page, rather than being served a
+       page whose own WebSocket open would fail moments later. */
+    if (!token_authorized(link, &req)) {
+        refuse_unauthorized(c);
         return;
     }
     if (websocket_request_is_upgrade(&req))
@@ -618,7 +690,7 @@ static void handle_readable(struct viewer_link *link, struct viewer_client *c) {
             return;
         }
         c->handshake_have += (size_t)n;
-        handle_handshake_data(c);
+        handle_handshake_data(link, c);
     } else if (c->state == VIEWER_CLIENT_OPEN) {
         ssize_t n;
 

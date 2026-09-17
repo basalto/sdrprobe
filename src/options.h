@@ -79,6 +79,17 @@ enum gain_request_kind {
     GAIN_REQUEST_NUMERIC
 };
 
+/* ADR-0027's amendment: what `--serve-bind` asked for. LOOPBACK (0, the
+   default -- a plain `struct options` memset to zero means this, same
+   reasoning as COMMAND_WINDOW above) needs no token; ANY and ADDRESS
+   both require one, checked once in parse_options() rather than at
+   every call site that might otherwise forget. */
+enum serve_bind_kind {
+    SERVE_BIND_LOOPBACK = 0,
+    SERVE_BIND_ANY,
+    SERVE_BIND_ADDRESS
+};
+
 struct options {
     uint32_t frequency;
     uint32_t sample_rate;
@@ -156,6 +167,19 @@ struct options {
        listening port, 0 meaning the link's own default. */
     int serve;
     int serve_port;
+    /* ADR-0027's amendment, 2026-09-17: the bind address is loopback
+       (SERVE_BIND_LOOPBACK) unless `--serve-bind` said otherwise.
+       `serve_bind_addr` (host byte order) is only meaningful for
+       SERVE_BIND_ADDRESS; `serve_bind_text` is the raw argument, kept
+       for messages and tests rather than reconstructed from the parsed
+       form. Refused at parse time (see parse_options()) unless
+       `serve_token` also names a token: the bind address was the whole
+       authorization boundary, and this is what stands in its place once
+       reaching the socket no longer implies a login on this machine. */
+    enum serve_bind_kind serve_bind_kind;
+    uint32_t serve_bind_addr;
+    const char *serve_bind_text;
+    const char *serve_token;
     /* A scripted, one-shot retune during a --serve session, for exercising
        the tuning generation without a Viewer command -- retuning from the
        wire is ticket 06's, not this one's. 0 seconds means disabled. */

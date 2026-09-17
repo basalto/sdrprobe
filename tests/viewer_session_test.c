@@ -103,11 +103,40 @@ static void test_a_run_of_the_loop_publishes_at_the_interval(void) {
     check_int("a million passes send forty updates, not a million", sent, 40);
 }
 
+/*
+ * `--duration`: never read inside this loop until a live test for a
+ * separate ticket sat past it -- `sdrprobe.c`'s other headless loop
+ * (decode/playback) has always honoured its own duration, and this one
+ * checked only `stop_requested()` (SIGINT/SIGTERM). Every `--serve
+ * --duration N` run before that fix outlived N silently.
+ */
+static void test_no_budget_means_no_duration_limit(void) {
+    check_int("0 (options.h's own \"unset\") never elapses",
+              viewer_duration_elapsed(9999.0, 0.0), 0);
+    check_int("neither does a negative value",
+              viewer_duration_elapsed(9999.0, -1.0), 0);
+}
+
+static void test_the_duration_budget(void) {
+    check_int("well before the budget, not elapsed",
+              viewer_duration_elapsed(1.0, 5.0), 0);
+    check_int("just before it, still not",
+              viewer_duration_elapsed(4.999, 5.0), 0);
+    check_int("at it exactly, elapsed",
+              viewer_duration_elapsed(5.0, 5.0), 1);
+    check_int("and past it",
+              viewer_duration_elapsed(5.1, 5.0), 1);
+    check_int("at the very start of the clock, a budget of 0 never trips",
+              viewer_duration_elapsed(0.0, 0.0), 0);
+}
+
 int main(void) {
     test_a_first_update_is_always_due();
     test_the_heartbeat();
     test_a_change_beats_the_interval();
     test_the_intervals_the_session_uses();
     test_a_run_of_the_loop_publishes_at_the_interval();
+    test_no_budget_means_no_duration_limit();
+    test_the_duration_budget();
     return check_report("when a Viewer metadata update is due");
 }

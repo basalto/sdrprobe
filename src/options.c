@@ -3,9 +3,11 @@
 
 #include "gsm_dsp.h"
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,6 +109,14 @@ void usage(const char *program) {
             "                    loopback Viewer link (ws://127.0.0.1:PORT)\n"
             "                    instead of a window (ADR-0027)\n"
             "  --serve-port      the Viewer link's port; defaults to 8765\n"
+            "  --serve-bind      any|ADDRESS -- bind beyond loopback (every\n"
+            "                    interface, or one), reaching a LAN; requires\n"
+            "                    --serve-token, since the bind address is no\n"
+            "                    longer the whole authorization boundary\n"
+            "                    (ADR-0027's 2026-09-17 amendment)\n"
+            "  --serve-token     a shared secret every request must carry as\n"
+            "                    ?token=... once --serve-bind leaves loopback;\n"
+            "                    at least 8 characters, letters/digits/-/_ only\n"
             "  --serve-retune-after  SECONDS:HZ -- a scripted one-shot retune\n"
             "                    during --serve, for testing the tuning\n"
             "                    generation; not a Viewer command\n"
@@ -500,6 +510,47 @@ int parse_options(int argc, char **argv, struct options *options) {
                 parse_u32(argv[++i], &port) < 0 || port == 0 || port > 65535)
                 return -1;
             options->serve_port = (int)port;
+        } else if (strcmp(option, "--serve-bind") == 0) {
+            /* ADR-0027's amendment: "any" (every interface) or a literal
+               IPv4 address (one interface's own). Loopback needs no flag
+               and stays the default; this option exists to leave it. */
+            struct in_addr parsed;
+
+            if (options->serve_bind_kind != SERVE_BIND_LOOPBACK ||
+                i + 1 >= argc)
+                return -1;
+            options->serve_bind_text = argv[++i];
+            if (strcmp(options->serve_bind_text, "any") == 0) {
+                options->serve_bind_kind = SERVE_BIND_ANY;
+            } else if (inet_pton(AF_INET, options->serve_bind_text,
+                                 &parsed) == 1) {
+                options->serve_bind_kind = SERVE_BIND_ADDRESS;
+                options->serve_bind_addr = ntohl(parsed.s_addr);
+            } else {
+                return -1; /* neither "any" nor a parseable IPv4 address */
+            }
+        } else if (strcmp(option, "--serve-token") == 0) {
+            /* Required alongside --serve-bind (checked once, after the
+               loop, rather than here -- the two flags can arrive in
+               either order). Every request must then carry this exact
+               string as `?token=...`, unescaped, so the charset is
+               restricted to what a URL query string needs no encoding
+               for: this is not a URL parser and must not become one
+               (viewer_link.c's own token_authorized() states the same
+               principle about reading one back). */
+            const char *p;
+
+            if (options->serve_token || i + 1 >= argc)
+                return -1;
+            options->serve_token = argv[++i];
+            if (strlen(options->serve_token) < 8 ||
+                strlen(options->serve_token) > 128)
+                return -1; /* too short to be a secret, or too long for
+                              the fixed buffers a printed URL uses */
+            for (p = options->serve_token; *p; p++)
+                if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+                      (*p >= '0' && *p <= '9') || *p == '-' || *p == '_'))
+                    return -1;
         } else if (strcmp(option, "--serve-retune-after") == 0) {
             /* SECONDS:HZ, the same "A:B" shape --zoom and --survey-range
                already take. */
@@ -727,6 +778,19 @@ int parse_options(int argc, char **argv, struct options *options) {
         options->serve = 1;
     if (options->serve)
         options->headless = 1;
+
+    /*
+     * ADR-0027's amendment: binding beyond loopback owes a token before it
+     * allows control, not after -- so this is refused here rather than
+     * left to start an unauthenticated listener a firewall happens to be
+     * the only thing standing in front of. `--serve-bind`/`--serve-token`
+     * with no `--serve` at all is left alone rather than refused: the
+     * flag has nothing to do yet, and a future run that adds `--serve`
+     * should not have to remember to re-add these two as well.
+     */
+    if (options->serve && options->serve_bind_kind != SERVE_BIND_LOOPBACK &&
+        !options->serve_token)
+        return -1;
 
     if (options->file_path && options->gain_seen)
         return -1;
