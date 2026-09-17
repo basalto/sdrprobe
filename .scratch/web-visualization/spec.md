@@ -45,9 +45,13 @@ measured wrong.
 - Subscription-driven computation. Ticket 09 makes the Viewer link's aggregate
   demand reach frame advancement; today subscriptions suppress sends only,
   after the Scope work has already run.
-- The input half of the seam. 161 raylib input call sites, hit-testing done
-  inline against rectangles that exist only while drawing. A Viewer command is
-  not a click, so nothing on this path is blocked by it.
+- **The input half of the seam, narrowed but not closed.** Switching the
+  top-level tab now has an answer -- `view scope`/`view survey`
+  (ticket 07, 2026-09-17), through the same `set_tab()` a click already
+  used, no click reproduced. What remains is everything inside a screen: a
+  candidate clicked in the survey chart, a log row selected, a drag-zoom --
+  161 raylib input call sites in all, hit-testing done inline against
+  rectangles that exist only while drawing.
 - Whether more than one Viewer may send commands at once.
 
 ## Tickets
