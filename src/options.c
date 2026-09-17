@@ -109,12 +109,15 @@ void usage(const char *program) {
             "                    defaults to 8765 (ADR-0027)\n"
             "  --serve-bind      any|ADDRESS -- bind beyond loopback (every\n"
             "                    interface, or one), reaching a LAN; requires\n"
-            "                    --serve-token, since the bind address is no\n"
-            "                    longer the whole authorization boundary\n"
-            "                    (ADR-0027's 2026-09-17 amendment)\n"
+            "                    --serve-token or --not-token, since the bind\n"
+            "                    address is no longer the whole authorization\n"
+            "                    boundary (ADR-0027's 2026-09-17 amendment)\n"
             "  --serve-token     a shared secret every request must carry as\n"
             "                    ?token=... once --serve-bind leaves loopback;\n"
             "                    at least 8 characters, letters/digits/-/_ only\n"
+            "  --not-token       explicitly run --serve-bind with no token at\n"
+            "                    all: reachable with no authentication\n"
+            "                    whatsoever by anything that can reach the port\n"
             "  --serve-retune-after  SECONDS:HZ -- a scripted one-shot retune\n"
             "                    during `server`/`web`, for testing the tuning\n"
             "                    generation; not a Viewer command\n"
@@ -575,6 +578,16 @@ int parse_options(int argc, char **argv, struct options *options) {
                             "digits, - or _ (found '%c')", *p);
                     return -1;
                 }
+        } else if (strcmp(option, "--not-token") == 0) {
+            /* An explicit acknowledgement, not an inference from silence
+               (the same shape --ppm's provenance guard is): --serve-bind
+               beyond loopback is refused with neither this nor a real
+               token, so reaching it means the operator typed the words
+               "run with no authentication at all", not merely omitted
+               --serve-token. */
+            if (options->serve_allow_no_token)
+                return -1;
+            options->serve_allow_no_token = 1;
         } else if (strcmp(option, "--serve-retune-after") == 0) {
             /* SECONDS:HZ, the same "A:B" shape --zoom and --survey-range
                already take. */
@@ -809,10 +822,19 @@ int parse_options(int argc, char **argv, struct options *options) {
      * two as well.
      */
     if (options->serve && options->serve_bind_kind != SERVE_BIND_LOOPBACK &&
-        !options->serve_token) {
+        !options->serve_token && !options->serve_allow_no_token) {
         snprintf(options->serve_bind_error, sizeof(options->serve_bind_error),
-                "--serve-bind beyond loopback requires --serve-token "
+                "--serve-bind beyond loopback requires --serve-token, or "
+                "--not-token to say explicitly that none is wanted "
                 "(ADR-0027's 2026-09-17 amendment)");
+        return -1;
+    }
+    /* Naming a real token and then also declaring "no token" is a
+       contradiction, not a preference between them -- refused rather
+       than silently letting one win. */
+    if (options->serve_token && options->serve_allow_no_token) {
+        snprintf(options->serve_bind_error, sizeof(options->serve_bind_error),
+                "--serve-token and --not-token contradict each other");
         return -1;
     }
 

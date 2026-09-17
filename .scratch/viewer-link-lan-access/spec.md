@@ -37,6 +37,18 @@ be opened without ceremony).
   the window's own headless serve, every test, every capture-driven
   `--serve` invocation -- is unaffected.
 
+## Amendment, 2026-09-17 -- `--not-token`
+
+Asked for directly: a way to run `--serve-bind` with no authentication
+at all, for an operator who judges their network trustworthy enough not
+to want a secret to manage. Given as a named, explicit flag rather than
+by loosening the refusal into silence -- `--serve-bind` beyond loopback
+still refuses with neither `--serve-token` nor `--not-token`, and
+refuses again if both are given together. Loud at runtime as well as at
+parse time: a `WARNING:` line naming exactly what it means precedes the
+ordinary listening line. See `issues/02-not-token.md`.
+
 ## Tickets
 
 1. `issues/01-serve-bind-and-token.md`
+2. `issues/02-not-token.md`

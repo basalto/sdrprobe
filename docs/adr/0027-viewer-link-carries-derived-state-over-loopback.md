@@ -232,3 +232,23 @@ run, never a flag combining freely with everything else the way
 capture-driven `--headless --decode` reads as `headless --decode` --
 mechanical renames of what these paragraphs already meant, not a second
 decision about what a Viewer link is.
+
+**`--not-token`, added afterwards: the same bind, deliberately with no
+authentication at all.** Asked for directly -- an operator on a network
+they judge trustworthy enough not to want to manage a secret for. This
+does not soften the refusal above; it gives it a second, equally
+explicit way to be satisfied. `--serve-bind` beyond loopback still
+refuses with neither `--serve-token` nor `--not-token` -- the omission
+that used to be silently wrong now has to be a decision, one way or the
+other, not an oversight. `--serve-token` and `--not-token` together are
+refused as the contradiction they are, in either order. Reaching this
+mode is loud at runtime, not just at parse time: a `WARNING:` line
+naming exactly what it means ("reachable with NO authentication at all")
+precedes the ordinary "Viewer link listening" line rather than being
+folded into it, so it cannot be missed by a reader skimming for the URL.
+Everything this ADR's amendment already said a shared token does not
+provide -- per-user identity, transport encryption, rotation, rate
+limiting -- `--not-token` provides even less of, on purpose: it is the
+same trust decision as leaving the door open, made explicitly rather
+than by omission, and the "small, trusted home LAN" boundary this
+amendment draws applies to it at least as strictly as to the token.
