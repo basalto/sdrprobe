@@ -60,6 +60,11 @@ measured wrong.
 - **The page is a C string literal**, 307 hand-escaped lines of HTML, CSS and
   JavaScript in `src/viewer_page.h`. Nobody can comfortably edit it and no
   check can read it without extracting it first. Ticket 13.
+- **The page is also one file mixing the three concerns ADR-0007 split apart**
+  on the native side -- generic formatting, bespoke SDR drawing, and the
+  application's own socket and state -- with six more views scheduled to land
+  in it. Ticket 14 applies that ADR's decision to the frontend that did not
+  exist when it was made; ticket 13 is its first phase.
 
 ## Tickets
 
@@ -76,3 +81,4 @@ measured wrong.
 11. `issues/11-looking-at-the-browser-page.md`
 12. `issues/12-three-faults-with-no-check-behind-them.md`
 13. `issues/13-the-page-as-files-rather-than-a-c-string.md`
+14. `issues/14-restructuring-the-web-view.md`
