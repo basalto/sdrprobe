@@ -132,14 +132,15 @@ GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
 GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
 RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 
-# The Viewer page (ticket 13): a person edits these, `scripts/embed_web.py`
-# turns them into the C string `viewer_link.c` links in. Named here, once,
-# rather than a glob -- the order the JS files concatenate in is a decision
-# (ticket 14's later split makes it one with several files), not something
-# a directory listing should decide by accident of filename.
+# The Viewer page (tickets 13 and 14): a person edits these,
+# `scripts/embed_web.py` turns them into the C string `viewer_link.c`
+# links in. The concatenation order is a decision -- lib/ before wire.js
+# before views/ before viewer.js -- stated once, in the script's own
+# `JS_ORDER`, and not implied by a directory listing; `--list` asks the
+# script for that same file set so this prerequisite can't drift from it
+# the way a second, hand-kept copy could.
 WEB_HTML=web/viewer.html
-WEB_JS=web/viewer.js
-WEB_SRC=$(WEB_HTML) $(WEB_JS)
+WEB_SRC=$(shell python3 scripts/embed_web.py --list $(WEB_HTML))
 
 # `build/` and not `src/`, per ticket 13: it keeps `src/` free of generated
 # files and keeps the `MISSING:` audit below (`ls src/*.h` must be in
