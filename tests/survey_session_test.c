@@ -76,7 +76,7 @@ static int block_from_capture(FILE *f, double centre_hz,
 }
 
 /*
- * Survey a capture through the session, exactly as `--headless --survey` does:
+ * Survey a capture through the session, exactly as `headless --survey` does:
  * one tuning, every block folded, finished when the file runs out.
  */
 static int survey_capture(const char *path, double centre_hz,

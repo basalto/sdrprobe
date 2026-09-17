@@ -3,9 +3,11 @@
 
 #include "gsm_dsp.h"
 
+#include <arpa/inet.h>
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,17 +20,19 @@
 void usage(const char *program) {
     fprintf(stderr,
             /*
-             * The command names the frontend -- window, browser, socket --
-             * and nothing else; everything below this block is a flag,
-             * unchanged by which of the three is running. `server` and
-             * `web` differ only in the browser, and both are `--headless
-             * --serve` underneath, which every flag below still works with
-             * directly.
+             * The command names the frontend -- window, headless with
+             * nothing further, the Viewer link alone, or the Viewer
+             * link plus a browser -- and nothing else; everything below
+             * this block is a flag, unchanged by which of the four is
+             * running. `server` and `web` differ only in the browser,
+             * and both open the Viewer link `headless` alone does not.
              */
             "Commands:\n"
             "  %s [flags]           the window (default)\n"
-            "  %s web [flags]       the Viewer link, plus a browser\n"
-            "  %s server [flags]    the Viewer link alone, no window or browser\n"
+            "  %s headless [flags]  no window; pair with --decode,\n"
+            "                       --survey, --record-seconds, etc.\n"
+            "  %s web [flags]       headless, the Viewer link, plus a browser\n"
+            "  %s server [flags]    headless, the Viewer link alone, no browser\n"
             "\n"
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
@@ -45,7 +49,7 @@ void usage(const char *program) {
             "          [--gsm-features list]\n"
             "          [--dc-filter on|off]\n"
             "          [--survey-range low:high] [--survey-dwell seconds]\n"
-            "          [--duration n] [--once] [--headless] [--decode]\n"
+            "          [--duration n] [--once] [--decode]\n"
             "          [--screenshot file.png]\n"
             "          [--list-devices]\n"
             "\n"
@@ -83,8 +87,6 @@ void usage(const char *program) {
             "  --technology      what that recording is labelled; defaults to\n"
             "                    --view, or raw when there is no view\n"
             "  --duration        quit after n seconds\n"
-            "  --headless        acquire with no window; pair with\n"
-            "                    --record-seconds to capture from a script\n"
             "  --arfcn           tune to a GSM 900 downlink channel (its\n"
             "                    carrier sits 400 kHz above the tuned centre)\n"
             "  --earfcn          tune to an LTE downlink carrier, centred on\n"
@@ -103,18 +105,24 @@ void usage(const char *program) {
             "  --screenshot      write the last frame to a PNG before quitting,\n"
             "                    so a view can be looked at without a person;\n"
             "                    pair with --duration\n"
-            "  --serve           headless: serve the Scope's view model to a\n"
-            "                    loopback Viewer link (ws://127.0.0.1:PORT)\n"
-            "                    instead of a window (ADR-0027)\n"
-            "  --serve-port      the Viewer link's port; defaults to 8765\n"
+            "  --serve-port      the `server`/`web` Viewer link's port;\n"
+            "                    defaults to 8765 (ADR-0027)\n"
+            "  --serve-bind      any|ADDRESS -- bind beyond loopback (every\n"
+            "                    interface, or one), reaching a LAN; requires\n"
+            "                    --serve-token, since the bind address is no\n"
+            "                    longer the whole authorization boundary\n"
+            "                    (ADR-0027's 2026-09-17 amendment)\n"
+            "  --serve-token     a shared secret every request must carry as\n"
+            "                    ?token=... once --serve-bind leaves loopback;\n"
+            "                    at least 8 characters, letters/digits/-/_ only\n"
             "  --serve-retune-after  SECONDS:HZ -- a scripted one-shot retune\n"
-            "                    during --serve, for testing the tuning\n"
+            "                    during `server`/`web`, for testing the tuning\n"
             "                    generation; not a Viewer command\n"
             "  --no-browser      web: keep the link, skip its browser --\n"
             "                    the same thing server already is\n"
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
-            program, program, program, program);
+            program, program, program, program, program);
     printf("\nThe environment answers the same questions the command line\n"
            "does, for a launcher or a unit file that cannot reach it. A flag\n"
            "beats a variable beats the config file, and a refusal beats a\n"
@@ -352,7 +360,10 @@ int parse_options(int argc, char **argv, struct options *options) {
      * `--frequency 100M` included.
      */
     if (argc >= 2 && argv[1][0] != '-') {
-        if (strcmp(argv[1], "server") == 0) {
+        if (strcmp(argv[1], "headless") == 0) {
+            options->command = COMMAND_HEADLESS;
+            first_flag = 2;
+        } else if (strcmp(argv[1], "server") == 0) {
             options->command = COMMAND_SERVER;
             first_flag = 2;
         } else if (strcmp(argv[1], "web") == 0) {
@@ -489,10 +500,6 @@ int parse_options(int argc, char **argv, struct options *options) {
             if (options->survey_report)
                 return -1;
             options->survey_report = 1;
-        } else if (strcmp(option, "--serve") == 0) {
-            if (options->serve)
-                return -1;
-            options->serve = 1;
         } else if (strcmp(option, "--serve-port") == 0) {
             uint32_t port;
 
@@ -500,6 +507,74 @@ int parse_options(int argc, char **argv, struct options *options) {
                 parse_u32(argv[++i], &port) < 0 || port == 0 || port > 65535)
                 return -1;
             options->serve_port = (int)port;
+        } else if (strcmp(option, "--serve-bind") == 0) {
+            /* ADR-0027's amendment: "any" (every interface) or a literal
+               IPv4 address (one interface's own). Loopback needs no flag
+               and stays the default; this option exists to leave it. */
+            struct in_addr parsed;
+
+            if (options->serve_bind_kind != SERVE_BIND_LOOPBACK ||
+                i + 1 >= argc) {
+                snprintf(options->serve_bind_error,
+                        sizeof(options->serve_bind_error),
+                        "--serve-bind needs a value (\"any\" or an IPv4 "
+                        "address), and only once");
+                return -1;
+            }
+            options->serve_bind_text = argv[++i];
+            if (strcmp(options->serve_bind_text, "any") == 0) {
+                options->serve_bind_kind = SERVE_BIND_ANY;
+            } else if (inet_pton(AF_INET, options->serve_bind_text,
+                                 &parsed) == 1) {
+                options->serve_bind_kind = SERVE_BIND_ADDRESS;
+                options->serve_bind_addr = ntohl(parsed.s_addr);
+            } else {
+                /* neither "any" nor a parseable IPv4 address */
+                snprintf(options->serve_bind_error,
+                        sizeof(options->serve_bind_error),
+                        "--serve-bind \"%.90s\" is neither \"any\" nor a "
+                        "parseable IPv4 address",
+                        options->serve_bind_text);
+                return -1;
+            }
+        } else if (strcmp(option, "--serve-token") == 0) {
+            /* Required alongside --serve-bind (checked once, after the
+               loop, rather than here -- the two flags can arrive in
+               either order). Every request must then carry this exact
+               string as `?token=...`, unescaped, so the charset is
+               restricted to what a URL query string needs no encoding
+               for: this is not a URL parser and must not become one
+               (viewer_link.c's own token_authorized() states the same
+               principle about reading one back). */
+            const char *p;
+            size_t token_len;
+
+            if (options->serve_token || i + 1 >= argc) {
+                snprintf(options->serve_bind_error,
+                        sizeof(options->serve_bind_error),
+                        "--serve-token needs a value, and only once");
+                return -1;
+            }
+            options->serve_token = argv[++i];
+            token_len = strlen(options->serve_token);
+            if (token_len < 8 || token_len > 128) {
+                /* too short to be a secret, or too long for the fixed
+                   buffers a printed URL uses */
+                snprintf(options->serve_bind_error,
+                        sizeof(options->serve_bind_error),
+                        "--serve-token must be 8-128 characters (got %zu)",
+                        token_len);
+                return -1;
+            }
+            for (p = options->serve_token; *p; p++)
+                if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+                      (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) {
+                    snprintf(options->serve_bind_error,
+                            sizeof(options->serve_bind_error),
+                            "--serve-token may only contain letters, "
+                            "digits, - or _ (found '%c')", *p);
+                    return -1;
+                }
         } else if (strcmp(option, "--serve-retune-after") == 0) {
             /* SECONDS:HZ, the same "A:B" shape --zoom and --survey-range
                already take. */
@@ -683,10 +758,6 @@ int parse_options(int argc, char **argv, struct options *options) {
                 parse_seconds(argv[++i], &options->duration_seconds) < 0)
                 return -1;
             duration_seen = 1;
-        } else if (strcmp(option, "--headless") == 0) {
-            if (options->headless)
-                return -1;
-            options->headless = 1;
         } else if (strcmp(option, "--version") == 0) {
             /* Reachable without a window, like every other answer this
                program gives (ADR-0012): a version only in a corner of a
@@ -710,23 +781,40 @@ int parse_options(int argc, char **argv, struct options *options) {
     }
 
     /*
-     * A command sets flags a caller could have set with the pair of flags
-     * directly -- this is the one place it does it, so `--headless --serve`
-     * and `sdrprobe server` reach every check below identically and neither
-     * is a second code path.
-     *
-     * `--serve` implies `--headless` for the plain-flag spelling too:
-     * `./sdrprobe --serve` used to open a window, bind no socket and serve
-     * nothing, which its own help text ("--serve  headless: ...") never
-     * promised. Done here, after the loop, rather than inside the `--serve`
-     * branch itself, so it cannot collide with `--headless`'s own
-     * duplicate-flag guard above when both are written out, in either
-     * order.
+     * The only place `headless` and `serve` are ever set: neither has
+     * its own flag any more, and `command` is the one surface that
+     * decides both. `headless` follows from any of the three non-window
+     * commands; `serve` follows from the two that also open the Viewer
+     * link. This used to be two flags implying each other in either
+     * order (`--serve` implying `--headless` however the two were
+     * written out) -- a command word removes the ordering question
+     * entirely, since there is exactly one of them and it is always
+     * `argv[1]`.
      */
+    if (options->command == COMMAND_HEADLESS ||
+        options->command == COMMAND_SERVER ||
+        options->command == COMMAND_WEB)
+        options->headless = 1;
     if (options->command == COMMAND_SERVER || options->command == COMMAND_WEB)
         options->serve = 1;
-    if (options->serve)
-        options->headless = 1;
+
+    /*
+     * ADR-0027's amendment: binding beyond loopback owes a token before it
+     * allows control, not after -- so this is refused here rather than
+     * left to start an unauthenticated listener a firewall happens to be
+     * the only thing standing in front of. `--serve-bind`/`--serve-token`
+     * with neither `server` nor `web` at all is left alone rather than
+     * refused: the flag has nothing to do yet, and a future run that adds
+     * one of those commands should not have to remember to re-add these
+     * two as well.
+     */
+    if (options->serve && options->serve_bind_kind != SERVE_BIND_LOOPBACK &&
+        !options->serve_token) {
+        snprintf(options->serve_bind_error, sizeof(options->serve_bind_error),
+                "--serve-bind beyond loopback requires --serve-token "
+                "(ADR-0027's 2026-09-17 amendment)");
+        return -1;
+    }
 
     if (options->file_path && options->gain_seen)
         return -1;
@@ -735,9 +823,9 @@ int parse_options(int argc, char **argv, struct options *options) {
     if (options->file_path && device_seen)
         return -1;
     /* A view named with no window and no Viewer link to draw it in either
-       -- `--headless --view X` -- has nowhere to go, whichever screen X
-       names; unaffected by --serve, which has its own reason to refuse a
-       named --view (below) rather than none at all. */
+       -- `headless --view X` -- has nowhere to go, whichever screen X
+       names; unaffected by `server`/`web`, which have their own reason to
+       refuse a named --view (below) rather than none at all. */
     if (options->headless && view_seen)
         return -1;
     /*
@@ -785,15 +873,15 @@ int parse_options(int argc, char **argv, struct options *options) {
      * now, and `view_survey_enter()` already reads exactly these options to
      * seed a sweep the moment that tab is entered -- windowed or not, since
      * that function never knew which it was drawing for. A capture range
-     * combined with `--serve` was refused for as long as the tab it seeds
-     * was unreachable from a Viewer; it is not any more, and the check
-     * this repository asks for (ADR-0012, `does-it-help`) was: try it,
-     * live, and see whether the sweep it seeds actually runs.
+     * combined with `server`/`web` was refused for as long as the tab it
+     * seeds was unreachable from a Viewer; it is not any more, and the
+     * check this repository asks for (ADR-0012, `does-it-help`) was: try
+     * it, live, and see whether the sweep it seeds actually runs.
      *
      * `--view` and `--screenshot` need no entry here: each already refuses
-     * alongside `--headless`, which `--serve` now implies. `--startup` is
+     * alongside `headless`, which `server`/`web` also set. `--startup` is
      * not in this list on purpose -- checked rather than assumed:
-     * `--headless --startup` is a pre-existing, silent no-op
+     * `headless --startup` is a pre-existing, silent no-op
      * (`startup_form_wanted()` declines it at runtime, not at parse time),
      * unrelated to serving.
      */

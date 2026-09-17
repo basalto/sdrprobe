@@ -32,7 +32,23 @@ static uint16_t open_test_link(void) {
     socklen_t addr_len = sizeof(addr);
 
     check_true("the vlink opens on an OS-assigned loopback port",
-              viewer_link_open(&vlink, 0) == 0);
+              viewer_link_open(&vlink, 0, INADDR_LOOPBACK, NULL) == 0);
+    memset(&addr, 0, sizeof(addr));
+    getsockname(vlink.listen_fd, (struct sockaddr *)&addr, &addr_len);
+    return ntohs(addr.sin_port);
+}
+
+/* ADR-0027's amendment (2026-09-17): still loopback -- a real non-loopback
+   bind is not this file's business, since binding is `bind()`'s own
+   business and not what changed -- but with a token every request must
+   now carry. */
+static uint16_t open_test_link_with_token(const char *token) {
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+
+    check_true("the vlink opens on an OS-assigned loopback port, with a "
+              "token required",
+              viewer_link_open(&vlink, 0, INADDR_LOOPBACK, token) == 0);
     memset(&addr, 0, sizeof(addr));
     getsockname(vlink.listen_fd, (struct sockaddr *)&addr, &addr_len);
     return ntohs(addr.sin_port);
@@ -90,7 +106,11 @@ static int client_connect(struct test_client *tc, uint16_t port) {
     return client_connect_rcvbuf(tc, port, 0);
 }
 
-static int client_handshake(struct test_client *tc) {
+/* `path` lets a caller test the token gate (ADR-0027's amendment) against
+   the upgrade path itself, e.g. "/viewer?token=...". Every one of this
+   file's other 19 call sites goes through client_handshake() below,
+   unaffected, since a bare "/viewer" is what they all mean. */
+static int client_handshake_path(struct test_client *tc, const char *path) {
     char req[512];
     char resp[4096];
     size_t resp_have = 0;
@@ -98,10 +118,11 @@ static int client_handshake(struct test_client *tc) {
     int round;
 
     len = snprintf(req, sizeof(req),
-                  "GET /viewer HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\n"
+                  "GET %s HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\n"
                   "Connection: Upgrade\r\n"
                   "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-                  "Sec-WebSocket-Version: 13\r\n\r\n");
+                  "Sec-WebSocket-Version: 13\r\n\r\n",
+                  path);
     send(tc->fd, req, (size_t)len, 0);
     for (round = 0; round < 200; round++) {
         ssize_t n;
@@ -116,6 +137,10 @@ static int client_handshake(struct test_client *tc) {
         }
     }
     return -1; /* never completed */
+}
+
+static int client_handshake(struct test_client *tc) {
+    return client_handshake_path(tc, "/viewer");
 }
 
 static void client_send_frame(struct test_client *tc, int opcode,
@@ -1072,6 +1097,109 @@ static void test_commands_are_never_dropped_while_state_updates_are(void) {
     viewer_link_close(&vlink);
 }
 
+/* One connect, one raw request, one response read to completion -- the
+   shape test_plain_get_serves_the_page() already used, factored out so
+   the token-gate tests below are not three copies of the same loop. */
+static void raw_get(uint16_t port, const char *path, char *resp,
+                    size_t resp_cap) {
+    struct test_client tc;
+    char req[128];
+    size_t have = 0;
+    int i;
+
+    snprintf(req, sizeof(req), "GET %s HTTP/1.1\r\nHost: x\r\n\r\n", path);
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    send(tc.fd, req, strlen(req), 0);
+    for (i = 0; i < 60 && have < resp_cap - 1; i++) {
+        ssize_t n;
+
+        viewer_link_poll(&vlink, 5);
+        n = recv(tc.fd, resp + have, resp_cap - 1 - have, 0);
+        if (n > 0)
+            have += (size_t)n;
+    }
+    resp[have] = '\0';
+    client_close_conn(&tc);
+}
+
+/*
+ * ADR-0027's amendment (2026-09-17): a link opened with a required token
+ * refuses every request -- the plain page and the WebSocket upgrade
+ * alike -- that does not carry `?token=<exactly this>` in its path,
+ * before either branch runs. A link opened with no token (every other
+ * test in this file) is unaffected: `token_authorized()` is unconditionally
+ * true when there is nothing to check.
+ */
+static void test_a_required_token_gates_the_plain_page(void) {
+    uint16_t port = open_test_link_with_token("secrettoken123");
+    char resp[512];
+
+    raw_get(port, "/", resp, sizeof(resp));
+    check_true("no token at all is refused", strstr(resp, "401") != NULL);
+
+    raw_get(port, "/?token=wrong", resp, sizeof(resp));
+    check_true("a wrong token is refused", strstr(resp, "401") != NULL);
+
+    raw_get(port, "/?token=secrettoken123", resp, sizeof(resp));
+    check_true("the correct token is accepted",
+              strstr(resp, "200 OK") != NULL);
+
+    /* A token that is a prefix or a superstring of the real one must not
+       pass -- pair_len - 6 == token_len in token_authorized() is what
+       this pins, since a substring match alone would accept either. */
+    raw_get(port, "/?token=secrettoken1234", resp, sizeof(resp));
+    check_true("a token one character too long is refused",
+              strstr(resp, "401") != NULL);
+    raw_get(port, "/?token=secrettoken12", resp, sizeof(resp));
+    check_true("a token one character too short is refused",
+              strstr(resp, "401") != NULL);
+
+    viewer_link_close(&vlink);
+}
+
+static void test_a_required_token_gates_the_upgrade(void) {
+    uint16_t port = open_test_link_with_token("secrettoken123");
+    struct test_client tc;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    check_int("an upgrade with no token at all is refused",
+             client_handshake(&tc), -1);
+    client_close_conn(&tc);
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    check_int("an upgrade with the wrong token is refused",
+             client_handshake_path(&tc, "/viewer?token=wrong"), -1);
+    client_close_conn(&tc);
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    check_int("an upgrade with the correct token succeeds",
+             client_handshake_path(&tc, "/viewer?token=secrettoken123"), 0);
+    client_close_conn(&tc);
+
+    viewer_link_close(&vlink);
+}
+
+/* A second query parameter either side of `token=` -- the shape a browser
+   forwarding location.search alongside something else would produce --
+   must not confuse the scan in either direction. */
+static void test_the_token_is_found_among_other_query_parameters(void) {
+    uint16_t port = open_test_link_with_token("secrettoken123");
+    char resp[512];
+
+    raw_get(port, "/?a=1&token=secrettoken123&b=2", resp, sizeof(resp));
+    check_true("the token is found with parameters on both sides",
+              strstr(resp, "200 OK") != NULL);
+    raw_get(port, "/?a=1&token=wrong&b=2", resp, sizeof(resp));
+    check_true("and a wrong one there is still refused",
+              strstr(resp, "401") != NULL);
+
+    viewer_link_close(&vlink);
+}
+
 int main(void) {
     test_plain_get_serves_the_page();
     test_upgrade_and_receiver_state();
@@ -1094,5 +1222,8 @@ int main(void) {
     test_survey_spectrum_with_no_bins_publishes_nothing();
     test_survey_state_wire_format();
     test_survey_streams_are_not_sent_when_unsubscribed();
+    test_a_required_token_gates_the_plain_page();
+    test_a_required_token_gates_the_upgrade();
+    test_the_token_is_found_among_other_query_parameters();
     return check_report("the Viewer link over real loopback sockets");
 }

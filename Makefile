@@ -1287,7 +1287,7 @@ screens: sdrprobe
 	@mkdir -p $(SCREEN_DIR)
 	$(Q)NAMES="$(NAMES)" sh scripts/screens.sh $(SCREEN_DIR) $(SCREEN_W) $(SCREEN_H)
 
-#: [Diagnostics] what --serve costs per subscription, live (SUBS_SERVE=, FFT_SERVE=)
+#: [Diagnostics] what `server` costs per subscription, live (SUBS_SERVE=, FFT_SERVE=)
 bench-serve: sdrprobe
 	$(Q)sh scripts/serve_cost.sh
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turn a band survey's output into something that accumulates.
 
-`--headless --survey` prints one line per candidate and then a total. That is
+`headless --survey` prints one line per candidate and then a total. That is
 the right shape to read once and the wrong shape to keep: the interesting
 question is not what is transmitting now but what has changed since last time,
 and answering that means the surveys have to be comparable and kept.

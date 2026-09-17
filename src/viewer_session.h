@@ -9,7 +9,7 @@ struct app;
 #define VIEWER_SESSION_DEFAULT_PORT 8765
 
 /*
- * `--headless --serve`: drives ticket 02's advance step with no window,
+ * `server`/`web`: drives ticket 02's advance step with no window,
  * builds ticket 03's view model each block, and publishes it over ticket
  * 04's WebSocket server (joined by src/viewer_link.c) instead of drawing
  * it. Runs until Ctrl-C (`stop_requested()`) or, for file playback, until
@@ -73,6 +73,26 @@ static inline int viewer_update_due(double now, double published_at,
     if (published_at < 0.0)
         return 1;
     return now - published_at >= interval_seconds;
+}
+
+/*
+ * Whether a `--duration` budget has run out. `duration_seconds <= 0` means
+ * "no budget, run until Ctrl-C" -- options.h's own convention for the
+ * field -- so this reads 0 (never elapsed) in that case rather than every
+ * caller needing its own guard first.
+ *
+ * Out here for the same reason `viewer_update_due()` is: it is a decision
+ * (ADR-0012), not a loop, and the loop it belongs to takes `struct app`.
+ * The one caller, `viewer_session_run()`, had this inline as a bare
+ * comparison until a live test for a separate ticket sat past its own
+ * `--duration` and kept running -- `sdrprobe.c`'s *other* headless loop
+ * (decode/playback) has always checked its duration; this one, added
+ * afterwards, checked only `stop_requested()` (SIGINT/SIGTERM) and never
+ * this. Pulled out and pinned here so it cannot regress unnoticed a
+ * second time.
+ */
+static inline int viewer_duration_elapsed(double now, double duration_seconds) {
+    return duration_seconds > 0.0 && now >= duration_seconds;
 }
 
 #endif

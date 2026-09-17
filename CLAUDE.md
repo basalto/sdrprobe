@@ -782,20 +782,20 @@ Checking a capture decodes, with no window and nothing to click — the fastest
 way to see whether a change to the DSP helped or hurt:
 
 ```sh
-./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 --decode --once
-./sdrprobe --file testfiles/adsb_cpr_pair.bin --headless --technology adsb --decode --once
-./sdrprobe --file testfiles/tetra_cc17.bin --headless --technology tetra \
+./sdrprobe headless --file testfiles/gsm_arfcn_73.bin --arfcn 73 --decode --once
+./sdrprobe headless --file testfiles/adsb_cpr_pair.bin --technology adsb --decode --once
+./sdrprobe headless --file testfiles/tetra_cc17.bin --technology tetra \
     --sample-rate 2000000 --decode --once
-./sdrprobe --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
-    --frequency 89.5M --headless --technology fm --decode --once
-./sdrprobe --headless --record-seconds 2 --technology adsb   # live capture + sidecar
+./sdrprobe headless --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
+    --frequency 89.5M --technology fm --decode --once
+./sdrprobe headless --record-seconds 2 --technology adsb   # live capture + sidecar
 ```
 
 Walking an LTE band without a window -- the scan is otherwise a button, and a
 button is not something a script can press:
 
 ```sh
-./sdrprobe --headless --lte-scan 20        # bands 8, 20, 28; ~170 s for a band
+./sdrprobe headless --lte-scan 20          # bands 8, 20, 28; ~170 s for a band
 ```
 
 One `cell` line per identity found, then a summary. The sweep takes three
@@ -810,10 +810,10 @@ the survey found, since a sweep is otherwise reached by clicking:
 
 ```sh
 # a capture holds one tuning, so its survey is one step and repeats exactly
-./sdrprobe --file testfiles/gsm_arfcn_69.bin --frequency 948.4M --headless \
+./sdrprobe headless --file testfiles/gsm_arfcn_69.bin --frequency 948.4M \
     --survey --once
 # a receiver sweeps whatever range it is given
-./sdrprobe --headless --survey --survey-range 470M:690M --survey-dwell 0.2
+./sdrprobe headless --survey --survey-range 470M:690M --survey-dwell 0.2
 ```
 
 Surveys accumulate rather than scroll past: `scripts/survey_tool.py` turns that
@@ -1676,8 +1676,8 @@ Walking the LTE chain over a live cell, which `probe-lte-chain` only does for
 a capture:
 
 ```sh
-./sdrprobe --headless --lte-chain --earfcn 6200 --lte-chain-seconds 30
-./sdrprobe --headless --lte-chain --lte-chain-band 20     # scan, walk the best
+./sdrprobe headless --lte-chain --earfcn 6200 --lte-chain-seconds 30
+./sdrprobe headless --lte-chain --lte-chain-band 20       # scan, walk the best
 ```
 
 Four lines per block -- PSS, SSS, power, MIB -- a `neighbour` line for any
@@ -1726,9 +1726,9 @@ Calibrating with no window, which is how the gate is reachable at all
 (ADR-0012):
 
 ```sh
-./sdrprobe --headless --calibrate gsm --arfcn 113
-./sdrprobe --headless --calibrate lte --earfcn 6200
-./sdrprobe --headless --calibrate lte --calibrate-band 20   # scan, take the best
+./sdrprobe headless --calibrate gsm --arfcn 113
+./sdrprobe headless --calibrate lte --earfcn 6200
+./sdrprobe headless --calibrate lte --calibrate-band 20     # scan, take the best
 ```
 
 One `cal-measure` line per residual and a `calibrate-result` at the end saying
@@ -1876,7 +1876,7 @@ guarantee structural rather than maintained.
 `startup_form_wanted()` is still the whole rule, pure, and `check-options`
 covers every case. Three refusals outrank the request and the reason differs
 for each: `--no-startup` because **a refusal beats a request in either order**,
-so the pair never resolves by argument position; `--headless` and `--file`
+so the pair never resolves by argument position; `headless` and `--file`
 because the form cannot work at all -- no window, or a capture with no crystal
 to measure; and `--ppm` because it is a **provenance** guard rather than an
 inference, the `--ppm 0` case that wrote over a measured +32 twice in one

@@ -69,7 +69,7 @@ printf '%-14s %12s %10s %9s   %s\n' nominal offset level prominence verdict
 for n in $NOMINALS; do
     f=$(to_hz "$n")
     lo=$((f - SPAN / 2)); hi=$((f + SPAN / 2))
-    out=$(./sdrprobe --headless --ppm "$PPM" --gain "$GAIN" --survey \
+    out=$(./sdrprobe headless --ppm "$PPM" --gain "$GAIN" --survey \
               --survey-range "${lo}:${hi}" --survey-dwell "$DWELL" 2>/dev/null \
           | grep '^candidate ' || true)
     echo "$out" | awk -v f="$f" -v span="$SPAN" '

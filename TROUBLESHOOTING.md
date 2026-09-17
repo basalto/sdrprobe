@@ -1,15 +1,18 @@
 # Troubleshooting the Viewer link
 
-Practical commands for exercising and diagnosing `--serve` (ADR-0027): the
-headless Viewer link, its four streams, and the page that draws them. This is
-a runbook, not a spec -- see `.scratch/web-visualization/` for the tickets and
+Practical commands for exercising and diagnosing `server`/`web` (ADR-0027):
+the headless Viewer link, its four streams, and the page that draws them.
+This is a runbook, not a spec -- see `.scratch/web-visualization/` for the
+tickets and
 `docs/adr/0027-viewer-link-carries-derived-state-over-loopback.md` for the
 decisions behind the shape below.
 
-`sdrprobe server` is `--headless --serve` and `sdrprobe web` adds a browser;
-every command below spells the flags out because each is demonstrating a
-particular combination (a port, a capture, a scripted retune), and the two
-spellings stay interchangeable.
+`server` is headless plus the Viewer link, no browser; `web` adds a browser
+pointed at it automatically. Both are command words (`options.h`'s own
+`enum start_command`) rather than flags -- `--headless` and `--serve` used
+to spell the same thing as a pair of flags and no longer exist, so every
+command below uses `server` (or `headless` alone, where only the acquire
+side is being exercised, with no Viewer link at all).
 
 ## 1. Build and run the unit tests first
 
@@ -33,16 +36,16 @@ make check-pipelines           # the built binary over testfiles/, byte-identity
 
 ```sh
 # Against a capture -- deterministic, repeatable, no hardware:
-./sdrprobe --headless --serve --serve-port 8765 --file testfiles/gsm_arfcn_69.bin
+./sdrprobe server --serve-port 8765 --file testfiles/gsm_arfcn_69.bin
 
 # Higher resolution (also raises bytes/sec -- see section 5):
-./sdrprobe --headless --serve --serve-port 8765 --fft 16384 --file testfiles/gsm_arfcn_69.bin
+./sdrprobe server --serve-port 8765 --fft 16384 --file testfiles/gsm_arfcn_69.bin
 
 # Against a live receiver, if one is attached:
-./sdrprobe --headless --serve --serve-port 8765 --frequency 100.3M
+./sdrprobe server --serve-port 8765 --frequency 100.3M
 
 # With the link's own debug-log tracing on (see section 6):
-./sdrprobe --headless --serve --serve-port 8765 --file testfiles/gsm_arfcn_69.bin --debug-log -
+./sdrprobe server --serve-port 8765 --file testfiles/gsm_arfcn_69.bin --debug-log -
 ```
 
 Then open `http://127.0.0.1:8765/` in a real browser -- spectrum, waterfall,
@@ -94,7 +97,7 @@ refuses to move it (`"Tuning requires a live receiver: a capture holds one
 frequency"`).
 
 ```sh
-./sdrprobe --headless --serve --serve-port 8765 \
+./sdrprobe server --serve-port 8765 \
     --frequency 100300000 --serve-retune-after 3:98000000
 
 python3 scripts/viewer_client.py --port 8765 --subscribe receiver_state --count 200
@@ -153,7 +156,7 @@ clearing -- not a per-message trace, which would flood the log for nothing;
 see `src/debug_log.h`'s own comment on why.
 
 ```sh
-./sdrprobe --headless --serve --serve-port 8765 --file testfiles/gsm_arfcn_69.bin \
+./sdrprobe server --serve-port 8765 --file testfiles/gsm_arfcn_69.bin \
     --debug-log /tmp/viewer.log
 tail -f /tmp/viewer.log
 ```

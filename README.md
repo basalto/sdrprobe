@@ -90,19 +90,19 @@ one that needs a person to click cannot be checked (ADR-0012):
 
 ```sh
 # Sweep, confirm what it found, and file the result under surveys/
-./sdrprobe --headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
+./sdrprobe headless --survey --survey-range 24M:1766M --survey-dwell 0.12 \
     --survey-confirm | ./scripts/survey_tool.py ingest --note "telescopic, indoors"
 
 # Keep sweeping, folding each pass into the site's history
-./sdrprobe --headless --survey --survey-watch 20
+./sdrprobe headless --survey --survey-watch 20
 
 # Read a capture, or a live cell, with nothing to click
-./sdrprobe --file testfiles/gsm_arfcn_69.bin --headless --arfcn 69 --decode --once
+./sdrprobe headless --file testfiles/gsm_arfcn_69.bin --arfcn 69 --decode --once
 # Walk every LTE identity on one carrier, not only the strongest
-./sdrprobe --headless --lte-chain --earfcn 3475 --lte-chain-seconds 30
+./sdrprobe headless --lte-chain --earfcn 3475 --lte-chain-seconds 30
 # Find cells across a band, or find and measure a calibration reference
-./sdrprobe --headless --lte-scan 20
-./sdrprobe --headless --calibrate auto --site home
+./sdrprobe headless --lte-scan 20
+./sdrprobe headless --calibrate auto --site home
 ```
 
 ## Versioning
@@ -150,14 +150,16 @@ make all             # builds ./sdrprobe
 
 ./sdrprobe web       # the Viewer link (ADR-0027), plus a browser pointed at it
 ./sdrprobe server    # the Viewer link alone -- no window, no browser
+./sdrprobe headless  # no window, nothing further -- pair with --decode,
+                     # --survey, --record-seconds, etc.
 ```
 
-The command names the frontend and nothing else -- window, browser, socket.
-Every flag below works the same under all three; `web` and `server` are
-`--headless --serve` underneath, and that spelling keeps working directly.
-`web --no-browser` is `server`, exactly -- so `--no-browser` (or
-`SDRPROBE_NO_BROWSER` for a launcher that cannot reach the command line) is
-how to keep the link without a browser opening on its own.
+The command names the frontend and nothing else -- window, headless with
+nothing further, the Viewer link alone, or the Viewer link plus a browser.
+Every flag below works the same under all four. `web --no-browser` is
+`server`, exactly -- so `--no-browser` (or `SDRPROBE_NO_BROWSER` for a
+launcher that cannot reach the command line) is how to keep the link
+without a browser opening on its own.
 
 ```
 ./sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
@@ -168,7 +170,7 @@ how to keep the link without a browser opening on its own.
            [--antenna name] [--site name] [--startup]
            [--arfcn 1-124] [--earfcn n] [--lte-scan band]
            [--survey-range low:high] [--survey-dwell seconds]
-           [--duration n] [--once] [--headless] [--decode]
+           [--duration n] [--once] [--decode]
 ```
 
 `./sdrprobe --help` is the built-in option reference. Scripted calibration,
@@ -179,22 +181,22 @@ Scripted use, no window and no clicking:
 
 ```sh
 ./sdrprobe --list-devices                       # what is attached, and is it free
-./sdrprobe --headless --record-seconds 3 \
+./sdrprobe headless --record-seconds 3 \
            --technology adsb                    # capture 3 s + sidecar, print the path
 ./sdrprobe --view adsb --duration 20            # open on a screen, quit by itself
 ./sdrprobe --survey-range 88M:108M              # sweep a band and show what is on it
-./sdrprobe --headless --arfcn 73 --record-seconds 2   # a GSM channel, sidecar and all
+./sdrprobe headless --arfcn 73 --record-seconds 2   # a GSM channel, sidecar and all
 
 # Decode a capture with no window and no clicking:
-./sdrprobe --file testfiles/adsb_cpr_pair.bin \
-           --headless --technology adsb --decode --once
-./sdrprobe --file testfiles/gsm_arfcn_73.bin \
-           --headless --arfcn 73 --decode --once
+./sdrprobe headless --file testfiles/adsb_cpr_pair.bin \
+           --technology adsb --decode --once
+./sdrprobe headless --file testfiles/gsm_arfcn_73.bin \
+           --arfcn 73 --decode --once
 #   SCH  BSIC 56 (NCC 7, BCC 0)  frame 2090358 (T1/T2/T3 1576/10/21)  match 0.87
 
 # What each SCH refinement is worth, measured rather than assumed:
 for f in none filter filter,finecfo,trellis; do
-  ./sdrprobe --file testfiles/gsm_arfcn_73.bin --headless --arfcn 73 \
+  ./sdrprobe headless --file testfiles/gsm_arfcn_73.bin --arfcn 73 \
              --decode --once --gsm-features $f | grep -c SCH
 done   # 6, 13, 29
 ```

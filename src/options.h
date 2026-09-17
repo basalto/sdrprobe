@@ -57,19 +57,32 @@ enum start_view {
 };
 
 /*
- * Which frontend the program opens on -- window, browser, or the Viewer
- * link alone. A command names this and nothing else; every other question
- * this program can be asked (a band, a capture, a technology) stays a flag,
+ * Which frontend the program opens on -- window, no window at all, the
+ * Viewer link with no window, or the Viewer link plus a browser. A
+ * command names this and nothing else; every other question this
+ * program can be asked (a band, a capture, a technology) stays a flag,
  * because none of it changes who is looking.
  *
  * COMMAND_WINDOW is 0, so a plain `struct options` memset to zero -- the
  * first thing `parse_options()` does -- already means "the window", which is
  * what running with no command at all has always meant.
+ *
+ * `--headless` and `--serve` were flags once, and are gone: `headless`
+ * (no window, nothing further implied), `server` and `web` (both imply
+ * `headless`, and additionally open the Viewer link) are now the only
+ * way to ask for any of this, the same command-word shape `server`/`web`
+ * already had. A flag combining freely with everything else was right
+ * for `--decode`/`--survey`/`--record-seconds`/etc., which name a
+ * question about *what* to do; it was never right for a question about
+ * *who is looking*, which is what this enum is -- one answer per run,
+ * never two at once, exactly what a command word (not a flag) means.
  */
 enum start_command {
     COMMAND_WINDOW = 0,
-    COMMAND_SERVER,           /* the Viewer link alone: --headless --serve */
-    COMMAND_WEB               /* the Viewer link, plus a browser pointed at it */
+    COMMAND_HEADLESS,         /* no window; nothing further implied */
+    COMMAND_SERVER,           /* headless, plus the Viewer link */
+    COMMAND_WEB               /* headless, the Viewer link, and a browser
+                                  pointed at it */
 };
 
 enum gain_request_kind {
@@ -77,6 +90,17 @@ enum gain_request_kind {
     GAIN_REQUEST_MAX,
     GAIN_REQUEST_AUTO,
     GAIN_REQUEST_NUMERIC
+};
+
+/* ADR-0027's amendment: what `--serve-bind` asked for. LOOPBACK (0, the
+   default -- a plain `struct options` memset to zero means this, same
+   reasoning as COMMAND_WINDOW above) needs no token; ANY and ADDRESS
+   both require one, checked once in parse_options() rather than at
+   every call site that might otherwise forget. */
+enum serve_bind_kind {
+    SERVE_BIND_LOOPBACK = 0,
+    SERVE_BIND_ANY,
+    SERVE_BIND_ADDRESS
 };
 
 struct options {
@@ -109,7 +133,9 @@ struct options {
     int device_index;         /* receiver to open */
     int list_devices;         /* print the receivers and exit */
     int show_version;         /* print the version and exit */
-    int headless;             /* acquire with no window */
+    int headless;             /* acquire with no window -- set from `command`
+                                  (HEADLESS/SERVER/WEB), never directly by a
+                                  flag of its own any more */
     double record_seconds;    /* 0 = do not record at startup */
     double duration_seconds;  /* 0 = run until quit */
     enum start_view view;
@@ -152,10 +178,37 @@ struct options {
        survey without a window or a person to click one. */
     int survey_report;
     /* headless: serve the Scope's view model to a loopback Viewer link
-       (ADR-0027) instead of drawing it. 0 = off. `serve_port` is the
-       listening port, 0 meaning the link's own default. */
+       (ADR-0027) instead of drawing it. 0 = off, set only by `command`
+       being COMMAND_SERVER or COMMAND_WEB -- there is no `--serve` flag
+       of its own any more; `server`/`web` are the only way to ask for
+       this, the same command-word shape they already had.
+       `serve_port` is the listening port, 0 meaning the link's own
+       default. */
     int serve;
     int serve_port;
+    /* ADR-0027's amendment, 2026-09-17: the bind address is loopback
+       (SERVE_BIND_LOOPBACK) unless `--serve-bind` said otherwise.
+       `serve_bind_addr` (host byte order) is only meaningful for
+       SERVE_BIND_ADDRESS; `serve_bind_text` is the raw argument, kept
+       for messages and tests rather than reconstructed from the parsed
+       form. Refused at parse time (see parse_options()) unless
+       `serve_token` also names a token: the bind address was the whole
+       authorization boundary, and this is what stands in its place once
+       reaching the socket no longer implies a login on this machine. */
+    enum serve_bind_kind serve_bind_kind;
+    uint32_t serve_bind_addr;
+    const char *serve_bind_text;
+    const char *serve_token;
+    /* Which clause refused --serve-bind or --serve-token, if either did:
+       empty ("") ordinarily, since a plain `struct options` memset to
+       zero already makes it so. Unlike every other flag combination's
+       refusal, this one names its own reason -- the same exception
+       `unknown_command` already is, and for the same stated reason
+       (main()'s own comment): a bad address or a token that fails one
+       specific, nameable rule is not "a bad flag or a bad combination"
+       the usage text already answers, it is a rule this flag alone has
+       that a first-time reader has no way to guess at from the dump. */
+    char serve_bind_error[160];
     /* A scripted, one-shot retune during a --serve session, for exercising
        the tuning generation without a Viewer command -- retuning from the
        wire is ticket 06's, not this one's. 0 seconds means disabled. */

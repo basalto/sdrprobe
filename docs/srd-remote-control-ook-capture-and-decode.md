@@ -77,8 +77,8 @@ capture.
 ```sh
 make probe-ook FILE_OOK=testfiles/srd_remote_control_ook_a.bin
 make probe-srd FILE_SRD=testfiles/srd_remote_control_ook_a.bin
-./sdrprobe --file testfiles/srd_remote_control_ook_a.bin \
-    --headless --technology srd --decode --once
+./sdrprobe headless --file testfiles/srd_remote_control_ook_a.bin \
+    --technology srd --decode --once
 ```
 
 The diagnostics report measured carrier, activity windows, runs, chip period,
