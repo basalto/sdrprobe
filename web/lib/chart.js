@@ -31,6 +31,21 @@ function plot(ctx, width, height, values, color, toY) {
   ctx.stroke();
 }
 
+// Resizes a canvas's backing store to a given width and height, returning
+// whether it actually changed. Setting either dimension clears the canvas,
+// which matters to a caller whose canvas *is* its history -- the waterfalls
+// here keep no rows of their own, exactly as the window's own
+// `recreate_waterfall()` starts a fresh texture on a resize.
+//
+// Plain data and geometry: the numbers come from whoever knows the layout,
+// which is never this file.
+function fitCanvas(canvas, width, height) {
+  if (canvas.width === width && canvas.height === height) return false;
+  canvas.width = width;
+  canvas.height = height;
+  return true;
+}
+
 // The waterfall's per-bin colour: dBFS in, an RGB string out.
 function colorFor(dbfs) {
   const t = Math.max(0, Math.min(1, (dbfs + 100) / 90));

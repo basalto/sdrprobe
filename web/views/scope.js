@@ -60,6 +60,16 @@ const ScopeView = (function () {
             // rather than reinvented, since receiver_state.tab is that
             // enum's own int.
     streams: ['spectrum', 'waterfall'],
+    // Both canvases take the width the shell measured; the heights keep
+    // the 260/200 proportion they were authored at. Resizing clears them,
+    // and for the waterfall that is its history -- the canvas is the
+    // history, which is why this page keeps no rows of its own.
+    resize(width, viewportHeight) {
+      const { specCanvas, wfCanvas } = elements();
+
+      fitCanvas(specCanvas, width, Math.max(160, Math.round(viewportHeight * 0.30)));
+      fitCanvas(wfCanvas, width, Math.max(130, Math.round(viewportHeight * 0.23)));
+    },
     markup:
       '<div class="label">spectrum (average: cyan, peak hold: orange)</div>' +
       '<canvas id="spectrum" width="900" height="260"></canvas>' +

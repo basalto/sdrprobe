@@ -55,13 +55,25 @@ const FmView = (function () {
     e.charts.textContent = on ? 'Show signal' : 'Show charts';
   }
 
+  // The window's own panel palette, taken from `src/view_fm.c`'s file-scope
+  // Colors rather than eyeballed: `panel_edge`, `panel_caption`,
+  // `row_label`, `row_value`, `row_good` and `row_weak`, each as the hex of
+  // the exact RGB it is there. A panel that is nearly the window's colour
+  // is a panel a reader has to look twice at.
+  const PANEL_FILL = '#111a25';    /* 17, 26, 37 */
+  const PANEL_EDGE = '#526d7e';    /* 82, 109, 126 */
+  const PANEL_CAPTION = '#97aebc'; /* 151, 174, 188 */
+  const ROW_LABEL = '#7e97a6';     /* 126, 151, 166 */
+  const ROW_VALUE = '#d5e2ea';     /* 213, 226, 234 */
+
   // `enum fm_reading_tone`'s three values, in its own order: neutral (in
-  // progress), good (working), weak (this is where the decode stopped).
+  // progress), good (working), weak (this is where the decode stopped) --
+  // painted in the window's own `row_label`, `row_good` and `row_weak`.
   // Inline rather than as classes in viewer.html, deliberately: ticket
   // 14's own criterion is that adding a view touches views/ and the
   // registry line and no other file, and views/survey.js already picks
   // its chart colours the same way.
-  const TONE_COLOR = ['#8291a0', '#5adca4', '#e8a355'];
+  const TONE_COLOR = [ROW_LABEL, '#63e4aa', '#fabe4a'];
 
   // The three landmarks that make a multiplex readable at a glance: the
   // pilot, the stereo subcarrier at twice it, and the RDS band at three
@@ -74,8 +86,10 @@ const FmView = (function () {
     { hz: 57000, label: 'RDS' },
   ];
 
+  // The window's two row colours: a muted label, a bright value.
   function pair(label, value) {
-    return ['<td>' + label + '</td>', '<td>' + value + '</td>'];
+    return ['<td style="color:' + ROW_LABEL + '">' + label + '</td>',
+            '<td style="color:' + ROW_VALUE + '">' + value + '</td>'];
   }
 
   function renderState(s) {
@@ -197,12 +211,19 @@ const FmView = (function () {
     }
   }
 
-  // One panel of the three-across row the window draws. Laid out with
-  // inline flex rather than a rule in viewer.html for the same reason the
-  // tone colours are inline: adding a view should not edit the shell.
+  // One panel of the three-across row the window draws, with the window's
+  // own fill, 1px edge and caption -- `draw_panel()` in src/view_fm.c, whose
+  // caption sits 12 px in and 10 down and whose rows begin 36 from the top,
+  // which is what the padding below reproduces. Laid out with inline styles
+  // rather than rules in viewer.html for the same reason the tone colours
+  // are inline: adding a view should not edit the shell.
   function panel(caption, bodyHtml) {
-    return '<div style="flex:1 1 240px;min-width:240px">'
-      + '<div class="label">' + caption + '</div>' + bodyHtml + '</div>';
+    return '<div style="flex:1 1 260px;min-width:260px;background:'
+      + PANEL_FILL + ';border:1px solid ' + PANEL_EDGE
+      + ';padding:10px 12px 12px">'
+      + '<div style="color:' + PANEL_CAPTION
+      + ';font-size:16px;margin-bottom:10px">' + caption + '</div>'
+      + bodyHtml + '</div>';
   }
 
   return {
@@ -218,6 +239,23 @@ const FmView = (function () {
     // views, rather than an `fm_waterfall` that would carry identical
     // bytes under another name.
     streams: ['fm_spectrum', 'fm_state', 'waterfall'],
+    // The window gives its waterfall the whole width and the room left
+    // above the panels; this takes the width the shell measured and about
+    // two fifths of the viewport, with a floor so a short window still
+    // shows a band of it rather than a line.
+    //
+    // Resizing clears both canvases, and for the waterfall that is its
+    // history -- this page keeps no rows of its own (ADR-0027: the Viewer
+    // builds its history from the rows it is sent, and never asks the
+    // program for one). The window does the same thing for the same
+    // reason: `recreate_waterfall()` starts a fresh texture.
+    resize(width, viewportHeight) {
+      const e = elements();
+      const h = Math.max(160, Math.round(viewportHeight * 0.40));
+
+      fitCanvas(e.wf, width, h);
+      fitCanvas(e.mpx, width, h);
+    },
     markup:
       '<div style="margin-bottom:10px">'
       + '<button id="fm-charts" style="background:#16202c;color:#8291a0;'

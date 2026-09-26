@@ -77,6 +77,14 @@ const SurveyView = (function () {
     label: 'Survey',
     tab: 0, // TAB_SURVEY, input_route.h's enum active_tab
     streams: ['survey_spectrum', 'survey_state'],
+    // The sweep chart takes the width the shell measured. Clearing it on a
+    // resize costs nothing here: unlike a waterfall this canvas is redrawn
+    // whole from the next `survey_spectrum`, which carries the entire
+    // swept range every time.
+    resize(width, viewportHeight) {
+      fitCanvas(elements().surveyChart, width,
+                Math.max(180, Math.round(viewportHeight * 0.32)));
+    },
     markup:
       '<div class="label" id="survey-status">no sweep yet</div>' +
       '<canvas id="survey-chart" width="900" height="260"></canvas>' +

@@ -62,7 +62,25 @@ function selectView(view, sendCommand) {
   });
   if (sendCommand && ws) ws.send('view ' + view.id);
   if (changed) subscribeToActiveView();
+  // After the panel is shown, not before: a hidden element has no layout,
+  // so a view measured while it was hidden would size its canvases to
+  // zero.
+  resizeActiveView();
 }
+
+// The shell owns the layout and the views own their canvases, so the shell
+// measures and hands the numbers over -- the same division
+// `view_scope_resize_if_needed()` keeps on the native side, where the frame
+// loop calls an entry point rather than reaching into a view's fields.
+//
+// A view with no `resize` simply does not have canvases to size.
+function resizeActiveView() {
+  if (!activeView || !activeView.resize) return;
+  const panels = document.getElementById('panels');
+  const width = Math.max(320, panels.clientWidth || 900);
+  activeView.resize(width, window.innerHeight || 720);
+}
+window.addEventListener('resize', resizeActiveView);
 
 // receiver_state and link_health are the shell's own concern, not a
 // view's -- both always asked for regardless of which view shows;
