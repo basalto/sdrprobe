@@ -31,6 +31,21 @@ function plot(ctx, width, height, values, color, toY) {
   ctx.stroke();
 }
 
+// What a canvas has actually been laid out at, which is what its backing
+// store should be: a canvas whose store is a different size from its box is
+// a stretched picture, and one computed from the viewport instead is a
+// second opinion about a layout CSS has already settled.
+//
+// Falls back to the store it already has where there is no layout to read
+// -- a canvas that has never been displayed, or a document with no layout
+// engine behind it at all.
+function measure(canvas) {
+  return {
+    width: Math.max(1, Math.round(canvas.clientWidth || canvas.width)),
+    height: Math.max(1, Math.round(canvas.clientHeight || canvas.height)),
+  };
+}
+
 // Resizes a canvas's backing store to a given width and height, returning
 // whether it actually changed. Setting either dimension clears the canvas,
 // which matters to a caller whose canvas *is* its history -- the waterfalls

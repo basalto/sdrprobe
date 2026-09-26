@@ -52,24 +52,31 @@ const ScopeView = (function () {
             // rather than reinvented, since receiver_state.tab is that
             // enum's own int.
     streams: ['spectrum', 'waterfall'],
-    // Both canvases take the width the shell measured; the heights keep
-    // the 260/200 proportion they were authored at. Resizing clears a
-    // canvas, so the waterfall is redrawn from the rows it kept -- only
-    // when the geometry actually changed, which is what `fitCanvas()`
-    // reports. The spectrum needs no such thing: the next message carries
-    // the whole trace.
-    resize(width, viewportHeight) {
+    // Each canvas is matched to what CSS laid it out at; the markup gives
+    // the two of them equal shares of the room left below the labels.
+    // Resizing clears a canvas, so the waterfall is redrawn from the rows
+    // it kept -- only when the geometry actually changed, which is what
+    // `fitCanvas()` reports. The spectrum needs no such thing: the next
+    // message carries the whole trace.
+    resize() {
       const { specCanvas, wfCanvas, wfCtx } = elements();
+      const spec = measure(specCanvas), wfBox = measure(wfCanvas);
 
-      fitCanvas(specCanvas, width, Math.max(160, Math.round(viewportHeight * 0.30)));
-      if (fitCanvas(wfCanvas, width, Math.max(130, Math.round(viewportHeight * 0.23))))
+      fitCanvas(specCanvas, spec.width, spec.height);
+      if (fitCanvas(wfCanvas, wfBox.width, wfBox.height))
         waterfallRedraw(wfCtx, wfCanvas, wf);
     },
+    // The two charts share the room left below their labels, so the page
+    // is exactly the viewport and never scrolls. `min-height:0` is what
+    // lets each be shorter than its own backing store rather than pushing
+    // the column past the bottom.
     markup:
       '<div class="label">spectrum (average: cyan, peak hold: orange)</div>' +
-      '<canvas id="spectrum" width="900" height="260"></canvas>' +
+      '<canvas id="spectrum" style="flex:1 1 0;min-height:110px;width:100%;'
+      + 'margin-bottom:10px"></canvas>' +
       '<div class="label">waterfall (built from rows in this browser; never re-sent)</div>' +
-      '<canvas id="waterfall" width="900" height="200"></canvas>',
+      '<canvas id="waterfall" style="flex:1 1 0;min-height:110px;width:100%">'
+      + '</canvas>',
     render(msg) {
       if (msg.kind === 'spectrum') drawSpectrum(msg.average, msg.peak);
       else if (msg.kind === 'waterfall_row') drawWaterfall(msg.row);

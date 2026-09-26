@@ -68,17 +68,17 @@ function selectView(view, sendCommand) {
   resizeActiveView();
 }
 
-// The shell owns the layout and the views own their canvases, so the shell
-// measures and hands the numbers over -- the same division
-// `view_scope_resize_if_needed()` keeps on the native side, where the frame
-// loop calls an entry point rather than reaching into a view's fields.
+// The shell says *when* to resize; each view matches its own canvases to
+// whatever CSS laid them out at. That is the same division
+// `view_scope_resize_if_needed()` keeps on the native side -- the frame
+// loop calls an entry point rather than reaching into a view's fields --
+// and the shell deliberately passes no numbers: the stylesheet has already
+// decided how the viewport divides up, and arithmetic repeating that
+// decision is how a page ends up disagreeing with itself by a scrollbar.
 //
 // A view with no `resize` simply does not have canvases to size.
 function resizeActiveView() {
-  if (!activeView || !activeView.resize) return;
-  const panels = document.getElementById('panels');
-  const width = Math.max(320, panels.clientWidth || 900);
-  activeView.resize(width, window.innerHeight || 720);
+  if (activeView && activeView.resize) activeView.resize();
 }
 window.addEventListener('resize', resizeActiveView);
 

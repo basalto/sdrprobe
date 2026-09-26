@@ -46,13 +46,50 @@ const FmView = (function () {
   // The window's "Show charts" toggle, which swaps its waterfall for the
   // analysis arrangement. Here it swaps the waterfall for the multiplex,
   // which is the one chart of that arrangement a browser has data for.
+  // `hidden` alone is not enough here and that is worth saying, because it
+  // silently was not: both wrappers carry an inline `display:flex` so their
+  // canvas can take the room left in the column, and an inline `display`
+  // beats the `hidden` attribute's own UA rule. The wrapper stayed laid out
+  // -- an empty chart quietly eating 136 px of the waterfall's height,
+  // which no fake DOM can show and a real browser reported at once. So the
+  // display is set alongside the attribute, not instead of it: `hidden`
+  // stays for what it means to a reader and to anything asking.
   let charting = false;
   function showCharts(on) {
     const e = elements();
     charting = on;
     e.wfWrap.hidden = on;
+    e.wfWrap.style.display = on ? 'none' : 'flex';
     e.mpxWrap.hidden = !on;
+    e.mpxWrap.style.display = on ? 'flex' : 'none';
     e.charts.textContent = on ? 'Show signal' : 'Show charts';
+    // The canvas coming into view was last sized against a column it was
+    // not part of; give it the one it is in now.
+    resizeCanvases();
+  }
+
+  // Matches each canvas's backing store to whatever CSS laid it out at --
+  // the layout already decides how much room is left once the toolbar, the
+  // axis and the panel row have taken theirs, and a second opinion about
+  // that in arithmetic is how a page comes to disagree with itself by a
+  // scrollbar's width.
+  //
+  // Resizing clears a canvas, so the waterfall is redrawn from the rows it
+  // kept (lib/waterfall.js) -- only when the geometry actually changed,
+  // which is what `fitCanvas()` reports. The multiplex needs no history:
+  // the next `fm_spectrum` carries the whole trace, four times a second.
+  //
+  // The rows are still only ever the ones this page was sent: ADR-0027 has
+  // the Viewer build its own history and never ask the program for one,
+  // and that is unchanged. What changed is that a resize no longer throws
+  // away the one it already built.
+  function resizeCanvases() {
+    const e = elements();
+    const wfBox = measure(e.wf), mpxBox = measure(e.mpx);
+
+    if (fitCanvas(e.wf, wfBox.width, wfBox.height))
+      waterfallRedraw(e.wfCtx, e.wf, history);
+    fitCanvas(e.mpx, mpxBox.width, mpxBox.height);
   }
 
   // The window's own panel palette, taken from `src/view_fm.c`'s file-scope
@@ -215,10 +252,17 @@ const FmView = (function () {
   // which is what the padding below reproduces. Laid out with inline styles
   // rather than rules in viewer.html for the same reason the tone colours
   // are inline: adding a view should not edit the shell.
+  // `flex:1 1 0` with `min-width:0` rather than a pixel basis: all three
+  // then divide the row evenly whatever they contain, so the borders line
+  // up on both axes. The row stretches them to a common height (flex's
+  // default `align-items:stretch`, which this used to override with
+  // `flex-start` and so drew three boxes of three different depths), and
+  // each scrolls inside its own border rather than growing the page --
+  // radio text is four lines on one station and nothing on the next.
   function panel(caption, bodyHtml) {
-    return '<div style="flex:1 1 260px;min-width:260px;background:'
+    return '<div style="flex:1 1 0;min-width:0;background:'
       + PANEL_FILL + ';border:1px solid ' + PANEL_EDGE
-      + ';padding:10px 12px 12px">'
+      + ';padding:10px 12px 12px;overflow:auto">'
       + '<div style="color:' + PANEL_CAPTION
       + ';font-size:16px;margin-bottom:10px">' + caption + '</div>'
       + bodyHtml + '</div>';
@@ -242,45 +286,39 @@ const FmView = (function () {
     // two fifths of the viewport, with a floor so a short window still
     // shows a band of it rather than a line.
     //
-    // Resizing clears a canvas, so the waterfall is redrawn from the rows
-    // it kept (lib/waterfall.js) -- only when the geometry actually
-    // changed, which is what `fitCanvas()` reports. The multiplex needs no
-    // history: the next `fm_spectrum` carries the whole trace, four times
-    // a second.
-    //
-    // The rows are still only ever the ones this page was sent: ADR-0027
-    // has the Viewer build its own history and never ask the program for
-    // one, and that is unchanged. What changed is that a resize no longer
-    // throws away what it already had.
-    resize(width, viewportHeight) {
-      const e = elements();
-      const h = Math.max(160, Math.round(viewportHeight * 0.40));
-
-      if (fitCanvas(e.wf, width, h)) waterfallRedraw(e.wfCtx, e.wf, history);
-      fitCanvas(e.mpx, width, h);
-    },
+    resize: resizeCanvases,
+    // A column: the toolbar and the panel row take what they need, and
+    // whichever chart is showing takes everything left. `min-height:0` on
+    // each wrapper is what lets it be shorter than its own content rather
+    // than pushing the page past the viewport and bringing the scrollbar
+    // back.
     markup:
-      '<div style="margin-bottom:10px">'
+      '<div style="margin-bottom:10px;flex:0 0 auto">'
       + '<button id="fm-charts" style="background:#16202c;color:#8291a0;'
       + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
       + 'cursor:pointer">Show charts</button></div>' +
-      '<div id="fm-waterfall-wrap">' +
-        '<canvas id="fm-waterfall" width="900" height="220"></canvas>' +
+      '<div id="fm-waterfall-wrap" style="flex:1 1 auto;min-height:140px;'
+      + 'display:flex;flex-direction:column">' +
+        '<canvas id="fm-waterfall" style="flex:1 1 auto;min-height:0;'
+        + 'width:100%"></canvas>' +
         '<div class="label" id="fm-axis">awaiting receiver_state...</div>' +
       '</div>' +
-      '<div id="fm-mpx-wrap" hidden>' +
+      '<div id="fm-mpx-wrap" hidden style="flex:1 1 auto;min-height:140px;'
+      + 'display:none;flex-direction:column">' +
         '<div class="label">multiplex (the pilot at 19 kHz, stereo at 38,'
         + ' RDS at 57 -- a station with the first two and not the third'
         + ' sends no RDS)</div>' +
-        '<canvas id="fm-mpx" width="900" height="220"></canvas>' +
+        '<canvas id="fm-mpx" style="flex:1 1 auto;min-height:0;'
+        + 'width:100%"></canvas>' +
       '</div>' +
-      '<div style="display:flex;gap:24px;align-items:flex-start;'
-      + 'flex-wrap:wrap;margin-top:10px">' +
+      '<div style="display:flex;gap:16px;margin-top:10px;flex:0 1 auto;'
+      + 'min-height:0">' +
         panel('Signal', '<table><tbody id="fm-signal-rows"></tbody></table>') +
         panel('Station', '<table><tbody id="fm-station-rows"></tbody></table>') +
         panel('Where the decode stopped',
               '<table><tbody id="fm-funnel-rows"></tbody></table>'
-              + '<div id="fm-reading">awaiting fm_state...</div>') +
+              + '<div id="fm-reading" style="margin-top:8px">'
+              + 'awaiting fm_state...</div>') +
       '</div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') {

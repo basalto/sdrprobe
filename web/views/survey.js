@@ -77,22 +77,29 @@ const SurveyView = (function () {
     label: 'Survey',
     tab: 0, // TAB_SURVEY, input_route.h's enum active_tab
     streams: ['survey_spectrum', 'survey_state'],
-    // The sweep chart takes the width the shell measured. Clearing it on a
-    // resize costs nothing here: unlike a waterfall this canvas is redrawn
-    // whole from the next `survey_spectrum`, which carries the entire
-    // swept range every time.
-    resize(width, viewportHeight) {
-      fitCanvas(elements().surveyChart, width,
-                Math.max(180, Math.round(viewportHeight * 0.32)));
+    // The sweep chart is matched to what CSS laid it out at. Clearing it
+    // on a resize costs nothing here: unlike a waterfall this canvas is
+    // redrawn whole from the next `survey_spectrum`, which carries the
+    // entire swept range every time.
+    resize() {
+      const chart = elements().surveyChart;
+      const box = measure(chart);
+
+      fitCanvas(chart, box.width, box.height);
     },
+    // The chart takes about half the room and the candidate list the
+    // rest, scrolling inside itself -- a sweep can find three signals or
+    // three hundred, and the page must be the viewport either way.
     markup:
       '<div class="label" id="survey-status">no sweep yet</div>' +
-      '<canvas id="survey-chart" width="900" height="260"></canvas>' +
+      '<canvas id="survey-chart" style="flex:1 1 0;min-height:120px;width:100%">'
+      + '</canvas>' +
       '<div class="label">candidates (<span id="survey-count">0</span>)</div>' +
+      '<div style="flex:1 1 0;min-height:0;overflow:auto">' +
       '<table>' +
       '<thead><tr><th></th><th>frequency</th><th>level</th><th>width</th><th>shape</th></tr></thead>' +
       '<tbody id="survey-rows"></tbody>' +
-      '</table>',
+      '</table></div>',
     render(msg) {
       if (msg.kind === 'survey_spectrum') drawSurveyChart(msg.lowerHz, msg.upperHz, msg.power);
       else if (msg.kind === 'state' && msg.state.type === 'survey_state') renderSurveyState(msg.state);
