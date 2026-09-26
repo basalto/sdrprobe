@@ -5,6 +5,8 @@
 
 #include "app.h"
 #include "lte_scan.h"
+#include "survey_session.h"
+#include "reading_origin.h"
 
 /*
  * What the per-block step calls, for every frontend.
@@ -56,6 +58,13 @@ int receiver_borrow(struct app *app, struct receiver_lease_token *token);
 int receiver_borrow_at(struct app *app, struct receiver_lease_token *token,
                        uint32_t frequency, uint32_t sample_rate);
 int receiver_return(struct app *app, struct receiver_lease_token *token);
+/* Give up the claim and keep the tuning: the survey's "Open waterfall". */
+int receiver_commit(struct app *app, struct receiver_lease_token *token);
+
+/* The clock every runtime path uses. Never raylib's `GetTime()`, which is
+   exactly 0.0 before `InitWindow()` -- see `fm_scan_begin()` for what that
+   costs when it leaks into a step with no window. */
+double monotonic_seconds(void);
 
 
 /*
@@ -188,6 +197,56 @@ int allocate_waterfall_history(struct app *app, int rows);
 void advance_waterfall_row(struct app *app);
 void advance_scatter_history(struct app *app, double now, int insert);
 void decay_spectrum_peak(struct app *app, double now);
+
+/* --- The GSM band scan's per-block step --- */
+
+void update_scan(struct app *app);
+
+/* --- Calibration's per-block work: the residual buffer and the drift
+       re-check. ADR-0004's source-homogeneity rule is theirs to keep. --- */
+
+void update_calibration_measurement(struct app *app);
+void update_drift_check(struct app *app, int have_block);
+/* Which band the calibration overlay's 4G arrangement has selected, or NULL.
+   Read by the drawing and by the measurement alike, so it lives with the
+   measurement. */
+const struct lte_band *cal_selected_band(const struct app *app);
+
+/* --- The startup machine's frame step (ADR-0024) --- */
+
+void update_startup(struct app *app, int have_block);
+/* Give the receiver back, whatever happened to the measurement. The form's
+   own Cancel and Apply call it too, which is why it is exported. */
+void startup_release(struct app *app);
+
+/* --- The survey's per-block step, and the five helpers a click shares
+       with it. `survey_session.h` is the machine; these are the adapter. --- */
+
+/* Back to where this owner started, still holding the receiver. The survey
+   between sweeps: it has finished walking the band but still owns the right
+   to sweep again. */
+int receiver_restore_held(struct app *app,
+                          const struct receiver_lease_token *token);
+/* The crystal error and the correction in force, for a reading's origin. */
+struct reading_clock survey_reading_clock(const struct app *app);
+/* What a scripted sweep prints about a confirmation pass. */
+void survey_print_confirm_header(void);
+void survey_print_confirm_target(const struct survey_confirm_target *target);
+void survey_print_confirm_summary(const struct survey_session *ss);
+/* The range fields' own spelling of a frequency, and two predicates the view
+   and the step share. */
+void survey_format_hz(char *text, size_t size, uint32_t hz);
+void survey_history_refresh(struct app *app);
+int survey_peak_visible(const struct survey_view *s, int index);
+double survey_bin_hz(const struct survey_view *s, int bin);
+void survey_clamp_view(struct survey_view *s);
+struct survey_block survey_block_of(struct app *app);
+void survey_obey(struct app *app, const struct survey_session_event *event,
+                 double now);
+void survey_confirm_if_asked(struct app *app, double now);
+int survey_strongest_visible(const struct survey_view *s, int rank);
+void survey_select(struct app *app, int index, double now);
+void update_survey(struct app *app, double now, int spectrum_updated);
 
 /* --- FM: the discriminator, the RDS chain, the band scan, the tuning --- */
 

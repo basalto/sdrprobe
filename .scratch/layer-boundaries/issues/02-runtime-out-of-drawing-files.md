@@ -349,10 +349,48 @@ What carries the claim instead: the gate (which includes
 `check-pipelines`), the poison test, an identical FM decode, and a live
 `server` still sending 2048-bin spectrum and waterfall rows.
 
+### The overlays' four and the survey done, 2026-09-27
+
+Four more runtime files, all poison-tested raylib-free:
+
+- `src/scan_runtime.c` -- the GSM band scan's per-block step.
+- `src/calibration_runtime.c` -- the residual buffer the lock gate reads and
+  the drift re-check, with `cal_selected_band()` which both halves use.
+  ADR-0004's source-homogeneity rule is untouched.
+- `src/startup_runtime.c` -- the startup machine's frame step and
+  `startup_release()`.
+- `src/survey_runtime.c` -- the sweep's per-block step and the five helpers a
+  click shares with it, since selecting a candidate and obeying an event are
+  things a click does too.
+
+`monotonic_seconds()`, `receiver_commit()` and `receiver_restore_held()`
+moved their declarations to `runtime.h` along the way -- the clock especially,
+which is the one every runtime path must use instead of raylib's `GetTime()`.
+
+**All eleven `*_runtime.c` files pass the poison test**, and every function
+`frame_advance()` dispatches to now lives in one of them or in
+`acquisition.c`. The two exceptions are deliberate: `process_block()` is in
+`sdrprobe.c`, the application layer, and `update_fm_audio()` is no longer
+called from the shared step at all.
+
+**Two extraction faults worth recording, both mine and both caught by the
+compiler rather than by review.** A regex with `re.S` and a lazy `.*?`
+reached backwards across `view.h` and moved three hundred lines of drawing
+declarations into `runtime.h`; the fix was to remove declarations by exact
+text, never by a pattern that can span a file. And the extractor matched
+`survey_select`'s *forward declaration* -- a line ending in `;` -- then
+scanned to the next `}`, taking an unrelated function's body with it. It
+skips declarations now. Both were reverted with `git checkout` and redone;
+neither reached a commit.
+
+Verified: `make check` green, the headless survey byte-identical, the
+calibration refusal byte-identical, GSM and FM decodes unchanged.
+
 ### Still open in this ticket
 
-The overlays' four; `update_survey`;
-and `set_tab`, `set_decode`, `retune_receiver*` and `stop_requested`, whose
-declarations are already in `runtime.h` but whose definitions are still in
-`sdrprobe.c`. `check-frame-advance` still stubs all nineteen callees; ticket
-04 replaces them.
+`process_block()` and the definitions of `set_tab`, `set_decode`,
+`retune_receiver*` and `stop_requested`, all in `sdrprobe.c` -- the
+application layer, which is arguably their home; their declarations are
+already in `runtime.h`. `check-frame-advance` still stubs all nineteen
+callees; ticket 04 replaces them with the real thing for at least one
+technology.

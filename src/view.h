@@ -46,7 +46,6 @@ void draw_button(Rectangle rectangle, const char *label, int primary);
 /* The startup form (overlay_startup.c, ADR-0024). It draws and reads input;
    `startup_session.{c,h}` is what decides. */
 void open_startup(struct app *app);
-void update_startup(struct app *app, int have_block);
 void handle_startup_input(struct app *app);
 void draw_startup(struct app *app);
 void draw_button_enabled(Rectangle rectangle, const char *label, int enabled);
@@ -72,20 +71,15 @@ int calibration_stop_measuring(struct app *app);
 /* Back to where this owner started, still holding it. The survey between
    sweeps: it has finished walking the band but still owns the right to sweep
    again. */
-int receiver_restore_held(struct app *app,
-                          const struct receiver_lease_token *token);
 /* Give it back. Restores with the *current* PPM, so a calibration applied
    while borrowed survives the return. A failed retune leaves the token live
    and retryable. */
-/* Give up the claim and keep the tuning: the survey's "Open waterfall". */
-int receiver_commit(struct app *app, struct receiver_lease_token *token);
 int process_block(struct app *app, double now, int fft_size);
 /* What size the screen wants the spectrum measured at -- the Scope's
    resolution stepper, but only while the Scope owns the spectrum. Asked in
    this layer because it is a question about presentation, and handed to
    `process_block()` rather than looked up inside it. */
 int scope_requested_fft_size(const struct app *app);
-double monotonic_seconds(void);
 int stop_requested(void);
 
 /* The band survey with no window: sweep, then print the candidates to stdout,
@@ -164,7 +158,6 @@ void survey_tuning_from(struct survey_record_tuning *out,
  * restores and applies a stored calibration at startup and `calibrated -
  * applied` is then always zero.
  */
-struct reading_clock survey_reading_clock(const struct app *app);
 
 /* The frequency window the Scope's spectrum and waterfall share. */
 void scope_freq_sync(struct app *app);
@@ -306,7 +299,6 @@ void view_survey_leave(struct app *app);
  * block to say so costs a block per step -- 39 over a 13-step sweep of band
  * II instead of 26.
  */
-void update_survey(struct app *app, double now, int spectrum_updated);
 /*
  * What a confirmation pass settled, printed for a pass nobody is watching.
  *
@@ -316,9 +308,6 @@ void update_survey(struct app *app, double now, int spectrum_updated);
  * -- the headless one promised five fields where its rows carried seven.
  * docs/band-surveys.md is the format.
  */
-void survey_print_confirm_header(void);
-void survey_print_confirm_target(const struct survey_confirm_target *target);
-void survey_print_confirm_summary(const struct survey_session *ss);
 void handle_survey_input(struct app *app);
 void draw_survey(struct app *app);
 
@@ -348,16 +337,13 @@ void open_calibration(struct app *app);
    goes with it. Shared by the buttons and by opening already on one. */
 void calibration_select_technology(struct app *app, int technology);
 void close_calibration(struct app *app);
-void update_calibration_measurement(struct app *app);
 void handle_calibration_input(struct app *app);
 void draw_calibration(struct app *app);
-void update_scan(struct app *app);
 void draw_scan(struct app *app);
 void calibration_select_channel(struct app *app, int arfcn);
 int start_calibration(struct app *app);
 
 void handle_scan_input(struct app *app);
-void update_drift_check(struct app *app, int have_block);
 void draw_health_indicator(const struct app *app);
 
 
