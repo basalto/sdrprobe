@@ -806,7 +806,7 @@ websocket-echo-server: $(BUILD)/websocket_echo_server
 # way it rewrites a call.
 #: [Tools] insert an argument into every call of a function (FILE= FUNC= INDEX= VALUE=; FILE=--self-test)
 add-argument:
-	$(Q)python3 scripts/add_argument.py $(FILE) $(FUNC) $(INDEX) $(VALUE)
+	$(Q)python3 scripts/add_argument.py $(FILE) $(FUNC) $(INDEX) "$(VALUE)"
 
 #: the refactoring tool above, against its own traps
 check-add-argument: scripts/add_argument.py

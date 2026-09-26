@@ -99,7 +99,7 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
                 set_tab(app, TAB_SURVEY, now);
                 break;
             case VIEWER_SCREEN_FM:
-                set_decode(app, DECODE_FM);
+                set_decode(app, DECODE_FM, now);
                 set_tab(app, TAB_DECODE, now);
                 break;
             case VIEWER_SCREEN_SCOPE:

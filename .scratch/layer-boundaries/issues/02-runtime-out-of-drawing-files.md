@@ -64,24 +64,42 @@ step currently reaches *up* into presentation:
    supplies, which is what `signal_frame`'s design already does -- "the
    transform size is an argument, because `input_scope_owns_spectrum()` is a
    question about presentation".
-3. **`retune_receiver()` calls `view_scope_resize_if_needed()`**, a GUI
-   function, so a retune from the server path reaches into the Scope's
-   textures. The repository's own pattern for this is to **report rather
-   than act**: `signal_frame` reports a change of geometry and "the Scope
-   drops the waterfall's rows, because those rows are not the frame's to
-   clear"; `survey_session` "says where it wants the tuning and the adapter
-   obeys". Follow it: the retune reports that the rate changed, and the
-   frontend resizes.
+3. ~~**`retune_receiver()` calls `view_scope_resize_if_needed()`**~~ --
+   **this was wrong and is withdrawn (2026-09-26).** It does not. The name
+   appears in `retune_receiver()` only inside a comment, explaining that the
+   resize function *notices* a retune when the frame loop next calls it; the
+   sole caller is `run_gui()`. The claim came from a grep over the function's
+   line range that matched the comment text, written into this ticket without
+   reading the body -- the `check-claims` shape exactly, in a ticket rather
+   than in a check.
+
+   What is actually there is *already correct* and worth preserving on the
+   move: `retune_receiver()` calls `signal_frame_invalidate()` and nothing
+   else, because "rebuilding it is drawing and this runs on paths with no
+   window". The report-rather-than-act pattern this item recommended is the
+   pattern the code already follows here.
 4. **`set_tab()` closes the Settings overlay** (`app->set.open = 0`) -- GUI
    state changed inside the shared transition the server's `view <name>`
    command goes through. It is harmless under `server`, where Settings is
    never open, but it is a presentation side effect inside the runtime, and
    it moves out with the rest.
 
-**Decide the mechanism once, before FM, and ask**: reported state the caller
-reads after the call (recommended -- it is what `signal_frame` and
-`survey_session` already do, and a check can read a flag without mocking a
-callback), or a small table of frontend hooks that `server` leaves NULL.
+**With item 3 withdrawn, the general "mechanism" question mostly dissolves**
+-- and that is the point of having checked. Items 1 and 4 are plain moves: the
+window's loop pumps its own sound card, and the frontend closes its own
+Settings panel when it switches tab. Neither needs a callback or a reported
+flag.
+
+Item 2 is the one that needs a decision, and it is narrower than a mechanism:
+`process_block()` already *computes* the transform size and passes it to
+`signal_frame_process()`. What moves is only where that number comes from once
+`process_block()` is runtime code. **Decided 2026-09-26: a parameter the caller passes.**
+`process_block(app, now, fft_size)`. The window computes it from
+`input_scope_owns_spectrum()` exactly as today; `headless` and `server` pass
+`SDR_DSP_FFT_SIZE` (or whatever `--fft` asked for). The runtime never asks
+what is on screen, and a check picks the size it wants without arranging a
+screen state to imply it. The cost is one argument threaded through
+`frame_advance()`, which is the visible kind.
 
 ## Acceptance criteria
 

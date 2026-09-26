@@ -63,7 +63,7 @@ int stop_requested(void) {
 
 void set_tab(struct app *app, int new_tab, double now);
 static struct input_state input_state_now(const struct app *app);
-void set_decode(struct app *app, int kind);
+void set_decode(struct app *app, int kind, double now);
 
 static void on_signal(int signal_number) {
     (void)signal_number;
@@ -962,7 +962,7 @@ void set_tab(struct app *app, int new_tab, double now) {
     if (new_tab == TAB_DECODE && app->decode == DECODE_GSM)
         enter_gsm(app);
     if (new_tab == TAB_DECODE && app->decode == DECODE_FM)
-        enter_fm(app);
+        enter_fm(app, now);
     if (new_tab == TAB_DECODE && app->decode == DECODE_LTE)
         enter_lte(app);
     if (new_tab == TAB_DECODE && app->decode == DECODE_SRD)
@@ -979,7 +979,7 @@ void set_tab(struct app *app, int new_tab, double now) {
  * that follows. Doing it here as well would enter the GSM view twice and
  * retune twice on the way in.
  */
-void set_decode(struct app *app, int kind) {
+void set_decode(struct app *app, int kind, double now) {
     int showing = app->tab == TAB_DECODE;
     if (kind == (int)app->decode)
         return;
@@ -997,7 +997,7 @@ void set_decode(struct app *app, int kind) {
     if (showing && kind == DECODE_LTE)
         enter_lte(app);
     if (showing && kind == DECODE_FM)
-        enter_fm(app);
+        enter_fm(app, now);
     if (showing && kind == DECODE_SRD)
         enter_srd(app);
     if (showing && kind == DECODE_ADSB)
@@ -1491,17 +1491,17 @@ static int run_gui(struct app *app) {
         if (app->options.survey_band > 0)
             survey_choose_band(app, app->options.survey_band);
         break;
-    case START_VIEW_GSM:       set_decode(app, DECODE_GSM);
+    case START_VIEW_GSM:       set_decode(app, DECODE_GSM, GetTime());
                                set_tab(app, TAB_DECODE, GetTime()); break;
-    case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB);
+    case START_VIEW_ADSB:      set_decode(app, DECODE_ADSB, GetTime());
                                set_tab(app, TAB_DECODE, GetTime()); break;
-    case START_VIEW_FM:        set_decode(app, DECODE_FM);
+    case START_VIEW_FM:        set_decode(app, DECODE_FM, GetTime());
                                set_tab(app, TAB_DECODE, GetTime()); break;
-    case START_VIEW_TETRA:     set_decode(app, DECODE_TETRA);
+    case START_VIEW_TETRA:     set_decode(app, DECODE_TETRA, GetTime());
                                set_tab(app, TAB_DECODE, GetTime()); break;
-    case START_VIEW_SRD:       set_decode(app, DECODE_SRD);
+    case START_VIEW_SRD:       set_decode(app, DECODE_SRD, GetTime());
                                set_tab(app, TAB_DECODE, GetTime()); break;
-    case START_VIEW_LTE:       set_decode(app, DECODE_LTE);
+    case START_VIEW_LTE:       set_decode(app, DECODE_LTE, GetTime());
                                set_tab(app, TAB_DECODE, GetTime()); break;
     case START_VIEW_CALIBRATION:
         open_calibration(app);
@@ -1547,14 +1547,14 @@ static int run_gui(struct app *app) {
         freq_window_clamp(&app->sv.window.freq, CHART_MIN_SPAN_HZ);
     }
     if (app->options.fm_play) {
-        set_decode(app, DECODE_FM);
+        set_decode(app, DECODE_FM, GetTime());
         set_tab(app, TAB_DECODE, GetTime());
         fm_play(app);
     }
     if (app->options.fm_scan) {
-        set_decode(app, DECODE_FM);
+        set_decode(app, DECODE_FM, GetTime());
         set_tab(app, TAB_DECODE, GetTime());
-        fm_scan_begin(app);
+        fm_scan_begin(app, GetTime());
     }
     /*
      * Assigned, not merely set, and after set_decode has already run.
@@ -1723,17 +1723,17 @@ static int run_gui(struct app *app) {
             } else if (input.tab == TAB_DECODE) {
                 if (input_decode_keys_live(&input)) {
                     if (IsKeyPressed(KEY_ONE))
-                        set_decode(app, DECODE_FM);
+                        set_decode(app, DECODE_FM, GetTime());
                     else if (IsKeyPressed(KEY_TWO))
-                        set_decode(app, DECODE_ADSB);
+                        set_decode(app, DECODE_ADSB, GetTime());
                     else if (IsKeyPressed(KEY_THREE))
-                        set_decode(app, DECODE_GSM);
+                        set_decode(app, DECODE_GSM, GetTime());
                     else if (IsKeyPressed(KEY_FOUR))
-                        set_decode(app, DECODE_LTE);
+                        set_decode(app, DECODE_LTE, GetTime());
                     else if (IsKeyPressed(KEY_FIVE))
-                        set_decode(app, DECODE_TETRA);
+                        set_decode(app, DECODE_TETRA, GetTime());
                     else if (IsKeyPressed(KEY_SIX))
-                        set_decode(app, DECODE_SRD);
+                        set_decode(app, DECODE_SRD, GetTime());
                 }
                 if (app->decode == DECODE_GSM)
                     handle_gsm_input(app);

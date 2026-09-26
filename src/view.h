@@ -117,7 +117,7 @@ int survey_report_run(struct app *app);
    block follows. Returns 1 when a System Information message came out of it.
    src/view_gsm.c. */
 void set_tab(struct app *app, int new_tab, double now);
-void set_decode(struct app *app, int kind);
+void set_decode(struct app *app, int kind, double now);
 void adjust_waterfall_scale(struct app *app, int zoom_in);
 int scan_strongest_arfcn(const struct app *app);
 int scan_strongest_bcch(const struct app *app);
@@ -165,12 +165,12 @@ void fm_tune(struct app *app, double hz);
    means, which is where survey_editing() and srd_editing() went. */
 int fm_editing(const struct app *app);
 /* Walking band II: a coarse sweep, then the carriers it found. */
-void fm_scan_begin(struct app *app);
+void fm_scan_begin(struct app *app, double now);
 void fm_scan_stop(struct app *app);
 void update_fm_scan(struct app *app, double now, int have_block);
 int fm_scan_showing(const struct app *app);
 /* Put the receiver in band II when the view is opened. */
-void enter_fm(struct app *app);
+void enter_fm(struct app *app, double now);
 /* Start or stop the sound. The device opens on the first press. */
 void fm_play(struct app *app);
 void update_fm_audio(struct app *app);

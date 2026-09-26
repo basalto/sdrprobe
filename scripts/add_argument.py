@@ -115,10 +115,22 @@ def split_args(text, mask):
 
 
 def insert_arg(src, func, index, value):
-    """Insert `value` as argument `index` (0-based) of every call to `func`."""
+    """Insert `value` as argument `index` (0-based) of every call to `func`.
+
+    `index` equal to the current argument count **appends**, which is the
+    commonest way a parameter is threaded here -- a `now`, a profile, a full
+    scale, added at the end. That used to fall into the same branch as an
+    out-of-range index and do nothing, reporting `x0` and exiting 0: a tool
+    whose whole purpose is a mechanical edit across dozens of call sites,
+    silently making none of them.
+
+    Returns `(text, changed, skipped)`. `skipped` counts calls whose argument
+    count is *below* `index`, which cannot be an append and is almost always
+    a wrong index -- the caller reports it rather than leaving it silent.
+    """
     mask = _mask(src)
     pattern = re.compile(re.escape(func) + r"\s*\(")
-    out, i, count = "", 0, 0
+    out, i, count, skipped = "", 0, 0, 0
     while True:
         m = pattern.search(mask, i)
         if not m:
@@ -141,8 +153,21 @@ def insert_arg(src, func, index, value):
             j += 1
         inner, inner_mask = src[m.end():j - 1], mask[m.end():j - 1]
         args = split_args(inner, inner_mask)
-        if len(args) <= index or (len(args) == 1 and not args[0].strip()):
+        empty_call = len(args) == 1 and not args[0].strip()
+        if empty_call or index > len(args):
+            # A call with no arguments at all, or an index past its end.
+            # Neither can be an insertion; the second is counted so the
+            # caller can say so.
+            if not empty_call:
+                skipped += 1
             out += inner + ")"
+        elif index == len(args):
+            # Append. The last argument's own leading whitespace is matched,
+            # so a call already split across lines stays aligned.
+            lead = re.match(r"\s*", args[-1]).group(0)
+            args.append((lead if "\n" in lead else " ") + value)
+            out += ",".join(args) + ")"
+            count += 1
         else:
             lead = re.match(r"\s*", args[index]).group(0)
             args.insert(index, (lead if "\n" in lead else " ") + value)
@@ -152,7 +177,7 @@ def insert_arg(src, func, index, value):
             out += ",".join(args) + ")"
             count += 1
         i = j
-    return out, count
+    return out, count, skipped
 
 
 def _self_test():
@@ -177,7 +202,26 @@ def _self_test():
         # about the call rather than about the code.
         ('f(a, /* one, two */ b);', 'f', 1, 'N',
          'f(a, N, /* one, two */ b);'),
-        ('f(a, /* one, two */ b);', 'f', 2, 'N', 'f(a, /* one, two */ b);'),
+        # Index 2 of a two-argument call is an append, not a no-op. This
+        # case still discriminates on the masking it was written for: with
+        # the comment's comma treated as a separator the call would look
+        # three-argument and index 2 would insert *inside* the comment.
+        ('f(a, /* one, two */ b);', 'f', 2, 'N',
+         'f(a, /* one, two */ b, N);'),
+
+        # Appending, which is how a trailing `now` or a profile is threaded
+        # and which used to do nothing at all and report success.
+        ('f(a, b);', 'f', 2, 'N', 'f(a, b, N);'),
+        ('f(a);', 'f', 1, 'N', 'f(a, N);'),
+        # An append past the end is still refused: this call has two
+        # arguments, so index 3 is not an insertion anywhere.
+        ('f(a, b);', 'f', 3, 'N', 'f(a, b);'),
+        # A call with no arguments takes none: `f()` at index 0 would be
+        # `f(N)`, which is a different function, not a threaded parameter.
+        ('f();', 'f', 0, 'N', 'f();'),
+        # An append keeps a multi-line call aligned, the same way an insert
+        # does -- the last argument's own indentation is reused.
+        ('f(a,\n  b);', 'f', 2, 'N', 'f(a,\n  b,\n  N);'),
         # a call whose name is a suffix of another identifier is left alone
         ('my_f(a, b); f(a, b);', 'f', 1, 'N', 'my_f(a, b); f(a, N, b);'),
         # too few arguments: left alone rather than guessed at
@@ -187,7 +231,7 @@ def _self_test():
     ]
     failures = 0
     for source, func, index, value, expected in cases:
-        got, _ = insert_arg(source, func, index, value)
+        got, _, _ = insert_arg(source, func, index, value)
         if got != expected:
             failures += 1
             print("    FAIL  %r -> %r, expected %r" % (source, got, expected))
@@ -208,7 +252,7 @@ def _self_test():
 
 
 def main(argv):
-    if len(argv) == 2 and argv[1] == "--self-test":
+    if len(argv) >= 2 and argv[1] == "--self-test":
         return _self_test()
     if len(argv) != 5:
         print(__doc__)
@@ -216,10 +260,20 @@ def main(argv):
     path, func, index, value = argv[1], argv[2], int(argv[3]), argv[4]
     with open(path) as handle:
         source = handle.read()
-    patched, count = insert_arg(source, func, index, value)
+    patched, count, skipped = insert_arg(source, func, index, value)
     with open(path, "w") as handle:
         handle.write(patched)
     print("%s: %s x%d" % (path, func, count))
+    # Never silent about doing nothing. A wrong INDEX used to print `x0` and
+    # exit 0, which on a tool meant for a mechanical edit across dozens of
+    # sites reads as "there were none" rather than "I refused them all".
+    if skipped:
+        print("  %d call(s) have fewer than %d arguments and were left alone "
+              "-- is INDEX right?" % (skipped, index))
+    if not count:
+        print("  nothing changed: no call to %s takes an argument at index %d"
+              % (func, index))
+        return 1
     return 0
 
 

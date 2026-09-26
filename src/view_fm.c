@@ -771,7 +771,7 @@ void update_fm_audio(struct app *app) {
  * Only when it is outside band II, so switching away and back does not throw
  * away a station the operator tuned by hand.
  */
-void enter_fm(struct app *app) {
+void enter_fm(struct app *app, double now) {
     if (!app->receiver_mode)
         return;
     /*
@@ -790,7 +790,7 @@ void enter_fm(struct app *app) {
     if ((double)app->applied.frequency_hz >= FM_BAND_LOWER_HZ &&
         (double)app->applied.frequency_hz <= FM_BAND_UPPER_HZ)
         return;
-    fm_scan_begin(app);
+    fm_scan_begin(app, now);
 }
 
 /* Whether the scan list is on screen, which the layout needs to know before
@@ -983,7 +983,7 @@ void handle_fm_input(struct app *app) {
         if (app->fm.scan.running)
             fm_scan_stop(app);
         else
-            fm_scan_begin(app);
+            fm_scan_begin(app, GetTime());
         return;
     }
     /*
@@ -1091,7 +1091,7 @@ void fm_tune(struct app *app, double hz) {
  * on the stations it was never going to read. The scan says where to stop;
  * stopping is what reads the name.
  */
-void fm_scan_begin(struct app *app) {
+void fm_scan_begin(struct app *app, double now) {
     struct fm_scan *scan = &app->fm.scan;
     int i;
 
@@ -1132,7 +1132,22 @@ void fm_scan_begin(struct app *app) {
         scan->sweeping = 0;
         return;
     }
-    scan->step_started_at = GetTime();
+    /*
+     * The caller's clock, never `GetTime()`.
+     *
+     * raylib's clock is exactly 0.0 before `InitWindow()`, and this is
+     * reachable with no window: a Viewer's `view fm` runs `set_decode()` ->
+     * `enter_fm()` -> here, and with a live receiver outside band II that
+     * starts a scan. Stamped from a 0.0 origin while every later tick
+     * measures against the serve loop's own `now`, each step reads as long
+     * expired and the scan races its whole plan in one pass.
+     *
+     * Exactly the fault ticket 07 found in the survey, mirrored: there the
+     * command handler used a raw `monotonic_seconds()` where the loop used
+     * a relative one, and the sweep never advanced. Same cause -- two
+     * callers of one function disagreeing about what `now` means.
+     */
+    scan->step_started_at = now;
     scan->running = 1;
     snprintf(scan->status, sizeof(scan->status),
              "Sweeping %d steps, about %.0f s, then the carriers it finds",

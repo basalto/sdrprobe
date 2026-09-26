@@ -1630,14 +1630,14 @@ void handle_survey_input(struct app *app) {
         if (decoder == BAND_PLAN_GSM) {
             int arfcn = gsm_arfcn_for_hz(ss->report.centre_hz);
             view_survey_leave(app);
-            set_decode(app, DECODE_GSM);
+            set_decode(app, DECODE_GSM, GetTime());
             set_tab(app, TAB_DECODE, GetTime());
             if (arfcn > 0)
                 gsm_tune_selected(app, arfcn);
             app->gsm.analysis_mode = 1;
         } else if (decoder == BAND_PLAN_ADSB) {
             view_survey_leave(app);
-            set_decode(app, DECODE_ADSB);
+            set_decode(app, DECODE_ADSB, GetTime());
             set_tab(app, TAB_DECODE, GetTime());
             retune_receiver(app, DEFAULT_FREQUENCY, app->applied.ppm);
         } else if (decoder == BAND_PLAN_LTE) {
@@ -1653,7 +1653,7 @@ void handle_survey_input(struct app *app) {
             uint32_t centre = 0;
 
             view_survey_leave(app);
-            set_decode(app, DECODE_LTE);
+            set_decode(app, DECODE_LTE, GetTime());
             if (earfcn > 0 && lte_earfcn_downlink_hz((unsigned int)earfcn,
                                                      &centre) == 0)
                 retune_receiver(app, centre, app->applied.ppm);
@@ -1673,7 +1673,7 @@ void handle_survey_input(struct app *app) {
             double hz = ss->report.centre_hz;
 
             view_survey_leave(app);
-            set_decode(app, DECODE_FM);
+            set_decode(app, DECODE_FM, GetTime());
             snprintf(app->fm.frequency, sizeof(app->fm.frequency), "%.1f",
                      hz / 1e6);
             app->fm.frequency_length = (int)strlen(app->fm.frequency);
