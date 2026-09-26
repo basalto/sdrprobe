@@ -201,7 +201,7 @@ struct options {
     uint32_t serve_bind_addr;
     const char *serve_bind_text;
     const char *serve_token;
-    /* `--not-token`: an explicit acknowledgement that --serve-bind is
+    /* `--no-token`: an explicit acknowledgement that --serve-bind is
        reachable with no authentication at all, not an inference from
        silence. Refused together with `serve_token` -- naming a token
        and then also declaring "no token" is a contradiction this ought

@@ -197,14 +197,14 @@ int viewer_session_run(struct app *app) {
         }
         viewer_link_set_command_handler(&link, viewer_session_handle_command,
                                         app);
-        /* `--not-token`: the loud warning parse_options() already refused
+        /* `--no-token`: the loud warning parse_options() already refused
            silence about -- printed before the ordinary listening line,
            not folded into it, so it reads as what it is rather than one
            clause among several. */
         if (app->options.serve_bind_kind != SERVE_BIND_LOOPBACK &&
             !app->options.serve_token)
             fprintf(stderr,
-                   "WARNING: --not-token -- this Viewer link is reachable "
+                   "WARNING: --no-token -- this Viewer link is reachable "
                    "with NO authentication at all. Anything that can reach "
                    "this port can view and control the receiver.\n");
         if (bind_display) {
@@ -232,7 +232,7 @@ int viewer_session_run(struct app *app) {
                    port, port, app->options.serve_token, port,
                    app->options.serve_token);
         } else {
-            /* SERVE_BIND_ANY with --not-token: no token to fold into
+            /* SERVE_BIND_ANY with --no-token: no token to fold into
                either URL. */
             fprintf(stderr,
                    "Viewer link listening on port %d, every interface -- "
