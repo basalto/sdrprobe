@@ -86,11 +86,10 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
          *
          * The decode kind is set *before* the tab, which is the order
          * run_gui()'s own startup sequence uses and for the same reason it
-         * gives: the kind defaults to GSM, so switching to the Decode tab
-         * first would enter the GSM view and immediately leave it again,
-         * retuning twice on the way to FM. `set_decode()` off the Decode
-         * tab only records the choice, which is exactly what is wanted
-         * here.
+         * gives: switching to the Decode tab first enters whichever kind is
+         * already recorded and then leaves it again on the way to the one
+         * asked for, retuning twice. `set_decode()` off the Decode tab only
+         * records the choice, which is exactly what is wanted here.
          */
         {
             double now = monotonic_seconds() - viewer_session_started_at;

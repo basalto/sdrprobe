@@ -27,8 +27,8 @@ enum viewer_command_type {
  * the third turned out not to be. FM is not a tab: it is the Decode tab with
  * `DECODE_FM` chosen, so reaching it is a `set_decode()` *and* a `set_tab()`,
  * in that order -- the order sdrprobe.c's own startup sequence already
- * explains, since the decode kind defaults to GSM and switching the tab first
- * would enter the GSM view and retune on the way past. A screen name here is
+ * explains, since switching the tab first enters whichever decode kind is
+ * already recorded and leaves it again on the way past. A screen name here is
  * therefore a name for a *destination*, not for a member of `enum active_tab`,
  * and the four decode views still to come (ticket 07) are each one more name
  * and one more line of that mapping.

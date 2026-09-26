@@ -1448,9 +1448,12 @@ static int run_gui(struct app *app) {
        and a second started below, both reading the same device -- no blocks
        ever arrived and the shutdown join hung.
 
-       The decode kind is set before the tab for a related reason: it defaults
-       to GSM, so switching to the Decode tab first would enter the GSM view
-       and immediately leave it again, retuning twice on the way to ADS-B. */
+       The decode kind is set before the tab for a related reason: switching
+       to the Decode tab first enters whichever kind is *already* recorded,
+       and then leaves it again on the way to the one asked for -- retuning
+       twice. This said "it defaults to GSM", which stopped being true when
+       `enum decode_kind` put DECODE_FM first: zero-initialising gives FM,
+       not GSM. The ordering argument never depended on which one it is. */
     switch (app->options.view) {
     case START_VIEW_MAGNITUDE: app->view = VIEW_MAGNITUDE;
                                set_tab(app, TAB_SCOPE, GetTime()); break;
