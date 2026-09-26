@@ -114,27 +114,11 @@ void set_decode(struct app *app, int kind, double now);
 void adjust_waterfall_scale(struct app *app, int zoom_in);
 int scan_strongest_arfcn(const struct app *app);
 int scan_strongest_bcch(const struct app *app);
-int start_scan(struct app *app);
-/* Give the receiver back if a scan is holding it. A no-op otherwise. */
-void scan_release_receiver(struct app *app);
-/* Start a timestamped capture in captures/, with the sidecar describing the
-   tuning it was taken at. `basename` names the file, `technology` goes in the
-   sidecar, and the GSM fields are 0 for a technology that has no channel.
-   Shared because recording is not a property of either decode view. */
-int start_capture_record(struct app *app, const char *basename,
-                         const char *technology, int arfcn,
-                         double carrier_offset_hz, double seconds);
 int compare_double(const void *left, const void *right);
 
 /* GSM band-analysis view. */
 void draw_gsm(struct app *app);
 void handle_gsm_input(struct app *app);
-void update_gsm_sch(struct app *app, double now);
-void enter_gsm(struct app *app);
-void leave_gsm(struct app *app);
-void view_gsm_defaults(struct app *app);
-void start_record(struct app *app);
-void gsm_tune_selected(struct app *app, int arfcn);
 Rectangle gsm_scan_rect(void);
 Rectangle gsm_waterfall_rect(void);
 Rectangle calibration_chart_rect(const struct app *app);

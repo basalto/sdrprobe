@@ -55,6 +55,32 @@ int receiver_borrow_at(struct app *app, struct receiver_lease_token *token,
 int receiver_return(struct app *app, struct receiver_lease_token *token);
 
 
+/*
+ * The band scan and the recorder, both shared between technologies and
+ * neither a drawing. Defined in `overlay_scan.c` and `sdrprobe.c` for now --
+ * their declarations move first so a technology's runtime can come out ahead
+ * of them, the same way the receiver functions above did.
+ */
+int start_scan(struct app *app);
+/* Give the receiver back if a scan is holding it. A no-op otherwise. */
+void scan_release_receiver(struct app *app);
+/* Start a timestamped capture in captures/, with the sidecar describing the
+   tuning it was taken at. `basename` names the file, `technology` goes in the
+   sidecar, and the GSM fields are 0 for a technology that has no channel.
+   Shared because recording is not a property of either decode view. */
+int start_capture_record(struct app *app, const char *basename,
+                         const char *technology, int arfcn,
+                         double carrier_offset_hz, double seconds);
+
+/* --- GSM: the channel, the synchronization decode, the view's own state --- */
+
+void update_gsm_sch(struct app *app, double now);
+void enter_gsm(struct app *app);
+void leave_gsm(struct app *app);
+void view_gsm_defaults(struct app *app);
+void start_record(struct app *app);
+void gsm_tune_selected(struct app *app, int arfcn);
+
 /* --- FM: the discriminator, the RDS chain, the band scan, the tuning --- */
 
 void update_fm(struct app *app, double now);
