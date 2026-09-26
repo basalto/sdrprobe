@@ -148,6 +148,11 @@ WEB_SRC=$(shell python3 scripts/embed_web.py --list $(WEB_HTML))
 # that reaches `viewer_link.c`.
 WEB_CFLAGS=-I$(BUILD)
 
+# Viewport sizes check-web-layout measures the browser page at. One by
+# default so the gate stays quick; pass a comma-separated list to sweep
+# (WEB_SIZES=1920x1080,1400x900,1024x600) when a layout change needs it.
+WEB_SIZES?=1400x900
+
 # A real prerequisite, not a convention -- CLAUDE.md records `version.h`
 # sitting outside APP_HDR as the shape of fault this guards against: "the
 # header says one version, `make` reports nothing to do, and the binary
@@ -248,6 +253,26 @@ check-fm-view-model: $(TESTS)/fm_view_model_test.c $(TESTS)/check.h \
 		$(TESTS)/fm_view_model_test.c $(SRC)/fm_view_model.c \
 		$(SRC)/fm_dsp.c $(SRC)/rds.c $(SRC)/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/fm_view_model_test
+
+# The browser page's own layout, in a real browser (ticket 11). A Node DOM
+# shim can assert what the page *decided* and is structurally blind to
+# layout -- scrolling, stacking and overlap are properties of a layout
+# engine and a shim has none -- so this drives headless Chromium over the
+# DevTools protocol and asks the page about itself. No npm: Node's own
+# fetch and WebSocket are all CDP needs.
+#
+# A missing node or chromium is a SKIP that says so, never a silent pass:
+# tests/pipelines.sh guards its captures the same way, and CLAUDE.md's
+# reason is that a check quietly not running is worse than no check.
+#: [Checks] the browser page's layout, in a real browser (WEB_SIZES=; needs node + chromium)
+check-web-layout: sdrprobe scripts/web_layout.mjs $(WEB_SRC)
+	@if ! command -v node >/dev/null 2>&1; then \
+		printf '  %-56s %s\n' "the browser page in a real browser" \
+			"SKIPPED: no node"; exit 0; fi; \
+	if ! command -v chromium >/dev/null 2>&1; then \
+		printf '  %-56s %s\n' "the browser page in a real browser" \
+			"SKIPPED: no chromium"; exit 0; fi; \
+	CHECK_TALLY=$(CHECK_TALLY) node scripts/web_layout.mjs --sizes $(WEB_SIZES)
 
 check-websocket: $(TESTS)/websocket_test.c $(TESTS)/check.h \
 		$(SRC)/websocket.c $(SRC)/websocket.h
@@ -944,7 +969,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-survey-view-model check-fm-view-model check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \

@@ -1,6 +1,10 @@
 # 11 - Looking at the browser page, the way `make screens` looks at the window
 
-Status: needs-triage
+Status: needs-info -- **a third avenue was built and gated, 2026-09-26**:
+`check-web-layout` drives a real browser over the DevTools protocol and asks
+the page about itself. It closes (b)'s hardest criterion -- the JSON-driven
+text -- by a route neither (a) nor a PNG could. (a), the DOM-shim structural
+check, is still not committed. See "What was built".
 
 ## The gap
 
@@ -89,6 +93,78 @@ what is still open is FM and four decode views, each needing exactly this
 verification -- so the second writing is already scheduled. Promote on the
 second, not the third: the rule is about evidence that something is needed,
 and a ticket naming the next four callers is that evidence.
+
+## What was built, 2026-09-26 -- `check-web-layout`, a third avenue
+
+This ticket framed the choice as (a) a DOM shim that works and cannot see,
+or (b) a picture that can see and comes out blank. **There is a third
+thing, and it is better than either for everything except a literal
+picture**: drive a real browser over the DevTools protocol and ask the page
+about itself. Real layout, so overflow, stacking and geometry are
+answerable; the live DOM rather than a photograph of it, so text that did
+not render cannot hide behind a canvas that did.
+
+`scripts/web_layout.mjs`, behind `make check-web-layout`, in `CHECK_UNITS`.
+It starts its own `server` over `fm_rds_tsf.bin` and its own headless
+Chromium, walks every tab at every requested viewport
+(`WEB_SIZES=1920x1080,1400x900,...`, one by default so the gate stays
+quick), and asserts per tab: the document does not scroll, no scrollbar
+exists, **exactly one view panel is laid out**, and every visible canvas's
+backing store equals its laid-out box. On FM it also asserts the three
+information panels are one width, one height and one row, and -- this
+ticket's hardest criterion -- that the funnel's sentence, the signal rows,
+the station name, the waterfall's axis and the health footer all **rendered
+as text**.
+
+**It was promoted on the second writing, which is this ticket's own rule.**
+The first was ticket 07's scratch harness; the second was written during
+Phase 4's FM work to answer "does this page scroll", which no fake DOM can
+answer.
+
+**It earned its place immediately.** It found two faults of the same kind
+on its first run, neither visible to the Node harness: an author `display`
+beats the `hidden` attribute's UA rule, so a `#panels > div { display:flex }`
+rule laid out *every view's panel at once* -- three stacked, 1720 px of
+content in a 757 px viewport -- and the same fault one level down had a
+hidden chart wrapper eating 136 px of the waterfall's height. Mutating the
+fix back out fails it six times.
+
+### Decisions this makes, which the ticket left open
+
+- **No Playwright and no browser-automation MCP.** CDP needs two methods
+  here -- find a page target, evaluate an expression in it -- and Node's own
+  `fetch` and `WebSocket` reach both, so the whole client is about sixty
+  lines with no dependency. `web/` is under a standing no-framework,
+  no-CDN, no-npm constraint (ticket 01, restated by 13 and 14); its own
+  test harness pulling in an automation stack and a second managed Chromium
+  would be that constraint held everywhere except where it is checked. An
+  MCP would also cost every session's context whether or not it touches
+  `web/`.
+- **A missing node or chromium is a SKIP that says so**, printed on the
+  suite's own line, never a silent pass -- the shape `tests/pipelines.sh`
+  uses for a missing capture.
+- **It appends to `CHECK_TALLY`** like every C suite, so the gate's own
+  summary counts it. It did not at first, and the gate read 78 suites while
+  running 79 -- a suite that does not count itself is the `NOT GATED` fault
+  wearing a different coat.
+- **`check-make-help` caught it before a person did.** The rule shipped
+  with no `#:` line and the audit failed the gate, exactly as designed; a
+  Node suite has no `check_report()` sentence for `make_help.py` to read,
+  so it needs the explicit one.
+
+### What is still open
+
+- **(a), the DOM-shim structural check, is still not committed.** It
+  remains worth having and is not replaced by this: it asserts what the
+  page *decided* -- the generation rule, the reconnect, the subscribe line
+  sent on a tab switch -- at a fraction of the cost and with no browser. The
+  scratch harness that does this now stands at 62 checks and has been
+  written twice.
+- **A literal picture is still not in `make screens`.** `Page.captureScreenshot`
+  is wired (`--png FILE`) and a PNG from it is trustworthy *because the same
+  run asserted the text is there first*, which is what ticket 07's blank
+  capture lacked. What is not done is a `screens.sh` recipe at the 1500x950
+  every other screen renders at.
 
 ## Not in scope
 
