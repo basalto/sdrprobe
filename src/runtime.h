@@ -96,6 +96,29 @@ int adsb_analysis_showing(const struct app *app);
 
 void update_tetra(struct app *app, double now);
 
+/* --- SRD 430-440 MHz: the tuning, one block of OOK/Manchester --- */
+
+void update_srd(struct app *app, double now);
+void view_srd_defaults(struct app *app);
+/* Whether the receiver is tuned within the SRD band and fast enough to see
+   it, the same shape as adsb_tuned() above -- off it, the view offers a
+   retune affordance instead of decoding silence. */
+int srd_tuned(const struct app *app);
+/* Entering the view retunes the receiver to 434 MHz when it is not already
+   within the SRD band -- the same shape as enter_gsm()/enter_lte(), because
+   a manual "Retune to 434 MHz" click depends on a click landing correctly,
+   and the whole point of opening this view is to be listening in the right
+   place. leave_srd() gives the borrowed tuning back. */
+void enter_srd(struct app *app);
+void leave_srd(struct app *app);
+/* The SRD header's tuning group: the typed centre frequency shown, committed,
+   and stepped by half a span. `srd_tune_step()` is the arithmetic and
+   `srd_dsp.h` owns it; these three are the state around the field, which the
+   input handler drives and which no drawing decides. */
+void srd_freq_show(struct app *app);
+int srd_freq_commit(struct app *app);
+void srd_tune_arrow(struct app *app, int direction);
+
 /* --- FM: the discriminator, the RDS chain, the band scan, the tuning --- */
 
 void update_fm(struct app *app, double now);

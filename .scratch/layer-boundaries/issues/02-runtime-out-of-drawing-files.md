@@ -219,9 +219,27 @@ Poison-tested raylib-free. Both captures decode byte-identically: `cc17` and
 the network's own colour code, so a decoder that hardcoded one would read
 one capture and fail the other.
 
+### SRD done, 2026-09-26
+
+`src/srd_runtime.c` -- the tuning inside 430-440 MHz, entering and leaving,
+one block of OOK/Manchester, remembering frames and undecoded detections, and
+the header's tuning group (`srd_freq_show`, `srd_freq_commit`,
+`srd_tune_arrow`). `view_srd.c` drops 808 -> 614 lines. Those last three were
+`static` and are exported now, because the input handler drives them and the
+input handler stayed behind. Poison-tested raylib-free.
+
+**Its headless decode is not deterministic, and that is not a fault.** Two
+runs of the *same* binary differ -- in the elapsed-time column only
+(`0.6s` against `0.4s`), because the column reports when in playback a burst
+was heard and that moves with how fast the machine feeds the capture. Every
+payload is identical: the same `3F 04 0B 69 BB CC 9F 42 F2 D4` frames in the
+same order. With that column stripped, old and new agree exactly on both
+captures, and so do two runs of one binary. Worth knowing before the next
+person reads a DIFFERS here as a regression.
+
 ### Still open in this ticket
 
 Item 2's `process_block(app, now, fft_size)`, decided but not done; the
 Scope's three `advance_*`/`decay_*`; the overlays' four; `set_tab`,
-`set_decode`, `retune_receiver*` and `stop_requested`; and SRD, LTE.
+`set_decode`, `retune_receiver*` and `stop_requested`; and LTE.
 `check-frame-advance` still stubs all nineteen callees.

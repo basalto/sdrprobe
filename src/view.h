@@ -370,24 +370,11 @@ void handle_tetra_input(struct app *app);
 Rectangle tetra_waterfall_rect(const struct app *app);
 
 /* SRD 433-435 MHz (Decode tab): Short Range Devices OOK / Manchester. */
-void update_srd(struct app *app, double now);
 void draw_srd(struct app *app);
 void handle_srd_input(struct app *app);
-void view_srd_defaults(struct app *app);
-/* Whether the receiver is tuned within the SRD band and fast enough to see
-   it, the same shape as adsb_tuned() above -- off it, the view offers a
-   retune affordance instead of decoding silence. */
-int srd_tuned(const struct app *app);
 /* The log mode's waterfall rectangle, or a zero rect in analysis mode, so a
    caller that dispatches Up/Down and drag to it does nothing there. */
 Rectangle srd_waterfall_rect(const struct app *app);
-/* Entering the view retunes the receiver to 434 MHz when it is not already
-   within the SRD band -- the same shape as enter_gsm()/enter_lte(), because
-   a manual "Retune to 434 MHz" click depends on a click landing correctly,
-   and the whole point of opening this view is to be listening in the right
-   place. leave_srd() gives the borrowed tuning back. */
-void enter_srd(struct app *app);
-void leave_srd(struct app *app);
 
 /* Help overlay: what each chart plots and how to read it. Orthogonal to the
    tabs like calibration is, reachable with `h` from every view. */
