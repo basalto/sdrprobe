@@ -8,12 +8,13 @@
  * unchanged -- same order, same conditions -- so the acceptance criterion is
  * that nothing observable moved, not that anything here got smarter.
  */
-int frame_advance(struct app *app, struct slot_snapshot *snapshot, double now) {
+int frame_advance(struct app *app, struct slot_snapshot *snapshot, double now,
+                  int fft_size) {
     int have_new, spectrum_updated;
 
     decay_spectrum_peak(app, now);
     have_new = consume_latest(&app->acq, snapshot);
-    spectrum_updated = have_new ? process_block(app, now) : 0;
+    spectrum_updated = have_new ? process_block(app, now, fft_size) : 0;
     if (spectrum_updated) {
         advance_waterfall_row(app);
         update_scan(app);

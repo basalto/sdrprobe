@@ -98,7 +98,7 @@ static int next_block(struct app *app, struct slot_snapshot *snapshot) {
     struct timespec pause = { 0, 2 * 1000 * 1000L };
 
     if (consume_latest(&app->acq, snapshot))
-        return process_block(app, 0.0) > 0 ? 1 : 0;
+        return process_block(app, 0.0, scope_requested_fft_size(app)) > 0 ? 1 : 0;
     if (snapshot->worker_failed || snapshot->worker_done)
         return -1;
     nanosleep(&pause, NULL);

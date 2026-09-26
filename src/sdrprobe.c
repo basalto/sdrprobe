@@ -368,19 +368,42 @@ static int open_capture(struct app *app) {
 
 
 
-int process_block(struct app *app, double now) {
+/*
+ * What size the screen wants the spectrum measured at.
+ *
+ * The Scope's resolution stepper only applies while the Scope owns the
+ * spectrum -- the survey, both band scans and the calibration overlay read
+ * the same array and their floors were chosen against 977 Hz bins
+ * (CLAUDE.md). That is a question about presentation, so it is asked here,
+ * in the layer that has a screen, and the answer is handed to
+ * `process_block()` rather than looked up inside it.
+ *
+ * Asked every block rather than remembered across a screen change, which is
+ * the distinction `input_route.h` explains.
+ */
+int scope_requested_fft_size(const struct app *app) {
+    struct input_state screen = input_state_now(app);
+
+    return input_scope_owns_spectrum(&screen) &&
+           sdr_dsp_fft_size_valid(app->sv.fft_size)
+               ? app->sv.fft_size : SDR_DSP_FFT_SIZE;
+}
+
+int process_block(struct app *app, double now, int fft_size) {
     struct signal_frame_input in;
     int geometry_changed = 0, produced;
 
     /*
-     * The frame does the measuring; this decides what to ask it for and what
-     * a changed geometry means on screen.
+     * The frame does the measuring; this decides what a changed geometry
+     * means on screen.
      *
-     * The transform size is worked out here and passed in, rather than the
-     * frame asking what is on screen: `input_scope_owns_spectrum()` is a
-     * question about presentation, and a module that answers it cannot be
-     * checked without one. It is asked every block rather than remembered
-     * across a screen change, which is the distinction that header explains.
+     * The transform size is now a *parameter*. It was worked out here from
+     * `input_scope_owns_spectrum()`, which made this shared per-block step
+     * ask what was on screen -- on `headless` and `server` runs too, where
+     * there is no screen to ask. The caller decides and this obeys, falling
+     * back to the default for a size it cannot use (layer-boundaries ticket
+     * 02, item 2). `scope_requested_fft_size()` below is where the screen is
+     * still asked, in the layer allowed to.
      */
     memset(&in, 0, sizeof(in));
     in.profile = &app->device;
@@ -388,12 +411,8 @@ int process_block(struct app *app, double now) {
     in.byte_count = app->acq.raw_len;
     in.remove_dc = app->remove_dc;
     in.now = now;
-    {
-        struct input_state screen = input_state_now(app);
-        in.fft_size = input_scope_owns_spectrum(&screen) &&
-                      sdr_dsp_fft_size_valid(app->sv.fft_size)
-                          ? app->sv.fft_size : SDR_DSP_FFT_SIZE;
-    }
+    in.fft_size = sdr_dsp_fft_size_valid(fft_size) ? fft_size
+                                                   : SDR_DSP_FFT_SIZE;
 
     produced = signal_frame_process(&app->frame, &in, &geometry_changed);
     if (app->frame.have_samples)
@@ -1903,7 +1922,8 @@ static int run_gui(struct app *app) {
          * same way `update_waterfall()` and `update_scatter()` used to gate
          * them internally.
          */
-        int spectrum_updated = frame_advance(app, &snapshot, now);
+        int spectrum_updated = frame_advance(app, &snapshot, now,
+                                             scope_requested_fft_size(app));
         /*
          * The sound, which is the window's alone: `update_fm_audio()` feeds
          * a raylib `AudioStream` and `frame_advance()` used to call it, so
@@ -2416,7 +2436,7 @@ static int run_headless(struct app *app) {
             double now = monotonic_seconds() - began;
             int have_new = consume_latest(&app->acq, &snapshot);
             if (have_new)
-                process_block(app, now);
+                process_block(app, now, scope_requested_fft_size(app));
             if (snapshot.worker_failed) {
                 fprintf(stderr, "Acquisition failed: %s\n",
                         snapshot.worker_error);
@@ -2494,7 +2514,7 @@ static int run_headless(struct app *app) {
                 struct slot_snapshot snapshot;
                 int have_new = consume_latest(&app->acq, &snapshot);
                 if (have_new)
-                    process_block(app, monotonic_seconds());
+                    process_block(app, monotonic_seconds(), scope_requested_fft_size(app));
                 if (snapshot.worker_failed) {
                     fprintf(stderr, "Acquisition failed: %s\n",
                             snapshot.worker_error);
@@ -2543,7 +2563,7 @@ static int run_headless(struct app *app) {
                 nanosleep(&tick, NULL);
                 continue;
             }
-            process_block(app, monotonic_seconds());
+            process_block(app, monotonic_seconds(), scope_requested_fft_size(app));
             if (snapshot.worker_failed) {
                 fprintf(stderr, "Acquisition failed: %s\n",
                         snapshot.worker_error);
@@ -2809,7 +2829,7 @@ static int run_headless(struct app *app) {
                 struct slot_snapshot snapshot;
                 int have_new = consume_latest(&app->acq, &snapshot);
                 if (have_new)
-                    process_block(app, monotonic_seconds() - began);
+                    process_block(app, monotonic_seconds() - began, scope_requested_fft_size(app));
                 if (snapshot.worker_failed) {
                     fprintf(stderr, "Acquisition failed: %s\n",
                             snapshot.worker_error);
@@ -2906,7 +2926,7 @@ static int run_headless(struct app *app) {
             have_new = consume_latest(&app->acq, &snapshot);
             now = monotonic_seconds();
             if (have_new)
-                process_block(app, now - began);
+                process_block(app, now - began, scope_requested_fft_size(app));
             if (snapshot.worker_failed) {
                 fprintf(stderr, "Acquisition failed: %s\n",
                         snapshot.worker_error);
@@ -3048,7 +3068,7 @@ static int run_headless(struct app *app) {
             /* The spectrum is not needed to decode -- process_block's return
                only says whether it updated -- but the magnitudes and centred
                I/Q it fills in are. */
-            process_block(app, now);
+            process_block(app, now, scope_requested_fft_size(app));
             if (app->frame.pair_count > 0)
                 print_new_decodes(app, now, decoder);
         }

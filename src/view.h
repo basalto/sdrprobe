@@ -79,7 +79,12 @@ int receiver_restore_held(struct app *app,
    and retryable. */
 /* Give up the claim and keep the tuning: the survey's "Open waterfall". */
 int receiver_commit(struct app *app, struct receiver_lease_token *token);
-int process_block(struct app *app, double now);
+int process_block(struct app *app, double now, int fft_size);
+/* What size the screen wants the spectrum measured at -- the Scope's
+   resolution stepper, but only while the Scope owns the spectrum. Asked in
+   this layer because it is a question about presentation, and handed to
+   `process_block()` rather than looked up inside it. */
+int scope_requested_fft_size(const struct app *app);
 double monotonic_seconds(void);
 int stop_requested(void);
 

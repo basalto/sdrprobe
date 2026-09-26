@@ -327,7 +327,15 @@ int viewer_session_run(struct app *app) {
             retuned = 1;
         }
 
-        spectrum_updated = frame_advance(app, &snapshot, now);
+        /*
+         * This session sets `app->tab` and `app->view` itself, above -- the
+         * Scope with its spectrum view, the only screen ADR-0027 serves --
+         * so the Scope does own the spectrum here and the size is whatever
+         * `--fft` or the saved config asked for. Said outright rather than
+         * routed through a screen query, because there is no screen.
+         */
+        spectrum_updated = frame_advance(app, &snapshot, now,
+                                         app->sv.fft_size);
         scope_view_model_build(app, &svm);
         now_ms = (uint64_t)(monotonic_seconds() * 1000.0);
 

@@ -31,6 +31,15 @@ struct app;
  * whether a new spectrum came with this block, which decides whether the
  * caller's draw phase has a waterfall row to upload.
  */
-int frame_advance(struct app *app, struct slot_snapshot *snapshot, double now);
+/*
+ * `fft_size` is the transform the caller wants the spectrum measured at --
+ * `scope_requested_fft_size()` in the window, a plain default with no screen
+ * to ask. Passed in rather than looked up, because looking it up means
+ * asking what is on screen and this step runs where there is none
+ * (layer-boundaries ticket 02, item 2). A size this cannot use falls back
+ * to `SDR_DSP_FFT_SIZE`.
+ */
+int frame_advance(struct app *app, struct slot_snapshot *snapshot, double now,
+                  int fft_size);
 
 #endif

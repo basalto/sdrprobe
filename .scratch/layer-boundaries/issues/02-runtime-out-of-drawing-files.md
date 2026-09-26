@@ -288,10 +288,33 @@ Verified in a real window, which is the only place sound exists:
 `--fm-play` logs `fm-audio playing at 49951 Hz` and the FM decode is
 byte-identical.
 
+### Item 2 done, 2026-09-26 -- the transform size is a parameter
+
+`process_block(app, now, fft_size)` and `frame_advance(app, snapshot, now,
+fft_size)`. The size was worked out *inside* `process_block()` from
+`input_scope_owns_spectrum()`, so the shared per-block step asked what was on
+screen -- on `headless` and `server` runs too, where there is none.
+
+The question is still asked, in the layer allowed to ask it:
+`scope_requested_fft_size()` in `sdrprobe.c`, which every call site there and
+in `survey_report.c` now passes. Behaviour is identical by construction --
+the helper is the old expression, moved. `viewer_session.c` passes
+`app->sv.fft_size` outright, with a comment saying why it may: it sets
+`app->tab` and `app->view` itself, so the Scope does own the spectrum there,
+and there is no screen to route the question through.
+
+`check-frame-advance` gained the pass-through assertion, and deliberately
+uses a size unlike any default *and* unlike `app.sv.fft_size` (zero in the
+fixture) -- so it cannot pass by the value being looked up from the app after
+all. A check pinning only `now` would not have noticed the size being looked
+up again.
+
+Verified where a non-default size actually travels: `server --fft 2048` and
+`--fft 16384` put 2048 and 16384 bins on the wire.
+
 ### Still open in this ticket
 
-Item 2's `process_block(app, now, fft_size)`, decided but not done; the
-Scope's three; the overlays' four; `update_survey`;
+The Scope's three; the overlays' four; `update_survey`;
 and `set_tab`, `set_decode`, `retune_receiver*` and `stop_requested`, whose
 declarations are already in `runtime.h` but whose definitions are still in
 `sdrprobe.c`. `check-frame-advance` still stubs all nineteen callees; ticket

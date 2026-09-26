@@ -24,6 +24,7 @@
 static struct {
     int process_block_calls;
     double process_block_now;
+    int process_block_fft_size;
     int process_block_returns;
 
     int consume_latest_calls;
@@ -77,10 +78,11 @@ void decay_spectrum_peak(struct app *app, double now) {
     fake.decay_calls++;
 }
 
-int process_block(struct app *app, double now) {
+int process_block(struct app *app, double now, int fft_size) {
     (void)app;
     fake.process_block_calls++;
     fake.process_block_now = now;
+    fake.process_block_fft_size = fft_size;
     return fake.process_block_returns;
 }
 
@@ -201,7 +203,7 @@ static void test_no_new_block(void) {
     fake.consume_latest_returns = 0;
     app.tab = TAB_SCOPE;
 
-    spectrum_updated = frame_advance(&app, &snapshot, 12.5);
+    spectrum_updated = frame_advance(&app, &snapshot, 12.5, 2048);
 
     check_int("no block: consume_latest still asked", fake.consume_latest_calls, 1);
     check_int("no block: process_block skipped", fake.process_block_calls, 0);
@@ -230,7 +232,7 @@ static void test_spectrum_updated_gates_three_calls(void) {
     fake_reset();
     app.tab = TAB_SCOPE;
 
-    frame_advance(&app, &snapshot, 1.0);
+    frame_advance(&app, &snapshot, 1.0, 2048);
 
     check_int("spectrum updated: waterfall row advances",
               fake.advance_waterfall_calls, 1);
@@ -253,7 +255,7 @@ static void test_have_new_without_spectrum_updated(void) {
     app.tab = TAB_DECODE;
     app.decode = DECODE_ADSB;
 
-    spectrum_updated = frame_advance(&app, &snapshot, 2.0);
+    spectrum_updated = frame_advance(&app, &snapshot, 2.0, 2048);
 
     check_int("no spectrum: still counted as a block", fake.process_block_calls, 1);
     check_int("no spectrum: spectrum_updated is false", spectrum_updated, 0);
@@ -290,7 +292,7 @@ static void test_decode_dispatch_by_tab_and_kind(void) {
         fake_reset();
         app.tab = TAB_DECODE;
         app.decode = cases[i].decode;
-        frame_advance(&app, &snapshot, 3.0);
+        frame_advance(&app, &snapshot, 3.0, 2048);
 
         calls = fake.update_adsb_calls + fake.update_gsm_sch_calls +
                 fake.update_tetra_calls + fake.update_srd_calls;
@@ -309,7 +311,7 @@ static void test_decode_dispatch_by_tab_and_kind(void) {
         app.tab = TAB_DECODE;
         app.decode = cases[i].decode;
         app.cal.open = 1;
-        frame_advance(&app, &snapshot, 3.0);
+        frame_advance(&app, &snapshot, 3.0, 2048);
 
         calls = fake.update_adsb_calls + fake.update_gsm_sch_calls +
                 fake.update_tetra_calls + fake.update_srd_calls;
@@ -329,7 +331,7 @@ static void test_lte_dispatch(void) {
     app.tab = TAB_DECODE;
     app.decode = DECODE_LTE;
     app.lte.scan.running = 1;
-    frame_advance(&app, &snapshot, 4.0);
+    frame_advance(&app, &snapshot, 4.0, 2048);
     check_int("LTE: scan step runs while the scan is running",
               fake.update_lte_scan_calls, 1);
     check_int("LTE: cell search does not run while the scan is running",
@@ -337,13 +339,13 @@ static void test_lte_dispatch(void) {
 
     fake_reset();
     app.lte.scan.running = 0;
-    frame_advance(&app, &snapshot, 4.0);
+    frame_advance(&app, &snapshot, 4.0, 2048);
     check_int("LTE: cell search runs once the scan is not",
               fake.update_lte_calls, 1);
 
     fake_reset();
     app.cal.open = 1;
-    frame_advance(&app, &snapshot, 4.0);
+    frame_advance(&app, &snapshot, 4.0, 2048);
     check_int("LTE: neither runs while calibration is open",
               fake.update_lte_scan_calls + fake.update_lte_calls, 0);
 }
@@ -360,7 +362,7 @@ static void test_fm_dispatch_ignores_calibration(void) {
     app.tab = TAB_DECODE;
     app.decode = DECODE_FM;
     app.cal.open = 1;
-    frame_advance(&app, &snapshot, 5.0);
+    frame_advance(&app, &snapshot, 5.0, 2048);
 
     check_int("FM: scan still runs with calibration open",
               fake.update_fm_scan_calls, 1);
@@ -386,19 +388,19 @@ static void test_survey_dispatch(void) {
 
     fake_reset();
     app.tab = TAB_SURVEY;
-    frame_advance(&app, &snapshot, 6.0);
+    frame_advance(&app, &snapshot, 6.0, 2048);
     check_int("survey: ticks on its own tab", fake.update_survey_calls, 1);
 
     fake_reset();
     app.cal.open = 1;
-    frame_advance(&app, &snapshot, 6.0);
+    frame_advance(&app, &snapshot, 6.0, 2048);
     check_int("survey: not while calibration is open",
               fake.update_survey_calls, 0);
 
     fake_reset();
     app.cal.open = 0;
     app.startup.open = 1;
-    frame_advance(&app, &snapshot, 6.0);
+    frame_advance(&app, &snapshot, 6.0, 2048);
     check_int("survey: not while the startup form is open",
               fake.update_survey_calls, 0);
 }
@@ -413,35 +415,47 @@ static void test_scatter_insert_condition(void) {
     fake_reset();
     app.tab = TAB_SCOPE;
     app.view = VIEW_SCATTER;
-    frame_advance(&app, &snapshot, 7.0);
+    frame_advance(&app, &snapshot, 7.0, 2048);
     check_int("scatter: inserts on its own view", fake.advance_scatter_insert, 1);
 
     fake_reset();
     app.view = VIEW_SPECTRUM;
-    frame_advance(&app, &snapshot, 7.0);
+    frame_advance(&app, &snapshot, 7.0, 2048);
     check_int("scatter: does not insert off its own view",
               fake.advance_scatter_insert, 0);
 
     fake_reset();
     app.view = VIEW_SCATTER;
     app.cal.open = 1;
-    frame_advance(&app, &snapshot, 7.0);
+    frame_advance(&app, &snapshot, 7.0, 2048);
     check_int("scatter: does not insert while calibration is open",
               fake.advance_scatter_insert, 0);
 }
 
-/* `now` reaches process_block unmodified: the caller's clock, never read
-   from inside. */
-static void test_now_passes_through(void) {
+/* `now` and the transform size both reach process_block unmodified: the
+   caller's clock and the caller's choice, neither read from inside.
+
+   The size matters as much as the clock and for the same reason. It used to
+   be looked up inside `process_block()` by asking what was on screen, on
+   `headless` and `server` runs too, where there is no screen to ask
+   (layer-boundaries ticket 02, item 2). A check that only pinned `now`
+   would not notice it being looked up again. */
+static void test_now_and_size_pass_through(void) {
     static struct app app;
     zero_app(&app);
     struct slot_snapshot snapshot;
 
     fake_reset();
     app.tab = TAB_SCOPE;
-    frame_advance(&app, &snapshot, 123.5);
+    /* A size deliberately unlike any default, and unlike `app.sv.fft_size`,
+       which is zero here -- so this cannot pass by the value being looked up
+       from the app after all. */
+    frame_advance(&app, &snapshot, 123.5, 4096);
     check_close("now reaches process_block unmodified", fake.process_block_now,
                 123.5, 1e-9);
+    check_int("and so does the transform size the caller chose",
+              fake.process_block_fft_size, 4096);
+    check_int("which is not what app.sv.fft_size holds", app.sv.fft_size, 0);
 }
 
 int main(void) {
@@ -453,6 +467,6 @@ int main(void) {
     test_fm_dispatch_ignores_calibration();
     test_survey_dispatch();
     test_scatter_insert_condition();
-    test_now_passes_through();
+    test_now_and_size_pass_through();
     return check_report("the per-block dispatch, with every callee faked");
 }
