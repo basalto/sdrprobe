@@ -127,3 +127,61 @@ screen state to imply it. The cost is one argument threaded through
 - **`check-frame-advance`'s 19 stubs** are a list of exactly these callees.
   Keep them passing through this ticket; ticket 04 replaces them with the
   real functions.
+
+## FM done, 2026-09-26 -- the first technology out
+
+`src/fm_runtime.c` (659 lines) holds FM's twelve runtime functions:
+`view_fm_defaults`, `update_fm_flush`, `enter_fm`, `fm_scan_showing`,
+`fm_editing`, `fm_tune`, `fm_scan_begin`, `fm_scan_stop`, `fm_scan_choose`,
+`update_fm`, `fm_scan_finish`, `update_fm_scan`. `view_fm.c` is down from
+1471 lines to 854 and keeps the drawing, the input, and the three functions
+that work the sound card -- an `AudioStream` is a window resource.
+
+**It compiles with a `#error` raylib.h ahead of the real one**, which is the
+property this ticket is for, not merely "it builds".
+
+`src/runtime.h` is the raylib-free half of `view.h`, started here: FM's
+declarations, plus `retune_receiver`, `retune_receiver_at_rate` and the three
+borrow/return functions. Those five had to come first -- a scan borrows the
+receiver, walks it and gives it back -- so their *declarations* moved while
+their definitions stay in `sdrprobe.c` for that later commit. `view.h`
+includes `runtime.h`, so every existing caller is unchanged.
+
+### Measured, not assumed
+
+- `make check`: 21994 checks in 79 suites.
+- **The headless FM decode is byte-identical across the move**, with and
+  without `--fm-scan`. Determinism confirmed first by running the same binary
+  twice. This is the instrument that works here.
+- **`make screens` could not settle it, and saying so is the honest result.**
+  FM's two screens are time-sampled and enormously noisy: three renders of
+  the *same* binary gave 6746 and 144483 differing pixels against each other.
+  Old-vs-new came out 5436-5816 on the pairs not involving that outlier --
+  inside the within-old noise of 7417-10747 -- but with a spread that large
+  the comparison cannot prove anything either way. The deterministic decode
+  above is what carries the claim.
+- A live `server` run: 200 `fm_state` messages, station 0x8343 " TSF ",
+  "reading the station".
+
+### Two things found on the way, committed separately
+
+Both are in `1450a1c`, ahead of the move, because neither is a file move:
+
+- **`fm_scan_begin()` stamped its step clock from raylib's `GetTime()`**,
+  which is 0.0 before `InitWindow()` -- and a Viewer's `view fm` reaches it
+  through `set_decode()` -> `enter_fm()`. With a live receiver outside band
+  II that scan would race its whole plan in one pass. `now` is threaded
+  through all three now. No capture can reach it, so the gate shows no
+  regression rather than the fix.
+- **`make add-argument`, the tool for exactly this, was broken two ways**:
+  the rule did not quote `$(VALUE)` (so `CLAUDE.md`'s own documented example
+  died in the shell), and the script could not *append* an argument --
+  `index == len(args)` did nothing and reported success. Appending is the
+  commonest way a parameter is threaded here.
+
+### Still open in this ticket
+
+Item 2's `process_block(app, now, fft_size)`, decided but not done; the
+Scope's three `advance_*`/`decay_*`; the overlays' four; `set_tab`,
+`set_decode`, `retune_receiver*` and `stop_requested`; and GSM, ADS-B, TETRA,
+LTE, SRD. `check-frame-advance` still stubs all nineteen callees.

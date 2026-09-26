@@ -4,6 +4,7 @@
 #include <raylib.h>
 
 #include "app.h"
+#include "runtime.h"
 #include "gui_state.h"
 #include "survey_record.h"
 #include "lte_dsp.h"
@@ -71,10 +72,6 @@ void draw_button_enabled(Rectangle rectangle, const char *label, int enabled);
 /* Stop measuring and hand the receiver back, staying on the screen. Returns
    negative when the retune failed, in which case nothing changed. */
 int calibration_stop_measuring(struct app *app);
-int retune_receiver(struct app *app, uint32_t frequency, int ppm);
-/* The same, changing the sample rate with the tuning. Only LTE needs it. */
-int retune_receiver_at_rate(struct app *app, uint32_t frequency,
-                            uint32_t sample_rate, int ppm);
 
 /*
  * Borrowing the receiver's tuning, in the order it was borrowed.
@@ -88,12 +85,9 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
 
 /* Take the receiver where it stands, without moving it. For an owner that
    tunes later, or several times, or not at all. */
-int receiver_borrow(struct app *app, struct receiver_lease_token *token);
 /* Take it and move it in one step: on a refusal the token is cancelled, since
    retune_receiver*() has already put the hardware back. `sample_rate` of 0
    means "leave the rate alone". */
-int receiver_borrow_at(struct app *app, struct receiver_lease_token *token,
-                       uint32_t frequency, uint32_t sample_rate);
 /* Back to where this owner started, still holding it. The survey between
    sweeps: it has finished walking the band but still owns the right to sweep
    again. */
@@ -102,7 +96,6 @@ int receiver_restore_held(struct app *app,
 /* Give it back. Restores with the *current* PPM, so a calibration applied
    while borrowed survives the return. A failed retune leaves the token live
    and retryable. */
-int receiver_return(struct app *app, struct receiver_lease_token *token);
 /* Give up the claim and keep the tuning: the survey's "Open waterfall". */
 int receiver_commit(struct app *app, struct receiver_lease_token *token);
 int process_block(struct app *app, double now);
@@ -152,25 +145,9 @@ Rectangle gsm_burst_rect(void);
 /* LTE cell-search and broadcast view. */
 void draw_fm(struct app *app);
 void handle_fm_input(struct app *app);
-void update_fm(struct app *app, double now);
-/* As above, but `flush` decodes a short final chunk instead of waiting for a
-   full one -- what the band scan needs, since a visit is shorter than a
-   chunk. */
-void update_fm_flush(struct app *app, double now, int flush);
-void view_fm_defaults(struct app *app);
-/* Retune and start over: everything in the view belongs to one carrier. */
-void fm_tune(struct app *app, double hz);
-/* Whether the FM view's frequency field has focus. Asked by the view itself;
-   the frame loop reads the raw field and lets view_input.h decide what it
-   means, which is where survey_editing() and srd_editing() went. */
-int fm_editing(const struct app *app);
-/* Walking band II: a coarse sweep, then the carriers it found. */
-void fm_scan_begin(struct app *app, double now);
-void fm_scan_stop(struct app *app);
-void update_fm_scan(struct app *app, double now, int have_block);
-int fm_scan_showing(const struct app *app);
-/* Put the receiver in band II when the view is opened. */
-void enter_fm(struct app *app, double now);
+/* FM's runtime -- what `frame_advance()` calls, the band scan, the tuning --
+   moved to `runtime.h`, which this header includes so every existing caller
+   still compiles (layer-boundaries ticket 02). */
 /* Start or stop the sound. The device opens on the first press. */
 void fm_play(struct app *app);
 void update_fm_audio(struct app *app);

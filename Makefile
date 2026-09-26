@@ -93,7 +93,7 @@ DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c $(SRC)/srd_dsp.c $(SRC)/srd_frame.c
 APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/backend_uhd.c \
-	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/frame_advance.c $(SRC)/scope_view_model.c $(SRC)/survey_view_model.c $(SRC)/fm_view_model.c $(SRC)/websocket.c $(SRC)/viewer_link.c $(SRC)/viewer_session.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
+	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/frame_advance.c $(SRC)/scope_view_model.c $(SRC)/survey_view_model.c $(SRC)/fm_view_model.c $(SRC)/websocket.c $(SRC)/viewer_link.c $(SRC)/viewer_session.c $(SRC)/fm_runtime.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
 	$(SRC)/view_srd.c \
 	$(SRC)/view_survey.c \
@@ -104,7 +104,7 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
 	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c $(SRC)/browser.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/gui_state.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/gui_state.h $(SRC)/runtime.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h $(SRC)/browser.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h $(SRC)/startup_session.h \
