@@ -160,21 +160,36 @@ function handleState(state) {
 // this connection (nothing else could report a dropped message, since
 // it never reaches here); received throughput and JS busy% are this
 // page's own two, both rolled into the same panel.
+// Two lines rather than seven: the per-stream counts on one, the link and
+// what it costs both ends on the other. Seven rows of one figure each is a
+// list to read down; this is a line to scan across, and the panel stops
+// taking a third of the page under views that have their own tables.
+//
+// The drop rate is shown only for a stream that has actually dropped
+// something. "(0.0%)" repeated on every stream is noise on the one line a
+// reader is scanning for the stream that is losing messages -- and a
+// figure that is almost always the same value is a figure nobody reads.
 function renderHealth() {
   const h = lastHealth;
-  const dropRate = (s, d) => (s + d) > 0 ? (100 * d / (s + d)).toFixed(1) : '0.0';
   if (!h) { health.textContent = 'awaiting link_health...'; return; }
+  const stream = (name, sent, dropped) => {
+    const total = sent + dropped;
+    const rate = dropped > 0 && total > 0
+      ? ' <span>(' + (100 * dropped / total).toFixed(1) + '% lost)</span>' : '';
+    return name + ' <span>' + sent + '/' + dropped + '</span>' + rate;
+  };
   health.innerHTML =
-    '<div class="row">spectrum sent <span>' + h.spectrum_sent + '</span> dropped <span>'
-      + h.spectrum_dropped + '</span> (<span>' + dropRate(h.spectrum_sent, h.spectrum_dropped) + '%</span>)</div>'
-    + '<div class="row">waterfall sent <span>' + h.waterfall_sent + '</span> dropped <span>'
-      + h.waterfall_dropped + '</span> (<span>' + dropRate(h.waterfall_sent, h.waterfall_dropped) + '%</span>)</div>'
-    + '<div class="row">receiver_state sent <span>' + h.receiver_state_sent + '</span> dropped <span>'
-      + h.receiver_state_dropped + '</span></div>'
-    + '<div class="row">send-queue high-water <span>' + formatBytes(h.send_queue_high_water) + '</span></div>'
-    + '<div class="row">received <span>' + formatBitsPerSecond(throughputBps) + '</span> (this tab)</div>'
-    + '<div class="row">server CPU <span>' + h.server_cpu_percent.toFixed(1) + '%</span></div>'
-    + '<div class="row">this tab, JS busy <span>' + jsBusyPercent.toFixed(1) + '%</span></div>';
+    '<div class="row">sent/dropped &nbsp; '
+      + [stream('spectrum', h.spectrum_sent, h.spectrum_dropped),
+         stream('waterfall', h.waterfall_sent, h.waterfall_dropped),
+         stream('receiver_state', h.receiver_state_sent, h.receiver_state_dropped)]
+        .join(' &nbsp; ')
+      + '</div>'
+    + '<div class="row">high-water <span>' + formatBytes(h.send_queue_high_water)
+      + '</span> &nbsp; received <span>' + formatBitsPerSecond(throughputBps)
+      + '</span> &nbsp; server CPU <span>' + h.server_cpu_percent.toFixed(1)
+      + '%</span> &nbsp; this tab, JS busy <span>' + jsBusyPercent.toFixed(1)
+      + '%</span></div>';
 }
 
 connect();
