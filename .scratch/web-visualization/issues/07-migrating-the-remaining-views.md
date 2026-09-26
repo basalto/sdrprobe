@@ -231,3 +231,11 @@ remaining decode views will each meet:
   way every other screen is reachable, rather than a second, interactive
   control surface alongside it -- consistent with `view <name>` naming a
   screen and not deciding what it shows.
+
+**2026-09-26** -- two things for whoever takes the next view, from the
+architecture review in `.scratch/layer-boundaries/`. Build its view model
+from the state it reads rather than `const struct app *` (that spec's ticket
+03 converts the three that exist; a new one should not need converting). And
+send every enum by name: the survey's mark crossed as an ordinal, the browser
+re-declared the order wrong, and receiver-like and empty candidates have been
+drawn swapped since this ticket's Survey work (`15-*`).

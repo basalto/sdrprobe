@@ -108,7 +108,11 @@ where `check-*` can reach it (ADR-0012) — never to the JavaScript.
 The pattern, as FM did it:
 
 - `src/<tech>_view_model.{c,h}` — plain fields, no raylib type, no I/O.
-  `check-<tech>-view-model` links `-lm` alone.
+  `check-<tech>-view-model` links `-lm` alone. **Build it from the state it
+  reads, not from `const struct app *`** — FM's still takes `struct app`,
+  which is why its check needs raylib's headers; `.scratch/layer-boundaries/`
+  ticket 03 converts the existing three, and a new one should not need
+  converting.
 - **Anything the drawing *chose*** — which of several sentences, which
   emphasis, which mark — moves into the model as a value.
   `fm_view_model_reading()` picks one of five sentences and a
@@ -175,6 +179,14 @@ Each of these cost real time in this repository.
 - **The subscribe parser and the screen names are tables.** Ticket 07 found
   the hand-written version two names short: a client subscribed to
   `survey_spectrum` received nothing, silently, with no refusal.
+- **Never index a table by an enum's integer.** The survey's mark crossed the
+  wire as `enum sdrgui_peak_mark`'s ordinal and `views/survey.js` re-declared
+  the order wrong, so the browser drew receiver-like and empty candidates
+  swapped -- the pair `CLAUDE.md` says a reader acts on -- and every check
+  stayed green, because nothing checks how the browser reads a number
+  (`web-visualization/15`). Send enums **by name**, as `shape` already is,
+  and key the browser's tables by name. `reading_tone`, `seen`, `tab` and
+  `decode` still travel as integers; do not copy that shape into a new view.
 
 ## Verifying: which tool answers which question
 
