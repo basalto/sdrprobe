@@ -1,6 +1,6 @@
 # 07 - Migrating the remaining views
 
-Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; FM and the four decode views remain.
+Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); GSM, ADS-B, TETRA, LTE and SRD remain, then the two overlays.
 
 ## Goal
 
@@ -189,11 +189,42 @@ updating correctly.
 `make check`: 21781 checks in 77 suites, no failures. `make screens
 NAMES="survey"` is unchanged -- this Viewer work touches no drawing.
 
+## Done, 2026-09-26 -- FM, the first through the Phase 4 registry
+
+Three commits (`src/fm_view_model.{c,h}` + `check-fm-view-model`; the two
+wire streams; `web/views/fm.js`), with the detail in
+`14-restructuring-the-web-view.md`'s own Phase 4 comment. Against this
+ticket's four per-view acceptance criteria:
+
+- [x] **The view's data comes from a view model checkable with `-lm`
+      alone.** `check-fm-view-model`, 58 checks, 78 suites in the gate.
+- [x] **`make screens NAMES="fm"` is unchanged against the previous
+      commit** -- byte-identical, though establishing that took a second
+      attempt: the first comparison was against a baseline rendered
+      immediately after a full compile, which processed fewer blocks in
+      its fixed duration and read as a ~250-pixel regression. Rendered
+      warm on both sides, zero pixels differ.
+- [x] **`make check` and `tests/pipelines.sh` unchanged.** 21944 checks,
+      no failures.
+- [x] **The view model carries no raylib type.**
+
+Two things FM turned up that the survey did not, and that the four
+remaining decode views will each meet:
+
+- **A decode view is not a tab.** `view fm` is TAB_DECODE plus DECODE_FM,
+  so it needs a `set_decode()` before its `set_tab()`, and
+  `receiver_state` had to gain `decode` for a reconnecting Viewer to tell
+  six screens apart on one tab. That is now done once, for all of them.
+- **A drawing mode was gating a computation.** The multiplex spectrum was
+  computed only when the window's "Show charts" toggle was on, so the
+  `fm_spectrum` stream published nothing at all under `server`. Worth
+  looking for in each remaining view: anything a chart needs that is
+  computed inside an `analysis_mode` branch has the same hole.
+
 ### What is still open
 
-- FM, and the four remaining decode views (GSM, ADS-B, TETRA, LTE, SRD),
-  each its own view model and its own commit, per this ticket's own
-  ordering.
+- The four remaining decode views (GSM, ADS-B, TETRA, LTE, SRD), each its
+  own view model and its own commit, per this ticket's own ordering.
 - The overlays (Settings, Calibration) -- typed input, last, unsolved.
 - A `sweep <range>` Viewer *command* was deliberately not built. Seeding a
   sweep stays a command-line concern (`--survey-range`, ADR-0012), the same

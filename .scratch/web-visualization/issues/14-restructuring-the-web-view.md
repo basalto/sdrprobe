@@ -1,7 +1,8 @@
 # 14 - Restructuring the web view, before it becomes what ADR-0007 already fixed once
 
-Status: needs-info -- Phases 1, 2 and 3 done (2026-09-17); Phase 4
-(ticket 07's remaining views) still open. See Comments.
+Status: needs-info -- Phases 1, 2 and 3 done (2026-09-17); **Phase 4 is
+under way (2026-09-26): FM has landed, in three commits**, and GSM, ADS-B,
+TETRA, LTE, SRD and the two overlays remain. See Comments.
 
 ## Why now
 
@@ -242,8 +243,23 @@ without Phase 2 is a registry over a monolith.
       built**; `web/views/scope.js` and `web/views/survey.js` exist as
       plain files today, which is as far as this ticket can move that
       criterion before ticket 11 itself is picked up.
-- [ ] Adding a seventh view touches `views/` and the registry line, and no
-      other file. **Phase 3** (there is no registry line yet).
+- [~] Adding a seventh view touches `views/` and the registry line, and no
+      other file. **Measured on the third view (FM, 2026-09-26) and not
+      met as written -- four files, and the honest reading is that three
+      of them were one-offs or by design rather than failures.**
+      `web/views/fm.js` (new) and `web/viewer.js`'s `VIEWS` line are the
+      two this criterion names. `scripts/embed_web.py`'s `JS_ORDER` is a
+      third, and is *required* by this ticket's own decision that the
+      concatenation order be "stated in one place, not implied by
+      filenames" -- the criterion should have said three files, not two.
+      `web/wire.js` is the fourth, and was touched only because FM added a
+      new **binary** message type; a view whose state is JSON needs
+      nothing there, since every JSON message is already `kind: 'state'`.
+      `viewer.js` also took a one-off generalisation (`viewForTab()`
+      became `viewForState()`) because FM is the first screen that is not
+      a tab. **The prediction this leaves for the next decode view: its
+      own module, the `VIEWS` line, and `JS_ORDER`.** If a fourth file is
+      touched, that is worth reading rather than waving through.
 
 **Structural:**
 
@@ -471,3 +487,74 @@ touches, not a regression to chase down here.
 a separate ticket's work by this ticket's own plan -- each of FM, GSM,
 ADS-B, TETRA, LTE, SRD and the two overlays becomes one `views/*.js` file
 and one line in `VIEWS`, which is what the registry existing was for.
+
+### Phase 4, FM, 2026-09-26
+
+Three commits, in the order the seam runs: the view model, the wire, the
+browser.
+
+**`src/fm_view_model.{c,h}` and `check-fm-view-model` (78 suites now).**
+The three panels' fields, plus the multiplex spectrum. The part that is
+not a copy is the funnel's closing sentence: choosing between five
+sentences, and the three emphases they are painted in, from the five
+counts beside them is a *decision*, and it was being taken inside
+`draw_funnel_panel()` where only a person looking could check it
+(ADR-0012). All five clauses are pinned in order -- each test arranges for
+*later* clauses to be true as well, so a reordering that passes one cannot
+pass all five -- and the check was mutation-tested rather than trusted:
+reversing the first two clauses, returning the segment mask instead of its
+popcount, and dropping the bin clamp each fail it, the last as the same
+stack smash the survey's own cap produces.
+
+**A screenshot comparison across a build is a comparison at two machine
+loads.** `make screens NAMES="fm"` first showed ~250 differing pixels in
+the panel strip against a 22-pixel same-binary noise floor -- blocks 162
+against 240, groups 44 against 62 -- which reads as a regression and was
+not one. The baseline had been rendered immediately after a full compile
+and simply processed fewer blocks in its fixed duration. Rebuilt from the
+original drawing and rendered warm, against the new one rendered warm, the
+two strips are **byte-identical**. Worth carrying: this ticket's own
+warning about measuring a refactor was about the *result* being invisible;
+this is the measurement itself being taken under two different conditions.
+
+**The wire.** `fm_spectrum` (binary) and `fm_state` (JSON), and `view fm`
+-- which is the first screen name that is **not a tab**, so
+`viewer_command.h`'s own claim that "a third is one more name and one more
+`set_tab()` branch" was wrong and is corrected: FM is TAB_DECODE plus
+DECODE_FM, needing a `set_decode()` first, and `receiver_state` now
+carries `decode` so a reconnecting Viewer can tell which of six decode
+views is up. Three hand-matched lists became tables on the way through --
+the subscribe parser (the exact shape ticket 07 found two names short),
+the screen names, and `VIEWER_SURVEY_HEADER_BYTES` generalising to
+`VIEWER_RANGE_HEADER_BYTES` with one `publish_range_binary()` behind both
+streams. A new check walks every name in `stream_names[]` and asserts each
+is honoured; mutating one name fails it 13 times.
+
+**The hole only running it could find.** The multiplex spectrum was
+computed under `if (fm->analysis_mode && ...)` -- the window's "Show
+charts" toggle -- so a *computation* answered to what one reader happened
+to be drawing. Under `server` nothing draws, the toggle is always off, and
+`fm_spectrum` therefore published **nothing at all**: a browser's FM view
+would have had a permanently empty chart and no error to explain it. The
+gate is removed rather than widened, with the cost measured rather than
+asserted: `fm_multiplex_spectrum()` is **0.832 ms a call**, 1.27% of the
+65.5 ms a block covers, **0.33% of one core** at its 0.25 s rate limit.
+The audio spectrum beside it keeps its gate, and the difference is the
+rule: the multiplex now has two readers and is nobody's to gate, the audio
+spectrum has one.
+
+**Measured by driving the actual served bytes.** The same harness shape
+Phases 2 and 3 used -- the real page into a fake DOM, a real WebSocket, a
+real server on `fm_rds_tsf.bin` -- **32 checks, all passing**, every one
+reading a DOM effect the page produced. The subscription follows the view
+(Scope's streams dropped, FM's added, the shell's own two kept, and Survey
+and back to Scope each restoring exactly their own line); the funnel line
+reads "reading the station" in the tone **the server chose**, applied
+rather than re-derived; the station panel shows TSF and 0x8343; the
+multiplex canvas is stroked with its pilot/stereo/RDS landmarks.
+
+**What FM did not settle.** `make bench-serve` is still the open
+criterion, for the reason recorded above and confirmed again here: on this
+machine the serve loop over a capture pegs a core at 99%, so a
+subscription-set CPU delta has nothing to show against it. That is a fact
+about measuring here, not about the saving.
