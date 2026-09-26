@@ -312,9 +312,46 @@ up again.
 Verified where a non-default size actually travels: `server --fft 2048` and
 `--fft 16384` put 2048 and 16384 bins on the wire.
 
+### The Scope's per-block work done, 2026-09-27
+
+`src/scope_runtime.c` -- `decay_spectrum_peak`, `advance_waterfall_row`,
+`advance_scatter_history` and `allocate_waterfall_history`. All four move
+*data*: the waterfall's dBFS rows and the scatter's I/Q blocks, which are
+what a browser is sent and what the Scope draws from. No texture, no plot
+rectangle. Poison-tested raylib-free.
+
+**`recompute_magnitude_bins()` was not moved -- its *call* was.** Its output
+is read by exactly one function, `draw_magnitude()`, and the reduction is to
+the plot's pixel width, so it is drawing preparation that `process_block()`
+happened to run. Headless and server were reducing every block to a capacity
+of 1 that nothing read. `run_gui()` does it now, and ticket 01's NULL guard
+inside it is gone -- that guard's own comment said moving the call was the
+fix, and this is it.
+
+Gated on `spectrum_updated` rather than `have_samples`, which differ only
+when a block converts and then yields no spectrum (`pair_count` below the
+transform size, which no shipping path produces); there the chart shows the
+previous block for one frame instead of being recomputed from magnitudes it
+already drew.
+
+**The Scope's screenshots cannot discriminate this change, and that is worth
+recording rather than working around.** `scatter.png` compared old against
+new at 1739 differing pixels, against an apparent noise floor of 133 -- a
+regression by that arithmetic. Five renders of the *same* binary then came
+out in clusters at 12, 29 and ~1690 apart, and old-vs-new landed at 1716,
+1739, 3372 and 3405: quantised in steps of about 1690. The screen draws one
+block's I/Q, so the metric is measuring *which block playback reached*, not
+whether the code changed. Same class as `srd-charts` in ticket 01 and the FM
+screens in the FM commit.
+
+What carries the claim instead: the gate (which includes
+`check-scope-view-model` over `scatter_i/q/count`, `check-frame-advance` and
+`check-pipelines`), the poison test, an identical FM decode, and a live
+`server` still sending 2048-bin spectrum and waterfall rows.
+
 ### Still open in this ticket
 
-The Scope's three; the overlays' four; `update_survey`;
+The overlays' four; `update_survey`;
 and `set_tab`, `set_decode`, `retune_receiver*` and `stop_requested`, whose
 declarations are already in `runtime.h` but whose definitions are still in
 `sdrprobe.c`. `check-frame-advance` still stubs all nineteen callees; ticket

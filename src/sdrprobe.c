@@ -415,8 +415,17 @@ int process_block(struct app *app, double now, int fft_size) {
                                                    : SDR_DSP_FFT_SIZE;
 
     produced = signal_frame_process(&app->frame, &in, &geometry_changed);
-    if (app->frame.have_samples)
-        recompute_magnitude_bins(app);
+    /*
+     * The magnitude chart's reduction is *not* done here any more. Its
+     * output -- `sv.magnitude_peaks` and `magnitude_bin_count` -- is read by
+     * exactly one function, `draw_magnitude()`, and the reduction is to the
+     * plot's pixel width, so it is drawing preparation. Computing it in the
+     * step `headless` and `server` share meant reducing every block to a
+     * capacity of 1 that nothing read, and it was the last thing here
+     * reaching into the window (layer-boundaries ticket 02).
+     *
+     * `run_gui()` does it now, gated on the same block arriving.
+     */
     /*
      * A different number of bins is a different chart. The frame threw its own
      * peak hold away; the waterfall's rows are the Scope's and are thrown away
@@ -1934,6 +1943,17 @@ static int run_gui(struct app *app) {
          */
         if (app->tab == TAB_DECODE && app->decode == DECODE_FM)
             update_fm_audio(app);
+        /*
+         * The magnitude chart's reduction, which `process_block()` used to
+         * do. Gated on a new spectrum rather than on `have_samples`: the two
+         * differ only when a block converts and then yields no spectrum --
+         * `pair_count` below the transform size, which no shipping path
+         * produces -- and there the chart shows the previous block for one
+         * frame rather than being recomputed from magnitudes it already
+         * drew.
+         */
+        if (spectrum_updated)
+            recompute_magnitude_bins(app);
         if (spectrum_updated)
             render_waterfall(app);
         render_scatter(app, now);

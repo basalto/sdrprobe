@@ -171,6 +171,24 @@ int scan_start(struct app *app, double now);
 void scan_stop(struct app *app);
 void scan_select(struct app *app, int row);
 
+/* --- The Scope's per-block data: the peak's decay, the two histories --- */
+
+/*
+ * `advance_waterfall_row` and `advance_scatter_history` are the data halves
+ * of what `update_waterfall` and `update_scatter` used to be: plain float
+ * maintenance with no GL context. `render_waterfall` and `render_scatter`
+ * are the GPU halves and stay in `view.h`; the window's frame loop calls
+ * each pair in sequence.
+ *
+ * `allocate_waterfall_history` sizes the dBFS rows and is how `server` gets
+ * a waterfall with no texture behind it (ADR-0027 has the Viewer build its
+ * own history from the rows it is sent).
+ */
+int allocate_waterfall_history(struct app *app, int rows);
+void advance_waterfall_row(struct app *app);
+void advance_scatter_history(struct app *app, double now, int insert);
+void decay_spectrum_peak(struct app *app, double now);
+
 /* --- FM: the discriminator, the RDS chain, the band scan, the tuning --- */
 
 void update_fm(struct app *app, double now);

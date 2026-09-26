@@ -235,17 +235,7 @@ int recreate_scatter(struct app *app, Rectangle plot);
 struct receiver_runtime runtime_over(struct app *app);
 
 int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);
-int allocate_waterfall_history(struct app *app, int rows);
 void render_waterfall(struct app *app);
-/*
- * advance_waterfall_row and advance_scatter_history are the data halves of
- * what update_waterfall and update_scatter used to be: plain float
- * maintenance, callable from the advance step in frame_advance.h with no GL
- * context. render_waterfall and render_scatter are the GPU halves and stay
- * draw-phase calls; the frame loop calls each pair in sequence.
- */
-void advance_waterfall_row(struct app *app);
-void advance_scatter_history(struct app *app, double now, int insert);
 void render_scatter(struct app *app, double now);
 /*
  * The window gestures for a decode view's waterfall: sync it against the
@@ -295,7 +285,6 @@ void view_scope_defaults(struct app *app);
 int view_scope_resize_if_needed(struct app *app, Rectangle plot);
 void view_scope_release(struct app *app);
 void recompute_magnitude_bins(struct app *app);
-void decay_spectrum_peak(struct app *app, double now);
 void adjust_active_scale(struct app *app, int zoom_in);
 
 
