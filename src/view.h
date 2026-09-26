@@ -29,25 +29,6 @@ double chart_window_input(struct chart_window *w, Rectangle plot,
 int chart_window_drag_of(const struct chart_window *w, Rectangle plot,
                          double *lower_hz, double *upper_hz);
 
-/*
- * The bands this receiver can sweep, for whichever panel is drawing the row.
- *
- * One accessor because **two panels draw the same row** -- the LTE view's
- * header and the calibration overlay's 4G arrangement -- and two copies of
- * "which bands" is how they come to disagree about what the buttons mean.
- * It used to be a compiled-in literal that both read, which had the same
- * effect and was wrong about every tuner but one.
- *
- * `out` must hold LTE_BANDS_MAX. Returns the count, which is **0 for a
- * capture**: its profile reaches one frequency, so it sweeps no band.
- */
-static inline int view_lte_bands(const struct app *app, int *out) {
-    if (!app || !out)
-        return 0;
-    return lte_bands_reachable(app->device.tune_lower_hz,
-                               app->device.tune_upper_hz, out,
-                               LTE_BANDS_MAX);
-}
 
 /*
  * The Decode tab's screens, one file each, plus the few helpers they share
@@ -139,23 +120,6 @@ void fm_audio_close(struct app *app);
 
 void draw_lte(struct app *app);
 void handle_lte_input(struct app *app);
-void update_lte(struct app *app, double now);
-void view_lte_defaults(struct app *app);
-/* The LTE view borrows the receiver: it needs 1.92 MS/s and a carrier centre,
-   and gives both back on the way out. */
-void enter_lte(struct app *app);
-void leave_lte(struct app *app);
-/* The band scan. Driven every frame, not only when a block arrives, because
-   most of its time is spent waiting for the tuner. */
-void update_lte_scan(struct app *app, double now, int have_block);
-/* Start one, by band number rather than by button. Returns 0 when it began.
-   Shared with the headless scan, which is the only way to see what a scan
-   found without a window and somebody to click it (ADR-0012). */
-int lte_scan_begin(struct app *app, int band_number, double now);
-int lte_scan_running(const struct app *app);
-/* Whether the receiver is on LTE's 1.92 MS/s grid, which is the one thing
-   that has to be true before any of it works (ADR-0014). */
-int lte_on_grid(const struct app *app);
 
 /* Mode S / ADS-B view. */
 void draw_adsb(struct app *app);

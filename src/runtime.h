@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#include "app.h"
+#include "lte_scan.h"
+
 /*
  * What the per-block step calls, for every frontend.
  *
@@ -118,6 +121,55 @@ void leave_srd(struct app *app);
 void srd_freq_show(struct app *app);
 int srd_freq_commit(struct app *app);
 void srd_tune_arrow(struct app *app, int direction);
+
+/*
+ * The bands this receiver can sweep, for whichever panel is drawing the row.
+ *
+ * One accessor because **two panels draw the same row** -- the LTE view's
+ * header and the calibration overlay's 4G arrangement -- and two copies of
+ * "which bands" is how they come to disagree about what the buttons mean.
+ * It used to be a compiled-in literal that both read, which had the same
+ * effect and was wrong about every tuner but one.
+ *
+ * `out` must hold LTE_BANDS_MAX. Returns the count, which is **0 for a
+ * capture**: its profile reaches one frequency, so it sweeps no band.
+ */
+static inline int view_lte_bands(const struct app *app, int *out) {
+    if (!app || !out)
+        return 0;
+    return lte_bands_reachable(app->device.tune_lower_hz,
+                               app->device.tune_upper_hz, out,
+                               LTE_BANDS_MAX);
+}
+
+/* --- LTE: the 1.92 MS/s grid, the band scan, one block's cell search --- */
+
+void update_lte(struct app *app, double now);
+void view_lte_defaults(struct app *app);
+/* The LTE view borrows the receiver: it needs 1.92 MS/s and a carrier centre,
+   and gives both back on the way out. */
+void enter_lte(struct app *app);
+void leave_lte(struct app *app);
+/* The band scan. Driven every frame, not only when a block arrives, because
+   most of its time is spent waiting for the tuner. */
+void update_lte_scan(struct app *app, double now, int have_block);
+/* Start one, by band number rather than by button. Returns 0 when it began.
+   Shared with the headless scan, which is the only way to see what a scan
+   found without a window and somebody to click it (ADR-0012). */
+int lte_scan_begin(struct app *app, int band_number, double now);
+int lte_scan_running(const struct app *app);
+/* Whether the receiver is on LTE's 1.92 MS/s grid, which is the one thing
+   that has to be true before any of it works (ADR-0014). */
+int lte_on_grid(const struct app *app);
+/* Which band the scan's picker has selected, or NULL when the receiver
+   reaches none -- a capture. Read by the drawing and by the scan alike. */
+const struct lte_band *selected_band(const struct app *app);
+/* Put the receiver in the selected band, start and stop a scan, and take the
+   cell a row names. The input handler drives all four; none of them draws. */
+void park_in_band(struct app *app);
+int scan_start(struct app *app, double now);
+void scan_stop(struct app *app);
+void scan_select(struct app *app, int row);
 
 /* --- FM: the discriminator, the RDS chain, the band scan, the tuning --- */
 

@@ -237,9 +237,45 @@ same order. With that column stripped, old and new agree exactly on both
 captures, and so do two runs of one binary. Worth knowing before the next
 person reads a DIFFERS here as a regression.
 
+### LTE done, 2026-09-26 -- and that is all six technologies
+
+`src/lte_runtime.c` -- entering and leaving at 1.92 MS/s, the band scan and
+its confirmation pass, and one block of cell search and broadcast decode.
+Fifteen functions, the largest of the six. `view_lte.c` drops 1126 -> 721.
+
+Two things moved that were not simply LTE's own:
+
+- `view_lte_bands()` was a `static inline` in `view.h`, so anything wanting
+  the reachable band list compiled against raylib to get it. It is in
+  `runtime.h` now; it only reads the device profile.
+- `selected_band()` was `static` in `view_lte.c` and needed by both halves,
+  so it moved into the runtime and is exported, along with `park_in_band()`,
+  `scan_start()`, `scan_stop()` and `scan_select()` -- the input handler
+  drives those four and it stayed behind.
+
+`lte_b20_pci28` decodes byte-identically, which is the capture that must keep
+reading cell 28 under the normal cyclic prefix.
+
+### Where `frame_advance()` stands now
+
+All six technologies answer from a raylib-free file. What is left:
+
+| still in a drawing file | why it is next |
+|---|---|
+| `process_block` (`sdrprobe.c`) | item 2: takes the transform size as a parameter |
+| `advance_waterfall_row`, `advance_scatter_history`, `decay_spectrum_peak` (`view_scope.c`) | the Scope's three |
+| `update_scan` (`overlay_scan.c`), `update_startup` (`overlay_startup.c`), `update_calibration_measurement`, `update_drift_check` (`overlay_calibration.c`) | the overlays' four |
+| `update_survey` (`view_survey.c`) | the survey, whose machine is already extracted |
+| `update_fm_audio` (`view_fm.c`) | item 1: belongs in the window's own loop, not the shared step |
+
+All six `*_runtime.c` files are poison-tested: each compiles with a `#error`
+raylib.h ahead of the real one.
+
 ### Still open in this ticket
 
-Item 2's `process_block(app, now, fft_size)`, decided but not done; the
-Scope's three `advance_*`/`decay_*`; the overlays' four; `set_tab`,
-`set_decode`, `retune_receiver*` and `stop_requested`; and LTE.
-`check-frame-advance` still stubs all nineteen callees.
+Item 2's `process_block(app, now, fft_size)`, decided but not done; item 1's
+`update_fm_audio`; the Scope's three; the overlays' four; `update_survey`;
+and `set_tab`, `set_decode`, `retune_receiver*` and `stop_requested`, whose
+declarations are already in `runtime.h` but whose definitions are still in
+`sdrprobe.c`. `check-frame-advance` still stubs all nineteen callees; ticket
+04 replaces them.
