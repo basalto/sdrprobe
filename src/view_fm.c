@@ -82,12 +82,25 @@ void update_fm_flush(struct app *app, double now, int flush) {
         return;
 
     /*
-     * The multiplex spectrum for the charts, a few times a second. It
-     * averages thirty-two windows of a 2048-point transform, which is far
-     * more work than a frame needs and produces a picture that does not
-     * change at frame rate anyway.
+     * The multiplex spectrum, a few times a second. It averages thirty-two
+     * windows of a 2048-point transform, which is far more work than a frame
+     * needs and produces a picture that does not change at frame rate anyway.
+     *
+     * It used to be gated on `analysis_mode` as well -- the window's "Show
+     * charts" toggle -- which made a *computation* answer to a question about
+     * what one reader happened to be drawing. That was harmless while the
+     * window was the only reader and became a silent hole the moment it was
+     * not: `fm_spectrum` (ticket 14's Phase 4) published nothing at all under
+     * `server`, where nothing draws and the toggle is therefore always off,
+     * so a browser's FM view would have had a permanently empty chart with no
+     * error to explain it. Found by running it, not by reading it.
+     *
+     * The gate is gone rather than widened, and the cost is why: measured at
+     * **0.832 ms a call** on this machine, which is 1.27% of the 65.5 ms of
+     * signal a block covers and, at the 0.25 s rate limit below, **0.33% of
+     * one core**. There is no saving here worth a reader-specific condition.
      */
-    if (fm->analysis_mode && now - fm->spectrum_at > 0.25) {
+    if (now - fm->spectrum_at > 0.25) {
         double rate = (double)app->applied.sample_rate_hz;
         size_t want;
 
@@ -110,8 +123,15 @@ void update_fm_flush(struct app *app, double now, int flush) {
          * been applied there and the pilot has not been taken out, and both
          * of those are most of the difference between what is transmitted and
          * what comes out of a speaker.
+         *
+         * This one keeps the `analysis_mode` gate, and the difference is the
+         * whole point rather than an oversight: the multiplex now has two
+         * readers and so is nobody's to gate, while the audio spectrum still
+         * has exactly one -- the chart beside it -- and there is no second
+         * reader to leave holding an empty array. It also only ever has
+         * anything to measure once something is playing.
          */
-        if (fm->audio_trace_count > 0) {
+        if (fm->analysis_mode && fm->audio_trace_count > 0) {
             fm->audio_spectrum_bins =
                 fm_multiplex_spectrum(fm->audio_trace, fm->audio_trace_count,
                                       fm_audio_rate(&fm->audio),

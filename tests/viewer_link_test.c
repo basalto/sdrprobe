@@ -450,6 +450,259 @@ static void test_survey_streams_are_not_sent_when_unsubscribed(void) {
     viewer_link_close(&vlink);
 }
 
+/*
+ * Ticket 14's Phase 4: an FM view model distinct from its defaults in every
+ * field a wire test reads, so nothing here can pass on a zeroed struct.
+ */
+static struct fm_view_model an_fm_view_model(void) {
+    struct fm_view_model fvm;
+    int i;
+
+    memset(&fvm, 0, sizeof(fvm));
+    fvm.pilot_locked = 1;
+    fvm.pilot_hz = 19000.16;
+    fvm.pilot_ppm = 8.4;
+    fvm.pilot_coherence = 0.998;
+    fvm.broadcast_stereo = 1;
+    fvm.timing_offset = 7;
+    fvm.timing_samples_per_symbol = 16;
+    fvm.axis_radians = -1.39;
+    fvm.pi_valid = 1;
+    fvm.pi = 0x8343;
+    fvm.pi_repeats = 44;
+    fvm.ps_valid = 1;
+    snprintf(fvm.ps, sizeof(fvm.ps), "TSF");
+    fvm.ps_segments = 4;
+    fvm.pty_valid = 1;
+    fvm.pty = 1;
+    snprintf(fvm.pty_name, sizeof(fvm.pty_name), "news");
+    fvm.rt_valid = 1;
+    snprintf(fvm.rt, sizeof(fvm.rt), "Cultura em antena2.rtp.pt");
+    fvm.bits = 10257;
+    fvm.blocks_matched = 162;
+    fvm.groups = 44;
+    fvm.identified = 44;
+    fvm.named = 1;
+    snprintf(fvm.reading, sizeof(fvm.reading), "reading the station");
+    fvm.reading_tone = FM_READING_GOOD;
+    fvm.spectrum_bins = 8;
+    fvm.spectrum_bin_hz = 125.0;
+    for (i = 0; i < 8; i++)
+        fvm.spectrum[i] = -40.0f - (float)i;
+    return fvm;
+}
+
+/*
+ * The multiplex rides the same range-carrying header the survey's swept
+ * spectrum does, so the two decode identically browser-side. Its range is
+ * baseband and is *computed* from the bin count and the bin width rather
+ * than carried: 8 bins of 125 Hz is 0 to 1000 Hz.
+ */
+static void test_fm_spectrum_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct fm_view_model fvm = an_fm_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t generation, bins, lower_hz, upper_hz;
+    float first_power;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe fm_spectrum");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_fm_spectrum(&vlink, &fvm, 3, 777);
+    client_pump(&tc, 10);
+
+    check_true("an fm_spectrum message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a binary frame", opcode, WEBSOCKET_OP_BINARY);
+    check_size("its length matches the range header plus 8 bins", len,
+              28 + 8 * 4);
+    check_int("the protocol version is 1", payload[0], 1);
+    check_int("the message type is fm_spectrum (4)", payload[1], 4);
+    memcpy(&generation, payload + 4, 4);
+    check_int("the tuning generation round-trips", (int)generation, 3);
+    memcpy(&bins, payload + 16, 4);
+    check_int("bins round-trips", (int)bins, 8);
+    memcpy(&lower_hz, payload + 20, 4);
+    memcpy(&upper_hz, payload + 24, 4);
+    check_int("the multiplex starts at baseband", (int)lower_hz, 0);
+    check_int("and runs to bins times the bin width", (int)upper_hz, 1000);
+    memcpy(&first_power, payload + 28, 4);
+    check_close("the first bin matches what was published", first_power,
+               -40.0, 1e-6);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+/* Nothing has been measured before the first refresh, and that publishes
+   nothing -- not a zero-length payload a client would have to special-case,
+   the same rule the survey's own empty sweep follows. */
+static void test_fm_spectrum_with_no_bins_publishes_nothing(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct fm_view_model fvm = an_fm_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    fvm.spectrum_bins = 0;
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe fm_spectrum");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_fm_spectrum(&vlink, &fvm, 1, 0);
+    client_pump(&tc, 10);
+
+    check_true("nothing arrived",
+              !client_next_frame(&tc, &opcode, &payload, &len));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_fm_state_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct fm_view_model fvm = an_fm_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe fm_state");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_fm_state(&vlink, &fvm, 500);
+    client_pump(&tc, 10);
+
+    check_true("an fm_state message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a text frame", opcode, WEBSOCKET_OP_TEXT);
+    check_true("carries its type", contains(payload, len,
+              "\"type\":\"fm_state\""));
+    check_true("carries the pilot's lock", contains(payload, len,
+              "\"pilot_locked\":true"));
+    check_true("and the pilot's own frequency", contains(payload, len,
+              "\"pilot_hz\":19000.16"));
+    check_true("carries the identification", contains(payload, len,
+              "\"pi\":33603"));
+    check_true("carries the name", contains(payload, len, "\"ps\":\"TSF\""));
+    check_true("carries the programme type by name", contains(payload, len,
+              "\"pty_name\":\"news\""));
+    check_true("carries the radio text unwrapped", contains(payload, len,
+              "\"rt\":\"Cultura em antena2.rtp.pt\""));
+    check_true("carries the funnel's counts", contains(payload, len,
+              "\"blocks_matched\":162"));
+    /*
+     * The two that matter most, and the reason this stream is not just the
+     * five counts: the sentence and its emphasis are decided in
+     * `fm_view_model.c` and travel already decided, so a browser cannot
+     * reach a different verdict about the same counts.
+     */
+    check_true("carries the funnel's sentence, already decided",
+              contains(payload, len,
+                       "\"reading\":\"reading the station\""));
+    check_true("and how it reads", contains(payload, len,
+              "\"reading_tone\":1"));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_fm_streams_are_not_sent_when_unsubscribed(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct fm_view_model fvm = an_fm_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe receiver_state");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_fm_spectrum(&vlink, &fvm, 1, 0);
+    viewer_link_publish_fm_state(&vlink, &fvm, 0);
+    client_pump(&tc, 10);
+
+    check_true("neither FM stream reaches a client that did not ask",
+              !client_next_frame(&tc, &opcode, &payload, &len));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+/*
+ * The subscribe parser matches `stream_names[]` itself now, rather than one
+ * hand-written branch per name. Ticket 07 found that shape two names short
+ * -- `survey_spectrum` and `survey_state` were silently ignored -- so this
+ * walks *every* name in the table and asserts each one is honoured, which is
+ * the check that was missing then and is what a table makes possible.
+ */
+static void test_every_stream_name_can_be_subscribed_to(void) {
+    static const char *const names[] = {
+        "spectrum", "waterfall", "receiver_state", "link_health",
+        "command_result", "survey_spectrum", "survey_state", "fm_spectrum",
+        "fm_state"
+    };
+    size_t n = sizeof(names) / sizeof(names[0]);
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct fm_view_model fvm = an_fm_view_model();
+    struct survey_view_model svm = a_survey_view_model();
+    char line[256];
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    size_t i;
+
+    check_size("the table names every stream in the enum", n,
+              (size_t)VIEWER_STREAM_COUNT);
+
+    /* One name at a time, each on its own fresh subscribe line -- a line
+       replaces the whole set, so this also confirms each name reaches its
+       own slot rather than a neighbour's. */
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    for (i = 0; i < n; i++) {
+        int arrived;
+
+        snprintf(line, sizeof(line), "subscribe %s", names[i]);
+        client_send_text(&tc, line);
+        client_pump(&tc, 10);
+        viewer_link_publish_fm_state(&vlink, &fvm, 0);
+        viewer_link_publish_survey_state(&vlink, &svm, 0);
+        client_pump(&tc, 10);
+        arrived = client_next_frame(&tc, &opcode, &payload, &len);
+        /* Only the two names published above should deliver anything; the
+           point is that the *named* stream is the one that does. */
+        if (strcmp(names[i], "fm_state") == 0 ||
+            strcmp(names[i], "survey_state") == 0)
+            check_msg(arrived, "subscribing to %s delivers it\n", names[i]);
+        else
+            check_msg(!arrived, "subscribing to %s delivers nothing else\n",
+                      names[i]);
+        while (client_next_frame(&tc, &opcode, &payload, &len))
+            ; /* drain, so the next name starts clean */
+    }
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 static void test_plain_get_serves_the_page(void) {
     uint16_t port = open_test_link();
     struct test_client tc;
@@ -1222,6 +1475,11 @@ int main(void) {
     test_survey_spectrum_with_no_bins_publishes_nothing();
     test_survey_state_wire_format();
     test_survey_streams_are_not_sent_when_unsubscribed();
+    test_fm_spectrum_wire_format();
+    test_fm_spectrum_with_no_bins_publishes_nothing();
+    test_fm_state_wire_format();
+    test_fm_streams_are_not_sent_when_unsubscribed();
+    test_every_stream_name_can_be_subscribed_to();
     test_a_required_token_gates_the_plain_page();
     test_a_required_token_gates_the_upgrade();
     test_the_token_is_found_among_other_query_parameters();

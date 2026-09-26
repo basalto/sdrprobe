@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "fm_view_model.h"
 #include "scope_view_model.h"
 #include "survey_view_model.h"
 #include "viewer_command.h"
@@ -92,20 +93,32 @@ enum viewer_message_type {
        than the two above, carrying the swept range -- a survey's spectrum
        has no fixed frequency grid the way the Scope's does, so a bin index
        alone says nothing without it. */
-    VIEWER_MESSAGE_SURVEY_SPECTRUM = 3
+    VIEWER_MESSAGE_SURVEY_SPECTRUM = 3,
+    /* The FM multiplex (ticket 14's Phase 4), on that same wider header and
+       for the same reason: it is a baseband spectrum, 0 Hz to about 60 kHz,
+       which is not the receiver's own grid either. */
+    VIEWER_MESSAGE_FM_SPECTRUM = 4
 };
 
 /*
- * `VIEWER_MESSAGE_SURVEY_SPECTRUM`'s own header, wider than
- * `VIEWER_LINK_HEADER_BYTES` by the swept range: the first 20 bytes are
- * identical to every other binary message (version, type, reserved,
- * generation, timestamp, bins), followed by
+ * The header a binary message carries when its array does *not* sit on the
+ * receiver's own frequency grid, and so cannot be read from `center_hz` and
+ * `sample_rate_hz` the way `spectrum` and `waterfall_row` can. Wider than
+ * `VIEWER_LINK_HEADER_BYTES` by the range the array spans: the first 20
+ * bytes are identical to every other binary message (version, type,
+ * reserved, generation, timestamp, bins), followed by
  *
  *   offset 20  u32  lower_hz
  *   offset 24  u32  upper_hz
- *   offset 28  ...  payload: `bins` float32 power, dBFS
+ *   offset 28  ...  payload: `bins` float32, dBFS
+ *
+ * Two streams use it: the survey's swept spectrum, whose range is wherever
+ * the sweep walked, and the FM multiplex, whose range is baseband. It was
+ * `VIEWER_SURVEY_HEADER_BYTES` while the survey was the only one; the name
+ * says what the eight bytes are *for* now that it is not, which is what
+ * keeps the second user from looking like it is borrowing the first's.
  */
-#define VIEWER_SURVEY_HEADER_BYTES (VIEWER_LINK_HEADER_BYTES + 8)
+#define VIEWER_RANGE_HEADER_BYTES (VIEWER_LINK_HEADER_BYTES + 8)
 
 /* The largest a message this link ever sends can be: a spectrum at the
    widest transform the Scope's resolution stepper reaches
@@ -117,13 +130,18 @@ enum viewer_message_type {
 
 /*
  * `SURVEY_VIEW_MODEL_MAX_BINS` (`SURVEY_BINS`, 8192) floats plus the wider
- * survey header -- smaller than `VIEWER_STREAM_MESSAGE_MAX` above with room
+ * range header -- smaller than `VIEWER_STREAM_MESSAGE_MAX` above with room
  * to spare (one array against a spectrum's two, at half the bin cap), kept
  * as its own constant so a future change to either does not silently resize
  * the other's slot.
  */
 #define VIEWER_SURVEY_MESSAGE_MAX \
-    (VIEWER_SURVEY_HEADER_BYTES + SURVEY_VIEW_MODEL_MAX_BINS * (int)sizeof(float))
+    (VIEWER_RANGE_HEADER_BYTES + SURVEY_VIEW_MODEL_MAX_BINS * (int)sizeof(float))
+
+/* The FM multiplex, on the same header: 1024 bins, smaller again. Its own
+   constant for the same reason the survey's is its own. */
+#define VIEWER_FM_MESSAGE_MAX \
+    (VIEWER_RANGE_HEADER_BYTES + FM_VIEW_MODEL_MAX_BINS * (int)sizeof(float))
 
 enum viewer_stream {
     VIEWER_STREAM_SPECTRUM = 0,
@@ -136,6 +154,10 @@ enum viewer_stream {
        structured state (status, sweeping, candidates) JSON. */
     VIEWER_STREAM_SURVEY_SPECTRUM,
     VIEWER_STREAM_SURVEY_STATE,
+    /* The FM view (ticket 14's Phase 4), split the same way: the multiplex
+       spectrum binary, the three panels' fields JSON. */
+    VIEWER_STREAM_FM_SPECTRUM,
+    VIEWER_STREAM_FM_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -318,6 +340,23 @@ void viewer_link_publish_survey_spectrum(struct viewer_link *link,
 void viewer_link_publish_survey_state(struct viewer_link *link,
                                       const struct survey_view_model *svm,
                                       uint64_t now_ms);
+
+/*
+ * The FM view (ticket 14's Phase 4), split the same way again: the multiplex
+ * spectrum as a binary message on the range-carrying header -- baseband, so
+ * `lower_hz` is 0 and `upper_hz` is `bins * bin_hz` -- and the three panels'
+ * fields, including the funnel's own already-decided sentence, as JSON.
+ *
+ * `fm_view_model.h` is what decides which sentence and which emphasis; this
+ * only spells it. A caller with nobody subscribed should still call both.
+ */
+void viewer_link_publish_fm_spectrum(struct viewer_link *link,
+                                     const struct fm_view_model *fvm,
+                                     uint32_t tuning_generation,
+                                     uint64_t now_ms);
+void viewer_link_publish_fm_state(struct viewer_link *link,
+                                  const struct fm_view_model *fvm,
+                                  uint64_t now_ms);
 
 /*
  * Ticket 08's Health panel: what only the server knows about the link

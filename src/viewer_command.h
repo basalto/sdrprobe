@@ -19,13 +19,24 @@ enum viewer_command_type {
     VIEWER_COMMAND_VIEW
 };
 
-/* The screens `view <name>` can ask for. Two today -- the Scope, and the
-   Survey ticket 07 gave a view model to -- and a third is one more name and
-   one more `set_tab()` branch, not a new command: `view` names the screen,
-   which is the whole of what a command is for. */
+/*
+ * The screens `view <name>` can ask for -- `view` names the screen, which is
+ * the whole of what a command is for.
+ *
+ * This said "a third is one more name and one more `set_tab()` branch", and
+ * the third turned out not to be. FM is not a tab: it is the Decode tab with
+ * `DECODE_FM` chosen, so reaching it is a `set_decode()` *and* a `set_tab()`,
+ * in that order -- the order sdrprobe.c's own startup sequence already
+ * explains, since the decode kind defaults to GSM and switching the tab first
+ * would enter the GSM view and retune on the way past. A screen name here is
+ * therefore a name for a *destination*, not for a member of `enum active_tab`,
+ * and the four decode views still to come (ticket 07) are each one more name
+ * and one more line of that mapping.
+ */
 enum viewer_screen {
     VIEWER_SCREEN_SCOPE = 0,
-    VIEWER_SCREEN_SURVEY
+    VIEWER_SCREEN_SURVEY,
+    VIEWER_SCREEN_FM
 };
 
 struct viewer_command {
@@ -45,13 +56,13 @@ struct viewer_command {
  * Parses one line with no trailing newline (the caller has already split
  * on the WebSocket frame boundary, not this). Returns 0 and fills `out` on
  * a recognized, well-formed command -- "tune <hz>" or "view
- * scope|survey". Returns -1 and -- if `error` is non-NULL -- a
+ * scope|survey|fm". Returns -1 and -- if `error` is non-NULL -- a
  * human-readable reason (truncated to fit `error_cap`, always
  * NUL-terminated) on: an empty or all-whitespace line, a line at or past
  * VIEWER_COMMAND_LINE_MAX, an unrecognized command word, a `tune` value
  * that does not parse as an integer or does not fit `uint32_t`, a `view`
- * naming a screen that is not `scope` or `survey`, or a line carrying
- * anything after the value or the screen name but whitespace.
+ * naming a screen this build does not have, or a line carrying anything
+ * after the value or the screen name but whitespace.
  */
 int viewer_command_parse(const char *line, size_t len, struct viewer_command *out,
                          char *error, size_t error_cap);

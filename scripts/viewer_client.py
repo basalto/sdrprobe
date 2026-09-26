@@ -74,7 +74,15 @@ OPCODE_CLOSE = 0x8
 OPCODE_PING = 0x9
 OPCODE_PONG = 0xA
 
-MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall", 3: "survey_spectrum"}
+MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall", 3: "survey_spectrum",
+                      4: "fm_spectrum"}
+
+# The message types carrying VIEWER_RANGE_HEADER_BYTES rather than the
+# plain 20-byte one: an array whose frequencies are its own, not the
+# receiver's. Named rather than written as `mtype == 3` in two places,
+# which is how the second of those two places came to be missed when the
+# first was added.
+RANGE_HEADER_TYPES = (3, 4)
 
 # survey_spectrum and survey_state (ticket 07) were missing here until
 # ticket 14 needed to subscribe to them for a bench-serve comparison and
@@ -84,7 +92,8 @@ MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall", 3: "survey_spectrum"}
 # needed the same catch-up (viewer_link.h's own comment on
 # VIEWER_MESSAGE_SURVEY_SPECTRUM is what they are transcribed from).
 ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
-               "survey_spectrum", "survey_state")
+               "survey_spectrum", "survey_state", "fm_spectrum",
+               "fm_state")
 
 
 class ViewerClient:
@@ -229,17 +238,19 @@ def decode_binary(payload):
     little-endian. Returns a dict; raises on a payload too short for its
     own declared header, which a version mismatch would produce.
 
-    Type 3 (survey_spectrum, ticket 07) has a wider header than the other
-    two -- `lower_hz`/`upper_hz` at offsets 20/24 before the one float32
-    array, rather than starting the array at 20 -- because a bin index
-    means nothing without the range it was swept over beside it
-    (viewer_link.h's own comment on VIEWER_MESSAGE_SURVEY_SPECTRUM)."""
+    Types 3 and 4 (survey_spectrum, ticket 07; fm_spectrum, ticket 14's
+    Phase 4) share a wider header than types 1 and 2 --
+    `lower_hz`/`upper_hz` at offsets 20/24 before the one float32 array,
+    rather than starting the array at 20 -- because neither array sits on
+    the receiver's own frequency grid, so a bin index means nothing without
+    the range beside it (viewer_link.h's own comment on
+    VIEWER_RANGE_HEADER_BYTES)."""
     if len(payload) < 20:
         raise ValueError(f"binary message too short: {len(payload)} bytes")
     version, mtype = payload[0], payload[1]
     generation, timestamp_ms, bins = struct.unpack_from("<IQI", payload, 4)
     lower_hz = upper_hz = None
-    if mtype == 3:
+    if mtype in RANGE_HEADER_TYPES:
         header_len = 28
         array_count = 1
         if len(payload) < header_len:
@@ -267,7 +278,7 @@ def decode_binary(payload):
         "bins": bins,
         "arrays": arrays,
     }
-    if mtype == 3:
+    if mtype in RANGE_HEADER_TYPES:
         result["lower_hz"] = lower_hz
         result["upper_hz"] = upper_hz
     return result
@@ -297,11 +308,31 @@ def run_print(client, count):
                 print(f"survey_state    status={state['status']!r} "
                      f"candidates={state['candidate_count']} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
-            else:
+            elif state.get("type") == "fm_state":
+                # The funnel's sentence, not its five counts: it arrives
+                # already decided (fm_view_model.h), and re-deriving a
+                # verdict here would be the second presentation the whole
+                # view-model seam exists to prevent.
+                print(f"fm_state        pilot="
+                     f"{'locked' if state['pilot_locked'] else 'no lock'} "
+                     f"pi={state['pi']:#06x} ps={state['ps']!r} "
+                     f"reading={state['reading']!r} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            elif state.get("type") == "receiver_state":
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "
                      f"rate={state['sample_rate_hz'] / 1e6:.3f} MS/s "
                      f"ppm={state['ppm']:+d} generation={state['tuning_generation']} "
+                     f"tab={state['tab']} decode={state['decode']} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            else:
+                # Named rather than assumed. This branch used to *be* the
+                # receiver_state one, so the first JSON message of a shape
+                # it had never seen crashed with a KeyError on `center_hz`
+                # -- which is what a real `survey_state` did the day ticket
+                # 07 added it. A reader that does not recognise a message
+                # should say so, not guess.
+                print(f"{state.get('type', 'unknown'):<15} "
+                     f"(no printer here) {state}")
         else:
             msg = decode_binary(payload)
             print(f"{msg['stream']:<14}  bins={msg['bins']:<6} "

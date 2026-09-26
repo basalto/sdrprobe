@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 #include "browser.h"
+#include "fm_view_model.h"
 #include "frame_advance.h"
 #include "process_cpu.h"
 #include "scope_view_model.h"
@@ -71,20 +72,43 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
         return 0;
     case VIEWER_COMMAND_VIEW:
         /*
-         * `set_tab()` is the same function every tab-bar click in the
-         * window goes through, not a headless shortcut around it --
-         * ticket 07's whole point is one seam, not a second one that
-         * happens to agree with the first today. `monotonic_seconds()`
-         * rather than a `now` threaded in from the caller: this handler
-         * runs from inside `viewer_link_poll()`, at a moment between
-         * blocks that frame_advance()'s own `now` does not reach, and
-         * unlike raylib's `GetTime()` -- which is what `set_tab()` used to
-         * call before ticket 07, and which is exactly `0.0` before
-         * `InitWindow()` -- this is a real, always-valid clock read.
+         * `set_tab()` and `set_decode()` are the same two functions every
+         * tab-bar and option-row click in the window goes through, not a
+         * headless shortcut around them -- ticket 07's whole point is one
+         * seam, not a second one that happens to agree with the first
+         * today. `monotonic_seconds()` rather than a `now` threaded in
+         * from the caller: this handler runs from inside
+         * `viewer_link_poll()`, at a moment between blocks that
+         * frame_advance()'s own `now` does not reach, and unlike raylib's
+         * `GetTime()` -- which is what `set_tab()` used to call before
+         * ticket 07, and which is exactly `0.0` before `InitWindow()` --
+         * this is a real, always-valid clock read.
+         *
+         * The decode kind is set *before* the tab, which is the order
+         * run_gui()'s own startup sequence uses and for the same reason it
+         * gives: the kind defaults to GSM, so switching to the Decode tab
+         * first would enter the GSM view and immediately leave it again,
+         * retuning twice on the way to FM. `set_decode()` off the Decode
+         * tab only records the choice, which is exactly what is wanted
+         * here.
          */
-        set_tab(app, cmd->screen == VIEWER_SCREEN_SURVEY ? TAB_SURVEY
-                                                         : TAB_SCOPE,
-               monotonic_seconds() - viewer_session_started_at);
+        {
+            double now = monotonic_seconds() - viewer_session_started_at;
+
+            switch (cmd->screen) {
+            case VIEWER_SCREEN_SURVEY:
+                set_tab(app, TAB_SURVEY, now);
+                break;
+            case VIEWER_SCREEN_FM:
+                set_decode(app, DECODE_FM);
+                set_tab(app, TAB_DECODE, now);
+                break;
+            case VIEWER_SCREEN_SCOPE:
+            default:
+                set_tab(app, TAB_SCOPE, now);
+                break;
+            }
+        }
         return 0;
     default:
         snprintf(error, error_cap, "unimplemented command");
@@ -287,6 +311,7 @@ int viewer_session_run(struct app *app) {
         int spectrum_updated;
         struct scope_view_model svm;
         struct survey_view_model survey_svm;
+        struct fm_view_model fm_svm;
         uint64_t now_ms;
 
         /*
@@ -327,6 +352,11 @@ int viewer_session_run(struct app *app) {
             viewer_link_publish_survey_spectrum(&link, &survey_svm,
                                                 svm.tuning_generation, now_ms);
             viewer_link_publish_survey_state(&link, &survey_svm, now_ms);
+            /* The FM view, on the same gate and for the same reason. */
+            fm_view_model_build(app, &fm_svm);
+            viewer_link_publish_fm_spectrum(&link, &fm_svm,
+                                            svm.tuning_generation, now_ms);
+            viewer_link_publish_fm_state(&link, &fm_svm, now_ms);
         }
         /*
          * Not gated on spectrum_updated -- the tuning can change (the retune

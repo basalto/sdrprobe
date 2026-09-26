@@ -76,9 +76,20 @@ int viewer_link_open(struct viewer_link *link, uint16_t port,
     return 0;
 }
 
+/*
+ * Every stream's name, in `enum viewer_stream` order and sized by
+ * `VIEWER_STREAM_COUNT` -- so a stream added to the enum without a name here
+ * is a missing-initializer, not a silent empty string.
+ *
+ * This is also what `handle_subscribe_line()` matches against, which it did
+ * not used to: that parser was one hand-written `else if` per name, and
+ * ticket 07 found it two names short -- a client subscribing to
+ * `survey_spectrum` received nothing, with no refusal and no error. Two
+ * lists of the same names is one list and one place to forget.
+ */
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
-    "survey_spectrum", "survey_state"
+    "survey_spectrum", "survey_state", "fm_spectrum", "fm_state"
 };
 
 /*
@@ -354,23 +365,22 @@ static void handle_subscribe_line(struct viewer_client *c, const char *line,
             i++;
         if (i > start) {
             size_t tok_len = i - start;
+            int s;
 
-            if (tok_len == 8 && memcmp(line + start, "spectrum", 8) == 0)
-                wanted[VIEWER_STREAM_SPECTRUM] = 1;
-            else if (tok_len == 9 && memcmp(line + start, "waterfall", 9) == 0)
-                wanted[VIEWER_STREAM_WATERFALL] = 1;
-            else if (tok_len == 14 &&
-                    memcmp(line + start, "receiver_state", 14) == 0)
-                wanted[VIEWER_STREAM_RECEIVER_STATE] = 1;
-            else if (tok_len == 11 &&
-                    memcmp(line + start, "link_health", 11) == 0)
-                wanted[VIEWER_STREAM_LINK_HEALTH] = 1;
-            else if (tok_len == 15 &&
-                    memcmp(line + start, "survey_spectrum", 15) == 0)
-                wanted[VIEWER_STREAM_SURVEY_SPECTRUM] = 1;
-            else if (tok_len == 12 &&
-                    memcmp(line + start, "survey_state", 12) == 0)
-                wanted[VIEWER_STREAM_SURVEY_STATE] = 1;
+            /*
+             * Against `stream_names[]` itself rather than a hand-written
+             * branch per name. `command_result` is in that table and is
+             * matched here like any other: a client may not usefully
+             * unsubscribe from it (results are pushed whether asked for or
+             * not, ticket 06), but refusing the *name* would be a second
+             * rule nobody stated, and accepting it costs nothing.
+             */
+            for (s = 0; s < VIEWER_STREAM_COUNT; s++)
+                if (strlen(stream_names[s]) == tok_len &&
+                    memcmp(line + start, stream_names[s], tok_len) == 0) {
+                    wanted[s] = 1;
+                    break;
+                }
         }
     }
     memcpy(c->subscribed, wanted, sizeof(wanted));
@@ -1002,38 +1012,42 @@ void viewer_link_publish_waterfall_row(struct viewer_link *link,
 }
 
 /*
- * Ticket 07's survey chart: the same binary framing every other stream
- * uses, with the swept range spliced into the header because a survey's
- * spectrum has no fixed frequency grid the way the Scope's does -- a bin
- * index means nothing here without `lower_hz`/`upper_hz` beside it.
+ * One float array whose frequencies are its own, not the receiver's: the
+ * same binary framing every other stream uses, with the range the array
+ * spans spliced into the header (`VIEWER_RANGE_HEADER_BYTES`). A bin index
+ * means nothing for these without `lower_hz`/`upper_hz` beside it -- the
+ * survey's spectrum sits wherever the sweep walked, and the FM multiplex
+ * sits at baseband.
  *
- * A separate function from `publish_binary()` rather than a wider,
- * optional header on it: the extra eight bytes exist for exactly one
- * stream, and a parameter every other caller passes zero for is a
- * question the reader of `viewer_link_publish_spectrum()` should not have
- * to answer.
+ * A separate function from `publish_binary()` rather than a wider, optional
+ * header on it: a parameter every Scope caller passes zero for is a question
+ * the reader of `viewer_link_publish_spectrum()` should not have to answer.
+ * It was written for the survey alone and *was* the survey's own publisher
+ * until FM needed the identical forty lines; what made it worth generalising
+ * is a second caller, not a second possibility.
  */
-void viewer_link_publish_survey_spectrum(struct viewer_link *link,
-                                         const struct survey_view_model *svm,
-                                         uint32_t tuning_generation,
-                                         uint64_t now_ms) {
+static void publish_range_binary(struct viewer_link *link,
+                                 enum viewer_stream stream,
+                                 enum viewer_message_type type,
+                                 uint32_t tuning_generation, uint64_t now_ms,
+                                 uint32_t bins, double lower_hz,
+                                 double upper_hz, const float *array) {
+    /* Sized for the larger of the two range streams, so one buffer serves
+       both -- the survey's 8192 bins against FM's 1024. */
     uint8_t app_payload[VIEWER_SURVEY_MESSAGE_MAX];
     uint8_t *p = app_payload;
     size_t app_len;
     int i;
 
-    if (svm->bins <= 0 || svm->bins > SURVEY_VIEW_MODEL_MAX_BINS)
-        return;
-
     p[0] = VIEWER_LINK_PROTOCOL_VERSION;
-    p[1] = (uint8_t)VIEWER_MESSAGE_SURVEY_SPECTRUM;
+    p[1] = (uint8_t)type;
     p = put_u16le(p + 2, 0);
     p = put_u32le(p, tuning_generation);
     p = put_u64le(p, now_ms);
-    p = put_u32le(p, (uint32_t)svm->bins);
-    p = put_u32le(p, (uint32_t)svm->lower_hz);
-    p = put_u32le(p, (uint32_t)svm->upper_hz);
-    p = put_floats_le(p, svm->power, svm->bins);
+    p = put_u32le(p, bins);
+    p = put_u32le(p, (uint32_t)lower_hz);
+    p = put_u32le(p, (uint32_t)upper_hz);
+    p = put_floats_le(p, array, (int)bins);
     app_len = (size_t)(p - app_payload);
 
     for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
@@ -1041,10 +1055,9 @@ void viewer_link_publish_survey_spectrum(struct viewer_link *link,
         struct viewer_stream_slot *slot;
         size_t frame_len;
 
-        if (c->state != VIEWER_CLIENT_OPEN ||
-            !c->subscribed[VIEWER_STREAM_SURVEY_SPECTRUM])
+        if (c->state != VIEWER_CLIENT_OPEN || !c->subscribed[stream])
             continue;
-        slot = &c->slot[VIEWER_STREAM_SURVEY_SPECTRUM];
+        slot = &c->slot[stream];
         if (!slot_ready_for_new_message(slot))
             continue;
         frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
@@ -1055,6 +1068,40 @@ void viewer_link_publish_survey_spectrum(struct viewer_link *link,
         slot->length = frame_len;
         slot->sent = 0;
     }
+}
+
+/* Ticket 07's survey chart, over whatever range the sweep walked. */
+void viewer_link_publish_survey_spectrum(struct viewer_link *link,
+                                         const struct survey_view_model *svm,
+                                         uint32_t tuning_generation,
+                                         uint64_t now_ms) {
+    if (svm->bins <= 0 || svm->bins > SURVEY_VIEW_MODEL_MAX_BINS)
+        return;
+    publish_range_binary(link, VIEWER_STREAM_SURVEY_SPECTRUM,
+                         VIEWER_MESSAGE_SURVEY_SPECTRUM, tuning_generation,
+                         now_ms, (uint32_t)svm->bins, svm->lower_hz,
+                         svm->upper_hz, svm->power);
+}
+
+/*
+ * The FM multiplex, at baseband: 0 Hz to `bins * bin_hz`, about 60 kHz,
+ * which is where the pilot at 19, the stereo subcarrier at 38 and the RDS
+ * band at 57 are what a reader is looking for. The range is computed here
+ * rather than carried in the view model because it is not a measurement --
+ * it is what the bin count and the bin width already say.
+ */
+void viewer_link_publish_fm_spectrum(struct viewer_link *link,
+                                     const struct fm_view_model *fvm,
+                                     uint32_t tuning_generation,
+                                     uint64_t now_ms) {
+    if (fvm->spectrum_bins <= 0 ||
+        fvm->spectrum_bins > FM_VIEW_MODEL_MAX_BINS)
+        return;
+    publish_range_binary(link, VIEWER_STREAM_FM_SPECTRUM,
+                         VIEWER_MESSAGE_FM_SPECTRUM, tuning_generation,
+                         now_ms, (uint32_t)fvm->spectrum_bins, 0.0,
+                         (double)fvm->spectrum_bins * fvm->spectrum_bin_hz,
+                         fvm->spectrum);
 }
 
 /*
@@ -1141,6 +1188,106 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
     }
 }
 
+/*
+ * The FM view's three panels, as one JSON message.
+ *
+ * `reading` and `reading_tone` arrive already decided (`fm_view_model.h`):
+ * which of five sentences the funnel's counts amount to, and whether it
+ * reads as working, as in progress, or as where the decode stopped. A
+ * browser re-deriving that from the five counts beside it is the second
+ * presentation this whole seam exists to prevent -- the same reason a survey
+ * candidate's `mark` travels rather than its flag word.
+ *
+ * Built once and fanned out, like `receiver_state` and `survey_state`.
+ */
+void viewer_link_publish_fm_state(struct viewer_link *link,
+                                  const struct fm_view_model *fvm,
+                                  uint64_t now_ms) {
+    /* Radio text is the long field at 64 characters, and every character of
+       it can escape to six (\u001f); the fixed fields and the wrapper are a
+       few hundred more. 2 KiB is generous against that worst case. */
+    char json[2048];
+    char ps[sizeof(fvm->ps) * 6 + 1];
+    char rt[sizeof(fvm->rt) * 6 + 1];
+    char reading[sizeof(fvm->reading) * 6 + 1];
+    char pty_name[sizeof(fvm->pty_name) * 6 + 1];
+    char traffic[sizeof(fvm->traffic) * 6 + 1];
+    char audio_error[sizeof(fvm->audio_error) * 6 + 1];
+    int json_len;
+    int i;
+
+    json_escape_into(ps, sizeof(ps), fvm->ps, strlen(fvm->ps));
+    json_escape_into(rt, sizeof(rt), fvm->rt, strlen(fvm->rt));
+    json_escape_into(reading, sizeof(reading), fvm->reading,
+                     strlen(fvm->reading));
+    json_escape_into(pty_name, sizeof(pty_name), fvm->pty_name,
+                     strlen(fvm->pty_name));
+    json_escape_into(traffic, sizeof(traffic), fvm->traffic,
+                     strlen(fvm->traffic));
+    json_escape_into(audio_error, sizeof(audio_error), fvm->audio_error,
+                     strlen(fvm->audio_error));
+
+    json_len = snprintf(json, sizeof(json),
+                        "{\"type\":\"fm_state\",\"timestamp_ms\":%llu,"
+                        "\"pilot_locked\":%s,\"pilot_hz\":%.2f,"
+                        "\"pilot_ppm\":%.1f,\"pilot_coherence\":%.3f,"
+                        "\"broadcast_stereo\":%s,"
+                        "\"playing\":%s,\"audio_rate_hz\":%.0f,"
+                        "\"audio_error\":\"%s\","
+                        "\"timing_offset\":%d,"
+                        "\"timing_samples_per_symbol\":%d,"
+                        "\"axis_radians\":%.2f,"
+                        "\"pi_valid\":%s,\"pi\":%u,\"pi_repeats\":%d,"
+                        "\"ps_valid\":%s,\"ps\":\"%s\",\"ps_segments\":%d,"
+                        "\"pty_valid\":%s,\"pty\":%d,\"pty_name\":\"%s\","
+                        "\"tp\":%s,\"ta\":%s,\"traffic\":\"%s\","
+                        "\"rt_valid\":%s,\"rt\":\"%s\","
+                        "\"bits\":%ld,\"blocks_matched\":%ld,\"groups\":%ld,"
+                        "\"identified\":%ld,\"named\":%ld,"
+                        "\"reading\":\"%s\",\"reading_tone\":%d}",
+                        (unsigned long long)now_ms,
+                        fvm->pilot_locked ? "true" : "false", fvm->pilot_hz,
+                        fvm->pilot_ppm, fvm->pilot_coherence,
+                        fvm->broadcast_stereo ? "true" : "false",
+                        fvm->playing ? "true" : "false", fvm->audio_rate_hz,
+                        audio_error, fvm->timing_offset,
+                        fvm->timing_samples_per_symbol, fvm->axis_radians,
+                        fvm->pi_valid ? "true" : "false", fvm->pi,
+                        fvm->pi_repeats,
+                        fvm->ps_valid ? "true" : "false", ps,
+                        fvm->ps_segments,
+                        fvm->pty_valid ? "true" : "false", fvm->pty, pty_name,
+                        fvm->tp ? "true" : "false",
+                        fvm->ta ? "true" : "false", traffic,
+                        fvm->rt_valid ? "true" : "false", rt,
+                        fvm->bits, fvm->blocks_matched, fvm->groups,
+                        fvm->identified, fvm->named, reading,
+                        (int)fvm->reading_tone);
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_FM_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_FM_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
 void viewer_link_publish_receiver_state(struct viewer_link *link,
                                         const struct scope_view_model *svm,
                                         uint64_t now_ms) {
@@ -1150,11 +1297,13 @@ void viewer_link_publish_receiver_state(struct viewer_link *link,
 
     json_len = snprintf(json, sizeof(json),
                         "{\"type\":\"receiver_state\",\"tab\":%d,"
+                        "\"decode\":%d,"
                         "\"center_hz\":%u,"
                         "\"sample_rate_hz\":%u,\"ppm\":%d,"
                         "\"tuning_generation\":%u,\"full_scale\":%g,"
                         "\"timestamp_ms\":%llu}",
-                        svm->tab, svm->center_hz, svm->sample_rate_hz,
+                        svm->tab, svm->decode, svm->center_hz,
+                        svm->sample_rate_hz,
                         svm->ppm, svm->tuning_generation,
                         (double)svm->full_scale,
                         (unsigned long long)now_ms);

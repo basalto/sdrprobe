@@ -52,6 +52,16 @@ struct scope_view_model {
        session should show. */
     int tab;
 
+    /* And which Decode sub-view, `enum decode_kind`'s own int, meaningful
+       only while `tab` is TAB_DECODE. The tab alone stopped being enough
+       the moment a screen a Viewer can ask for was not a tab: `view fm`
+       (ticket 14's Phase 4) is TAB_DECODE plus DECODE_FM, and six screens
+       share that one tab. Carried unconditionally rather than zeroed off
+       the Decode tab -- it is what the window would switch back to, and a
+       reader that has to ask "is this field real?" gets no benefit from
+       a zero that means the same as DECODE_FM. */
+    int decode;
+
     /* The receiver's applied tuning, rate and ppm -- Probe language. */
     uint32_t center_hz;
     uint32_t sample_rate_hz;

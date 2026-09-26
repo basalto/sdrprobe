@@ -175,6 +175,42 @@ static void test_a_valid_view_survey_line(void) {
     check_int("naming the Survey", cmd.screen, VIEWER_SCREEN_SURVEY);
 }
 
+/*
+ * Ticket 14's Phase 4 adds the first screen name that is not a tab: FM is
+ * the Decode tab with DECODE_FM chosen, so `viewer_session.c` answers it
+ * with a `set_decode()` as well as a `set_tab()`. None of that is this
+ * parser's business -- what is, is that the name resolves at all, which it
+ * did not until the two hand-written `strcmp`s became a table.
+ */
+static void test_a_valid_view_fm_line(void) {
+    struct viewer_command cmd;
+
+    check_int("view fm is accepted",
+             viewer_command_parse("view fm", 7, &cmd, NULL, 0), 0);
+    check_int("its type is VIEW", cmd.type, VIEWER_COMMAND_VIEW);
+    check_int("naming FM", cmd.screen, VIEWER_SCREEN_FM);
+}
+
+/*
+ * A prefix of a real screen name, and a real name with something appended.
+ * The table is matched with strcmp against a token sscanf already delimited,
+ * so neither can pass -- which is worth pinning precisely because a
+ * length-prefix match is the plausible way to write this wrong, and `fm`
+ * being two characters makes an accidental prefix match cheap to hit.
+ */
+static void test_a_screen_name_matches_whole_or_not_at_all(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_true("a prefix of a screen name is refused",
+              viewer_command_parse("view f", 6, &cmd, error, sizeof(error)) < 0);
+    check_str("and says why", error, "unrecognized screen");
+    check_true("a screen name with more after it is refused",
+              viewer_command_parse("view fmx", 8, &cmd, error,
+                                   sizeof(error)) < 0);
+    check_str("and says why", error, "unrecognized screen");
+}
+
 static void test_view_tolerates_the_same_whitespace_tune_does(void) {
     struct viewer_command cmd;
     const char *leading = "   view survey";
@@ -262,6 +298,8 @@ int main(void) {
     test_error_is_truncated_to_fit_rather_than_overflowing();
     test_a_valid_view_scope_line();
     test_a_valid_view_survey_line();
+    test_a_valid_view_fm_line();
+    test_a_screen_name_matches_whole_or_not_at_all();
     test_view_tolerates_the_same_whitespace_tune_does();
     test_view_with_no_screen_is_refused();
     test_view_of_an_unrecognized_screen_is_refused();

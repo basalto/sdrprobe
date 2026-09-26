@@ -14,6 +14,25 @@ static void set_error(char *error, size_t error_cap, const char *msg) {
     snprintf(error, error_cap, "%s", msg);
 }
 
+/*
+ * The screen names, as a table rather than a chain of `strcmp`s.
+ *
+ * Two names were two `if`s, which was unremarkable; ticket 07 already
+ * recorded what the same shape costs one file over, where
+ * `handle_subscribe_line()`'s hand-matched list "had no branch for
+ * survey_spectrum or survey_state, so a client subscribing to them received
+ * nothing, silently". A table is what a check can walk, and adding a screen
+ * is then a row rather than a branch somebody has to remember to write.
+ */
+static const struct {
+    const char *name;
+    enum viewer_screen screen;
+} viewer_screens[] = {
+    { "scope",  VIEWER_SCREEN_SCOPE },
+    { "survey", VIEWER_SCREEN_SURVEY },
+    { "fm",     VIEWER_SCREEN_FM }
+};
+
 int viewer_command_parse(const char *line, size_t len, struct viewer_command *out,
                          char *error, size_t error_cap) {
     char buf[VIEWER_COMMAND_LINE_MAX];
@@ -65,15 +84,13 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
                 return -1;
             }
         }
-        if (strcmp(screen, "scope") == 0) {
-            out->type = VIEWER_COMMAND_VIEW;
-            out->screen = VIEWER_SCREEN_SCOPE;
-            return 0;
-        }
-        if (strcmp(screen, "survey") == 0) {
-            out->type = VIEWER_COMMAND_VIEW;
-            out->screen = VIEWER_SCREEN_SURVEY;
-            return 0;
+        for (i = 0; i < sizeof(viewer_screens) / sizeof(viewer_screens[0]);
+             i++) {
+            if (strcmp(screen, viewer_screens[i].name) == 0) {
+                out->type = VIEWER_COMMAND_VIEW;
+                out->screen = viewer_screens[i].screen;
+                return 0;
+            }
         }
         set_error(error, error_cap, "unrecognized screen");
         return -1;
