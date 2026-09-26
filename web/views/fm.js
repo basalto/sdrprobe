@@ -158,18 +158,16 @@ const FmView = (function () {
     e.reading.style.color = TONE_COLOR[s.reading_tone] || TONE_COLOR[0];
   }
 
-  // The same waterfall the window draws over the received span, and the
-  // same scroll-and-draw-one-row trick views/scope.js uses -- the canvas
-  // is the history, which is why this page keeps none of its own.
+  // The same waterfall the window draws over the received span, through
+  // the same lib/waterfall.js the Scope's goes through -- one scroll and
+  // one row of pixels as each arrives, and the rows kept beside it so a
+  // resize redraws rather than blanks.
+  const history = createWaterfall();
+
   function drawWaterfall(row) {
-    const { wf, wfCtx } = elements();
-    const w = wf.width, h = wf.height;
-    wfCtx.drawImage(wf, 0, 0, w, h - 1, 0, 1, w, h - 1);
-    for (let x = 0; x < w; x++) {
-      const i = Math.floor(x * row.length / w);
-      wfCtx.fillStyle = colorFor(row[i]);
-      wfCtx.fillRect(x, 0, 1, 1);
-    }
+    const e = elements();
+    waterfallPush(history, row);
+    waterfallDrawNewest(e.wfCtx, e.wf, row);
   }
 
   // The span under the waterfall, from whatever `receiver_state` last
@@ -244,16 +242,21 @@ const FmView = (function () {
     // two fifths of the viewport, with a floor so a short window still
     // shows a band of it rather than a line.
     //
-    // Resizing clears both canvases, and for the waterfall that is its
-    // history -- this page keeps no rows of its own (ADR-0027: the Viewer
-    // builds its history from the rows it is sent, and never asks the
-    // program for one). The window does the same thing for the same
-    // reason: `recreate_waterfall()` starts a fresh texture.
+    // Resizing clears a canvas, so the waterfall is redrawn from the rows
+    // it kept (lib/waterfall.js) -- only when the geometry actually
+    // changed, which is what `fitCanvas()` reports. The multiplex needs no
+    // history: the next `fm_spectrum` carries the whole trace, four times
+    // a second.
+    //
+    // The rows are still only ever the ones this page was sent: ADR-0027
+    // has the Viewer build its own history and never ask the program for
+    // one, and that is unchanged. What changed is that a resize no longer
+    // throws away what it already had.
     resize(width, viewportHeight) {
       const e = elements();
       const h = Math.max(160, Math.round(viewportHeight * 0.40));
 
-      fitCanvas(e.wf, width, h);
+      if (fitCanvas(e.wf, width, h)) waterfallRedraw(e.wfCtx, e.wf, history);
       fitCanvas(e.mpx, width, h);
     },
     markup:

@@ -34,23 +34,15 @@ const ScopeView = (function () {
     plot(specCtx, w, h, average, '#5adcc8', dbfsToY);
   }
 
-  // Scrolls the existing image down by one row and draws only the new
-  // one at the top, rather than redrawing all `h` rows from a kept row
-  // history every time one more arrives -- the canvas itself is the
-  // history, which is also why this page keeps none of its own.
-  // Measured against the whole-redraw version this replaced: it was 95%+
-  // of this page's own JS busy time and growing as history filled
-  // (drawImage's one call against up to `w * h` -- 900 * 200 --
-  // individual fillRect calls per row).
+  // The rows this view has been sent, so the picture survives a resize --
+  // see lib/waterfall.js for what that costs and why keeping them does not
+  // put the old whole-redraw cost back on the per-row path.
+  const wf = createWaterfall();
+
   function drawWaterfall(row) {
     const { wfCanvas, wfCtx } = elements();
-    const w = wfCanvas.width, h = wfCanvas.height;
-    wfCtx.drawImage(wfCanvas, 0, 0, w, h - 1, 0, 1, w, h - 1);
-    for (let x = 0; x < w; x++) {
-      const i = Math.floor(x * row.length / w);
-      wfCtx.fillStyle = colorFor(row[i]);
-      wfCtx.fillRect(x, 0, 1, 1);
-    }
+    waterfallPush(wf, row);
+    waterfallDrawNewest(wfCtx, wfCanvas, row);
   }
 
   return {
@@ -61,14 +53,17 @@ const ScopeView = (function () {
             // enum's own int.
     streams: ['spectrum', 'waterfall'],
     // Both canvases take the width the shell measured; the heights keep
-    // the 260/200 proportion they were authored at. Resizing clears them,
-    // and for the waterfall that is its history -- the canvas is the
-    // history, which is why this page keeps no rows of its own.
+    // the 260/200 proportion they were authored at. Resizing clears a
+    // canvas, so the waterfall is redrawn from the rows it kept -- only
+    // when the geometry actually changed, which is what `fitCanvas()`
+    // reports. The spectrum needs no such thing: the next message carries
+    // the whole trace.
     resize(width, viewportHeight) {
-      const { specCanvas, wfCanvas } = elements();
+      const { specCanvas, wfCanvas, wfCtx } = elements();
 
       fitCanvas(specCanvas, width, Math.max(160, Math.round(viewportHeight * 0.30)));
-      fitCanvas(wfCanvas, width, Math.max(130, Math.round(viewportHeight * 0.23)));
+      if (fitCanvas(wfCanvas, width, Math.max(130, Math.round(viewportHeight * 0.23))))
+        waterfallRedraw(wfCtx, wfCanvas, wf);
     },
     markup:
       '<div class="label">spectrum (average: cyan, peak hold: orange)</div>' +
