@@ -141,6 +141,13 @@ function handleState(state) {
       + 'ppm ' + state.ppm + ' &nbsp; '
       + 'generation ' + state.tuning_generation + ' &nbsp; '
       + 'drawn ' + sent + ' declined ' + dropped;
+    // And on to the active view, which the shell used to consume this
+    // message instead of. A view drawing anything against frequency needs
+    // the span it is drawing over, and the tuning is the shell's to
+    // *route* rather than the shell's to keep: views/fm.js labels its
+    // waterfall's axis from exactly this. Sent after selectView() above,
+    // so a switch this message caused delivers it to the new view.
+    activeView.render({ kind: 'state', state });
     return;
   }
   // Anything else is a view's own state (survey_state today) -- the

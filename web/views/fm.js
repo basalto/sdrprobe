@@ -4,6 +4,13 @@
 // so `FmView` is the only name this file adds to the shared global scope
 // every concatenated file runs in.
 //
+// The arrangement mirrors `src/view_fm.c`'s own: a waterfall across the
+// received span, then Signal, Station and "Where the decode stopped" side
+// by side in that order, with the multiplex behind a toggle the way the
+// window puts it behind "Show charts". A reader who knows one screen
+// should not have to learn the other -- ADR-0027 keeps the window primary,
+// which makes it the thing this is a view *of*.
+//
 // Nothing here re-decides anything. The funnel's closing sentence and its
 // emphasis arrive already chosen (`fm_view_model.c`, `enum
 // fm_reading_tone`); this file picks a colour for a verdict it was given,
@@ -14,16 +21,38 @@ const FmView = (function () {
   let els = null;
   function elements() {
     if (!els) {
+      const wf = document.getElementById('fm-waterfall');
       const mpx = document.getElementById('fm-mpx');
       els = {
+        wf, wfCtx: wf.getContext('2d'),
         mpx, mpxCtx: mpx.getContext('2d'),
+        wfWrap: document.getElementById('fm-waterfall-wrap'),
+        mpxWrap: document.getElementById('fm-mpx-wrap'),
+        axis: document.getElementById('fm-axis'),
+        charts: document.getElementById('fm-charts'),
         reading: document.getElementById('fm-reading'),
         signal: document.getElementById('fm-signal-rows'),
         station: document.getElementById('fm-station-rows'),
         funnel: document.getElementById('fm-funnel-rows'),
       };
+      // Wired here rather than at load: `markup` is not in the document
+      // until viewer.js's mountViews() inserts it, which happens after
+      // every view file has already run.
+      els.charts.onclick = () => showCharts(!charting);
     }
     return els;
+  }
+
+  // The window's "Show charts" toggle, which swaps its waterfall for the
+  // analysis arrangement. Here it swaps the waterfall for the multiplex,
+  // which is the one chart of that arrangement a browser has data for.
+  let charting = false;
+  function showCharts(on) {
+    const e = elements();
+    charting = on;
+    e.wfWrap.hidden = on;
+    e.mpxWrap.hidden = !on;
+    e.charts.textContent = on ? 'Show signal' : 'Show charts';
   }
 
   // `enum fm_reading_tone`'s three values, in its own order: neutral (in
@@ -52,9 +81,8 @@ const FmView = (function () {
   function renderState(s) {
     const e = elements();
 
-    e.reading.textContent = s.reading;
-    e.reading.style.color = TONE_COLOR[s.reading_tone] || TONE_COLOR[0];
-
+    // The window's Signal panel, row for row and in its order: whether
+    // anything is being received first, how well underneath.
     const signal = [pair('pilot', s.pilot_locked ? 'locked' : 'no lock')];
     // The sound is the server's, not this browser's: a Viewer cannot hear
     // it, so what is reported is whether that machine is playing, never a
@@ -112,6 +140,33 @@ const FmView = (function () {
       pair('identified', s.identified),
       pair('named', s.named),
     ]);
+    e.reading.textContent = s.reading;
+    e.reading.style.color = TONE_COLOR[s.reading_tone] || TONE_COLOR[0];
+  }
+
+  // The same waterfall the window draws over the received span, and the
+  // same scroll-and-draw-one-row trick views/scope.js uses -- the canvas
+  // is the history, which is why this page keeps none of its own.
+  function drawWaterfall(row) {
+    const { wf, wfCtx } = elements();
+    const w = wf.width, h = wf.height;
+    wfCtx.drawImage(wf, 0, 0, w, h - 1, 0, 1, w, h - 1);
+    for (let x = 0; x < w; x++) {
+      const i = Math.floor(x * row.length / w);
+      wfCtx.fillStyle = colorFor(row[i]);
+      wfCtx.fillRect(x, 0, 1, 1);
+    }
+  }
+
+  // The span under the waterfall, from whatever `receiver_state` last
+  // said. A waterfall with no frequencies on it is a picture; the window
+  // labels its axis and so does this.
+  function renderAxis(state) {
+    const lower = (state.center_hz - state.sample_rate_hz / 2) / 1e6;
+    const upper = (state.center_hz + state.sample_rate_hz / 2) / 1e6;
+    elements().axis.textContent =
+      lower.toFixed(3) + ' MHz' + ' — ' + upper.toFixed(3)
+      + ' MHz (newest at top)';
   }
 
   function drawMultiplex(lowerHz, upperHz, power) {
@@ -142,6 +197,14 @@ const FmView = (function () {
     }
   }
 
+  // One panel of the three-across row the window draws. Laid out with
+  // inline flex rather than a rule in viewer.html for the same reason the
+  // tone colours are inline: adding a view should not edit the shell.
+  function panel(caption, bodyHtml) {
+    return '<div style="flex:1 1 240px;min-width:240px">'
+      + '<div class="label">' + caption + '</div>' + bodyHtml + '</div>';
+  }
+
   return {
     id: 'fm',
     label: 'FM',
@@ -150,23 +213,42 @@ const FmView = (function () {
     // shell matches on both and `receiver_state` carries both.
     tab: 2,
     decode: 0,
-    streams: ['fm_spectrum', 'fm_state'],
+    // `waterfall` is the Scope's own stream, and the window's FM screen
+    // draws the very same rows over the very same span -- one stream, two
+    // views, rather than an `fm_waterfall` that would carry identical
+    // bytes under another name.
+    streams: ['fm_spectrum', 'fm_state', 'waterfall'],
     markup:
-      '<div class="label">multiplex (the pilot at 19 kHz, stereo at 38, RDS at 57 --'
-      + ' a station with the first two and not the third sends no RDS)</div>' +
-      '<canvas id="fm-mpx" width="900" height="220"></canvas>' +
-      '<div class="label">where the decode stopped</div>' +
-      '<div id="fm-reading">awaiting fm_state...</div>' +
-      '<table><tbody id="fm-funnel-rows"></tbody></table>' +
-      '<div class="label">signal</div>' +
-      '<table><tbody id="fm-signal-rows"></tbody></table>' +
-      '<div class="label">station</div>' +
-      '<table><tbody id="fm-station-rows"></tbody></table>',
+      '<div style="margin-bottom:10px">'
+      + '<button id="fm-charts" style="background:#16202c;color:#8291a0;'
+      + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
+      + 'cursor:pointer">Show charts</button></div>' +
+      '<div id="fm-waterfall-wrap">' +
+        '<canvas id="fm-waterfall" width="900" height="220"></canvas>' +
+        '<div class="label" id="fm-axis">awaiting receiver_state...</div>' +
+      '</div>' +
+      '<div id="fm-mpx-wrap" hidden>' +
+        '<div class="label">multiplex (the pilot at 19 kHz, stereo at 38,'
+        + ' RDS at 57 -- a station with the first two and not the third'
+        + ' sends no RDS)</div>' +
+        '<canvas id="fm-mpx" width="900" height="220"></canvas>' +
+      '</div>' +
+      '<div style="display:flex;gap:24px;align-items:flex-start;'
+      + 'flex-wrap:wrap;margin-top:10px">' +
+        panel('Signal', '<table><tbody id="fm-signal-rows"></tbody></table>') +
+        panel('Station', '<table><tbody id="fm-station-rows"></tbody></table>') +
+        panel('Where the decode stopped',
+              '<table><tbody id="fm-funnel-rows"></tbody></table>'
+              + '<div id="fm-reading">awaiting fm_state...</div>') +
+      '</div>',
     render(msg) {
-      if (msg.kind === 'fm_spectrum') {
-        drawMultiplex(msg.lowerHz, msg.upperHz, msg.power);
-      } else if (msg.kind === 'state' && msg.state.type === 'fm_state') {
-        renderState(msg.state);
+      if (msg.kind === 'waterfall_row') {
+        if (!charting) drawWaterfall(msg.row);
+      } else if (msg.kind === 'fm_spectrum') {
+        if (charting) drawMultiplex(msg.lowerHz, msg.upperHz, msg.power);
+      } else if (msg.kind === 'state') {
+        if (msg.state.type === 'fm_state') renderState(msg.state);
+        else if (msg.state.type === 'receiver_state') renderAxis(msg.state);
       }
     },
   };
