@@ -1904,6 +1904,16 @@ static int run_gui(struct app *app) {
          * them internally.
          */
         int spectrum_updated = frame_advance(app, &snapshot, now);
+        /*
+         * The sound, which is the window's alone: `update_fm_audio()` feeds
+         * a raylib `AudioStream` and `frame_advance()` used to call it, so
+         * the step `headless` and `server` share reached for a device only a
+         * window has. Every frame rather than every block, unchanged -- the
+         * card asks on its own schedule and a block is several of its
+         * buffers -- and it returns at once unless something is playing.
+         */
+        if (app->tab == TAB_DECODE && app->decode == DECODE_FM)
+            update_fm_audio(app);
         if (spectrum_updated)
             render_waterfall(app);
         render_scatter(app, now);

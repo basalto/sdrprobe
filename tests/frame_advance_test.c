@@ -366,8 +366,15 @@ static void test_fm_dispatch_ignores_calibration(void) {
               fake.update_fm_scan_calls, 1);
     check_int("FM: cell decode still runs with calibration open",
               fake.update_fm_calls, 1);
-    check_int("FM: audio still runs with calibration open",
-              fake.update_fm_audio_calls, 1);
+    /*
+     * And the sound is *not* pumped from here at all any more. It feeds a
+     * raylib `AudioStream`, only a window has one, and this step is what
+     * `headless` and `server` drive -- so it moved into `run_gui()`'s own
+     * frame loop (layer-boundaries ticket 02, item 1). The stub stays so
+     * this asserts the absence rather than merely not mentioning it.
+     */
+    check_int("FM: the sound card is not pumped by the shared step",
+              fake.update_fm_audio_calls, 0);
 }
 
 /* The survey only ticks on its own tab, and not while calibration or the

@@ -271,10 +271,27 @@ All six technologies answer from a raylib-free file. What is left:
 All six `*_runtime.c` files are poison-tested: each compiles with a `#error`
 raylib.h ahead of the real one.
 
+### Item 1 done, 2026-09-26 -- the sound leaves the shared step
+
+`update_fm_audio()` fed a raylib `AudioStream` from `frame_advance()`, the
+one step `headless` and `server` also drive. It is in `run_gui()`'s own frame
+loop now, right after the `frame_advance()` call and beside the two GPU
+uploads already left to it. Every frame rather than every block, unchanged --
+the card asks on its own schedule and a block is several of its buffers.
+
+`check-frame-advance` asserted the sound *was* pumped from there. The stub
+stays and the assertion is inverted, so the check now pins the absence rather
+than falling silent about it -- a check that stops mentioning something is
+how a moved call comes back.
+
+Verified in a real window, which is the only place sound exists:
+`--fm-play` logs `fm-audio playing at 49951 Hz` and the FM decode is
+byte-identical.
+
 ### Still open in this ticket
 
-Item 2's `process_block(app, now, fft_size)`, decided but not done; item 1's
-`update_fm_audio`; the Scope's three; the overlays' four; `update_survey`;
+Item 2's `process_block(app, now, fft_size)`, decided but not done; the
+Scope's three; the overlays' four; `update_survey`;
 and `set_tab`, `set_decode`, `retune_receiver*` and `stop_requested`, whose
 declarations are already in `runtime.h` but whose definitions are still in
 `sdrprobe.c`. `check-frame-advance` still stubs all nineteen callees; ticket

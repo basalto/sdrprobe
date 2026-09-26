@@ -62,9 +62,14 @@ int frame_advance(struct app *app, struct slot_snapshot *snapshot, double now) {
         update_fm_scan(app, now, have_new);
         if (have_new && !app->fm.scan.running)
             update_fm(app, now);
-        /* Every frame, not every block: the sound card asks on its own
-           schedule and a block is several of its buffers. */
-        update_fm_audio(app);
+        /*
+         * The sound is *not* pumped here, and that is the point of this
+         * comment surviving the move. `update_fm_audio()` feeds a raylib
+         * `AudioStream`, only a window has one, and this is the step
+         * `headless` and `server` drive too. It is in `run_gui()`'s own
+         * frame loop now, right after this call, beside the two GPU uploads
+         * that were already left to it (layer-boundaries ticket 02, item 1).
+         */
     }
     update_drift_check(app, spectrum_updated);
     advance_scatter_history(app, now,
