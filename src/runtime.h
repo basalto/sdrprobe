@@ -92,6 +92,10 @@ void view_adsb_defaults(struct app *app);
    about state, asked by the drawing. */
 int adsb_analysis_showing(const struct app *app);
 
+/* --- TETRA: one carrier, one block, to a network identity --- */
+
+void update_tetra(struct app *app, double now);
+
 /* --- FM: the discriminator, the RDS chain, the band scan, the tuning --- */
 
 void update_fm(struct app *app, double now);

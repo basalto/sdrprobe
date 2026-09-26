@@ -365,7 +365,6 @@ void handle_survey_input(struct app *app);
 void draw_survey(struct app *app);
 
 /* TETRA (Decode tab): the network's identity, and how it was read. */
-void update_tetra(struct app *app, double now);
 void draw_tetra(struct app *app);
 void handle_tetra_input(struct app *app);
 Rectangle tetra_waterfall_rect(const struct app *app);

@@ -209,9 +209,19 @@ polls for the name with a thirty-second deadline now; eight consecutive runs
 pass. A gated check that fails one run in six is worse than the fault it
 looks for.
 
+### TETRA done, 2026-09-26
+
+`src/tetra_runtime.c` -- one block of a 25 kHz carrier down to a network
+identity, and the remembering of what it read. Only two functions, so
+`view_tetra.c` drops 321 -> 253 lines and is almost entirely drawing.
+Poison-tested raylib-free. Both captures decode byte-identically: `cc17` and
+`cc32`, the pair that exists because the broadcast channel is scrambled with
+the network's own colour code, so a decoder that hardcoded one would read
+one capture and fail the other.
+
 ### Still open in this ticket
 
 Item 2's `process_block(app, now, fft_size)`, decided but not done; the
 Scope's three `advance_*`/`decay_*`; the overlays' four; `set_tab`,
-`set_decode`, `retune_receiver*` and `stop_requested`; and TETRA, SRD, LTE.
+`set_decode`, `retune_receiver*` and `stop_requested`; and SRD, LTE.
 `check-frame-advance` still stubs all nineteen callees.
