@@ -8,6 +8,7 @@
 const MSG_SPECTRUM = 1;
 const MSG_WATERFALL_ROW = 2;
 const MSG_SURVEY_SPECTRUM = 3;
+const MSG_FM_SPECTRUM = 4;
 
 // Decodes one WebSocket message and returns a plain object naming its
 // `kind`:
@@ -19,6 +20,7 @@ const MSG_SURVEY_SPECTRUM = 3;
 //   'spectrum'         -- `average`, `peak`: Float32Array
 //   'waterfall_row'    -- `row`: Float32Array
 //   'survey_spectrum'  -- `lowerHz`, `upperHz`, `power`: Float32Array
+//   'fm_spectrum'      -- the same three, the FM multiplex at baseband
 //   'unknown'          -- a binary message of a type this reader does not
 //                        name; still counted as received, drawn as nothing
 //
@@ -46,9 +48,15 @@ function decodeMessage(ev, latestGeneration) {
   if (type === MSG_WATERFALL_ROW) {
     return { kind: 'waterfall_row', bytes: bytes, row: new Float32Array(ev.data, 20, bins) };
   }
-  if (type === MSG_SURVEY_SPECTRUM) {
+  // The two range-header types (VIEWER_RANGE_HEADER_BYTES): an array whose
+  // frequencies are its own rather than the receiver's, so it carries the
+  // range it spans -- wherever a sweep walked, or the FM multiplex's
+  // baseband. Same layout, so one branch decodes both and they differ only
+  // in the `kind` whichever view is showing dispatches on.
+  if (type === MSG_SURVEY_SPECTRUM || type === MSG_FM_SPECTRUM) {
     return {
-      kind: 'survey_spectrum', bytes: bytes,
+      kind: type === MSG_SURVEY_SPECTRUM ? 'survey_spectrum' : 'fm_spectrum',
+      bytes: bytes,
       lowerHz: view.getUint32(20, true), upperHz: view.getUint32(24, true),
       power: new Float32Array(ev.data, 28, bins),
     };

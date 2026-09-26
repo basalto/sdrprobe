@@ -8,15 +8,26 @@ const health = document.getElementById('health');
 // The registry. Ticket 07's remaining views each add one entry here and
 // one file under web/views/ -- no other file, and no other change to
 // this one.
-const VIEWS = [ScopeView, SurveyView];
+const VIEWS = [ScopeView, SurveyView, FmView];
 
 let activeView = null;
 let latestGeneration = 0; // the newest tuning_generation receiver_state has named
 let sent = 0, dropped = 0; // this Viewer's own count of what it drew vs discarded
 let ws = null; // module-scope so the tab buttons can send on it
 
-function viewForTab(tab) {
-  return VIEWS.find((v) => v.tab === tab) || VIEWS[0];
+// Which view a `receiver_state` describes. The tab alone was enough while
+// every view was one -- FM is the Decode tab with DECODE_FM chosen, and
+// five more decode views share that same tab, so a view may also name the
+// `decode` it wants. A view with no `decode` matches on its tab alone.
+//
+// The fallback is the Scope, and it is reached whenever the window is on a
+// decode view this page does not have yet (ticket 07's remaining list).
+// Showing the Scope is honest there -- showing nothing, or a panel for a
+// screen that is not up, would not be.
+function viewForState(state) {
+  return VIEWS.find((v) => v.tab === state.tab &&
+                    (v.decode === undefined || v.decode === state.decode))
+    || VIEWS[0];
 }
 
 // Builds the tab bar and every view's panel from the registry, once, at
@@ -122,9 +133,9 @@ function handleState(state) {
   if (state.type === 'link_health') { lastHealth = state; return; }
   if (state.type === 'receiver_state') {
     latestGeneration = state.tuning_generation;
-    selectView(viewForTab(state.tab), false); // corrects a click sent before the
-                                              // server answered, and reflects
-                                              // another Viewer's own switch
+    selectView(viewForState(state), false); // corrects a click sent before the
+                                            // server answered, and reflects
+                                            // another Viewer's own switch
     hud.innerHTML = 'center ' + (state.center_hz / 1e6).toFixed(6) + ' MHz &nbsp; '
       + 'rate ' + (state.sample_rate_hz / 1e6).toFixed(3) + ' MS/s &nbsp; '
       + 'ppm ' + state.ppm + ' &nbsp; '

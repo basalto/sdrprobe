@@ -55,6 +55,7 @@ JS_ORDER = [
     "wire.js",
     "views/scope.js",
     "views/survey.js",
+    "views/fm.js",
     "viewer.js",
 ]
 
