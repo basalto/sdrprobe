@@ -1,7 +1,11 @@
 # 02 - Take the runtime out of the drawing files
 
-Status: needs-triage
-Blocked by: 01
+Status: ready-for-agent -- 01 is done (2026-09-26) and left this two
+measurements: `check-survey-view-model` and `check-frame-advance` still reach
+raylib **only** through `view.h`, and `recompute_magnitude_bins()` is the
+shared step reaching into the window for a plot width (item 2 below), found
+by a segfault rather than by reading.
+Blocked by: 01 (done)
 
 ## The problem
 

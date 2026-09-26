@@ -37,7 +37,7 @@ Rectangle calculate_plot(void) {
 }
 
 void clear_scatter(struct app *app) {
-    BeginTextureMode(app->sv.scatter);
+    BeginTextureMode(app->gui->scatter);
     ClearBackground(BLANK);
     EndTextureMode();
     app->sv.scatter_inserted = 0;
@@ -58,10 +58,10 @@ int recreate_scatter(struct app *app, Rectangle plot) {
         return -1;
     }
     if (app->sv.scatter_ready)
-        UnloadRenderTexture(app->sv.scatter);
-    app->sv.scatter = replacement;
+        UnloadRenderTexture(app->gui->scatter);
+    app->gui->scatter = replacement;
     app->sv.scatter_ready = 1;
-    app->plot = plot;
+    app->gui->plot = plot;
     clear_scatter(app);
     return 0;
 }
@@ -117,10 +117,10 @@ int recreate_waterfall(struct app *app, Rectangle plot,
         return -1;
     }
     if (app->sv.waterfall_ready)
-        UnloadTexture(app->sv.waterfall);
-    free(app->sv.waterfall_pixels);
-    app->sv.waterfall = texture;
-    app->sv.waterfall_pixels = pixels;
+        UnloadTexture(app->gui->waterfall);
+    free(app->gui->waterfall_pixels);
+    app->gui->waterfall = texture;
+    app->gui->waterfall_pixels = pixels;
     app->sv.waterfall_width = width;
     app->sv.waterfall_height = height;
     if (clear_history)
@@ -169,7 +169,7 @@ void render_waterfall(struct app *app) {
     size_t pixel_count = (size_t)app->sv.waterfall_width *
                          (size_t)app->sv.waterfall_height;
     for (size_t n = 0; n < pixel_count; n++)
-        app->sv.waterfall_pixels[n] = (Color){ 6, 10, 17, 255 };
+        app->gui->waterfall_pixels[n] = (Color){ 6, 10, 17, 255 };
 
     int rows = app->sv.waterfall_rows < app->sv.waterfall_height
                    ? app->sv.waterfall_rows
@@ -191,11 +191,11 @@ void render_waterfall(struct app *app) {
             float fraction = position - lower;
             float dbfs = row[lower] * (1.0f - fraction) +
                          row[upper] * fraction;
-            app->sv.waterfall_pixels[(size_t)y * app->sv.waterfall_width + x] =
+            app->gui->waterfall_pixels[(size_t)y * app->sv.waterfall_width + x] =
                 waterfall_color(app, dbfs);
         }
     }
-    UpdateTexture(app->sv.waterfall, app->sv.waterfall_pixels);
+    UpdateTexture(app->gui->waterfall, app->gui->waterfall_pixels);
 }
 
 
@@ -266,7 +266,7 @@ void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mod
                                       int *out_hovered_marker_id) {
     Rectangle plot = sdrgui_waterfall_area(rect);
     struct sdrgui_waterfall_params params = {
-        rect, app->sv.waterfall, (double)app->applied.frequency_hz,
+        rect, app->gui->waterfall, (double)app->applied.frequency_hz,
         (double)app->applied.sample_rate_hz, calibration_mode,
         calibration_mode && app->cal.technology == 0,
         0.0, 0.0,
@@ -306,7 +306,7 @@ struct sdrgui_marker_axes waterfall_marker_axes(const struct app *app,
     span = sdrgui_waterfall_span((double)app->applied.frequency_hz,
                                  (double)app->applied.sample_rate_hz,
                                  zoom_center, zoom_half,
-                                 (float)app->sv.waterfall.width);
+                                 (float)app->gui->waterfall.width);
     axes.plot = sdrgui_waterfall_area(rect);
     axes.lower_hz = span.lower_hz;
     axes.upper_hz = span.upper_hz;
@@ -325,18 +325,18 @@ void draw_waterfall_rect(const struct app *app, int calibration_mode,
 
 /*
  * The Scope's waterfall, into whichever rectangle its caller hands it --
- * the bottom half of app->plot in the combined Spectrum+Waterfall view
+ * the bottom half of app->gui->plot in the combined Spectrum+Waterfall view
  * (scope_plot_split()), matching every other caller of this component,
- * which already passes its own rectangle rather than reading app->plot
+ * which already passes its own rectangle rather than reading app->gui->plot
  * directly.
  *
  * It used to take a calibration flag instead of a rectangle, and the
  * calibration overlay used it -- which drew that overlay's waterfall
- * into app->plot, a rectangle 52 px above the one the overlay's own
+ * into app->gui->plot, a rectangle 52 px above the one the overlay's own
  * layout had set aside. The result was a waterfall over the status
  * line, and expected/measured markers placed against a chart that was
  * somewhere else. The flag was removed rather than fixed, for the same
- * reason this now takes an explicit rectangle rather than app->plot: a
+ * reason this now takes an explicit rectangle rather than app->gui->plot: a
  * caller that owns the layout should say where, not read a field that
  * might mean something else by the time it draws.
  */
@@ -346,7 +346,7 @@ void draw_waterfall(const struct app *app, const struct scope_view_model *svm,
     double span = w->view_upper_hz - w->view_lower_hz;
     double data = w->data_upper_hz - w->data_lower_hz;
     struct sdrgui_waterfall_params params = {
-        plot, app->sv.waterfall, (double)svm->center_hz,
+        plot, app->gui->waterfall, (double)svm->center_hz,
         (double)svm->sample_rate_hz, 0, 0,
         0.0, 0.0,
         app->sv.waterfall_rows, app->sv.waterfall_height, svm->pair_count,
@@ -432,7 +432,7 @@ void render_scatter(struct app *app, double now) {
                      app->sv.scatter_history_count) %
                     SCATTER_HISTORY_BLOCKS;
 
-    BeginTextureMode(app->sv.scatter);
+    BeginTextureMode(app->gui->scatter);
     ClearBackground(BLANK);
     for (size_t b = 0; b < app->sv.scatter_history_count; b++) {
         const struct scatter_block *block =
@@ -448,9 +448,9 @@ void render_scatter(struct app *app, double now) {
                 radial = 1.0f;
             float emphasis = sqrtf(radial);
             float x = (block->i[n] / app->sv.scatter_axis_limit + 1.0f) *
-                      0.5f * (float)(app->sv.scatter.texture.width - 1);
+                      0.5f * (float)(app->gui->scatter.texture.width - 1);
             float y = (1.0f - block->q[n] / app->sv.scatter_axis_limit) *
-                      0.5f * (float)(app->sv.scatter.texture.height - 1);
+                      0.5f * (float)(app->gui->scatter.texture.height - 1);
             float persistence = 0.30f + 0.70f * age_alpha;
             int alpha = (int)((135.0f + 120.0f * emphasis) * persistence);
             if (alpha < 1)
@@ -543,10 +543,10 @@ void draw_base_hud(const struct app *app,
 
 void draw_magnitude(const struct app *app, const struct scope_view_model *svm) {
     /* app->sv.magnitude_peaks/bin_count/lower/upper stay view-owned: they
-       are a reduction to app->plot.width, which means nothing to a
+       are a reduction to app->gui->plot.width, which means nothing to a
        frontend with a different width -- see scope_view_model.h. */
     struct sdrgui_magnitude_params params = {
-        app->plot, svm->have_samples, app->sv.magnitude_peaks,
+        app->gui->plot, svm->have_samples, app->sv.magnitude_peaks,
         app->sv.magnitude_bin_count, app->sv.magnitude_lower, app->sv.magnitude_upper,
         svm->magnitude_min, svm->magnitude_mean, svm->magnitude_max,
         svm->duration_ms, svm->physical_magnitude_max
@@ -593,7 +593,7 @@ void draw_spectrum(const struct app *app, const struct scope_view_model *svm,
 
 void draw_scatter(const struct app *app, const struct scope_view_model *svm) {
     struct sdrgui_scatter_params params = {
-        app->plot, app->sv.scatter.texture, app->sv.scatter_axis_limit,
+        app->gui->plot, app->gui->scatter.texture, app->sv.scatter_axis_limit,
         svm->scatter_count
     };
     sdrgui_scatter(&params);
@@ -605,7 +605,26 @@ void recompute_magnitude_bins(struct app *app) {
         app->sv.magnitude_bin_count = 0;
         return;
     }
-    capacity = app->plot.width > 1.0f ? (size_t)app->plot.width : 1;
+    /*
+     * The one place the shared per-block step asks the window how wide it is:
+     * `process_block()` calls this, and `headless` and `server` call
+     * `process_block()`. With no window there is no plot, and this reduction
+     * has no reader -- the magnitude chart is the Scope's alone.
+     *
+     * Behaviour is unchanged by the NULL. `app->plot` was a zero-initialised
+     * `Rectangle` on those paths before it moved into `struct gui_state`, so
+     * `0.0f > 1.0f` was already false and the capacity was already 1: both
+     * before and after, a windowless run reduces every block to a single bin
+     * nothing reads. The crash this guard replaces is the pointer doing its
+     * job -- it found the coupling on the first headless run
+     * (`.scratch/layer-boundaries/issues/01-*`).
+     *
+     * The guard is not the fix. Ticket 02 of that spec has this exact case:
+     * the runtime should be handed the width it is reducing to, rather than
+     * reaching into the presentation for it.
+     */
+    capacity = app->gui && app->gui->plot.width > 1.0f
+                   ? (size_t)app->gui->plot.width : 1;
     if (capacity > SAMPLE_BLOCK_PAIRS)
         capacity = SAMPLE_BLOCK_PAIRS;
     app->sv.magnitude_bin_count = sdr_dsp_peak_bins(
@@ -696,14 +715,14 @@ static void waterfall_carry_across_retune(struct app *app) {
 int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
     struct scope_plot_layout split = scope_plot_split(plot);
     int scatter_resized = IsWindowResized() ||
-                          (int)plot.width != app->sv.scatter.texture.width ||
-                          (int)plot.height != app->sv.scatter.texture.height;
+                          (int)plot.width != app->gui->scatter.texture.width ||
+                          (int)plot.height != app->gui->scatter.texture.height;
     int waterfall_resized = IsWindowResized() ||
                             (int)split.waterfall.width != app->sv.waterfall_width ||
                             (int)split.waterfall.height != app->sv.waterfall_height;
 
     if (!scatter_resized && !waterfall_resized) {
-        app->plot = plot;
+        app->gui->plot = plot;
         /* Retuning does not rebuild the waterfall itself -- tuning a receiver
            is not a drawing operation, and it happens on paths that have no
            window at all. What it leaves behind is a history gathered at
@@ -716,12 +735,12 @@ int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
             waterfall_carry_across_retune(app);
         return 0;
     }
-    /* recreate_scatter() sets app->plot as a side effect (it always has),
+    /* recreate_scatter() sets app->gui->plot as a side effect (it always has),
        but that only fires when scatter itself needs rebuilding -- which
        IsWindowResized() usually makes true alongside waterfall_resized,
        but is not guaranteed to be, now that the two are checked
        independently. Set unconditionally rather than lean on that. */
-    app->plot = plot;
+    app->gui->plot = plot;
     if (scatter_resized && recreate_scatter(app, plot) < 0)
         return -1;
     if (waterfall_resized && recreate_waterfall(app, split.waterfall, 0) < 0)
@@ -731,17 +750,31 @@ int view_scope_resize_if_needed(struct app *app, Rectangle plot) {
 }
 
 /* Release the GPU textures and history buffers. Safe before they exist. */
+/*
+ * Shutdown, for every mode -- `main()` calls this whether or not there was a
+ * window, which is why it is split by owner rather than guarded as a whole.
+ *
+ * The GPU resources and the pixel buffer belong to the window and are
+ * released only when there was one. The dBFS history does not: `server`
+ * allocates it through `allocate_waterfall_history()` and sends its front row
+ * to every Viewer (ADR-0027), so freeing it is unconditional and always was.
+ *
+ * `app->sv.waterfall_ready` is deliberately not the test for the texture.
+ * `viewer_session.c` sets that flag with no texture behind it -- it means
+ * "the history is there", which is all the server needs -- so reading it as
+ * "a texture exists" would unload a handle nobody created.
+ */
 void view_scope_release(struct app *app) {
-    if (app->sv.scatter_ready) {
-        UnloadRenderTexture(app->sv.scatter);
-        app->sv.scatter_ready = 0;
+    if (app->gui) {
+        if (app->sv.scatter_ready)
+            UnloadRenderTexture(app->gui->scatter);
+        if (app->sv.waterfall_ready)
+            UnloadTexture(app->gui->waterfall);
+        free(app->gui->waterfall_pixels);
+        app->gui->waterfall_pixels = NULL;
     }
-    if (app->sv.waterfall_ready) {
-        UnloadTexture(app->sv.waterfall);
-        app->sv.waterfall_ready = 0;
-    }
-    free(app->sv.waterfall_pixels);
-    app->sv.waterfall_pixels = NULL;
+    app->sv.scatter_ready = 0;
+    app->sv.waterfall_ready = 0;
     free(app->sv.waterfall_dbfs);
     app->sv.waterfall_dbfs = NULL;
 }

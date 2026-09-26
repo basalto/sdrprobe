@@ -1,6 +1,9 @@
 # 01 - Take raylib out of `app.h`
 
-Status: ready-for-agent
+Status: resolved 2026-09-26 -- option (A), the opaque `struct gui_state`. The
+NULL found two real couplings on its first run, and only two of the four
+checks came out raylib-free: the other two reach it through `view.h`, which
+is ticket 02. See "Done" at the end.
 
 ## Why this first
 
@@ -90,3 +93,82 @@ struct moves, not the field.
   the texture -- confirm, do not assume.
 - **`APP_HDR`** gets any new header, and both audits in `CLAUDE.md` run
   after.
+
+## Done, 2026-09-26
+
+**Option (A), the opaque struct.** `src/gui_state.h` holds `struct gui_state`
+-- the FM audio stream, the Scope's two textures and its pixel buffer, the
+plot rectangle, and `struct waterfall_signal_context` moved whole. `app.h`
+carries `struct gui_state *gui`, forward-declared, and includes no raylib;
+`chart_window.h`'s two `Rectangle` prototypes moved to `view.h`, which
+already includes raylib for its own 25 uses. `run_gui()` is the one
+allocator. Every reader was a GUI file, as measured, so nothing on the
+server side changed except includes.
+
+**The transitive walk is clean**: nothing reaches raylib from `app.h`.
+
+### The NULL earned itself on the first run
+
+The ticket argued for a pointer because "a runtime path that reaches for a
+texture crashes at once instead of reading a zeroed handle". It found two
+couplings immediately, both segfaults, neither of which any check had been
+able to see:
+
+- **`recompute_magnitude_bins()` reads the plot width, and `process_block()`
+  calls it** -- so the shared per-block step asks the window how wide it is,
+  on every headless and server run. Behaviour is unchanged by the guard:
+  `app->plot` was a zeroed `Rectangle` on those paths, so the capacity was
+  *already* 1 and a windowless run has always reduced every block to a single
+  bin nothing reads. The guard is not the fix; ticket 02 item 2 is this exact
+  case.
+- **`view_scope_release()` mixes owners.** `main()` calls it for every mode,
+  and it freed `app->gui->waterfall_pixels` alongside `app->sv.waterfall_dbfs`
+  -- the first the window's, the second allocated by `server` itself. Split by
+  owner now. Worth noting: `app->sv.waterfall_ready` is **not** a test for a
+  texture existing, because `viewer_session.c` sets that flag with no texture
+  behind it.
+
+### Two of the four checks, not four
+
+`check-fm-view-model` and `check-scope-view-model` are raylib-free, **proven
+with a `#error` raylib.h ahead of the real one on the include path** -- not by
+the build succeeding, since the system header is in `/usr/include` and
+dropping the flag alone proves nothing.
+
+`check-survey-view-model` and `check-frame-advance` are **not**: both compile a
+`.c` that includes `view.h`, which is a GUI header. Their cflags are restored
+with a comment saying so, rather than left dropped and building by accident.
+That is ticket 02's `view.h` split, which now has a measurement behind it.
+
+### `make screens` is unchanged, and proving it needed a second attempt
+
+Nine of twenty-one screens are byte-identical across the change. The rest
+carry real run-to-run noise, and `srd-charts` read 74907 differing pixels
+against an apparent noise floor of 8316 -- a regression by that arithmetic.
+
+It is not one. **The old binary compared against itself reads 73817-80629**
+once the renders come from different batches. The screen's noise is bimodal:
+about 8000 within one `make screens` run, about 78000 between a full run and
+a single-screen one, because the SRD frame list is cumulative over playback
+and the two land at different points in the capture. The first estimate was
+too optimistic because both renders were in the same batch -- the same
+"comparison at two machine loads" trap this spec warns about, one level in.
+The decode itself is pinned by `check-pipelines`, which passes unchanged.
+
+### And a bug in the checking tool
+
+`check-web-layout` failed, and it was `scripts/web_layout.mjs`'s own fault,
+twice over: it killed chromium at the *bottom* of `run()`, which a throw
+skips, so a failing run leaked its browser -- and the leaked browser then held
+the debug port, so the *next* run attached to a stale page and failed for an
+entirely different reason. Self-perpetuating, and it could as easily have
+reported a false pass against an old page.
+
+Both halves fixed: the children are killed in a `finally` and on signals, and
+the run refuses a debug port that already answers rather than attaching to
+whatever is on it -- plus the page target must be at *this* run's server URL.
+All three behaviours verified, including that an interrupted run leaks
+nothing.
+
+`make check`: 21988 checks in 79 suites. Headless decodes and a live `server`
+run verified by hand.

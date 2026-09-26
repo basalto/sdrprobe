@@ -104,7 +104,7 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
 	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c $(SRC)/browser.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/gui_state.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h $(SRC)/browser.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h $(SRC)/startup_session.h \
@@ -215,10 +215,20 @@ check-frame-advance: $(TESTS)/frame_advance_test.c $(TESTS)/check.h \
 
 # The Scope's view model, built from known inputs -- see the file comment
 # in scope_view_model.h for what stays view-owned and why.
+#
+# No raylib cflags since 2026-09-26: `app.h` no longer includes raylib
+# (`.scratch/layer-boundaries/issues/01-*`), and this suite compiles nothing
+# that reaches it. Proven with a `#error` raylib.h ahead of the real one on
+# the include path, not by the build merely succeeding -- the system header
+# is in /usr/include, so dropping the flag alone proves nothing.
+#
+# check-survey-view-model and check-frame-advance still carry the flag: both
+# compile a .c that includes `view.h`, which is a GUI header and includes
+# raylib itself. Ticket 02 of that spec splits it.
 check-scope-view-model: $(TESTS)/scope_view_model_test.c $(TESTS)/check.h \
 		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h $(SRC)/app.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
 		-o $(BUILD)/scope_view_model_test \
 		$(TESTS)/scope_view_model_test.c $(SRC)/scope_view_model.c -lm
 	$(Q)./$(BUILD)/scope_view_model_test
@@ -248,7 +258,7 @@ check-fm-view-model: $(TESTS)/fm_view_model_test.c $(TESTS)/check.h \
 		$(SRC)/fm_dsp.c $(SRC)/fm_dsp.h $(SRC)/rds.c $(SRC)/rds.h \
 		$(SRC)/sdr_dsp.c
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
 		-o $(BUILD)/fm_view_model_test \
 		$(TESTS)/fm_view_model_test.c $(SRC)/fm_view_model.c \
 		$(SRC)/fm_dsp.c $(SRC)/rds.c $(SRC)/sdr_dsp.c -lm

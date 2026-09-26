@@ -1,7 +1,6 @@
 #ifndef CHART_WINDOW_H
 #define CHART_WINDOW_H
 
-#include <raylib.h>
 #include <stdint.h>
 
 #include "freq_window.h"
@@ -61,23 +60,19 @@ static inline double chart_min_span(double channel_spacing_hz) {
     return CHART_MIN_SPAN_HZ;
 }
 
-/* Declared here, defined in chart_window.c: they need raylib's input and the
-   chart_key enum from view.h. */
+/*
+ * Declared here, defined in chart_window.c. The window's state above is plain
+ * arithmetic and stays; the two entry points that take a `Rectangle` are in
+ * `view.h` instead, because a rectangle is raylib's and this header is
+ * included by `app.h` (`.scratch/layer-boundaries/issues/01-*`).
+ */
 struct app;
-enum chart_key;
 
 void chart_window_sync(struct chart_window *w, uint32_t centre_hz,
                        uint32_t sample_rate, double min_span);
-/* Handles the drag, the zoom keys and the pan. Returns the hertz the receiver
-   must move for the pan to continue past the edge of what it is delivering,
-   or 0. Retuning is the caller's, because whether it is allowed differs. */
-double chart_window_input(struct chart_window *w, Rectangle plot,
-                          enum chart_key key, double min_span);
 void chart_window_centre_on(struct chart_window *w, double centre_hz,
                             double half_width_hz, double min_span);
 void chart_window_zoom_of(const struct chart_window *w, double *centre_hz,
                           double *half_width_hz);
-int chart_window_drag_of(const struct chart_window *w, Rectangle plot,
-                         double *lower_hz, double *upper_hz);
 
 #endif

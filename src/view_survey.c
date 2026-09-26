@@ -1599,7 +1599,7 @@ void handle_survey_input(struct app *app) {
          * which is what this path has always done, now said out loud.
          */
         receiver_commit(app, &s->lease_token);
-        if (recreate_waterfall(app, scope_plot_split(app->plot).waterfall,
+        if (recreate_waterfall(app, scope_plot_split(app->gui->plot).waterfall,
                                1) < 0)
             return;
         /*

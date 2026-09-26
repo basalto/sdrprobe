@@ -690,7 +690,7 @@ void fm_play(struct app *app) {
     if (fm->playing) {
         fm->playing = 0;
         if (fm->audio_ready)
-            StopAudioStream(fm->audio_stream);
+            StopAudioStream(app->gui->fm_audio_stream);
         fm->audio_head = fm->audio_tail = 0;
         debug_log_write("fm-audio", "stopped");
         return;
@@ -709,14 +709,14 @@ void fm_play(struct app *app) {
             return;
         }
         SetAudioStreamBufferSizeDefault(FM_AUDIO_CHUNK);
-        fm->audio_stream = LoadAudioStream((unsigned)fm_audio_rate(&fm->audio),
+        app->gui->fm_audio_stream = LoadAudioStream((unsigned)fm_audio_rate(&fm->audio),
                                            16, 2);
         fm->audio_ready = 1;
     }
     fm->audio_error[0] = '\0';
     fm->audio_head = fm->audio_tail = 0;
     fm->playing = 1;
-    PlayAudioStream(fm->audio_stream);
+    PlayAudioStream(app->gui->fm_audio_stream);
     debug_log_write("fm-audio", "playing at %.0f Hz",
                     fm_audio_rate(&fm->audio));
 }
@@ -724,8 +724,8 @@ void fm_play(struct app *app) {
 void fm_audio_close(struct app *app) {
     if (!app->fm.audio_ready)
         return;
-    StopAudioStream(app->fm.audio_stream);
-    UnloadAudioStream(app->fm.audio_stream);
+    StopAudioStream(app->gui->fm_audio_stream);
+    UnloadAudioStream(app->gui->fm_audio_stream);
     CloseAudioDevice();
     app->fm.audio_ready = 0;
     app->fm.playing = 0;
@@ -744,7 +744,7 @@ void update_fm_audio(struct app *app) {
 
     if (!fm->playing || !fm->audio_ready)
         return;
-    while (IsAudioStreamProcessed(fm->audio_stream) &&
+    while (IsAudioStreamProcessed(app->gui->fm_audio_stream) &&
            audio_pending(fm) >= FM_AUDIO_CHUNK) {
         static int16_t chunk[FM_AUDIO_CHUNK * 2];
         size_t k;
@@ -754,7 +754,7 @@ void update_fm_audio(struct app *app) {
             chunk[k * 2 + 1] = fm->audio_ring[fm->audio_head * 2 + 1];
             fm->audio_head = (fm->audio_head + 1) & (FM_AUDIO_RING - 1);
         }
-        UpdateAudioStream(fm->audio_stream, chunk, FM_AUDIO_CHUNK);
+        UpdateAudioStream(app->gui->fm_audio_stream, chunk, FM_AUDIO_CHUNK);
     }
 }
 

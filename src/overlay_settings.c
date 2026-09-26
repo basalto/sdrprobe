@@ -122,7 +122,7 @@ int apply_settings(struct app *app) {
          * own -- so passing it the same value on both sides says exactly
          * that, rather than a bare 0 a reader has to take on faith.
          */
-        if (recreate_waterfall(app, app->plot,
+        if (recreate_waterfall(app, app->gui->plot,
                                sdr_dsp_gain_change_clears_waterfall(
                                    0, 0, 0, 0)) < 0) {
             snprintf(app->set.error, sizeof(app->set.error),
@@ -204,7 +204,7 @@ int apply_settings(struct app *app) {
      * generation advanced with the frequency put back. The panel still says
      * so, because a blank chart with no explanation is worse.
      */
-    if (recreate_waterfall(app, app->plot, clear_waterfall) < 0) {
+    if (recreate_waterfall(app, app->gui->plot, clear_waterfall) < 0) {
         snprintf(app->set.error, sizeof(app->set.error),
                  "Could not reset waterfall for the new frequency");
         return -1;

@@ -4,11 +4,29 @@
 #include <raylib.h>
 
 #include "app.h"
+#include "gui_state.h"
 #include "survey_record.h"
 #include "lte_dsp.h"
 #include "scope_view_model.h"
 
 struct sdrgui_waterfall_marker;
+
+/*
+ * The two chart-window entry points that take a rectangle, and so raylib.
+ * `chart_window.h` holds the state and the arithmetic and is included by
+ * `app.h`, which no longer compiles against raylib; these two live here,
+ * where a rectangle is already at home (ticket 01 of layer-boundaries).
+ * Defined in chart_window.c, which includes this header.
+ */
+enum chart_key;
+
+/* Handles the drag, the zoom keys and the pan. Returns the hertz the receiver
+   must move for the pan to continue past the edge of what it is delivering,
+   or 0. Retuning is the caller's, because whether it is allowed differs. */
+double chart_window_input(struct chart_window *w, Rectangle plot,
+                          enum chart_key key, double min_span);
+int chart_window_drag_of(const struct chart_window *w, Rectangle plot,
+                         double *lower_hz, double *upper_hz);
 
 /*
  * The bands this receiver can sweep, for whichever panel is drawing the row.

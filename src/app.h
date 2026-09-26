@@ -2,7 +2,6 @@
 #define APP_H
 
 #include <pthread.h>
-#include <raylib.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -250,7 +249,6 @@ struct fm_view {
     int audio_ready;                /* the device opened */
     char audio_error[80];
     int playing;
-    AudioStream audio_stream;
     /* Interleaved left and right, so a frame is two entries. Always two
        channels even on a mono station -- switching the stream's format when
        a pilot comes and goes would mean reopening the device mid-song. */
@@ -833,9 +831,6 @@ struct scope_view {
     size_t scatter_history_head;
     size_t scatter_history_count;
     float scatter_axis_limit;
-    RenderTexture2D scatter;
-    Texture2D waterfall;
-    Color *waterfall_pixels;
     float *waterfall_dbfs;
     int waterfall_capacity;
     /* The tuning its history was gathered at. When the receiver moves, every
@@ -1023,29 +1018,25 @@ struct survey_view {
 typedef char signal_frame_is_one_block[
     (SIGNAL_FRAME_PAIRS == SAMPLE_BLOCK_PAIRS) ? 1 : -1];
 
-struct waterfall_signal_context {
-    int menu_open;
-    int popup_open;
-    Vector2 mouse_pos;
-    double clicked_freq_hz;
-    double clicked_age_seconds;
-    char technology[16];
 
-    double report_freq_hz;
-    double report_offset_hz;
-    double report_age_seconds;
-    double report_duration_seconds;
-    double report_prominence_db;
-    double report_standing_fraction;
-    double report_envelope_variation;
-    double report_peak_mean_db;
-    char report_modulation[64];
-    char report_technology[96];
-    char notice[384];
-    double notice_time;
-};
+/*
+ * What only a window owns -- textures, the audio stream, the plot rectangle,
+ * the right-click menu (`gui_state.h`). Forward-declared and never
+ * dereferenced here: this header stops at the boundary, which is what lets it
+ * compile without raylib and what lets the view models, `frame_advance` and
+ * the Viewer link do the same.
+ */
+struct gui_state;
 
 struct app {
+    /*
+     * NULL under `headless` and `server`, allocated by `run_gui()`. That NULL
+     * is the truth about a session with no window, and it is load-bearing: a
+     * runtime path that reaches for a texture crashes where it is wrong
+     * rather than reading a zeroed handle that looks plausible.
+     */
+    struct gui_state *gui;
+
     struct scope_view sv;
     struct survey_view survey;
     struct gsm_view gsm;
@@ -1054,7 +1045,6 @@ struct app {
     struct lte_view lte;
     struct fm_view fm;
     struct srd_view srd;
-    struct waterfall_signal_context wf_menu;
     struct settings_panel set;
     struct help_overlay help;
     struct calibration cal;
@@ -1137,7 +1127,6 @@ struct app {
     enum active_tab tab;
     enum decode_kind decode;
     enum view_kind view;
-    Rectangle plot;
     float waterfall_lower_dbfs;
 
     int remove_dc;

@@ -167,7 +167,7 @@ void update_scan(struct app *app) {
 }
 
 static int scan_arfcn_at(const struct app *app, Vector2 point) {
-    return sdrgui_scan_chart_channel_at(app->plot, 124, point);
+    return sdrgui_scan_chart_channel_at(app->gui->plot, 124, point);
 }
 
 void draw_scan(struct app *app) {
@@ -204,7 +204,7 @@ void draw_scan(struct app *app) {
     int hover = (!app->bandscan.running) ? scan_arfcn_at(app, GetMousePosition())
                                      : 0;
     struct sdrgui_scan_chart_params params = {
-        app->plot, app->bandscan.power, app->bandscan.bcch_conf, 124,
+        app->gui->plot, app->bandscan.power, app->bandscan.bcch_conf, 124,
         SCAN_SENTINEL_DBFS, SCAN_BCCH_MIN_CONF, hover,
         GSM900_BASE_HZ, GSM900_ARFCN_SPACING_HZ, app->gsm.selected_arfcn,
         "no channel measured yet"

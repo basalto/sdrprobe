@@ -1174,8 +1174,8 @@ static struct view_input view_input_now(const struct app *app) {
     v.survey_band_menu_open = app->survey.band_menu_open;
     v.startup_site_menu_open = app->startup.site_menu_open;
     v.startup_antenna_menu_open = app->startup.antenna_menu_open;
-    v.waterfall_menu_open = app->wf_menu.menu_open;
-    v.waterfall_report_open = app->wf_menu.popup_open;
+    v.waterfall_menu_open = app->gui->wf_menu.menu_open;
+    v.waterfall_report_open = app->gui->wf_menu.popup_open;
 
     v.scope_zoomed = app->tab == TAB_SCOPE &&
                      app->view == VIEW_SPECTRUM &&
@@ -1302,7 +1302,7 @@ static void check_waterfall_right_click(struct app *app) {
     const char *tech = "raw";
 
     if (app->tab == TAB_SCOPE && app->view == VIEW_SPECTRUM) {
-        rect = scope_plot_split(app->plot).waterfall;
+        rect = scope_plot_split(app->gui->plot).waterfall;
         win = &app->sv.window;
         tech = "scope";
     } else if (app->tab == TAB_DECODE) {
@@ -1373,6 +1373,20 @@ static int run_gui(struct app *app) {
     struct slot_snapshot snapshot;
     int result = 0;
     int break_requested = 0;
+    /*
+     * The window's own state, and the only place it is allocated. `headless`
+     * and `server` leave `app->gui` NULL, which is what says they have no
+     * window rather than a window with zeroed handles (`gui_state.h`).
+     *
+     * A file-scope static rather than a malloc for the reason every large
+     * object in this program is: `struct gui_state` carries textures and a
+     * 384-byte notice, and this file already keeps the acquisition and the
+     * app itself off the stack.
+     */
+    static struct gui_state gui;
+
+    memset(&gui, 0, sizeof(gui));
+    app->gui = &gui;
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(1100, 720, "sdrprobe signal visualizer");
@@ -1385,10 +1399,10 @@ static int run_gui(struct app *app) {
     SetWindowMinSize(1000, 540);
     SetTargetFPS(60);
     configure_gui_style();
-    app->plot = calculate_plot();
-    if (recreate_scatter(app, app->plot) < 0)
+    app->gui->plot = calculate_plot();
+    if (recreate_scatter(app, app->gui->plot) < 0)
         return -1;
-    if (recreate_waterfall(app, app->plot, 1) < 0)
+    if (recreate_waterfall(app, app->gui->plot, 1) < 0)
         return -1;
 
     sdr_dsp_init(&app->frame.dsp);
@@ -1873,7 +1887,7 @@ static int run_gui(struct app *app) {
                  * retunes only when a pan has run out of received span.
                  */
                 if (app->view == VIEW_SPECTRUM) {
-                    scope_freq_input(app, app->plot, chart_key);
+                    scope_freq_input(app, app->gui->plot, chart_key);
                 }
                 /* The scale keys are applied once, below, for every screen
                    that has a scale -- not here, and not per view. */
@@ -1929,7 +1943,7 @@ static int run_gui(struct app *app) {
                     draw_magnitude(app, &svm);
                 else if (app->view == VIEW_SPECTRUM) {
                     struct scope_plot_layout split =
-                        scope_plot_split(app->plot);
+                        scope_plot_split(app->gui->plot);
                     draw_spectrum(app, &svm, split.spectrum);
                     draw_waterfall(app, &svm, split.waterfall);
                 } else

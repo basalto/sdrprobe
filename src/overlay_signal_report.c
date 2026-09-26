@@ -41,24 +41,24 @@ void waterfall_context_menu_open(struct app *app, Vector2 mouse,
     if (mouse.y + h > screen_h - 10.0f)
         mouse.y = screen_h - h - 10.0f;
 
-    app->wf_menu.mouse_pos = mouse;
-    app->wf_menu.clicked_freq_hz = freq_hz;
-    app->wf_menu.clicked_age_seconds = age_seconds;
-    snprintf(app->wf_menu.technology, sizeof(app->wf_menu.technology), "%s",
+    app->gui->wf_menu.mouse_pos = mouse;
+    app->gui->wf_menu.clicked_freq_hz = freq_hz;
+    app->gui->wf_menu.clicked_age_seconds = age_seconds;
+    snprintf(app->gui->wf_menu.technology, sizeof(app->gui->wf_menu.technology), "%s",
              technology ? technology : "raw");
-    app->wf_menu.menu_open = 1;
-    app->wf_menu.popup_open = 0;
+    app->gui->wf_menu.menu_open = 1;
+    app->gui->wf_menu.popup_open = 0;
 }
 
 void waterfall_context_close(struct app *app) {
     if (!app)
         return;
-    app->wf_menu.menu_open = 0;
-    app->wf_menu.popup_open = 0;
+    app->gui->wf_menu.menu_open = 0;
+    app->gui->wf_menu.popup_open = 0;
 }
 
 static void run_signal_report(struct app *app) {
-    struct waterfall_signal_context *ctx = &app->wf_menu;
+    struct waterfall_signal_context *ctx = &app->gui->wf_menu;
 
     struct iq_snapshot *snap = iq_ring_extract_snapshot(&app->acq.ring,
                                                         ctx->clicked_age_seconds,
@@ -114,7 +114,7 @@ int handle_waterfall_context_input(struct app *app) {
     if (!app)
         return 0;
 
-    struct waterfall_signal_context *ctx = &app->wf_menu;
+    struct waterfall_signal_context *ctx = &app->gui->wf_menu;
     Vector2 mouse = GetMousePosition();
 
     if (ctx->menu_open) {
@@ -211,7 +211,7 @@ void draw_waterfall_context(struct app *app) {
     if (!app)
         return;
 
-    struct waterfall_signal_context *ctx = &app->wf_menu;
+    struct waterfall_signal_context *ctx = &app->gui->wf_menu;
     double now = GetTime();
 
     /* Status banner */

@@ -62,16 +62,37 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /* CDP, in as much of it as this needs.                                 */
 /* ------------------------------------------------------------------ */
 
-async function pageTarget(port) {
+// Whether anything already answers on the debug port. A browser left over
+// from an earlier run answers exactly like the one this run is about to
+// start, and attaching to it is how a check comes to measure a page from
+// ten minutes ago -- reporting a failure that is really a stale tab, or,
+// worse, a pass.
+async function debugPortBusy(port) {
+  try {
+    await fetch(`http://127.0.0.1:${port}/json/version`,
+                { signal: AbortSignal.timeout(500) });
+    return true;
+  } catch { return false; }
+}
+
+// The page target, and it must be *ours*: the URL has to be the server this
+// run started. Without that check a stale browser on the same port is
+// indistinguishable from the one just launched, which cost a debugging
+// session -- every assertion failed with "Cannot read properties of null"
+// because the page being measured was some earlier run's.
+async function pageTarget(port, wantUrl) {
   for (let i = 0; i < 80; i++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-      const page = list.find((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+      const page = list.find((t) => t.type === 'page' &&
+                                    t.webSocketDebuggerUrl &&
+                                    t.url && t.url.startsWith(wantUrl));
       if (page) return page.webSocketDebuggerUrl;
     } catch { /* not listening yet */ }
     await sleep(250);
   }
-  throw new Error('chromium never exposed a page target');
+  throw new Error(`chromium never exposed a page at ${wantUrl} on the `
+                  + `debug port ${port}`);
 }
 
 function connect(url) {
@@ -137,22 +158,44 @@ const MEASURE = `(() => {
 
 /* ------------------------------------------------------------------ */
 
+// Both children, killed however this run ends. They were killed at the
+// bottom of run(), which a throw skips -- so a failing run leaked its
+// browser, and the leaked browser then held the debug port and failed the
+// *next* run for a different reason. A check that leaks state and then
+// fails on its own leak is worse than no check.
+let serve = null, chrome = null;
+function stopChildren() {
+  for (const child of [chrome, serve])
+    if (child && child.exitCode === null) { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+  chrome = serve = null;
+}
+process.on('exit', stopChildren);
+for (const sig of ['SIGINT', 'SIGTERM'])
+  process.on(sig, () => { stopChildren(); process.exit(1); });
+
 async function run() {
-  const serve = spawn('./sdrprobe', [
+  const serveUrl = `http://127.0.0.1:${SERVE_PORT}/`;
+
+  if (await debugPortBusy(DEBUG_PORT))
+    throw new Error(`something already answers on debug port ${DEBUG_PORT} `
+                    + `-- a chromium left by an earlier run, most likely. `
+                    + `Kill it, or pass --debug-port.`);
+
+  serve = spawn('./sdrprobe', [
     'server', '--file', CAPTURE, '--sample-rate', '2048000',
     '--frequency', '89.5M', '--serve-port', String(SERVE_PORT),
     '--duration', String(20 + SIZES.length * 25),
   ], { stdio: 'ignore' });
   await sleep(1500);
 
-  const chrome = spawn('chromium', [
+  chrome = spawn('chromium', [
     '--headless=new', `--remote-debugging-port=${DEBUG_PORT}`,
     `--window-size=${SIZES[0].w},${SIZES[0].h}`,
     '--no-sandbox', '--disable-gpu',
     `http://127.0.0.1:${SERVE_PORT}/`,
   ], { stdio: 'ignore' });
 
-  const cdp = connect(await pageTarget(DEBUG_PORT));
+  const cdp = connect(await pageTarget(DEBUG_PORT, serveUrl));
   await cdp.ready;
   await cdp.send('Runtime.enable');
   await cdp.send('Page.enable');
@@ -230,8 +273,6 @@ async function run() {
   }
 
   cdp.ws.close();
-  chrome.kill('SIGTERM');
-  serve.kill('SIGTERM');
 }
 
 try {
@@ -239,6 +280,8 @@ try {
 } catch (e) {
   console.log(`    FAIL  ${e.message}`);
   fail++;
+} finally {
+  stopChildren();
 }
 
 // The same one-line tally every C suite appends through `check_report()`
