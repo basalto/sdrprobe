@@ -219,9 +219,24 @@ async function run() {
 
     for (const tab of ['scope', 'survey', 'fm']) {
       await evaluate(`document.getElementById('tab-${tab}').click(); true`);
-      // Long enough on FM for a real decode to name the station, which is
-      // the text a headless screenshot could not show.
-      await sleep(tab === 'fm' ? 7000 : 1200);
+      await sleep(1200);
+      /*
+       * On FM, wait for the decode to actually name the station rather than
+       * sleeping a fixed span and hoping. A programme service name is four
+       * segments seen whole twice, the capture is three seconds long and
+       * loops, and how many loops that takes varies -- a flat 7 s wait
+       * failed roughly one run in six, which in a gated check is worse than
+       * the fault it was looking for.
+       */
+      if (tab === 'fm') {
+        const deadline = Date.now() + 30000;
+        for (;;) {
+          const named = await evaluate(
+            `/TSF/.test((document.getElementById('fm-station-rows')||{}).innerHTML || '')`);
+          if (named || Date.now() > deadline) break;
+          await sleep(500);
+        }
+      }
       const m = await evaluate(MEASURE);
       const at = `${size.w}x${size.h} ${tab}`;
 

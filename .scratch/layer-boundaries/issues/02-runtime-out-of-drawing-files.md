@@ -179,9 +179,39 @@ Both are in `1450a1c`, ahead of the move, because neither is a file move:
   `index == len(args)` did nothing and reported success. Appending is the
   commonest way a parameter is threaded here.
 
+### GSM done, 2026-09-26
+
+`src/gsm_runtime.c` -- channel tuning, the synchronization decode, entering
+and leaving, starting a recording. `view_gsm.c` 633 -> 526 lines.
+Three shared functions moved their declarations ahead of their definitions:
+`start_scan()` and `scan_release_receiver()` (`overlay_scan.c`) and
+`start_capture_record()` (`sdrprobe.c`). Poison-tested raylib-free. All three
+GSM captures decode byte-identically -- 69, 73 and 113, the set that exists
+because the BCC picks the training sequence.
+
+### ADS-B done, 2026-09-26
+
+`src/adsb_runtime.c` -- the tuning check, entering and leaving, one block of
+Mode S, and the log row formatting. `view_adsb.c` 480 -> 382 lines.
+`adsb_analysis_showing()` was `static` and is now exported, because the
+drawing asks it; `adsb_format()` stayed `static`, having no caller outside
+the runtime. Poison-tested raylib-free. Both captures decode identically with
+the wall-clock column stripped -- `adsb_cpr_pair` is the one that exercises
+the even/odd CPR pairing cache end to end.
+
+**And the gate was found to be intermittent, which mattered more.** A run of
+`make check` failed roughly one time in six, always on
+`check-web-layout`'s "the station was named". Not the move: my own harness
+slept a flat seven seconds and assumed the FM decode would have named TSF by
+then. A programme service name is four segments seen whole twice, over a
+three-second capture that loops, and how many loops that takes varies. It
+polls for the name with a thirty-second deadline now; eight consecutive runs
+pass. A gated check that fails one run in six is worse than the fault it
+looks for.
+
 ### Still open in this ticket
 
 Item 2's `process_block(app, now, fft_size)`, decided but not done; the
 Scope's three `advance_*`/`decay_*`; the overlays' four; `set_tab`,
-`set_decode`, `retune_receiver*` and `stop_requested`; and GSM, ADS-B, TETRA,
-LTE, SRD. `check-frame-advance` still stubs all nineteen callees.
+`set_decode`, `retune_receiver*` and `stop_requested`; and TETRA, SRD, LTE.
+`check-frame-advance` still stubs all nineteen callees.

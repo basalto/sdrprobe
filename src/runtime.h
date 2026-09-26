@@ -81,6 +81,17 @@ void view_gsm_defaults(struct app *app);
 void start_record(struct app *app);
 void gsm_tune_selected(struct app *app, int arfcn);
 
+/* --- ADS-B: the tuning, one block of Mode S, the log's row format --- */
+
+void update_adsb(struct app *app, double now);
+int adsb_tuned(const struct app *app);
+void enter_adsb(struct app *app);
+void leave_adsb(struct app *app);
+void view_adsb_defaults(struct app *app);
+/* Whether the ADS-B view is on its charts rather than its log. A question
+   about state, asked by the drawing. */
+int adsb_analysis_showing(const struct app *app);
+
 /* --- FM: the discriminator, the RDS chain, the band scan, the tuning --- */
 
 void update_fm(struct app *app, double now);

@@ -160,12 +160,7 @@ int lte_on_grid(const struct app *app);
 /* Mode S / ADS-B view. */
 void draw_adsb(struct app *app);
 void handle_adsb_input(struct app *app);
-void update_adsb(struct app *app, double now);
-int adsb_tuned(const struct app *app);
 Rectangle adsb_waterfall_rect(const struct app *app);
-void enter_adsb(struct app *app);
-void leave_adsb(struct app *app);
-void view_adsb_defaults(struct app *app);
 
 
 /* Scope tab: the four signal views, and the GPU resources two of them keep
