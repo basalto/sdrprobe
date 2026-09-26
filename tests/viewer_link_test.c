@@ -799,14 +799,39 @@ static void test_link_health_reports_this_clients_own_counters(void) {
               client_next_frame(&tc, &opcode, &payload, &len));
     check_int("it is a text frame", opcode, WEBSOCKET_OP_TEXT);
     check_true("it names the type", contains(payload, len, "\"type\":\"link_health\""));
-    check_true("it reports one spectrum message sent",
-              contains(payload, len, "\"spectrum_sent\":1"));
-    check_true("it reports one spectrum message dropped",
-              contains(payload, len, "\"spectrum_dropped\":1"));
+    check_true("it reports one spectrum message sent and one dropped",
+              contains(payload, len,
+                       "\"spectrum\":{\"sent\":1,\"dropped\":1}"));
     check_true("it reports the send-queue high-water mark",
               contains(payload, len, "\"send_queue_high_water\":4096"));
     check_true("it reports the server CPU percentage handed in",
               contains(payload, len, "\"server_cpu_percent\":42.50"));
+    /*
+     * Every stream in the enum, not the three this used to name. The
+     * hand-written form fell two behind twice without anything noticing --
+     * ticket 07's survey pair, ticket 14's FM pair -- so this walks
+     * `VIEWER_STREAM_COUNT` and asserts each name is present, which is the
+     * check that was missing then and is what a table makes possible.
+     */
+    {
+        static const char *const names[] = {
+            "spectrum", "waterfall", "receiver_state", "link_health",
+            "command_result", "survey_spectrum", "survey_state",
+            "fm_spectrum", "fm_state"
+        };
+        size_t n = sizeof(names) / sizeof(names[0]);
+        size_t k;
+
+        check_size("the enum has as many streams as names", n,
+                  (size_t)VIEWER_STREAM_COUNT);
+        for (k = 0; k < n; k++) {
+            char needle[64];
+
+            snprintf(needle, sizeof(needle), "\"%s\":{\"sent\":", names[k]);
+            check_msg(contains(payload, len, needle),
+                      "link_health reports %s\n", names[k]);
+        }
+    }
 
     client_close_conn(&tc);
     viewer_link_close(&vlink);

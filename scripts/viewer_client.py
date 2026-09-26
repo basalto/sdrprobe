@@ -292,13 +292,15 @@ def run_print(client, count):
         if opcode == OPCODE_TEXT:
             state = json.loads(payload)
             if state.get("type") == "link_health":
+                # Only the streams that have carried something: link_health
+                # names every stream in the enum now, and nine entries of
+                # which six read 0/0 is a line nobody reads.
+                busy = " ".join(
+                    f"{name}={c['sent']}/{c['dropped']}"
+                    for name, c in state.get("streams", {}).items()
+                    if c["sent"] or c["dropped"])
                 print(f"link_health     server_cpu={state['server_cpu_percent']:.1f}% "
-                     f"spectrum sent={state['spectrum_sent']} "
-                     f"dropped={state['spectrum_dropped']} "
-                     f"waterfall sent={state['waterfall_sent']} "
-                     f"dropped={state['waterfall_dropped']} "
-                     f"receiver_state sent={state['receiver_state_sent']} "
-                     f"dropped={state['receiver_state_dropped']} "
+                     f"sent/dropped {busy or '(nothing yet)'} "
                      f"high_water={format_bytes(state['send_queue_high_water'])} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             elif state.get("type") == "command_result":

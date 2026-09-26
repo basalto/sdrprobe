@@ -360,12 +360,19 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
 
 /*
  * Ticket 08's Health panel: what only the server knows about the link
- * itself, unlike the other three streams this is *not* one shared
- * payload -- each client's own sent/dropped/high-water counts are its
- * own, so this builds one JSON message per subscribed client rather
- * than encoding once and fanning it out. `server_cpu_percent` is handed
- * in already computed (`process_cpu.h`); this module stays as decoupled
- * from process accounting as it already is from raylib.
+ * itself, unlike the other streams this is *not* one shared payload --
+ * each client's own sent/dropped/high-water counts are its own, so this
+ * builds one JSON message per subscribed client rather than encoding
+ * once and fanning it out. `server_cpu_percent` is handed in already
+ * computed (`process_cpu.h`); this module stays as decoupled from
+ * process accounting as it already is from raylib.
+ *
+ * The per-stream counts travel as one `streams` object keyed by the name
+ * in `stream_names[]`, every stream in the enum, rather than as a
+ * hand-written pair of fields per stream. The hand-written form named
+ * three and had fallen two behind twice -- ticket 07's survey pair and
+ * ticket 14's FM pair -- so a Viewer on either of those tabs was shown
+ * counts for streams it was not using and none for the ones it was.
  */
 void viewer_link_publish_link_health(struct viewer_link *link,
                                      double server_cpu_percent,

@@ -190,18 +190,28 @@ function handleState(state) {
 function renderHealth() {
   const h = lastHealth;
   if (!h) { health.textContent = 'awaiting link_health...'; return; }
-  const stream = (name, sent, dropped) => {
-    const total = sent + dropped;
-    const rate = dropped > 0 && total > 0
-      ? ' <span>(' + (100 * dropped / total).toFixed(1) + '% lost)</span>' : '';
-    return name + ' <span>' + sent + '/' + dropped + '</span>' + rate;
+  const stream = (name, c) => {
+    const total = c.sent + c.dropped;
+    const rate = c.dropped > 0 && total > 0
+      ? ' <span>(' + (100 * c.dropped / total).toFixed(1) + '% lost)</span>' : '';
+    return name + ' <span>' + c.sent + '/' + c.dropped + '</span>' + rate;
   };
+  // `link_health` names all nine streams now, and nine entries is a line
+  // nobody reads -- it wrapped to a third line as soon as a session had
+  // visited every tab. So: whatever the page is subscribed to right now,
+  // which is what "how is this view's link doing" actually means, **plus
+  // any stream that has dropped something**, subscribed or not. A loss is
+  // the one thing this panel must never hide, including on a tab the
+  // reader has since left.
+  const showing = new Set(['receiver_state', 'link_health']
+    .concat(activeView ? activeView.streams : []));
+  const active = Object.entries(h.streams || {})
+    .filter(([name, c]) => showing.has(name) || c.dropped > 0);
   health.innerHTML =
     '<div class="row">sent/dropped &nbsp; '
-      + [stream('spectrum', h.spectrum_sent, h.spectrum_dropped),
-         stream('waterfall', h.waterfall_sent, h.waterfall_dropped),
-         stream('receiver_state', h.receiver_state_sent, h.receiver_state_dropped)]
-        .join(' &nbsp; ')
+      + (active.length
+          ? active.map(([name, c]) => stream(name, c)).join(' &nbsp; ')
+          : '<span>nothing yet</span>')
       + '</div>'
     + '<div class="row">high-water <span>' + formatBytes(h.send_queue_high_water)
       + '</span> &nbsp; received <span>' + formatBitsPerSecond(throughputBps)

@@ -178,3 +178,37 @@ profile against. Worth stating plainly since it is easy to read the
 above as this ticket having shipped a red herring: it shipped the
 instrument that caught a real bug already present since ticket 05,
 which is the panel doing exactly its job.
+
+### 2026-09-26 -- the panel named three streams of nine
+
+`link_health` was built when the link had five streams and reported the
+three worth reporting, as nine hand-written format specifiers in
+`viewer_link_publish_link_health()`. It then fell behind twice without
+anything noticing: ticket 07 added `survey_spectrum`/`survey_state` and
+ticket 14's Phase 4 added `fm_spectrum`/`fm_state`, and none of the four
+appeared here. A reader on the Survey or FM tab was shown sent/dropped
+counts for three streams that tab does not use, and none for the two it
+does -- and since this panel exists so that "the page seems a little slow
+sometimes" has a number attached, an instrument silently blind to the
+stream under test is worse than a missing one.
+
+The counts travel as one `streams` object now, keyed by the name in
+`stream_names[]` and walked over `VIEWER_STREAM_COUNT`, so a stream added
+to the enum appears here by construction. Same shape of fix as the
+subscribe parser and the screen names, and the same reason: two lists of
+the same names is one list and one place to forget.
+`check-viewer-link` asserts every name is present and that the table has
+as many entries as the enum.
+
+**What the readers show, and why it is not all nine.** Nine entries is a
+line nobody reads -- it wrapped the browser footer onto a third line as
+soon as a session had visited every tab. The page shows whatever it is
+subscribed to right now, which is what "how is this view's link doing"
+means, **plus any stream that has dropped something**, subscribed or not:
+a loss is the one thing this panel must never hide, including on a tab the
+reader has since left. `scripts/viewer_client.py` shows the streams that
+have carried anything.
+
+Measured on the FM tab, which is the case that was invisible before:
+`fm_spectrum 112/0  fm_state 112/0` beside `waterfall`, `receiver_state`
+and `link_health`, in two lines.

@@ -232,17 +232,33 @@ without Phase 2 is a registry over a monolith.
       once. **Not claimed as an improvement, and not claimed as a
       regression either** -- this needs a quieter machine or several more
       rounds averaged, and this ticket does not have that measurement to
-      report today. What Phase 3 *does* establish, on the wire rather
+      report today.
+      **2026-09-26 adds a reason rather than a result**, which is worth
+      more than another noisy round: serving a *capture* pegs a core.
+      The page's own Health panel reads `server CPU 99.6-100.9%` on every
+      run of `check-web-layout`, at every viewport, on every tab. A
+      subscription set cannot show a difference against a loop that is
+      already saturated -- the file worker paces nothing and the loop
+      spends everything it is given. So this criterion cannot be measured
+      over a capture at all, whatever the rounds; it needs a live
+      receiver, whose block rate bounds the loop, on a quiet machine.
+      What Phase 3 *does* establish, on the wire rather
       than from `/proc`: a Scope-only subscribe line reaches the server
       and only spectrum/waterfall/receiver_state/link_health come back,
       never survey_spectrum/survey_state, and vice versa (evaluation
       criterion above, `x`ed). Whether that translates to a measurable
       server-side saving is a separate, still-open question.
-- [ ] Ticket 11's structural check passes against the restructured page, and
-      each `views/*.js` is loadable by it in isolation. **Ticket 11 is not
-      built**; `web/views/scope.js` and `web/views/survey.js` exist as
-      plain files today, which is as far as this ticket can move that
-      criterion before ticket 11 itself is picked up.
+- [~] Ticket 11's structural check passes against the restructured page, and
+      each `views/*.js` is loadable by it in isolation. **Half of ticket 11
+      is built (2026-09-26) and it is not this half.** `check-web-layout`
+      drives a real browser over the DevTools protocol and is in the gate;
+      it answers layout and rendered text, and it caught two faults on its
+      first run. Ticket 11's (a) -- the DOM-shim check that asserts what
+      the page *decided*, at no browser's cost -- is still a scratch
+      harness, now written twice and standing at 62 checks. "Loadable in
+      isolation" remains untrue by design: the page is one concatenated
+      script (this ticket's own decision over ES modules), so a per-file
+      loader would be testing an arrangement the browser never sees.
 - [~] Adding a seventh view touches `views/` and the registry line, and no
       other file. **Measured on the third view (FM, 2026-09-26) and not
       met as written -- four files, and the honest reading is that three
@@ -264,10 +280,13 @@ without Phase 2 is a registry over a monolith.
 **Structural:**
 
 - [x] No file in `lib/` references a socket, a message, a stream name or a
-      view. True of `web/lib/format.js`, `chart.js` and `table.js` as
-      written.
-- [x] No file in `views/` opens a socket or names a message type. True of
-      `web/views/scope.js` and `survey.js` as written -- `viewer.js` is the
+      view. Re-checked 2026-09-26 against the four there now --
+      `format.js`, `chart.js`, `table.js` and `waterfall.js`, the last two
+      of those added since Phase 3.
+- [x] No file in `views/` opens a socket or names a message type.
+      Re-checked 2026-09-26 against `scope.js`, `survey.js` and `fm.js`:
+      each dispatches on the `kind` `wire.js` hands it, never on a type
+      constant -- `viewer.js` is the
       only file that imports `wire.js`'s constants.
 - [x] No framework, no CDN, no npm, no bundler (ticket 01's constraint,
       unchanged).

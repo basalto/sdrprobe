@@ -1351,9 +1351,15 @@ void viewer_link_publish_link_health(struct viewer_link *link,
     for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
         struct viewer_client *c = &link->clients[i];
         struct viewer_stream_slot *slot;
-        char json[320];
-        int json_len;
+        /*
+         * Nine streams at up to 85 bytes each -- a name, two 20-digit
+         * counts and their punctuation -- plus the wrapper, so 885 bytes
+         * at the arithmetic worst case and nothing like it in practice.
+         */
+        char json[1280];
+        int json_len = 0;
         size_t frame_len;
+        int s;
 
         if (c->state != VIEWER_CLIENT_OPEN ||
             !c->subscribed[VIEWER_STREAM_LINK_HEALTH])
@@ -1362,27 +1368,34 @@ void viewer_link_publish_link_health(struct viewer_link *link,
                             "{\"type\":\"link_health\","
                             "\"timestamp_ms\":%llu,"
                             "\"server_cpu_percent\":%.2f,"
-                            "\"spectrum_sent\":%llu,\"spectrum_dropped\":%llu,"
-                            "\"waterfall_sent\":%llu,\"waterfall_dropped\":%llu,"
-                            "\"receiver_state_sent\":%llu,"
-                            "\"receiver_state_dropped\":%llu,"
-                            "\"send_queue_high_water\":%d}",
+                            "\"send_queue_high_water\":%d,"
+                            "\"streams\":{",
                             (unsigned long long)now_ms, server_cpu_percent,
-                            (unsigned long long)
-                                c->slot[VIEWER_STREAM_SPECTRUM].sent_count,
-                            (unsigned long long)
-                                c->slot[VIEWER_STREAM_SPECTRUM].dropped_count,
-                            (unsigned long long)
-                                c->slot[VIEWER_STREAM_WATERFALL].sent_count,
-                            (unsigned long long)
-                                c->slot[VIEWER_STREAM_WATERFALL].dropped_count,
-                            (unsigned long long)
-                                c->slot[VIEWER_STREAM_RECEIVER_STATE].sent_count,
-                            (unsigned long long)
-                                c->slot[VIEWER_STREAM_RECEIVER_STATE].dropped_count,
                             c->send_queue_high_water);
-        if (json_len <= 0)
-            continue;
+        /*
+         * Every stream, from `stream_names[]` itself.
+         *
+         * This named three of them -- spectrum, waterfall, receiver_state --
+         * as nine hand-written format specifiers, which was the whole of the
+         * link when it was written and had silently stopped being so twice
+         * over: ticket 07's two survey streams and ticket 14's two FM ones
+         * were invisible here, so a reader on either of those tabs was shown
+         * counts for streams that tab does not use and none for the ones it
+         * does. Same shape as the subscribe parser and the screen names, and
+         * the same fix: one table, walked.
+         */
+        for (s = 0; s < VIEWER_STREAM_COUNT && json_len > 0 &&
+                    (size_t)json_len < sizeof(json); s++)
+            json_len += snprintf(json + json_len, sizeof(json) - (size_t)json_len,
+                                 "%s\"%s\":{\"sent\":%llu,\"dropped\":%llu}",
+                                 s ? "," : "", stream_names[s],
+                                 (unsigned long long)c->slot[s].sent_count,
+                                 (unsigned long long)c->slot[s].dropped_count);
+        if (json_len > 0 && (size_t)json_len < sizeof(json) - 3)
+            json_len += snprintf(json + json_len,
+                                 sizeof(json) - (size_t)json_len, "}}");
+        if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+            continue; /* truncated: a half-written object is not JSON */
         slot = &c->slot[VIEWER_STREAM_LINK_HEALTH];
         if (!slot_ready_for_new_message(slot))
             continue;
