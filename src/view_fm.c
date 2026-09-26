@@ -7,6 +7,7 @@
 #include "app.h"
 #include "fm_scan.h"
 #include "fm_layout.h"
+#include "fm_view_model.h"
 #include "panel_rows.h"
 #include "sdrgui.h"
 #include "view.h"
@@ -336,9 +337,7 @@ static void draw_scan_list(const struct app *app, Rectangle rect) {
     }
 }
 
-static void draw_signal_panel(const struct app *app, Rectangle rect) {
-    const struct fm_view *fm = &app->fm;
-    int locked = fm_pilot_locked(&fm->session.front.pilot);
+static void draw_signal_panel(const struct fm_view_model *m, Rectangle rect) {
     /* 128 pixels of label gutter was a constant here; as a fraction with the
        same cap it holds on a wide panel and gives the value room on a narrow
        one, where these values are the part worth reading. */
@@ -354,48 +353,46 @@ static void draw_signal_panel(const struct app *app, Rectangle rect) {
      * received at all. The rows below the lock are how well, and a panel with
      * room for four should spend them on whether rather than how well.
      */
-    draw_row_at(&rows, r++, "pilot", locked ? "locked" : "no lock",
-                locked ? row_good : row_weak);
-    if (fm->audio_error[0]) {
-        draw_row_at(&rows, r++, "audio", fm->audio_error, row_weak);
-    } else if (fm->playing) {
-        snprintf(text, sizeof(text), "%.0f Hz %s", fm_audio_rate(&fm->audio),
-                 fm_audio_is_stereo(&fm->audio) ? "stereo" : "mono");
+    draw_row_at(&rows, r++, "pilot", m->pilot_locked ? "locked" : "no lock",
+                m->pilot_locked ? row_good : row_weak);
+    if (m->audio_error[0]) {
+        draw_row_at(&rows, r++, "audio", m->audio_error, row_weak);
+    } else if (m->playing) {
+        snprintf(text, sizeof(text), "%.0f Hz %s", m->audio_rate_hz,
+                 m->broadcast_stereo ? "stereo" : "mono");
         draw_row_at(&rows, r++, "audio", text, row_good);
     }
     /* Whether the station sends stereo, which is a fact about it rather than
        about the sound card, so it is worth saying even when nothing is
        playing. */
     draw_row_at(&rows, r++, "broadcast",
-                fm_audio_is_stereo(&fm->audio) ? "stereo" : "mono",
-                fm_audio_is_stereo(&fm->audio) ? row_good : row_value);
-    if (locked) {
-        snprintf(text, sizeof(text), "%.2f Hz", fm_pilot_hz(&fm->session.front.pilot));
+                m->broadcast_stereo ? "stereo" : "mono",
+                m->broadcast_stereo ? row_good : row_value);
+    if (m->pilot_locked) {
+        snprintf(text, sizeof(text), "%.2f Hz", m->pilot_hz);
         draw_row_at(&rows, r++, "at", text, row_value);
         /* Not "sample clock": five stations here read between +2 and -57 ppm
            on one receiver, so this is the transmitter's pilot far more than
            it is this receiver's clock. */
-        snprintf(text, sizeof(text), "%+.1f ppm",
-                 fm_pilot_ppm(&fm->session.front.pilot));
+        snprintf(text, sizeof(text), "%+.1f ppm", m->pilot_ppm);
         draw_row_at(&rows, r++, "pilot offset", text, row_value);
     }
     {
-        double coherence = fm_pilot_coherence(&fm->session.front.pilot);
-        snprintf(text, sizeof(text), "%.2f", coherence);
+        snprintf(text, sizeof(text), "%.2f", m->pilot_coherence);
         draw_row_at(&rows, r++, "coherence", text,
-                    coherence >= FM_PILOT_MIN_COHERENCE ? row_good : row_weak);
+                    m->pilot_coherence >= FM_PILOT_MIN_COHERENCE ? row_good
+                                                                 : row_weak);
     }
-    if (locked) {
-        snprintf(text, sizeof(text), "%d/%d", fm->session.timing_offset,
-                 FM_RDS_SAMPLES_PER_SYMBOL);
+    if (m->pilot_locked) {
+        snprintf(text, sizeof(text), "%d/%d", m->timing_offset,
+                 m->timing_samples_per_symbol);
         draw_row_at(&rows, r++, "symbol timing", text, row_value);
-        snprintf(text, sizeof(text), "%+.2f rad", fm->session.axis_radians);
+        snprintf(text, sizeof(text), "%+.2f rad", m->axis_radians);
         draw_row_at(&rows, r++, "subcarrier axis", text, row_value);
     }
 }
 
-static void draw_station_panel(const struct app *app, Rectangle rect) {
-    const struct rds_station *s = &app->fm.session.station;
+static void draw_station_panel(const struct fm_view_model *m, Rectangle rect) {
     struct panel_rows rows = panel_rows_for(rect, FM_PANEL_CAPTION_DROP,
                                             FM_PANEL_ROW_HEIGHT, 0.0f,
                                             0.50f, 128.0f);
@@ -405,10 +402,10 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
     draw_panel(rect, "Station");
     /* The identity first: a panel with room for four rows should spend them
        on which station this is rather than on how sure the decoder is. */
-    if (s->pi_valid) {
-        snprintf(text, sizeof(text), "0x%04X", s->pi);
+    if (m->pi_valid) {
+        snprintf(text, sizeof(text), "0x%04X", m->pi);
         draw_row_at(&rows, r++, "identification", text, row_value);
-        snprintf(text, sizeof(text), "%d agreeing", s->pi_repeats);
+        snprintf(text, sizeof(text), "%d agreeing", m->pi_repeats);
         draw_row_at(&rows, r++, "", text, row_label);
     } else {
         draw_row_at(&rows, r++, "identification", "--", row_label);
@@ -420,22 +417,19 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
      * station that does not exist on the screen -- and a reader has no way to
      * tell a half-arrived name from a short one.
      */
-    if (s->ps_valid) {
-        draw_row_at(&rows, r++, "name", s->ps, row_good);
-    } else if (s->ps_segments) {
-        snprintf(text, sizeof(text), "%d of 4 segments",
-                 __builtin_popcount((unsigned)s->ps_segments));
+    if (m->ps_valid) {
+        draw_row_at(&rows, r++, "name", m->ps, row_good);
+    } else if (m->ps_segments) {
+        snprintf(text, sizeof(text), "%d of 4 segments", m->ps_segments);
         draw_row_at(&rows, r++, "name", text, row_weak);
     } else {
         draw_row_at(&rows, r++, "name", "--", row_label);
     }
 
-    if (s->pty_valid) {
-        const char *name = rds_pty_name(s->pty);
-        snprintf(text, sizeof(text), "%s", name ? name : "?");
-        draw_row_at(&rows, r++, "programme type", text, row_value);
-        draw_row_at(&rows, r++, "", rds_traffic_name(s->tp, s->ta),
-                    s->tp && s->ta ? row_weak : row_label);
+    if (m->pty_valid) {
+        draw_row_at(&rows, r++, "programme type", m->pty_name, row_value);
+        draw_row_at(&rows, r++, "", m->traffic,
+                    m->tp && m->ta ? row_weak : row_label);
     }
     /*
      * Radio text, wrapped rather than ellipsised.
@@ -446,7 +440,7 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
      * many characters fit is a font question and belongs here; where the
      * breaks go is arithmetic and lives in text_wrap.h.
      */
-    if (s->rt_valid) {
+    if (m->rt_valid) {
         struct text_wrap_line lines[4];
         float room = rect.width - 24.0f;
         int columns = (int)(room / (float)MeasureText("n", 15));
@@ -463,7 +457,7 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
         y = (int)panel_row_y(&rows, r - 1) + 18;
         if (columns < 8)
             columns = 8;
-        count = text_wrap(s->rt, columns, lines,
+        count = text_wrap(m->rt, columns, lines,
                           (int)(sizeof(lines) / sizeof(lines[0])));
         for (i = 0; i < count; i++) {
             char line[80];
@@ -471,7 +465,7 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
 
             if (length > (int)sizeof(line) - 1)
                 length = (int)sizeof(line) - 1;
-            memcpy(line, s->rt + lines[i].start, (size_t)length);
+            memcpy(line, m->rt + lines[i].start, (size_t)length);
             line[length] = '\0';
             /* And stop at the panel's floor, which is what the rows above
                now respect and this used to run past. */
@@ -491,44 +485,49 @@ static void draw_station_panel(const struct app *app, Rectangle rect) {
  * The LTE view had to learn this; there is no reason for this one to learn it
  * again.
  */
-static void draw_funnel_panel(const struct app *app, Rectangle rect) {
-    const struct rds_funnel *f = &app->fm.session.station.funnel;
+/* The three emphases the sentence below is painted in, which the view model
+   decides between (`enum fm_reading_tone`) so that a second reader of the
+   same five counts cannot reach a different verdict about them. This is the
+   only thing left here that the tone chooses: which colour a decided verdict
+   is drawn in, which is presentation and belongs in a drawing. */
+static Color fm_reading_color(enum fm_reading_tone tone) {
+    switch (tone) {
+    case FM_READING_GOOD:
+        return row_good;
+    case FM_READING_WEAK:
+        return row_weak;
+    case FM_READING_NEUTRAL:
+    default:
+        return row_label;
+    }
+}
+
+static void draw_funnel_panel(const struct fm_view_model *m, Rectangle rect) {
     int y = draw_panel(rect, "Where the decode stopped");
     char text[96];
 
-    snprintf(text, sizeof(text), "%ld", f->bits);
+    snprintf(text, sizeof(text), "%ld", m->bits);
     draw_row(rect, y, "soft bits", text, row_value);
     y += 20;
-    snprintf(text, sizeof(text), "%ld", f->blocks_matched);
-    draw_row(rect, y, "blocks", text, f->blocks_matched ? row_value : row_weak);
+    snprintf(text, sizeof(text), "%ld", m->blocks_matched);
+    draw_row(rect, y, "blocks", text, m->blocks_matched ? row_value : row_weak);
     y += 20;
-    snprintf(text, sizeof(text), "%ld", f->groups);
-    draw_row(rect, y, "groups", text, f->groups ? row_value : row_weak);
+    snprintf(text, sizeof(text), "%ld", m->groups);
+    draw_row(rect, y, "groups", text, m->groups ? row_value : row_weak);
     y += 20;
-    snprintf(text, sizeof(text), "%ld", f->identified);
-    draw_row(rect, y, "identified", text, f->identified ? row_value : row_weak);
+    snprintf(text, sizeof(text), "%ld", m->identified);
+    draw_row(rect, y, "identified", text, m->identified ? row_value : row_weak);
     y += 20;
-    snprintf(text, sizeof(text), "%ld", f->named);
-    draw_row(rect, y, "named", text, f->named ? row_good : row_weak);
+    snprintf(text, sizeof(text), "%ld", m->named);
+    draw_row(rect, y, "named", text, m->named ? row_good : row_weak);
     y += 24;
 
     /* The reading, in words. A count is only useful to somebody who already
-       knows what it should be. */
-    if (!fm_pilot_locked(&app->fm.session.front.pilot))
-        sdrgui_text_fit("no pilot: not an FM station, or not tuned to one",
-                        (int)rect.x + 12, y, 15, rect.width - 24.0f, row_weak);
-    else if (f->blocks_matched == 0)
-        sdrgui_text_fit("a pilot but no blocks: this station carries no RDS",
-                        (int)rect.x + 12, y, 15, rect.width - 24.0f, row_weak);
-    else if (f->groups == 0)
-        sdrgui_text_fit("blocks but no groups: too weak to hold sync",
-                        (int)rect.x + 12, y, 15, rect.width - 24.0f, row_weak);
-    else if (!app->fm.session.station.ps_valid)
-        sdrgui_text_fit("groups arriving; the name needs all four segments",
-                        (int)rect.x + 12, y, 15, rect.width - 24.0f, row_label);
-    else
-        sdrgui_text_fit("reading the station", (int)rect.x + 12, y, 15,
-                        rect.width - 24.0f, row_good);
+       knows what it should be -- and which of the five sentences it is was
+       decided in `fm_view_model.c`, where a check can reach it, rather than
+       here where only a person looking could (ADR-0012). */
+    sdrgui_text_fit(m->reading, (int)rect.x + 12, y, 15, rect.width - 24.0f,
+                    fm_reading_color(m->reading_tone));
 }
 
 /*
@@ -841,6 +840,21 @@ static void draw_audio_spectrum_chart(const struct app *app, Rectangle rect) {
 
 void draw_fm(struct app *app) {
     struct fm_layout l = fm_layout_now(fm_scan_showing(app));
+    /*
+     * One model, built once, read by all three panels -- rather than each
+     * panel reaching into `struct app` for its own copy of the same fields.
+     * About 4 KB of stack, almost all of it the multiplex spectrum; it is a
+     * frame's worth of drawing data, not a `struct app`, and the two lessons
+     * this repository has about stack locals (`struct app` at ~9 MB,
+     * `struct viewer_link` at ~12) are three orders of magnitude away.
+     *
+     * The charts below still read `app->fm` directly. They are the analysis
+     * arrangement's own drawing detail and have no second reader yet; the
+     * multiplex the model does carry is there for the one that is coming.
+     */
+    struct fm_view_model model;
+
+    fm_view_model_build(app, &model);
 
     GuiLabel((Rectangle){ l.frequency_field.x, l.frequency_field.y - 18.0f,
                           120.0f, 16.0f }, "MHz");
@@ -885,9 +899,9 @@ void draw_fm(struct app *app) {
     }
     draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->fm.window,
                                      fm_markers, fm_mcnt, NULL);
-    draw_signal_panel(app, l.signal_panel);
-    draw_station_panel(app, l.station_panel);
-    draw_funnel_panel(app, l.funnel_panel);
+    draw_signal_panel(&model, l.signal_panel);
+    draw_station_panel(&model, l.station_panel);
+    draw_funnel_panel(&model, l.funnel_panel);
 }
 
 /* Whether the frequency field is taking keystrokes. The frame loop asks so
