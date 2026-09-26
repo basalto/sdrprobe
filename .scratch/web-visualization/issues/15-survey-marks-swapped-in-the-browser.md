@@ -1,6 +1,8 @@
 # 15 - The browser draws two of the survey's four marks swapped
 
-Status: ready-for-agent
+Status: resolved 2026-09-26 -- the mark travels by name now, and the browser
+keys its tables by name. `check-viewer-link` pins the receiver/empty pair.
+See "Resolution" at the end.
 Found 2026-09-26, while reviewing layer boundaries (`.scratch/layer-boundaries/`).
 
 ## The fault
@@ -78,3 +80,38 @@ candidate `seen`, and `receiver_state`'s `tab` and `decode`, which each view
 matches with a literal (`tab: 2, decode: 0`). None is known wrong. All are
 the same shape as this one; `.scratch/layer-boundaries/issues/03-*` makes
 "enums cross the wire by name" a contract rule.
+
+## Resolution, 2026-09-26
+
+`sdrgui_survey_peak_mark_name()` beside `sdrgui_survey_peak_mark()` in
+`sdrgui.h`, spelled the way `survey_shape_name()` is. `survey_state` sends
+`"mark":"signal"|"receiver"|"empty"|"contested"`, and `web/views/survey.js`
+keys `MARK_CLASS`, `MARK_GLYPH` and the chart colours by that name -- three
+maps keyed by string, no array indexed by ordinal anywhere. A name the
+browser does not know falls back to a signal dot rather than becoming a
+different mark.
+
+`check-viewer-link` gained two tests. `test_survey_state_wire_format` now
+asserts a plain candidate reads `"mark":"signal"`.
+`test_survey_marks_travel_by_name` builds a receiver-like candidate
+(`SDRGUI_PEAK_FLAG_RECEIVER`) and an empty one (`SDRGUI_PEAK_FLAG_EMPTY`) in
+one message and asserts each reaches the wire under its own name **and in the
+right order** -- because `contains()` alone passes with the two swapped,
+which was the bug. Both directions mutation-tested: swapping the two names in
+the enum's name function fails four assertions.
+
+**What is left, and it is ticket 03's, not a gap here.** The decision still
+lives in `sdrgui.h`, so `viewer_link.c` still includes it (and raylib), and
+`check-viewer-link` still links raylib's cflags. `.scratch/layer-boundaries/`
+ticket 03 moves the mark into the survey view model and drops sdrgui from the
+server; this ticket fixed the fault a reader acts on without waiting for
+that. The name function is written so the move is a relocation, not a
+rewrite.
+
+**Not looked at in a real browser on a real sweep**, because a capture holds
+one tuning and cannot sweep, and this desk has no receiver in the loop right
+now. The C check pins the wire, and the four names align between
+`sdrgui.h` and `survey.js` by inspection (`grep` of both). The one thing
+still owed is the acceptance criterion's own "looked at ... on a live sweep":
+`node scripts/web_layout.mjs --png` against a live receiver survey, when one
+is next attached.

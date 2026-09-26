@@ -1152,7 +1152,7 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
                                 "%s{\"hz\":%.0f,\"power_dbfs\":%.1f,"
                                 "\"has_carrier\":%s,\"width_hz\":%.0f,"
                                 "\"shape\":\"%s\",\"seen\":%d,"
-                                "\"mark\":%d}",
+                                "\"mark\":\"%s\"}",
                                 i == 0 ? "" : ",", cnd->hz,
                                 (double)cnd->power_dbfs,
                                 cnd->has_carrier ? "true" : "false",
@@ -1160,7 +1160,8 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
                                 cnd->has_carrier
                                     ? survey_shape_name(cnd->shape) : "-",
                                 (int)cnd->seen,
-                                (int)sdrgui_survey_peak_mark(cnd->flags));
+                                sdrgui_survey_peak_mark_name(
+                                    sdrgui_survey_peak_mark(cnd->flags)));
     }
     if (len < sizeof(json) - 2) {
         json[len++] = ']';

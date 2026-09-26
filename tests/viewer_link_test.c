@@ -1,6 +1,10 @@
 #include "check.h"
 
 #include "scope_view_model.h"
+#include "sdrgui.h"   /* SDRGUI_PEAK_* and the mark's own name function; the
+                         same header viewer_link.c uses to decide a mark, so
+                         this check already links with its raylib cflags.
+                         layer-boundaries/03 moves both out of sdrgui. */
 #include "survey_view_model.h"
 #include "viewer_link.h"
 #include "websocket.h"
@@ -260,6 +264,22 @@ static int contains(const uint8_t *haystack, size_t haystack_len,
     return 0;
 }
 
+/* The offset of `needle` in the payload, or -1. For asserting that two
+   things arrive in a known order -- which candidate carries which mark,
+   where `contains()` alone would pass with the two swapped. */
+static long index_of(const uint8_t *haystack, size_t haystack_len,
+                     const char *needle) {
+    size_t needle_len = strlen(needle);
+    size_t i;
+
+    if (needle_len == 0 || needle_len > haystack_len)
+        return -1;
+    for (i = 0; i + needle_len <= haystack_len; i++)
+        if (memcmp(haystack + i, needle, needle_len) == 0)
+            return (long)i;
+    return -1;
+}
+
 static struct scope_view_model a_view_model(void) {
     static float average[2048], peak[2048], waterfall_row[2048];
     struct scope_view_model svm;
@@ -420,6 +440,72 @@ static void test_survey_state_wire_format(void) {
               "\"hz\":103400000"));
     check_true("carries its shape by name", contains(payload, len,
               "\"shape\":\"medium\""));
+    /* No suspicion flags on this candidate, so its mark is a plain signal --
+       and it travels by name, not as the enum's integer. */
+    check_true("carries its mark by name", contains(payload, len,
+              "\"mark\":\"signal\""));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+/*
+ * The pair web-visualization/15 was about: a candidate on the receiver's
+ * own comb and one a confirmation pass found empty. The browser had these
+ * two swapped for months because the mark crossed as an ordinal and
+ * views/survey.js re-declared the enum's order wrong. Sent by name they
+ * cannot swap, and this is the check that was missing -- it pins each of the
+ * two to its own name, in one message carrying both.
+ */
+static void test_survey_marks_travel_by_name(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct survey_view_model svm = a_survey_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+
+    /* Two candidates: receiver-like by frequency, and empty by a
+       confirmation pass. SDRGUI_PEAK_FLAG_RECEIVER (0x1) and
+       SDRGUI_PEAK_FLAG_EMPTY (0x8), from sdrgui.h. */
+    svm.candidate_count = 2;
+    svm.candidates[0].hz = 100000000.0;
+    svm.candidates[0].power_dbfs = -20.0f;
+    svm.candidates[0].has_carrier = 0;
+    svm.candidates[0].flags = SDRGUI_PEAK_FLAG_RECEIVER;
+    svm.candidates[1].hz = 101000000.0;
+    svm.candidates[1].power_dbfs = -30.0f;
+    svm.candidates[1].has_carrier = 0;
+    svm.candidates[1].flags = SDRGUI_PEAK_FLAG_EMPTY;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe survey_state");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_survey_state(&vlink, &svm, 0);
+    client_pump(&tc, 10);
+
+    check_true("a survey_state message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_true("both marks are on the wire", contains(payload, len,
+              "\"mark\":\"receiver\"") && contains(payload, len,
+              "\"mark\":\"empty\""));
+    /* Tied to the right candidate, not just present: the receiver-like one
+       is emitted first (candidate 0), so its mark must appear before the
+       empty one's. `contains()` alone passes with the two swapped -- which is
+       exactly the bug -- because both strings are still there. */
+    check_true("the receiver mark comes before the empty one, as the "
+              "candidates were ordered",
+              index_of(payload, len, "\"mark\":\"receiver\"") <
+              index_of(payload, len, "\"mark\":\"empty\""));
+    /* And confirm the two names are what sdrgui.h itself would say, so this
+       cannot pass against a name function that has drifted from the enum. */
+    check_str("receiver is the name sdrgui gives its mark",
+             sdrgui_survey_peak_mark_name(SDRGUI_PEAK_RECEIVER), "receiver");
+    check_str("empty is the name sdrgui gives its mark",
+             sdrgui_survey_peak_mark_name(SDRGUI_PEAK_EMPTY), "empty");
 
     client_close_conn(&tc);
     viewer_link_close(&vlink);
@@ -1499,6 +1585,7 @@ int main(void) {
     test_survey_spectrum_wire_format();
     test_survey_spectrum_with_no_bins_publishes_nothing();
     test_survey_state_wire_format();
+    test_survey_marks_travel_by_name();
     test_survey_streams_are_not_sent_when_unsubscribed();
     test_fm_spectrum_wire_format();
     test_fm_spectrum_with_no_bins_publishes_nothing();

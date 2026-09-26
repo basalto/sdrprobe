@@ -375,6 +375,25 @@ static inline enum sdrgui_peak_mark sdrgui_survey_peak_mark(unsigned flags) {
     return SDRGUI_PEAK_SIGNAL;
 }
 
+/*
+ * The mark's name, for a reader that is not the raylib chart -- the Viewer
+ * wire, today. It travels by name rather than as the enum's integer because
+ * a second reader that re-declares the enum's order gets it wrong silently:
+ * `web/views/survey.js` did exactly that and drew receiver-like and empty
+ * candidates swapped, green throughout, until `web-visualization/15`. A name
+ * cannot be mis-ordered, and one the browser does not know is visible rather
+ * than becoming a different mark. Same shape as `survey_shape_name()`.
+ */
+static inline const char *sdrgui_survey_peak_mark_name(enum sdrgui_peak_mark m) {
+    switch (m) {
+    case SDRGUI_PEAK_SIGNAL:    return "signal";
+    case SDRGUI_PEAK_RECEIVER:  return "receiver";
+    case SDRGUI_PEAK_EMPTY:     return "empty";
+    case SDRGUI_PEAK_CONTESTED: return "contested";
+    }
+    return "signal";
+}
+
 /* Power against absolute frequency across a swept range, with candidates
    ticked above the trace. The tick matters: at 1.7 GHz across a 1000 px panel
    a 200 kHz signal is a fifth of a pixel wide, and a mark that scales with the

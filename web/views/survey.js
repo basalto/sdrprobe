@@ -20,11 +20,22 @@ const SurveyView = (function () {
     return els;
   }
 
-  // `mark` is sdrgui_survey_peak_mark()'s own enum, named here rather
-  // than reinterpreting the flag word the server already decided from --
-  // 0 signal, 1 empty, 2 receiver-like, 3 contested (sdrgui.h).
-  const MARK_CLASS = ['mark-signal', 'mark-empty', 'mark-receiver', 'mark-contested'];
-  const MARK_GLYPH = ['●', '○', '✕', '✕'];
+  // `mark` arrives as sdrgui_survey_peak_mark_name()'s own string, keyed
+  // here by name and not by ordinal. It was indexed by the enum's integer
+  // in an order this file re-declared wrong -- receiver-like and empty
+  // swapped, the pair CLAUDE.md says a reader acts on, green throughout
+  // (web-visualization/15). A name cannot be mis-ordered, and one the
+  // server adds that this does not know falls back to a signal dot rather
+  // than becoming a different mark.
+  const MARK_CLASS = {
+    signal: 'mark-signal', receiver: 'mark-receiver',
+    empty: 'mark-empty', contested: 'mark-contested',
+  };
+  const MARK_GLYPH = { signal: '●', receiver: '✕', empty: '○', contested: '✕' };
+  const MARK_COLOR = {
+    signal: '#5adcc8', receiver: '#ff9b64', empty: '#8291a0',
+    contested: '#ff6864',
+  };
   let lastCandidates = [];
 
   function renderSurveyState(state) {
@@ -34,7 +45,7 @@ const SurveyView = (function () {
     lastCandidates = state.candidates || [];
     renderRows(surveyRows, lastCandidates.map((c) => {
       const cls = MARK_CLASS[c.mark] || 'mark-signal';
-      const glyph = MARK_GLYPH[c.mark] || '?';
+      const glyph = MARK_GLYPH[c.mark] || '●';
       return [
         '<td class="' + cls + '">' + glyph + '</td>',
         '<td>' + (c.hz / 1e6).toFixed(4) + ' MHz</td>',
@@ -59,7 +70,7 @@ const SurveyView = (function () {
       for (const c of lastCandidates) {
         const x = Math.round(w * (c.hz - lowerHz) / span);
         if (x < 0 || x > w) continue;
-        surveyCtx.fillStyle = ['#5adcc8', '#8291a0', '#ff9b64', '#ff6864'][c.mark] || '#5adcc8';
+        surveyCtx.fillStyle = MARK_COLOR[c.mark] || '#5adcc8';
         surveyCtx.beginPath();
         surveyCtx.arc(x, dbfsToY(c.power_dbfs, h) - 6, 3, 0, 2 * Math.PI);
         surveyCtx.fill();
