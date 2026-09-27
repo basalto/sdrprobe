@@ -17,16 +17,18 @@
  */
 
 static struct srd_view srd;
+static int receiver_mode = 1;
 
 static struct srd_view_model build(uint32_t hz, uint32_t rate) {
     struct srd_view_model out;
 
-    srd_view_model_build(&srd, hz, rate, &out);
+    srd_view_model_build(&srd, hz, rate, receiver_mode, &out);
     return out;
 }
 
 static void blank(void) {
     memset(&srd, 0, sizeof(srd));
+    receiver_mode = 1;
 }
 
 /*
@@ -122,11 +124,11 @@ static void test_the_log_carries_absolute_frequencies(void) {
     m = build(433800000u, 2000000u);
     check_int("three rows", m.log_count, 3);
     check_close("and the first is where it was heard, not where we are now",
-                m.log[0].absolute_hz, 434416600.0, 1e-3);
+                m.log[0].entry.absolute_hz, 434416600.0, 1e-3);
     check_str("its kind, by name",
-              srd_frame_kind_name(m.log[0].kind), "REPEAT");
+              srd_frame_kind_name(m.log[0].entry.kind), "REPEAT");
     check_str("its modulation, by name",
-              srd_modulation_name(m.log[0].modulation), "OOK");
+              srd_modulation_name(m.log[0].entry.modulation), "OOK");
 
     srd.log_count = SRD_LOG_CAPACITY * 2;
     m = build(433800000u, 2000000u);
@@ -137,8 +139,171 @@ static void test_the_log_carries_absolute_frequencies(void) {
     check_int("and a negative one carries nothing", m.log_count, 0);
 }
 
+/*
+ * Whose problem an empty table is.
+ *
+ * Two answers and only one is actionable, which is why they are two: a
+ * receiver pointed elsewhere can be retuned from this screen, and a capture
+ * holds the one tuning it was taken at. The window drew two sentences here
+ * and the browser drew one for both, which is the drift
+ * `web-visualization/16` exists to stop.
+ */
+static void test_not_ready_says_whose_problem_it_is(void) {
+    struct srd_view_model m;
+
+    blank();
+    m = build(434000000u, 2000000u);
+    check_str("in band", srd_readiness_name(m.readiness), "ready");
+
+    m = build(100000000u, 2000000u);
+    check_str("a receiver pointed elsewhere",
+              srd_readiness_name(m.readiness), "receiver-elsewhere");
+
+    receiver_mode = 0;
+    m = build(100000000u, 2000000u);
+    check_str("a capture taken elsewhere",
+              srd_readiness_name(m.readiness), "capture-elsewhere");
+    /* And a capture that happens to be in band is simply ready: there is
+       nothing to retune, and nothing to apologise for either. */
+    m = build(434000000u, 2000000u);
+    check_str("a capture taken here", srd_readiness_name(m.readiness),
+              "ready");
+}
+
+/*
+ * The parameters panel, and the one guard in it worth having once.
+ *
+ * `have_parameters` is separate from a zero chip period because "nothing
+ * heard yet" and "a measurement that came back zero" are different answers,
+ * and the chip *rate* is carried rather than divided out by each reader --
+ * the division by zero is the part that must not be written twice.
+ */
+static void test_the_parameters_panel_is_decided_here(void) {
+    struct srd_view_model m;
+
+    blank();
+    m = build(434000000u, 2000000u);
+    check_int("nothing heard, nothing to describe", m.have_parameters, 0);
+
+    srd.session.last_chip_us = 500.0;
+    srd.session.last_over_floor_db = 47.3;
+    m = build(434000000u, 2000000u);
+    check_int("a measurement is something to describe", m.have_parameters, 1);
+    check_close("500 us is 2000 chips a second", m.last_chip_rate_hz, 2000.0,
+                1e-9);
+    check_close("and how far over the floor it was", m.last_over_floor_db,
+                47.3, 1e-6);
+    check_str("the line code, worded once", m.line_code,
+              "Manchester (Thomas)");
+
+    srd.polarity = SRD_MANCHESTER_IEEE;
+    m = build(434000000u, 2000000u);
+    check_str("the other polarity", m.line_code, "Manchester (IEEE)");
+
+    /* A period of zero is a refusal, not a division. */
+    srd.session.last_chip_us = 0.0;
+    srd.log_count = 1;
+    m = build(434000000u, 2000000u);
+    check_int("a row alone is also something to describe",
+              m.have_parameters, 1);
+    check_close("no period, no rate", m.last_chip_rate_hz, 0.0, 1e-12);
+}
+
+/*
+ * What a row says about itself.
+ *
+ * Seven cases, chosen here rather than inside two drawings -- three of them
+ * read protocol fields out of the payload by byte offset, and a byte offset
+ * written into a drawing is protocol knowledge no check can reach.
+ */
+static void test_a_row_says_what_it_is(void) {
+    struct srd_view_model m;
+    static const uint8_t full[10] = { 0x3F, 0x04, 0x0B, 0x69, 0xBB,
+                                      0xCC, 0x9F, 0x42, 0xF2, 0xD4 };
+    /* The 2-FSK remote's prefix A, 0x27E57B, and fourteen bytes -- which is
+       what `srd_device_type_of()` requires and what the marker's own copy of
+       this test did *not*: it checked two bytes and ignored the kind. */
+    static const uint8_t fsk[14] = { 0x27, 0xE5, 0x7B, 0x11, 0xDE, 0xAD,
+                                     0xBE, 0xEF, 0x00, 0x2A, 0, 0, 0, 0 };
+
+    blank();
+    srd.log_count = 1;
+    srd.log[0].kind = SRD_FRAME_FULL;
+    srd.log[0].byte_count = sizeof(full);
+    memcpy(srd.log[0].bytes, full, sizeof(full));
+    m = build(434000000u, 2000000u);
+    check_str("a full frame names its delimiters", m.log[0].detail,
+              "hdr 3F  tag 04  trailer D4");
+    check_str("and the frame proves the device", m.log[0].device,
+              "SRD remote control");
+    check_str("the marker carries the kind", m.log[0].marker_label, "FULL");
+    check_str("and the payload as hex, no trailing space", m.log[0].hex,
+              "3F 04 0B 69 BB CC 9F 42 F2 D4");
+
+    blank();
+    srd.log_count = 1;
+    srd.log[0].kind = SRD_FRAME_GENERIC;
+    srd.log[0].byte_count = sizeof(fsk);
+    memcpy(srd.log[0].bytes, fsk, sizeof(fsk));
+    m = build(434000000u, 2000000u);
+    check_str("the 2-FSK protocol's own fields", m.log[0].detail,
+              "id DEADBEEF  seq 002A  flg 11");
+    check_str("the marker carries its sequence number",
+              m.log[0].marker_label, "seq 002A");
+
+    /*
+     * The same fourteen bytes under a kind the prefix test does not apply
+     * to. The marker's own copy of that test checked two bytes and never
+     * looked at the kind, so it would have labelled this "seq 002A" while
+     * the table beside it called the device a remote control.
+     */
+    srd.log[0].kind = SRD_FRAME_FULL;
+    m = build(434000000u, 2000000u);
+    check_str("a full frame is not the 2-FSK protocol whatever it opens with",
+              m.log[0].marker_label, "FULL");
+
+    blank();
+    srd.log_count = 1;
+    srd.log[0].kind = SRD_FRAME_UNDECODED;
+    m = build(434000000u, 2000000u);
+    check_str("a burst with no frame says so", m.log[0].detail,
+              "detected burst (no frame)");
+    check_str("and establishes nothing about the device", m.log[0].device,
+              "unknown");
+    /*
+     * And carries **no** marker label. It is the commonest thing on this
+     * band by a wide margin -- one live sweep put 35 on screen at once --
+     * and every one said the same word, burying the markers that carry a
+     * decode. An empty label is a decision, which is why it is asserted.
+     */
+    check_str("and no label on the waterfall", m.log[0].marker_label, "");
+
+    blank();
+    srd.log_count = 1;
+    srd.log[0].kind = SRD_FRAME_FSK_DETECTED;
+    srd.log[0].chip_us = 64.2;
+    srd.log[0].bit_count = 96;
+    m = build(434000000u, 2000000u);
+    check_str("a wakeup burst reports its preamble", m.log[0].detail,
+              "preamble 96 chips (64us, 15.6 kbd)");
+    check_str("and is labelled as one", m.log[0].marker_label, "WAKEUP");
+
+    /* A kind with no name at all reads "unknown" rather than falling
+       through to the last branch of a ternary chain, which is how the
+       window's marker used to label it GENERIC. */
+    blank();
+    srd.log_count = 1;
+    srd.log[0].kind = SRD_FRAME_UNKNOWN;
+    m = build(434000000u, 2000000u);
+    check_str("no kind is not the last kind", m.log[0].marker_label,
+              "unknown");
+}
+
 int main(void) {
     test_ready_is_inside_the_band_not_all_of_it();
+    test_not_ready_says_whose_problem_it_is();
+    test_the_parameters_panel_is_decided_here();
+    test_a_row_says_what_it_is();
     test_no_carrier_is_not_a_carrier_at_zero();
     test_every_kind_and_modulation_has_a_name();
     test_the_log_carries_absolute_frequencies();

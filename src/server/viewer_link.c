@@ -1713,20 +1713,29 @@ void viewer_link_publish_srd_state(struct viewer_link *link,
 
     used = snprintf(json, sizeof(json),
                     "{\"type\":\"srd_state\",\"timestamp_ms\":%llu,"
-                    "\"ready\":%s,\"centre_hz\":%.0f,"
+                    "\"ready\":%s,\"readiness\":\"%s\","
+                    "\"centre_hz\":%.0f,"
                     "\"transmissions\":%d,\"frames\":%d,"
                     "\"have_carrier\":%s,\"carrier_offset_hz\":%.1f,"
+                    "\"have_parameters\":%s,\"line_code\":\"%s\","
+                    "\"chip_us\":%.2f,\"chip_rate_hz\":%.0f,"
+                    "\"over_floor_db\":%.1f,"
                     "\"log\":[",
                     (unsigned long long)now_ms,
-                    svm->ready ? "true" : "false", svm->centre_hz,
+                    svm->ready ? "true" : "false",
+                    srd_readiness_name(svm->readiness),
+                    svm->centre_hz,
                     svm->transmissions, svm->frames,
                     svm->have_carrier ? "true" : "false",
-                    svm->last_carrier_offset_hz);
+                    svm->last_carrier_offset_hz,
+                    svm->have_parameters ? "true" : "false",
+                    svm->line_code, svm->last_chip_us,
+                    svm->last_chip_rate_hz, svm->last_over_floor_db);
     if (used <= 0 || (size_t)used >= sizeof(json))
         return;
 
     for (i = 0; i < svm->log_count; i++) {
-        const struct srd_log_entry *e = &svm->log[i];
+        const struct srd_log_entry *e = &svm->log[i].entry;
         size_t b;
 
         if (used > (int)sizeof(json) - 384)
@@ -1735,12 +1744,15 @@ void viewer_link_publish_srd_state(struct viewer_link *link,
                          "%s{\"at\":%.2f,\"kind\":\"%s\","
                          "\"modulation\":\"%s\",\"hz\":%.0f,"
                          "\"chip_us\":%.2f,\"bits\":%zu,"
-                         "\"errors\":%zu,\"bytes\":\"",
+                         "\"errors\":%zu,\"device\":\"%s\","
+                         "\"detail\":\"%s\",\"marker\":\"%s\","
+                         "\"bytes\":\"",
                          i ? "," : "", e->at,
                          srd_frame_kind_name(e->kind),
                          srd_modulation_name(e->modulation),
                          e->absolute_hz, e->chip_us, e->bit_count,
-                         e->error_count);
+                         e->error_count, svm->log[i].device,
+                         svm->log[i].detail, svm->log[i].marker_label);
         /* Hex, not raw bytes: these are arbitrary octets and JSON is text.
            Sixteen of them, which is what the window's RAW column shows. */
         for (b = 0; b < e->byte_count && b < 16 &&

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "model/srd_view_model.h"
 #include "runtime/app.h"
 #include "runtime/debug_log.h"
 #include "gui/sdrgui.h"
@@ -40,6 +41,21 @@
  */
 static void handle_log_click(struct app *app);
 static void handle_marker_click(struct app *app);
+
+/*
+ * The screen's data, gathered once wherever it is needed.
+ *
+ * Everything this view *decides* -- which sentence a row carries, what a
+ * marker is labelled, what the frame proves the device to be, whether the
+ * receiver can expect to hear anything -- is `srd_view_model_build()`'s, so
+ * this drawing and the browser's cannot come to different answers about the
+ * same burst (`web-visualization/16`). What is left here is colours,
+ * rectangles and fonts.
+ */
+static void srd_model_of(const struct app *app, struct srd_view_model *m) {
+    srd_view_model_build(&app->srd, app->applied.frequency_hz,
+                         app->applied.sample_rate_hz, app->receiver_mode, m);
+}
 
 
 
@@ -179,8 +195,7 @@ void handle_srd_input(struct app *app) {
     }
 }
 
-static void draw_identity(const struct app *app, Rectangle box) {
-    const struct srd_view *s = &app->srd;
+static void draw_identity(const struct srd_view_model *m, Rectangle box) {
     struct panel_rows rows = panel_rows_for(box, SRD_PANEL_CAPTION_DROP,
                                             SRD_PANEL_ROW_HEIGHT, 0.0f,
                                             0.0f, 0.0f);
@@ -192,7 +207,7 @@ static void draw_identity(const struct app *app, Rectangle box) {
     DrawText("Parameters", (int)box.x + 10, (int)box.y + 8, 14,
              (Color){ 150, 176, 202, 255 });
 
-    if (s->log_count == 0 && s->session.last_chip_us == 0.0) {
+    if (!m->have_parameters) {
         sdrgui_text_fit("no transmissions heard yet", (int)box.x + 10, y, 14,
                         box.width - 20.0f, (Color){ 120, 140, 160, 255 });
         return;
@@ -206,22 +221,21 @@ static void draw_identity(const struct app *app, Rectangle box) {
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        snprintf(text, sizeof(text), "line code    Manchester (%s)",
-                 s->polarity == SRD_MANCHESTER_THOMAS ? "Thomas" : "IEEE");
+        snprintf(text, sizeof(text), "line code    %s", m->line_code);
         DrawText(text, (int)box.x + 10, y, 16, (Color){ 226, 236, 245, 255 });
     }
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
         snprintf(text, sizeof(text), "chip period  %.1f us (%.0f chip/s)",
-                 s->session.last_chip_us, s->session.last_chip_us > 0.0 ? 1e6 / s->session.last_chip_us : 0.0);
+                 m->last_chip_us, m->last_chip_rate_hz);
         DrawText(text, (int)box.x + 10, y, 16, (Color){ 190, 210, 228, 255 });
     }
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
         snprintf(text, sizeof(text), "carrier      %+.1f kHz (%+.1f dB)",
-                 s->session.last_carrier_hz / 1e3, s->session.last_over_floor_db);
+                 m->last_carrier_offset_hz / 1e3, m->last_over_floor_db);
         DrawText(text, (int)box.x + 10, y, 16, (Color){ 190, 210, 228, 255 });
     }
     r++;
@@ -233,109 +247,49 @@ static void draw_identity(const struct app *app, Rectangle box) {
     }
 }
 
-static void draw_log(const struct app *app, Rectangle box) {
-    const struct srd_view *s = &app->srd;
+static void draw_log(const struct srd_view_model *m, int selected,
+                     Rectangle box) {
     struct sdrgui_message_log_params params;
     static struct sdrgui_message_log_row rows[SRD_LOG_CAPACITY];
     static char at[SRD_LOG_CAPACITY][16];
     static char freq[SRD_LOG_CAPACITY][16];
-    static char type[SRD_LOG_CAPACITY][16];
-    static char detail[SRD_LOG_CAPACITY][64];
-    static char raw[SRD_LOG_CAPACITY][64];
     int i;
 
-    for (i = 0; i < s->log_count; i++) {
-        snprintf(at[i], sizeof(at[i]), "%6.1fs", s->log[i].at);
-        snprintf(type[i], sizeof(type[i]), "%s",
-                 srd_frame_kind_name(s->log[i].kind));
+    for (i = 0; i < m->log_count; i++) {
+        const struct srd_frame_view *v = &m->log[i];
 
-        if (s->log[i].kind == SRD_FRAME_FULL && s->log[i].byte_count >= 10) {
-            snprintf(detail[i], sizeof(detail[i]),
-                     "hdr %02X  tag %02X  trailer %02X",
-                     s->log[i].bytes[0], s->log[i].bytes[1], s->log[i].bytes[9]);
-        } else if (s->log[i].kind == SRD_FRAME_REPEAT && s->log[i].byte_count >= 3) {
-            snprintf(detail[i], sizeof(detail[i]),
-                     "hdr %02X  tag %02X  trailer %02X",
-                     s->log[i].bytes[0], s->log[i].bytes[1], s->log[i].bytes[2]);
-        } else if (s->log[i].kind == SRD_FRAME_FSK_DETECTED) {
-            if (s->log[i].chip_us > 0.0 && s->log[i].bit_count > 0) {
-                snprintf(detail[i], sizeof(detail[i]),
-                         "preamble %zu chips (%.0fus, %.1f kbd)",
-                         s->log[i].bit_count, s->log[i].chip_us,
-                         1e3 / s->log[i].chip_us);
-            } else {
-                snprintf(detail[i], sizeof(detail[i]), "preamble / wakeup burst");
-            }
-        } else if (s->log[i].kind == SRD_FRAME_UNDECODED) {
-            snprintf(detail[i], sizeof(detail[i]), "detected burst (no frame)");
-        } else if (srd_device_type_of(s->log[i].kind, s->log[i].bytes,
-                                          s->log[i].byte_count) ==
-                       SRD_DEVICE_REMOTE_FSK) {
-            /* The prefix test used to be spelled out here as well as in
-               srd_frame.c, which is two places to disagree about what the
-               protocol is. */
-            uint32_t id = ((uint32_t)s->log[i].bytes[4] << 24) |
-                          ((uint32_t)s->log[i].bytes[5] << 16) |
-                          ((uint32_t)s->log[i].bytes[6] << 8) |
-                          (uint32_t)s->log[i].bytes[7];
-            uint16_t seq = ((uint16_t)s->log[i].bytes[8] << 8) | s->log[i].bytes[9];
-            uint8_t flags = s->log[i].bytes[3];
-            snprintf(detail[i], sizeof(detail[i]),
-                     "id %08X  seq %04X  flg %02X", id, seq, flags);
-        } else if (s->log[i].byte_count >= 8) {
-            uint32_t id = ((uint32_t)s->log[i].bytes[0] << 24) |
-                          ((uint32_t)s->log[i].bytes[1] << 16) |
-                          ((uint32_t)s->log[i].bytes[2] << 8) |
-                          (uint32_t)s->log[i].bytes[3];
-            snprintf(detail[i], sizeof(detail[i]),
-                     "id %08X  %zu bytes", id, s->log[i].byte_count);
-        } else {
-            snprintf(detail[i], sizeof(detail[i]), "%zu bytes (%zu bits)",
-                     s->log[i].byte_count,
-                     s->log[i].bit_count ? s->log[i].bit_count : s->log[i].byte_count * 8);
-        }
-
-        char hex_buf[64] = {0};
-        for (size_t b = 0; b < s->log[i].byte_count && b < 16; b++) {
-            char byte_str[8];
-            snprintf(byte_str, sizeof(byte_str), "%02X ", s->log[i].bytes[b]);
-            strncat(hex_buf, byte_str, sizeof(hex_buf) - strlen(hex_buf) - 1);
-        }
-        snprintf(raw[i], sizeof(raw[i]), "%s", hex_buf);
-
+        snprintf(at[i], sizeof(at[i]), "%6.1fs", v->entry.at);
         snprintf(freq[i], sizeof(freq[i]), "%.4f",
-                 s->log[i].absolute_hz / 1e6);
+                 v->entry.absolute_hz / 1e6);
 
         rows[i].time = at[i];
         rows[i].freq = freq[i];
-        rows[i].id = type[i];
-        rows[i].label = srd_modulation_name(s->log[i].modulation);
+        rows[i].id = srd_frame_kind_name(v->entry.kind);
+        rows[i].label = srd_modulation_name(v->entry.modulation);
         /*
          * Named only where the decoded frame's own structure identifies the
-         * device -- srd_frame_device_type() decides, and everything else
-         * reads "unknown". The modulation and the chip period are in their
-         * own columns for a reader who wants to go further than the evidence
-         * does.
+         * device -- `srd_device_type_of()` decides and the model asks it, so
+         * this cannot come to a different answer from the browser's table.
+         * The modulation and the chip period are in their own columns for a
+         * reader who wants to go further than the evidence does.
          */
-        rows[i].type = srd_device_type_name(
-            srd_device_type_of(s->log[i].kind, s->log[i].bytes,
-                               s->log[i].byte_count));
-        rows[i].detail = detail[i];
-        rows[i].raw = raw[i];
+        rows[i].type = v->device;
+        rows[i].detail = v->detail;
+        rows[i].raw = v->hex;
         rows[i].highlight = (i == 0);
     }
 
     memset(&params, 0, sizeof(params));
     params.plot = box;
     params.rows = rows;
-    params.count = s->log_count;
+    params.count = m->log_count;
     params.caption = "Decoded SRD Frames";
     params.empty_notice = "no frames decoded yet (waiting for burst)";
     params.id_heading = "KIND";
     params.label_heading = "MOD";
     params.type_heading = "TYPE";
     params.freq_heading = "MHz";
-    params.selected_row = s->selected_log;
+    params.selected_row = selected;
     /*
      * Drawn, and nothing more. Selecting a row and tuning to it used to
      * happen here, which meant a `const struct app *` with the const cast
@@ -386,51 +340,37 @@ static void handle_log_click(struct app *app) {
  * construction here would be a second answer. `labels` is the caller's
  * storage because a marker points at its label rather than carrying it.
  */
-static int srd_markers_build(const struct app *app,
+static int srd_markers_build(const struct srd_view_model *m, int selected,
+                             double now_sec,
                              struct sdrgui_waterfall_marker *markers,
-                             char labels[][32], int max) {
-    const struct srd_view *s = &app->srd;
+                             int max) {
     int marker_count = 0;
-    double now_sec = GetTime();
+    int k;
 
-    for (int k = 0; k < s->log_count && k < max; k++) {
-            /* Where it was, not where the receiver is now. */
-            markers[k].frequency_hz = s->log[k].absolute_hz;
-            markers[k].bandwidth_hz = (s->log[k].modulation == SRD_MOD_FSK2) ? 45000.0 : 25000.0;
-            markers[k].age_seconds = now_sec - s->log[k].at;
-            markers[k].duration_seconds = 0.025;
-            markers[k].id = k;
-            markers[k].highlighted = (k == s->selected_log);
-            markers[k].color = (s->log[k].kind == SRD_FRAME_FSK_DETECTED)
-                                   ? (Color){ 120, 160, 200, 180 }
-                                   : (s->log[k].kind == SRD_FRAME_UNDECODED)
-                                         ? (Color){ 250, 160, 80, 220 }
-                                         : (s->log[k].modulation == SRD_MOD_FSK2)
-                                               ? (Color){ 80, 220, 240, 220 }
-                                               : (Color){ 100, 230, 150, 220 };
-            if (s->log[k].kind == SRD_FRAME_FSK_DETECTED) {
-                snprintf(labels[k], sizeof(labels[k]), "WAKEUP");
-            } else if (s->log[k].kind == SRD_FRAME_UNDECODED) {
-                /*
-                 * No label. A detected burst with no frame is the commonest
-                 * thing on this band by a wide margin -- one live sweep put
-                 * 35 of them on screen at once -- and every one of them said
-                 * the same word. The brackets already say a burst was there
-                 * and how wide it was; the word added nothing and buried the
-                 * markers that carry a sequence number or a decode.
-                 */
-                labels[k][0] = '\0';
-            } else if (s->log[k].byte_count >= 14 &&
-                       ((s->log[k].bytes[0] == 0x27 && s->log[k].bytes[1] == 0xE5) ||
-                        (s->log[k].bytes[0] == 0xD8 && s->log[k].bytes[1] == 0x1A))) {
-                uint16_t seq = ((uint16_t)s->log[k].bytes[8] << 8) | s->log[k].bytes[9];
-                snprintf(labels[k], sizeof(labels[k]), "seq %04X", seq);
-            } else {
-                snprintf(labels[k], sizeof(labels[k]), "%s",
-                         s->log[k].kind == SRD_FRAME_FULL ? "FULL" :
-                         s->log[k].kind == SRD_FRAME_REPEAT ? "REPEAT" : "GENERIC");
-            }
-            markers[k].label = labels[k][0] ? labels[k] : NULL;
+    for (k = 0; k < m->log_count && k < max; k++) {
+        const struct srd_log_entry *e = &m->log[k].entry;
+
+        /* Where it was, not where the receiver is now. */
+        markers[k].frequency_hz = e->absolute_hz;
+        markers[k].bandwidth_hz =
+            (e->modulation == SRD_MOD_FSK2) ? 45000.0 : 25000.0;
+        markers[k].age_seconds = now_sec - e->at;
+        markers[k].duration_seconds = 0.025;
+        markers[k].id = k;
+        markers[k].highlighted = (k == selected);
+        markers[k].color = (e->kind == SRD_FRAME_FSK_DETECTED)
+                               ? (Color){ 120, 160, 200, 180 }
+                               : (e->kind == SRD_FRAME_UNDECODED)
+                                     ? (Color){ 250, 160, 80, 220 }
+                                     : (e->modulation == SRD_MOD_FSK2)
+                                           ? (Color){ 80, 220, 240, 220 }
+                                           : (Color){ 100, 230, 150, 220 };
+        /* The label is the model's, including the empty one an undecoded
+           burst gets -- a marker with no label is a decision about what is
+           worth saying, and it used to be four branches here with the
+           2-FSK protocol's byte prefix written out in one of them. */
+        markers[k].label = m->log[k].marker_label[0]
+                               ? m->log[k].marker_label : NULL;
         marker_count++;
     }
     return marker_count;
@@ -448,8 +388,8 @@ static void handle_marker_click(struct app *app) {
     struct srd_layout l = srd_layout_for((float)GetScreenWidth(),
                                          (float)GetScreenHeight());
     struct sdrgui_waterfall_marker markers[SRD_LOG_CAPACITY];
-    static char labels[SRD_LOG_CAPACITY][32];
     struct sdrgui_marker_layout layout[SRD_LOG_CAPACITY];
+    struct srd_view_model m;
     int widths[SRD_LOG_CAPACITY];
     struct sdrgui_marker_axes axes;
     Vector2 mouse = GetMousePosition();
@@ -457,7 +397,9 @@ static void handle_marker_click(struct app *app) {
 
     if (s->analysis_mode || !IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         return;
-    count = srd_markers_build(app, markers, labels, SRD_LOG_CAPACITY);
+    srd_model_of(app, &m);
+    count = srd_markers_build(&m, s->selected_log, GetTime(), markers,
+                              SRD_LOG_CAPACITY);
     if (count <= 0)
         return;
     for (i = 0; i < count; i++)
@@ -480,7 +422,10 @@ void draw_srd(struct app *app) {
     int recording = acquisition_recording_status(&app->acq, &record_bytes,
                                                  record_path,
                                                  sizeof(record_path));
+    struct srd_view_model m;
     char text[192];
+
+    srd_model_of(app, &m);
 
     snprintf(text, sizeof(text),
              "SRD 430-440 MHz  OOK / 2-FSK / Manchester");
@@ -506,16 +451,17 @@ void draw_srd(struct app *app) {
         sdrgui_text_fit(s->record_error, (int)l.header_second_left, 106, 16,
                         l.header_right - l.header_second_left,
                         (Color){ 235, 150, 120, 255 });
-    } else if (!srd_tuned(app)) {
+    } else if (!m.ready) {
         /* The button is a convenience and the field beside it is the
            affordance, so a window with no room for the button loses nothing
            that cannot be typed: srd_layout_for() gives it zero width rather
            than a clipped stub. */
-        if (app->receiver_mode && l.retune_button.width > 0.0f) {
+        if (m.readiness == SRD_NOT_READY_RECEIVER &&
+            l.retune_button.width > 0.0f) {
             draw_button(l.retune_button, "Retune to 434 MHz", 1);
         } else {
             sdrgui_text_fit(
-                app->receiver_mode
+                m.readiness == SRD_NOT_READY_RECEIVER
                     ? "Receiver is outside 430-440 MHz; type a frequency"
                     : "Capture is not 430-440 MHz / >=1 MS/s; no SRD signal expected",
                 (int)l.header_second_left, 106, 16,
@@ -526,8 +472,8 @@ void draw_srd(struct app *app) {
         snprintf(text, sizeof(text),
                  "%d transmission(s) found   %d frame(s) decoded   "
                  "last carrier %+.1f kHz",
-                 s->session.transmissions_found, s->session.frames_decoded,
-                 s->session.last_carrier_hz / 1e3);
+                 m.transmissions, m.frames,
+                 m.last_carrier_offset_hz / 1e3);
         sdrgui_text_fit(text, (int)l.header_second_left, 106, 16,
                         l.header_right - l.header_second_left,
                         (Color){ 150, 176, 202, 255 });
@@ -544,14 +490,13 @@ void draw_srd(struct app *app) {
 
     if (!s->analysis_mode) {
         struct sdrgui_waterfall_marker markers[SRD_LOG_CAPACITY];
-        static char labels[SRD_LOG_CAPACITY][32];
-        int marker_count = srd_markers_build(app, markers, labels,
-                                             SRD_LOG_CAPACITY);
+        int marker_count = srd_markers_build(&m, s->selected_log, GetTime(),
+                                             markers, SRD_LOG_CAPACITY);
 
         draw_waterfall_rect_with_markers(app, 0, l.waterfall, &s->window,
                                          markers, marker_count, NULL);
 
-        draw_log(app, l.log_full);
+        draw_log(&m, s->selected_log, l.log_full);
         return;
     }
 
@@ -597,8 +542,8 @@ void draw_srd(struct app *app) {
         sdrgui_burst_chart(&b);
     }
 
-    draw_identity(app, l.identity);
-    draw_log(app, l.log_split);
+    draw_identity(&m, l.identity);
+    draw_log(&m, s->selected_log, l.log_split);
 }
 
 Rectangle srd_waterfall_rect(const struct app *app) {

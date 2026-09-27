@@ -432,7 +432,8 @@ int viewer_session_run(struct app *app) {
             viewer_link_publish_tetra_state(&link, &tetra_svm, now_ms);
             /* And SRD, on the same gate. */
             srd_view_model_build(&app->srd, app->applied.frequency_hz,
-                                 app->applied.sample_rate_hz, &srd_svm);
+                                 app->applied.sample_rate_hz,
+                                 app->receiver_mode, &srd_svm);
             viewer_link_publish_srd_state(&link, &srd_svm, now_ms);
             /* And LTE, on the same gate. The tuning it is handed is the
                applied one, because the crystal error in ppm is that offset

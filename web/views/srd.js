@@ -53,8 +53,14 @@ const SrdView = (function () {
     // 1 MS/s or more" -- the whole band would need 10 MS/s, so `ready` is
     // about where the receiver is pointed, not about covering it.
     if (!s.ready) {
-      e.head.textContent = 'outside 430-440 MHz (or under 1 MS/s) -- '
-        + 'no SRD signal expected here';
+      // Two answers, not one: a receiver pointed elsewhere can be retuned
+      // and a capture holds the one tuning it was taken at. The server
+      // decides which (`srd_readiness_name()`), so the window and this page
+      // cannot word the same state differently -- this page used to say one
+      // sentence for both.
+      e.head.textContent = s.readiness === 'receiver-elsewhere'
+        ? 'Receiver is outside 430-440 MHz; retune to hear SRD'
+        : 'Capture is not 430-440 MHz / >=1 MS/s; no SRD signal expected';
       e.head.style.color = WARN_COLOR;
     } else {
       e.head.textContent = 'SRD 430-440 MHz   OOK / 2-FSK / Manchester   '
@@ -64,6 +70,13 @@ const SrdView = (function () {
         + (s.have_carrier
             ? '   last carrier ' + (s.carrier_offset_hz >= 0 ? '+' : '')
               + (s.carrier_offset_hz / 1e3).toFixed(1) + ' kHz'
+            : '')
+        // The parameters the window's analysis panel shows, worded by the
+        // server: the line code and the chip rate, with the divide-by-zero
+        // guard already applied.
+        + (s.have_parameters
+            ? '   ' + s.line_code + '   ' + s.chip_us.toFixed(1) + ' us ('
+              + s.chip_rate_hz.toFixed(0) + ' chip/s)'
             : '');
       e.head.style.color = HEAD_COLOR;
     }
@@ -79,10 +92,14 @@ const SrdView = (function () {
       '<td style="color:' + (KIND_COLOR[f.kind] || ROW_LABEL) + '">'
         + f.kind + '</td>',
       '<td style="color:' + ROW_LABEL + '">' + f.modulation + '</td>',
-      '<td style="color:' + ROW_VALUE + '">' + f.bits + ' bits'
-        + (f.errors ? '   ' + f.errors + ' violation(s)' : '')
-        + (f.chip_us ? '   ' + f.chip_us.toFixed(1) + ' us/chip' : '')
-        + '</td>',
+      // What the frame *proves* the device is. `unknown` for everything a
+      // decode does not establish, which is most of this band.
+      '<td style="color:' + ROW_LABEL + '">' + f.device + '</td>',
+      // And what the row says about itself -- chosen by the server, in the
+      // same words the window's table uses. This column used to compose its
+      // own sentence out of the bit count and the violations, so the two
+      // readers said different things about the same frame.
+      '<td style="color:' + ROW_VALUE + '">' + f.detail + '</td>',
       '<td style="color:' + ROW_LABEL + '">' + f.bytes + '</td>',
     ]));
   }
@@ -113,7 +130,8 @@ const SrdView = (function () {
       + '(<span id="srd-count">0</span>)</div>'
       + '<div style="flex:2 1 0;min-height:0;overflow:auto">'
       + '<table><thead><tr><th>TIME</th><th>MHz</th><th>KIND</th>'
-      + '<th>MOD</th><th>DECODED</th><th>RAW (hex)</th></tr></thead>'
+      + '<th>MOD</th><th>TYPE</th><th>DECODED</th><th>RAW (hex)</th>'
+      + '</tr></thead>'
       + '<tbody id="srd-rows"></tbody></table></div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') drawWaterfall(msg.row);

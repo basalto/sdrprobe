@@ -435,11 +435,15 @@ check-lte-view-model: $(TESTS)/lte_view_model_test.c $(TESTS)/check.h \
 #: [Checks] the SRD screen's tuning, counters and frame log, without a screen
 check-srd-view-model: $(TESTS)/srd_view_model_test.c $(TESTS)/check.h \
 		$(SRC)/runtime/srd_view_model.c $(SRC)/model/srd_view_model.h \
+		$(SRC)/tech/srd_frame.c $(SRC)/tech/srd_dsp.c \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/signal_probe.c \
 		$(SRC)/runtime/app.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/srd_view_model_test \
-		$(TESTS)/srd_view_model_test.c $(SRC)/runtime/srd_view_model.c -lm
+		$(TESTS)/srd_view_model_test.c $(SRC)/runtime/srd_view_model.c \
+		$(SRC)/tech/srd_frame.c $(SRC)/tech/srd_dsp.c \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/signal_probe.c -lm
 	$(Q)./$(BUILD)/srd_view_model_test
 
 #: [Checks] the TETRA screen's identity, funnel and log, without a screen
