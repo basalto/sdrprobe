@@ -989,3 +989,37 @@ double monotonic_seconds(void) {
     clock_gettime(CLOCK_MONOTONIC, &now);
     return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
 }
+
+/* What a scripted recording is labelled. The frequency is in the sidecar
+   either way; the technology is the operator's intent, so it comes from
+   --view rather than from a guess about what lives at this frequency. */
+void cli_record_labels(const struct options *options,
+                              const char **basename,
+                              const char **technology) {
+    if (options->arfcn) {
+        static char named[32];
+        snprintf(named, sizeof(named), "gsm_arfcn%d", options->arfcn);
+        *basename = named;
+        *technology = "gsm";
+    } else if (options->earfcn) {
+        static char named[32];
+        snprintf(named, sizeof(named), "lte_earfcn%d", options->earfcn);
+        *basename = named;
+        *technology = "lte";
+    } else if (options->technology) {
+        *basename = options->technology;
+        *technology = options->technology;
+    } else if (options->view == START_VIEW_GSM) {
+        *basename = "gsm";
+        *technology = "gsm";
+    } else if (options->view == START_VIEW_ADSB) {
+        *basename = "adsb";
+        *technology = "adsb";
+    } else if (options->view == START_VIEW_LTE) {
+        *basename = "lte";
+        *technology = "lte";
+    } else {
+        *basename = "raw";
+        *technology = "raw";
+    }
+}

@@ -574,6 +574,62 @@ has halved again"
 printf '  A wider container\n'
 check_wide_container
 
+# --- The same program without a window -------------------------------------
+#
+# `sdrprobe-server` is the same sources minus the drawing, linked with no
+# raylib at all (`.scratch/layer-boundaries/issues/04-*`). `check-server-link`
+# says it links; this says it *answers the same*, which is the claim a person
+# on a box with no graphics stack is actually relying on.
+#
+# Byte-identical rather than "decodes something", and over two technologies:
+# a decode the two binaries disagree about is the whole failure this split
+# could cause, and no weaker comparison would find it.
+printf '  The same program without a window\n'
+check_server_binary() {
+    server=./sdrprobe-server
+    tmp=build/server-compare
+
+    mkdir -p "$tmp"
+
+    if [ ! -x "$server" ]; then
+        skip "sdrprobe-server is not built (make sdrprobe-server)"
+        return 0
+    fi
+
+    for case in \
+        "gsm testfiles/gsm_arfcn_69.bin --arfcn 69 --decode --once" \
+        "fm testfiles/fm_rds_tsf.bin --sample-rate 2048000 --frequency 89.5M --technology fm --decode --once" \
+        "survey testfiles/gsm_arfcn_69.bin --frequency 948.4M --survey --once"
+    do
+        name=${case%% *}
+        rest=${case#* }
+        capture=${rest%% *}
+        args=${rest#* }
+
+        checked
+        # shellcheck disable=SC2086
+        $probe headless --file "$capture" $args > "$tmp/win.$name" 2>&1
+        # shellcheck disable=SC2086
+        $server headless --file "$capture" $args > "$tmp/srv.$name" 2>&1
+        if cmp -s "$tmp/win.$name" "$tmp/srv.$name"; then
+            report "$name" "identical with and without a window"
+        else
+            fail "sdrprobe-server disagrees with sdrprobe on $name"
+            diff "$tmp/win.$name" "$tmp/srv.$name" | head -6 >&2
+        fi
+    done
+
+    # And a windowed mode names the build rather than failing obscurely.
+    checked
+    if $server --view fm --duration 1 2>&1 |
+            grep -q "is built without a window"; then
+        report "a windowed mode" "refused by name"
+    else
+        fail "sdrprobe-server did not say it has no window"
+    fi
+}
+check_server_binary
+
 # --- An SRD remote control at 434 MHz --------------------------------------
 #
 # The survey and decoder share no implementation path: the survey must place

@@ -78,17 +78,11 @@ int calibration_stop_measuring(struct app *app);
 /* Give it back. Restores with the *current* PPM, so a calibration applied
    while borrowed survives the return. A failed retune leaves the token live
    and retryable. */
-/* What size the screen wants the spectrum measured at -- the Scope's
-   resolution stepper, but only while the Scope owns the spectrum. Asked in
-   this layer because it is a question about presentation, and handed to
-   `process_block()` (declared in runtime.h) rather than looked up inside
-   it. */
-int scope_requested_fft_size(const struct app *app);
-int stop_requested(void);
+/* scope_requested_fft_size() and stop_requested() are in runtime.h: both
+   are asked on every path, window or not. */
 
 /* The band survey with no window: sweep, then print the candidates to stdout,
    one per line. src/survey_report.c. */
-int survey_report_run(struct app *app);
 
 /* Read the broadcast block that follows this SCH burst, if this is the SCH a
    block follows. Returns 1 when a System Information message came out of it.
@@ -259,7 +253,6 @@ void draw_magnitude(const struct app *app, const struct scope_view_model *svm);
 void draw_spectrum(const struct app *app, const struct scope_view_model *svm,
                    Rectangle plot);
 void draw_scatter(const struct app *app, const struct scope_view_model *svm);
-void view_scope_defaults(struct app *app);
 int view_scope_resize_if_needed(struct app *app, Rectangle plot);
 void view_scope_release(struct app *app);
 void recompute_magnitude_bins(struct app *app);
@@ -268,7 +261,6 @@ void adjust_active_scale(struct app *app, int zoom_in);
 
 /* Band survey (its own tab): sweep a range, find what stands above the local
    floor, and measure whichever candidate is selected. */
-void view_survey_defaults(struct app *app);
 /* Point the range fields at the nth offerable band, 1-based. */
 int survey_choose_band(struct app *app, int nth);
 /* view_survey_enter() and view_survey_leave() are in runtime.h: `set_tab()`
@@ -344,8 +336,7 @@ Rectangle calibration_button(void);
 
 /* Acquisition lifecycle, in sdrprobe.c: applying settings can retune or
    restart the receiver. */
-int stop_acquisition(struct app *app);
-int start_acquisition(struct app *app);
-int set_frequency_correction(struct device_session *source, int ppm);
+/* start_acquisition() and stop_acquisition() are in runtime.h: `headless`
+   and `server` both call them and neither has a window. */
 
 #endif

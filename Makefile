@@ -91,19 +91,38 @@ all: sdrprobe
 DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/adsb_session.c $(SRC)/fm_session.c $(SRC)/srd_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c $(SRC)/srd_dsp.c $(SRC)/srd_frame.c
-APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
+#
+# CORE_SRC is every application source that does **not** draw: it compiles
+# with no raylib header and links with no raylib library, which is what
+# `sdrprobe-server` is built from and what `check-server-link` asserts
+# (`.scratch/layer-boundaries/issues/04-*`). VIEW_SRC is the window's half.
+# APP_SRC is both, and is what `./sdrprobe` is built from -- so there is one
+# list, split, rather than two lists to keep in step.
+CORE_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/backend_uhd.c \
-	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/frame_advance.c $(SRC)/app_runtime.c $(SRC)/receiver_view_model.c $(SRC)/scope_view_model.c $(SRC)/survey_view_model.c $(SRC)/fm_view_model.c $(SRC)/websocket.c $(SRC)/viewer_link.c $(SRC)/viewer_session.c $(SRC)/fm_runtime.c $(SRC)/gsm_runtime.c $(SRC)/adsb_runtime.c $(SRC)/tetra_runtime.c $(SRC)/srd_runtime.c $(SRC)/lte_runtime.c $(SRC)/scope_runtime.c $(SRC)/scan_runtime.c $(SRC)/calibration_runtime.c $(SRC)/startup_runtime.c $(SRC)/survey_runtime.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
-	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
-	$(SRC)/view_srd.c \
-	$(SRC)/view_survey.c \
+	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c \
+	$(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c \
+	$(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c \
+	$(SRC)/frame_advance.c $(SRC)/app_runtime.c $(SRC)/app_main.c \
+	$(SRC)/headless_run.c $(SRC)/receiver_view_model.c $(SRC)/scope_view_model.c \
+	$(SRC)/survey_view_model.c $(SRC)/fm_view_model.c $(SRC)/websocket.c \
+	$(SRC)/viewer_link.c $(SRC)/viewer_session.c $(SRC)/fm_runtime.c \
+	$(SRC)/gsm_runtime.c $(SRC)/adsb_runtime.c $(SRC)/tetra_runtime.c \
+	$(SRC)/srd_runtime.c $(SRC)/lte_runtime.c $(SRC)/scope_runtime.c \
+	$(SRC)/scan_runtime.c $(SRC)/calibration_runtime.c $(SRC)/startup_runtime.c \
+	$(SRC)/survey_runtime.c \
 	$(SRC)/band_plan.c \
-	$(SRC)/overlay_calibration.c $(SRC)/overlay_startup.c $(SRC)/overlay_scan.c \
-	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c $(SRC)/overlay_signal_report.c \
 	$(SRC)/signal_analysis.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
 	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c $(SRC)/browser.c
+VIEW_SRC=$(SRC)/view_scope.c $(SRC)/view_gsm.c \
+	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
+	$(SRC)/view_srd.c \
+	$(SRC)/view_survey.c \
+	$(SRC)/overlay_calibration.c $(SRC)/overlay_startup.c $(SRC)/overlay_scan.c \
+	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c $(SRC)/overlay_signal_report.c
+APP_SRC=$(CORE_SRC) $(VIEW_SRC)
 APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/receiver_view_model.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/gui_state.h $(SRC)/runtime.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h $(SRC)/browser.h \
 	$(SRC)/survey_window.h $(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
@@ -177,6 +196,55 @@ sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 		-o $@ $(SRC)/sdrprobe.c $(APP_SRC) $(DSP_SRC) $(GUI_SRC) \
 		$(BUILD)/raygui_impl.o \
 		$(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs raylib) -pthread
+
+# The failure is explained rather than dumped. A linker naming
+# `undefined reference to IsKeyPressed' in a file called `survey_runtime.c'
+# is telling the truth and burying it: what actually happened is that
+# something in the server's half reached into the window's. So the recipe
+# reads its own ld output back and says which file called what, before
+# printing the raw text underneath for anyone who wants it.
+#: [Build] build ./sdrprobe-server, the same program with no window and no raylib
+sdrprobe-server: $(SRC)/server_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
+		$(BUILD)/viewer_page.h
+	@mkdir -p $(BUILD)
+	$(Q)printf '  cc  %s\n' $@
+	$(Q)$(CC) $(CFLAGS) $(WEB_CFLAGS) -pthread \
+		-o $@ $(SRC)/server_main.c $(CORE_SRC) $(DSP_SRC) \
+		$(LDFLAGS) $(LDLIBS) -pthread 2> $(BUILD)/server_link.err || { \
+		echo ""; \
+		echo "  The server pulled in the window. What reached for it:"; \
+		sed -n "s|.*/\([a-z_0-9]*\.c\):\([0-9]*\):.*undefined reference to .\([A-Za-z_0-9]*\).*|    src/\1 line \2 calls \3()|p" \
+			$(BUILD)/server_link.err | sort -u; \
+		echo ""; \
+		echo "  Each of those is raylib's or a view's, and CORE_SRC may not"; \
+		echo "  reach either. Take the decision out of the drawing into a"; \
+		echo "  *_runtime.c, or move the file out of CORE_SRC (Makefile)."; \
+		echo ""; \
+		cat $(BUILD)/server_link.err >&2; \
+		rm -f $@; \
+		exit 1; \
+	}
+	$(Q)cat $(BUILD)/server_link.err
+
+# The boundary tickets 01-04 built, held by the linker rather than by review.
+# Not one raylib cflag and not one raylib library reaches this line, so a
+# server-side file that reaches for a view, an overlay, raygui or raylib
+# stops the gate rather than a reader.
+#
+# It is the whole `sdrprobe-server` binary and not a contrivance: the same
+# rule ships it. A check that built something nobody runs would rot exactly
+# the way `check-signal-probe` did while it was green and ungated.
+#: [Checks] the server links with no window: no raylib header, no raylib library
+check-server-link: sdrprobe-server
+	$(Q)./sdrprobe-server --version > /dev/null
+	$(Q)if ldd ./sdrprobe-server | grep -qiE 'raylib|libGL|libX11|wayland'; then \
+		echo "  FAIL  sdrprobe-server links the window:"; \
+		ldd ./sdrprobe-server | grep -iE 'raylib|libGL|libX11|wayland'; \
+		exit 1; \
+	fi
+	$(Q)printf '  %-56s %5d checks   ok\n' \
+		"the server links with no window" 2
+	$(Q)if [ -n "$$CHECK_TALLY" ]; then echo "2 0" >> "$$CHECK_TALLY"; fi
 
 # Per-technology hardware-free DSP checks. Each technology's checks build and
 # run in isolation so they are easy to inspect and extend; check-dsp runs all.
@@ -583,7 +651,7 @@ check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/options.c $(SRC)/
 # decode, record, and the flags that reach them. Needs the binary and about ten
 # seconds; needs no receiver and nobody watching.
 #: [Gate] the built program over testfiles/, asserting on stdout
-check-pipelines: sdrprobe $(TESTS)/pipelines.sh $(FORMAT16)
+check-pipelines: sdrprobe sdrprobe-server $(TESTS)/pipelines.sh $(FORMAT16)
 	@$(TESTS)/pipelines.sh
 
 # When a frequency correction may be trusted (ADR-0004). Pure arithmetic, so
@@ -996,7 +1064,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-server-link check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \
@@ -1401,6 +1469,6 @@ hooks:
 
 #: [Tools] remove ./sdrprobe and build/
 clean:
-	rm -rf sdrprobe $(BUILD)
+	rm -rf sdrprobe sdrprobe-server $(BUILD)
 
 .PHONY: help all check check-make-help $(CHECK_UNITS) hooks check-dsp probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-ook probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture add-argument clean

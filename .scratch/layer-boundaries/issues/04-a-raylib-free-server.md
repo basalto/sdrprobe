@@ -1,8 +1,8 @@
 # 04 - A server built without the window, and a real per-block check
 
-Status: ready-for-agent -- **(B) chosen, 2026-09-27**, and the ticket's scope
-is now the shipped binary rather than the link check alone. The decision, and
-the measurement it was taken on, are at the bottom.
+Status: ready-for-agent -- **(B) done, 2026-09-27**: `sdrprobe-server` ships,
+`check-server-link` gates it and `check-pipelines` proves both binaries
+answer the same. Items 2 and 3 remain; see the last section.
 Blocked by: 02, 03 (03 done)
 
 ## Why
@@ -53,7 +53,7 @@ the packaging objection shrank to one question, answered here.
 
 ## Acceptance criteria
 
-- [ ] A server link target in `CHECK_UNITS` that fails when any server-side
+- [x] A server link target in `CHECK_UNITS` that fails when any server-side
       object needs a GUI symbol, naming the symbol.
 - [ ] `check-frame-advance` exercises at least FM's real runtime and asserts
       on its effects, not on stub call counts.
@@ -278,3 +278,79 @@ binary before this commit and the binary after it were both run over the
 same three: a capture survey (`--survey --once`), a GSM decode and an FM
 decode. **All three byte-identical.** Plus `make check`: 80 suites, 22046
 checks.
+
+## Phase C2 and D done, 2026-09-27 -- `sdrprobe-server` ships
+
+Two ELF files, from one source list split in two.
+
+`src/headless_run.c` is every run with no window -- `headless` *and*
+`server`. `src/app_main.c` is everything both binaries do before and after
+the run: the flags, the environment, the installation, the receiver, the
+signal handlers, the shutdown. `src/sdrprobe.c` is the window and
+`src/server_main.c` is twenty lines, and **the whole difference between the
+two programs is one NULL**:
+
+    int main(...) { return sdrprobe_main(argc, argv, &window); }   /* sdrprobe */
+    int main(...) { return sdrprobe_main(argc, argv, NULL); }      /* server   */
+
+`struct app_window` is the pair of hooks the window fills in -- the frame
+loop, and the teardown that unloads textures, closes the audio device and
+calls `CloseWindow()`. It is a *pair* because the cleanup needed splitting
+too: `view_scope_release()` freed the textures and the waterfall's rows in
+one call, and a server has the second without the first, so
+`scope_release_history()` is the plain half and lives in `scope_runtime.c`.
+
+The Makefile has one list, split: `CORE_SRC` (no drawing) and `VIEW_SRC`,
+with `APP_SRC = CORE_SRC + VIEW_SRC`. Two lists would drift; this cannot.
+
+**Measured:**
+
+| | `./sdrprobe` | `./sdrprobe-server` |
+|---|---|---|
+| size | 3.94 MB | 2.56 MB |
+| shared libraries | 13, two of them raylib and libGL | **8, none of them graphical** |
+| modes | window, `headless`, `server` | `headless`, `server` |
+
+The server's eight are librtlsdr, libusb, libudev, libm, libc, libgcc, the
+vdso and the loader.
+
+### What holds it
+
+`check-server-link` is in `CHECK_UNITS` and builds the shipped binary rather
+than a contrivance -- a check that built something nobody runs would rot the
+way `check-signal-probe` did while it was green and ungated. It then asserts
+`ldd` names nothing graphical, because linking is not the same claim as not
+depending.
+
+**Mutation-tested**, which the ticket asked for: an `#include <raylib.h>`
+and an `IsKeyPressed()` added to `survey_runtime.c` fails it, and the
+failure *explains itself* rather than dumping ld:
+
+    The server pulled in the window. What reached for it:
+        src/survey_runtime.c line 392 calls IsKeyPressed()
+
+    Each of those is raylib's or a view's, and CORE_SRC may not
+    reach either. Take the decision out of the drawing into a
+    *_runtime.c, or move the file out of CORE_SRC (Makefile).
+
+And `check-pipelines` runs a GSM decode, an FM decode and a capture survey
+through **both** binaries and requires the output **byte-identical**. It is
+byte-identical, on all three. Linking is the boundary; answering the same is
+the claim a person on a box with no graphics stack actually relies on, and
+no weaker comparison would find a decode the two disagree about.
+
+One thing removed rather than moved: `run_headless()` opened with
+`SetTraceLogLevel(LOG_NONE)`, beside a comment saying "nothing should reach
+raylib on this path". That is now **enforced** -- the file compiles with no
+raylib header -- so the guard is a defence against a call that cannot exist,
+and its failure would be invisible. Gone, with the reasoning in its place.
+
+`make check`: **81 suites, 22056 checks**, green. Both Makefile audits clean,
+`check-make-help` clean.
+
+### Still open in this ticket
+
+Item 2: `check-frame-advance` still drives 19 stubs rather than FM's real
+runtime. Item 3: the gated include audit -- `check-server-link` covers the
+same ground by linking, which is stronger than grepping for an include, so
+what remains is to decide whether a grep adds anything the linker does not.

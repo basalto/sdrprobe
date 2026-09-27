@@ -448,30 +448,6 @@ static int survey_visible_bands(struct sdrgui_survey_band *bands, int capacity,
     return count;
 }
 
-void view_survey_defaults(struct app *app) {
-    struct survey_view *s = &app->survey;
-
-    survey_session_reset(&s->session);
-    /* The tuner's full span, which is what an operator asking "what is out
-       there" means. R820T limits; another tuner simply refuses to tune part of
-       it, and the sweep reports the steps it could not take. */
-    snprintf(s->from, sizeof(s->from), "24M");
-    s->from_length = (int)strlen(s->from);
-    snprintf(s->to, sizeof(s->to), "1766M");
-    s->to_length = (int)strlen(s->to);
-    snprintf(s->dwell, sizeof(s->dwell), "%.2f", SURVEY_DWELL_DEFAULT);
-    s->dwell_length = (int)strlen(s->dwell);
-    survey_load_installation(app);
-    s->list_scroll = 0;
-    s->selected = -1;
-    s->hover = -1;
-    /* No field is focused until one is clicked, so the number keys keep
-       switching views the way they do in every other Scope view. */
-    s->focus = -1;
-    snprintf(s->session.status, sizeof(s->session.status),
-             "Set a range and press Sweep. The whole tuner takes a few minutes;"
-             " a band takes seconds.");
-}
 
 
 

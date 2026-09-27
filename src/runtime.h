@@ -156,6 +156,13 @@ static inline int view_lte_bands(const struct app *app, int *out) {
 
 void update_lte(struct app *app, double now);
 void view_lte_defaults(struct app *app);
+/* The Scope's and the survey's starting numbers. Set by `main()` before any
+   window exists, so they cannot live beside a drawing. */
+void view_scope_defaults(struct app *app);
+void scope_release_history(struct app *app);
+void view_survey_defaults(struct app *app);
+/* The ppm correction, applied to whatever device is open. */
+int set_frequency_correction(struct device_session *source, int ppm);
 /* The LTE view borrows the receiver: it needs 1.92 MS/s and a carrier centre,
    and gives both back on the way out. */
 void enter_lte(struct app *app);
@@ -188,6 +195,39 @@ void scan_select(struct app *app, int row);
  * being arguably its home.
  */
 int process_block(struct app *app, double now, int fft_size);
+/* What size the screen wants the spectrum measured at -- the Scope's
+   resolution stepper, but only while the Scope owns the spectrum. A question
+   about presentation, handed to `process_block()` rather than looked up
+   inside it; `headless` and `server` answer it without a screen. */
+int scope_requested_fft_size(const struct app *app);
+/* The one global the program has, read through a function so it stays one. */
+int stop_requested(void);
+/* The band survey with no window: sweep, then print the candidates to
+   stdout, one per line. src/survey_report.c. */
+int survey_report_run(struct app *app);
+/*
+ * The window, to whichever binary has one.
+ *
+ * `sdrprobe` fills this in with its frame loop and its teardown;
+ * `sdrprobe-server` passes NULL, is built with no raylib at all, and refuses
+ * a windowed mode by naming the build (`.scratch/layer-boundaries/issues/04-*`).
+ * Everything else about the two runs -- the flags, the subcommands, the
+ * messages -- is `app_main.c` and identical.
+ */
+struct app_window {
+    int (*run)(struct app *app);        /* the frame loop */
+    void (*release)(struct app *app);   /* textures, audio, the window */
+};
+
+int sdrprobe_main(int argc, char **argv, const struct app_window *window);
+
+/* Every run with no window -- `headless` and `server` both. src/headless_run.c. */
+int run_headless(struct app *app);
+/* The receivers this machine has, as the backend enumerates them. */
+int list_devices(void);
+/* Which basename and technology a `--record` on the command line means. */
+void cli_record_labels(const struct options *options, const char **basename,
+                       const char **technology);
 
 /* --- The Scope's per-block data: the peak's decay, the two histories --- */
 
@@ -282,6 +322,8 @@ struct input_state input_state_now(const struct app *app);
    finished -- what a shutdown waits on. */
 int worker_is_reading(struct app *app, int *done);
 int configure_receiver(struct app *app);
+int start_acquisition(struct app *app);
+int stop_acquisition(struct app *app);
 int open_capture(struct app *app);
 int install_signal_handlers(struct app *app);
 

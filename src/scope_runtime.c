@@ -117,3 +117,31 @@ void decay_spectrum_peak(struct app *app, double now) {
        frame's, and so is the array. */
     signal_frame_decay_peak(&app->frame, now, PEAK_DECAY_DB_PER_SECOND);
 }
+
+/* The Scope's starting numbers, set by `main()` before any window
+   exists -- which is why they are here and not beside the drawing
+   (`.scratch/layer-boundaries/issues/04-*`). `view_lte_defaults()` in
+   lte_runtime.c is the precedent. */
+/* The scales each view starts at. */
+void view_scope_defaults(struct app *app) {
+    app->sv.fft_size = SDR_DSP_FFT_SIZE;
+    app->sv.magnitude_lower = 0.0f;
+    app->sv.magnitude_upper = 64.0f;
+    app->sv.spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;
+    app->sv.scatter_axis_limit = 0.5f;
+    app->waterfall_lower_dbfs = SDR_DSP_DBFS_FLOOR;
+}
+
+/*
+ * The waterfall's rows, which every run allocates and only some draw.
+ *
+ * `view_scope_release()` freed the textures and this in one call, and a
+ * server has the second without the first -- `app->gui` is NULL there while
+ * `app->sv.waterfall_dbfs` is a real allocation that `frame_advance()` fills
+ * (`.scratch/layer-boundaries/issues/04-*`). Idempotent, because the window's
+ * release calls it too and `main()` then calls it again.
+ */
+void scope_release_history(struct app *app) {
+    free(app->sv.waterfall_dbfs);
+    app->sv.waterfall_dbfs = NULL;
+}

@@ -552,15 +552,6 @@ void adjust_active_scale(struct app *app, int zoom_in) {
 }
 
 
-/* The scales each view starts at. */
-void view_scope_defaults(struct app *app) {
-    app->sv.fft_size = SDR_DSP_FFT_SIZE;
-    app->sv.magnitude_lower = 0.0f;
-    app->sv.magnitude_upper = 64.0f;
-    app->sv.spectrum_lower_dbfs = SDR_DSP_DBFS_FLOOR;
-    app->sv.scatter_axis_limit = 0.5f;
-    app->waterfall_lower_dbfs = SDR_DSP_DBFS_FLOOR;
-}
 
 /*
  * Carry the waterfall's history across a retune.
@@ -669,8 +660,7 @@ void view_scope_release(struct app *app) {
     }
     app->sv.scatter_ready = 0;
     app->sv.waterfall_ready = 0;
-    free(app->sv.waterfall_dbfs);
-    app->sv.waterfall_dbfs = NULL;
+    scope_release_history(app);
 }
 
 /*
