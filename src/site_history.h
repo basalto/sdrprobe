@@ -165,7 +165,27 @@ int site_history_daily_spread(const struct site_history *history,
                               const struct site_entry *entry, int *busiest,
                               int *quietest);
 /* Short enough for a column: "new", "steady", "on/off", "gone". */
-const char *site_seen_name(enum site_seen seen);
+/*
+ * The name a reader sees -- the window's candidate list and `survey_state`
+ * both. It crosses the wire as this name and never as the enum's integer: a
+ * second reader that re-declares an enum's order gets it wrong silently,
+ * which is what `web-visualization/15` cost.
+ *
+ * Inline here rather than in site_history.c, so a reader that only needs to
+ * *spell* a verdict does not have to link the whole history -- the same
+ * reason `survey_shape_name()` and `survey_mark_name()` are inline.
+ */
+static inline const char *site_seen_name(enum site_seen seen) {
+    switch (seen) {
+    case SITE_SEEN_NEW:          return "new";
+    case SITE_SEEN_STEADY:       return "steady";
+    case SITE_SEEN_INTERMITTENT: return "on/off";
+    case SITE_SEEN_DIURNAL:      return "by hour";
+    case SITE_SEEN_MISSING:      return "gone";
+    case SITE_SEEN_UNKNOWN:      break;
+    }
+    return "-";
+}
 
 /* What the window says about one frequency in the sweep in front of it. */
 enum site_status {

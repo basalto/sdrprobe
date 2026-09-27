@@ -48,9 +48,6 @@ const ScopeView = (function () {
   return {
     id: 'scope',
     label: 'Scope',
-    tab: 1, // TAB_SCOPE, input_route.h's enum active_tab -- matched here
-            // rather than reinvented, since receiver_state.tab is that
-            // enum's own int.
     streams: ['spectrum', 'waterfall'],
     // Each canvas is matched to what CSS laid it out at; the markup gives
     // the two of them equal shares of the room left below the labels.

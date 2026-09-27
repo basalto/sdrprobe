@@ -86,7 +86,6 @@ const SurveyView = (function () {
   return {
     id: 'survey',
     label: 'Survey',
-    tab: 0, // TAB_SURVEY, input_route.h's enum active_tab
     streams: ['survey_spectrum', 'survey_state'],
     // The sweep chart is matched to what CSS laid it out at. Clearing it
     // on a resize costs nothing here: unlike a waterfall this canvas is

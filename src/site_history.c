@@ -258,17 +258,6 @@ enum site_seen site_history_seen(const struct site_history *history,
     return SITE_SEEN_STEADY;
 }
 
-const char *site_seen_name(enum site_seen seen) {
-    switch (seen) {
-    case SITE_SEEN_NEW:          return "new";
-    case SITE_SEEN_STEADY:       return "steady";
-    case SITE_SEEN_INTERMITTENT: return "on/off";
-    case SITE_SEEN_DIURNAL:      return "by hour";
-    case SITE_SEEN_MISSING:      return "gone";
-    case SITE_SEEN_UNKNOWN:      break;
-    }
-    return "-";
-}
 
 int site_history_merge(struct site_history *history, const double *hz,
                        const float *dbfs, const float *prominence, int count,

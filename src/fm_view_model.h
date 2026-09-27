@@ -48,6 +48,16 @@ enum fm_reading_tone {
     FM_READING_WEAK          /* it stopped, and the sentence says where */
 };
 
+/* The name that crosses the wire, for the reason `site_seen_name()` gives. */
+static inline const char *fm_reading_tone_name(enum fm_reading_tone tone) {
+    switch (tone) {
+    case FM_READING_NEUTRAL: return "neutral";
+    case FM_READING_GOOD:    return "good";
+    case FM_READING_WEAK:    return "weak";
+    }
+    return "neutral";
+}
+
 struct fm_view_model {
     /* -- The Signal panel: whether anything is being received, then how
           well, in that order (the panel's own ordering rule). -- */

@@ -1,8 +1,8 @@
 # 03 - The data contracts stop taking `struct app`
 
-Status: needs-info -- item 2 done (2026-09-27): the peak mark is out of
-`sdrgui.h` and `check-viewer-link` builds with no raylib at all. Items 1, 3
-and 4 remain.
+Status: needs-info -- items 2 and 3 done (2026-09-27). The peak mark is out
+of `sdrgui.h`, `check-viewer-link` builds with no raylib, and no enum crosses
+the wire as an integer. Items 1 and 4 remain.
 Blocked by: 01 (done)
 
 ## The problem
@@ -114,3 +114,36 @@ One check had to change rather than the code: the suite's fixture set
 `candidates[0].flags` by hand, and the publisher now reads `mark`. It derives
 the mark through `survey_mark_of()` instead of naming one, so the fixture
 still exercises the precedence rather than asserting around it.
+
+
+## Item 3 done, 2026-09-27 -- no enum crosses the wire as an integer
+
+Four were still travelling as ordinals; all four travel as names now.
+
+- **`seen`** -> `site_seen_name()`, which already existed for the window's
+  own candidate list. It moved from `site_history.c` into the header as a
+  `static inline`, so a reader that only needs to *spell* a verdict does not
+  link the whole history -- the same reason `survey_shape_name()` and
+  `survey_mark_name()` are inline. (I first wrote a second copy of it in the
+  header without noticing the original; the compiler caught the
+  redefinition.)
+- **`reading_tone`** -> `fm_reading_tone_name()`.
+- **`tab` and `decode`** -> a single **`screen`** name. This is the one that
+  was more than a rename: the browser matched `state.tab === v.tab &&
+  state.decode === v.decode`, so every view declared `tab: 2, decode: 0` --
+  two of this program's enums re-declared as numbers in a second language,
+  which is exactly the shape that drew the survey's marks swapped for
+  months. The vocabulary already existed and is the same one `view <name>`
+  uses: "survey", "scope", or the technology on the Decode tab. It matches
+  each browser view's own `id`, so `viewForState()` is now a lookup by name
+  and the three views lost their `tab`/`decode` literals entirely.
+
+`check-scope-view-model` walks **every** screen -- all six decode kinds plus
+the two tabs -- rather than sampling, because a decode kind added to the enum
+without a name here falls through to "decode" and nothing else would say so.
+It also pins that the survey's name does not change with whatever decode kind
+was last remembered, and that an out-of-range kind is named rather than
+indexed past the table.
+
+Verified on the wire (`screen=fm`), in a real browser (`check-web-layout`,
+25 checks), and with the headless survey byte-identical.

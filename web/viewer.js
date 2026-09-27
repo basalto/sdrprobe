@@ -8,6 +8,11 @@ const health = document.getElementById('health');
 // The registry. Ticket 07's remaining views each add one entry here and
 // one file under web/views/ -- no other file, and no other change to
 // this one.
+//
+// A view's `id` is the whole of its identity now: it is what `view <name>`
+// sends, what `receiver_state.screen` comes back as, and the DOM id suffix.
+// The views used to also declare `tab` and `decode` as raw numbers, which
+// was two of this program's enums re-declared in JavaScript.
 const VIEWS = [ScopeView, SurveyView, FmView];
 
 let activeView = null;
@@ -15,19 +20,21 @@ let latestGeneration = 0; // the newest tuning_generation receiver_state has nam
 let sent = 0, dropped = 0; // this Viewer's own count of what it drew vs discarded
 let ws = null; // module-scope so the tab buttons can send on it
 
-// Which view a `receiver_state` describes. The tab alone was enough while
-// every view was one -- FM is the Decode tab with DECODE_FM chosen, and
-// five more decode views share that same tab, so a view may also name the
-// `decode` it wants. A view with no `decode` matches on its tab alone.
+// Which view a `receiver_state` describes, by name.
 //
-// The fallback is the Scope, and it is reached whenever the window is on a
-// decode view this page does not have yet (ticket 07's remaining list).
-// Showing the Scope is honest there -- showing nothing, or a panel for a
-// screen that is not up, would not be.
+// This matched `state.tab === v.tab && state.decode === v.decode`, which
+// meant every view re-declared two of the program's enums as numbers --
+// `tab: 2, decode: 0`. That is the shape that drew the survey's marks
+// swapped for months (web-visualization/15). `receiver_state` carries one
+// `screen` name now, from the same vocabulary `view <name>` uses, and it is
+// each view's own `id`.
+//
+// The fallback is the Scope, reached when the window is on a decode view
+// this page does not have yet (ticket 07's remaining list). Showing the
+// Scope is honest there -- showing nothing, or a panel for a screen that is
+// not up, would not be.
 function viewForState(state) {
-  return VIEWS.find((v) => v.tab === state.tab &&
-                    (v.decode === undefined || v.decode === state.decode))
-    || VIEWS[0];
+  return VIEWS.find((v) => v.id === state.screen) || VIEWS[0];
 }
 
 // Builds the tab bar and every view's panel from the registry, once, at

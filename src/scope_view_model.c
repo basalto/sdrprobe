@@ -1,16 +1,42 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <stdio.h>
 #include <string.h>
 
 #include "scope_view_model.h"
 #include "app.h"
 #include "device_profile.h"
 
+/*
+ * Tab plus decode kind, as the one name a reader needs. On the Decode tab
+ * the screen *is* the technology; elsewhere it is the tab. Kept here rather
+ * than in `input_route.h` because it is what crosses the wire, and the two
+ * enums it spells are `app.h`'s and `input_route.h`'s respectively -- this
+ * is the only place both are already in hand.
+ */
+void scope_screen_name(char *out, size_t size, int tab, int decode) {
+    static const char *const decodes[] = {
+        "fm", "adsb", "gsm", "lte", "tetra", "srd"
+    };
+    const char *name = "scope";
+
+    if (tab == TAB_SURVEY)
+        name = "survey";
+    else if (tab == TAB_DECODE)
+        name = (decode >= 0 &&
+                decode < (int)(sizeof(decodes) / sizeof(decodes[0])))
+                   ? decodes[decode] : "decode";
+    snprintf(out, size, "%s", name);
+}
+
+
 void scope_view_model_build(const struct app *app, struct scope_view_model *out) {
     memset(out, 0, sizeof(*out));
 
     out->tab = (int)app->tab;
     out->decode = (int)app->decode;
+    scope_screen_name(out->screen, sizeof(out->screen), out->tab,
+                      out->decode);
     out->have_samples = app->frame.have_samples;
 
     out->center_hz = app->applied.frequency_hz;

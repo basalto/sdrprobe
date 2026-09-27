@@ -2,6 +2,7 @@
 #define SCOPE_VIEW_MODEL_H
 
 #include <stddef.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "sdr_dsp.h"
@@ -61,6 +62,22 @@ struct scope_view_model {
        reader that has to ask "is this field real?" gets no benefit from
        a zero that means the same as DECODE_FM. */
     int decode;
+
+    /*
+     * Which screen is showing, as a name -- and the only one of the three a
+     * reader should use. `tab` and `decode` are kept beside it because
+     * `receiver_state` has carried them since ticket 07 and a check reads
+     * them, but a browser matching `tab === 2 && decode === 0` is
+     * re-declaring two of this program's enums in a second language: exactly
+     * what drew the survey's marks swapped for months
+     * (`web-visualization/15`).
+     *
+     * The vocabulary is already there and is the same one `view <name>`
+     * uses: "survey", "scope", and on the Decode tab the technology --
+     * "fm", "adsb", "gsm", "lte", "tetra", "srd". It matches each browser
+     * view's own `id` exactly, so the shell looks a view up by name.
+     */
+    char screen[12];
 
     /* The receiver's applied tuning, rate and ppm -- Probe language. */
     uint32_t center_hz;
@@ -124,6 +141,10 @@ struct scope_view_model {
  * `app` is not advanced again, which is exactly the one frame this is built
  * for. It is not a snapshot to keep past that frame.
  */
+/* Tab plus decode kind as one name -- see `screen` above. Exposed so a check
+   can walk every screen without building a `struct app` for each. */
+void scope_screen_name(char *out, size_t size, int tab, int decode);
+
 void scope_view_model_build(const struct app *app, struct scope_view_model *out);
 
 #endif

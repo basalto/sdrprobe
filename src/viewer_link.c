@@ -1150,7 +1150,7 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
         len += (size_t)snprintf(json + len, sizeof(json) - len,
                                 "%s{\"hz\":%.0f,\"power_dbfs\":%.1f,"
                                 "\"has_carrier\":%s,\"width_hz\":%.0f,"
-                                "\"shape\":\"%s\",\"seen\":%d,"
+                                "\"shape\":\"%s\",\"seen\":\"%s\","
                                 "\"mark\":\"%s\"}",
                                 i == 0 ? "" : ",", cnd->hz,
                                 (double)cnd->power_dbfs,
@@ -1158,7 +1158,7 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
                                 cnd->has_carrier ? cnd->width_hz : 0.0,
                                 cnd->has_carrier
                                     ? survey_shape_name(cnd->shape) : "-",
-                                (int)cnd->seen,
+                                site_seen_name(cnd->seen),
                                 survey_mark_name(cnd->mark));
     }
     if (len < sizeof(json) - 2) {
@@ -1243,7 +1243,7 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
                         "\"rt_valid\":%s,\"rt\":\"%s\","
                         "\"bits\":%ld,\"blocks_matched\":%ld,\"groups\":%ld,"
                         "\"identified\":%ld,\"named\":%ld,"
-                        "\"reading\":\"%s\",\"reading_tone\":%d}",
+                        "\"reading\":\"%s\",\"reading_tone\":\"%s\"}",
                         (unsigned long long)now_ms,
                         fvm->pilot_locked ? "true" : "false", fvm->pilot_hz,
                         fvm->pilot_ppm, fvm->pilot_coherence,
@@ -1261,7 +1261,7 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
                         fvm->rt_valid ? "true" : "false", rt,
                         fvm->bits, fvm->blocks_matched, fvm->groups,
                         fvm->identified, fvm->named, reading,
-                        (int)fvm->reading_tone);
+                        fm_reading_tone_name(fvm->reading_tone));
     if (json_len <= 0 || (size_t)json_len >= sizeof(json))
         return; /* truncated: a half-written object is not JSON */
 
@@ -1295,13 +1295,12 @@ void viewer_link_publish_receiver_state(struct viewer_link *link,
     int i;
 
     json_len = snprintf(json, sizeof(json),
-                        "{\"type\":\"receiver_state\",\"tab\":%d,"
-                        "\"decode\":%d,"
+                        "{\"type\":\"receiver_state\",\"screen\":\"%s\","
                         "\"center_hz\":%u,"
                         "\"sample_rate_hz\":%u,\"ppm\":%d,"
                         "\"tuning_generation\":%u,\"full_scale\":%g,"
                         "\"timestamp_ms\":%llu}",
-                        svm->tab, svm->decode, svm->center_hz,
+                        svm->screen, svm->center_hz,
                         svm->sample_rate_hz,
                         svm->ppm, svm->tuning_generation,
                         (double)svm->full_scale,

@@ -103,14 +103,17 @@ const FmView = (function () {
   const ROW_LABEL = '#7e97a6';     /* 126, 151, 166 */
   const ROW_VALUE = '#d5e2ea';     /* 213, 226, 234 */
 
-  // `enum fm_reading_tone`'s three values, in its own order: neutral (in
+  // `enum fm_reading_tone` by *name*, never by its integer -- neutral (in
   // progress), good (working), weak (this is where the decode stopped) --
   // painted in the window's own `row_label`, `row_good` and `row_weak`.
-  // Inline rather than as classes in viewer.html, deliberately: ticket
-  // 14's own criterion is that adding a view touches views/ and the
-  // registry line and no other file, and views/survey.js already picks
-  // its chart colours the same way.
-  const TONE_COLOR = [ROW_LABEL, '#63e4aa', '#fabe4a'];
+  // Keyed by name for the reason views/survey.js's marks are: an ordinal
+  // re-declared in a second language is a table that can be silently wrong
+  // in the wrong order, and that one was, for months.
+  //
+  // Inline rather than as classes in viewer.html, deliberately: ticket 14's
+  // own criterion is that adding a view touches views/ and the registry
+  // line and no other file.
+  const TONE_COLOR = { neutral: ROW_LABEL, good: '#63e4aa', weak: '#fabe4a' };
 
   // The three landmarks that make a multiplex readable at a glance: the
   // pilot, the stereo subcarrier at twice it, and the RDS band at three
@@ -192,7 +195,7 @@ const FmView = (function () {
       pair('named', s.named),
     ]);
     e.reading.textContent = s.reading;
-    e.reading.style.color = TONE_COLOR[s.reading_tone] || TONE_COLOR[0];
+    e.reading.style.color = TONE_COLOR[s.reading_tone] || TONE_COLOR.neutral;
   }
 
   // The same waterfall the window draws over the received span, through
@@ -271,11 +274,6 @@ const FmView = (function () {
   return {
     id: 'fm',
     label: 'FM',
-    // FM is not a tab. It is TAB_DECODE (input_route.h's enum active_tab)
-    // with DECODE_FM chosen (app.h's enum decode_kind), which is why the
-    // shell matches on both and `receiver_state` carries both.
-    tab: 2,
-    decode: 0,
     // `waterfall` is the Scope's own stream, and the window's FM screen
     // draws the very same rows over the very same span -- one stream, two
     // views, rather than an `fm_waterfall` that would carry identical

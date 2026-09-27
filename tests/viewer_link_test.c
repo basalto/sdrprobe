@@ -704,8 +704,11 @@ static void test_fm_state_wire_format(void) {
     check_true("carries the funnel's sentence, already decided",
               contains(payload, len,
                        "\"reading\":\"reading the station\""));
-    check_true("and how it reads", contains(payload, len,
-              "\"reading_tone\":1"));
+    /* By name, never as the enum's integer -- a second reader that
+       re-declares the order gets it wrong silently, which is what
+       `web-visualization/15` cost. */
+    check_true("and how it reads, by name", contains(payload, len,
+              "\"reading_tone\":\"good\""));
 
     client_close_conn(&tc);
     viewer_link_close(&vlink);

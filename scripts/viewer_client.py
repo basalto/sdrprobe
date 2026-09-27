@@ -324,7 +324,7 @@ def run_print(client, count):
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "
                      f"rate={state['sample_rate_hz'] / 1e6:.3f} MS/s "
                      f"ppm={state['ppm']:+d} generation={state['tuning_generation']} "
-                     f"tab={state['tab']} decode={state['decode']} "
+                     f"screen={state['screen']} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             else:
                 # Named rather than assumed. This branch used to *be* the

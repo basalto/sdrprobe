@@ -193,7 +193,54 @@ static void test_scatter_newest_block_wraps(void) {
               svm.scatter_i == app.sv.scatter_history[SCATTER_HISTORY_BLOCKS - 1].i);
 }
 
+/*
+ * Every screen this program has, spelled the way the wire spells it.
+ *
+ * `receiver_state` carries one `screen` name instead of the `tab` and
+ * `decode` integers it used to, because a browser matching `tab === 2 &&
+ * decode === 0` re-declares two of this program's enums in a second
+ * language -- the shape that drew the survey's marks swapped for months
+ * (`web-visualization/15`). The names are each browser view's own `id`, so
+ * a wrong one here is a view that never matches and a panel that never
+ * shows.
+ *
+ * Walked exhaustively rather than sampled: a decode kind added to the enum
+ * without a name here falls through to "decode", and this is what says so.
+ */
+static void test_every_screen_has_a_name(void) {
+    struct named { int tab, decode; const char *want; };
+    static const struct named cases[] = {
+        { TAB_SURVEY, 0,             "survey" },
+        { TAB_SCOPE,  0,             "scope"  },
+        { TAB_DECODE, DECODE_FM,     "fm"     },
+        { TAB_DECODE, DECODE_ADSB,   "adsb"   },
+        { TAB_DECODE, DECODE_GSM,    "gsm"    },
+        { TAB_DECODE, DECODE_LTE,    "lte"    },
+        { TAB_DECODE, DECODE_TETRA,  "tetra"  },
+        { TAB_DECODE, DECODE_SRD,    "srd"    },
+    };
+    size_t i;
+    char name[12];
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        scope_screen_name(name, sizeof(name), cases[i].tab, cases[i].decode);
+        check_msg(strcmp(name, cases[i].want) == 0,
+                  "tab %d decode %d spells \"%s\", expected \"%s\"\n",
+                  cases[i].tab, cases[i].decode, name, cases[i].want);
+    }
+    /* The tab decides on the Decode tab and nowhere else: the Survey's name
+       must not change with whatever decode kind was last chosen. */
+    scope_screen_name(name, sizeof(name), TAB_SURVEY, DECODE_SRD);
+    check_str("the survey is the survey whatever decode is remembered",
+             name, "survey");
+    /* And a decode kind past the end of the table is named, not indexed. */
+    scope_screen_name(name, sizeof(name), TAB_DECODE, 99);
+    check_str("an unknown decode kind falls back rather than reading past "
+             "the table", name, "decode");
+}
+
 int main(void) {
+    test_every_screen_has_a_name();
     test_measurements_pass_through();
     test_no_samples_yet();
     test_waterfall_row_is_the_rings_front();
