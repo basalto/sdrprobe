@@ -1,6 +1,8 @@
 # 12 - Three faults the Viewer link had no check for
 
-Status: needs-triage
+Status: **done** (2026-09-27). All five acceptance criteria met, each check
+run against the reintroduced fault, and one of the three faults turned out
+to be **live** when the ticket was picked up rather than historical.
 
 ## Why this is a ticket and not a guideline
 
@@ -239,3 +241,100 @@ check go red, restore it. That is this repository's mutation discipline
 (`.claude/skills/check-claims`), and on this ticket it is the whole point:
 all three faults are already fixed, so a check written against the fixed code
 and never run against the broken code proves nothing at all.
+
+
+## Comments
+
+**2026-09-27 -- done, in three commits.** `bf5dcaf`, `7989756`, `9553cd1`.
+
+### 1. The backwards clock -- and the decision this ticket owed
+
+The ticket left the shape of the fix open and asked for it to be decided
+here. It is: **the header exposes the question and the session acts on it.**
+
+- *A clamp* is wrong for the reason the ticket already suspected: it turns
+  the fault into a sweep that merely starts its settle late, which is silent,
+  which is how this one survived 75 seconds.
+- *A new phase value* gives every caller a case it would most likely handle
+  by ignoring the block -- settling by another name.
+- *Refusing in the header* is not available: `static inline` functions with
+  no state have nowhere to complain to, and this repository has put an
+  `assert()` in no shipping path.
+
+So `survey_elapsed_sane()` answers, and `survey_session.c` stops both the
+sweep and the measurement with *"the clock ran backwards (-48210.5 s). Two
+clocks with different origins, not a slow tuner."* It is safe to be that
+loud precisely because a monotonic clock cannot produce the condition.
+
+`check-survey-sweep` also pins the shape that made it invisible:
+`survey_step_phase_at(-48210.5, ...)` **does** return SETTLING, which is why
+nothing may reach it with such a number.
+
+### 2. The publish spin
+
+`viewer_stream_pacing()` names what paces every value of `enum
+viewer_stream`, with no `default:` and no fallthrough, so a stream it does
+not name gets `VIEWER_PACED_UNKNOWN` -- which `check-viewer-session` refuses.
+Adding a stream now fails twice over: `-Wswitch` at compile time and three
+assertions at check time.
+
+`viewer_publish_due()` is the one decision with the two reasons kept apart,
+and a data-paced stream is deliberately **not** also given an interval,
+because a timer there would republish numbers no new block produced.
+
+**The honest limit, written down in three places rather than papered over**:
+nothing in a unit check can see the shape of a loop, so a publish call
+written *outside* the gate is still invisible to it. `make bench-serve` is
+what catches that.
+
+`check-viewer-session` stayed `-lm` alone. Linking `viewer_link.c` for the
+*spelling* of a stream would have pulled sockets, the embedded page and four
+view models into a suite of pure predicates; the names are pinned next door,
+where the table is already linked.
+
+### 3. The two tables -- and one was already broken
+
+**This is the finding.** The summary buffer was `char summary[64]`, then
+160 with a comment reading "90 bytes for all seven today". The fourteen
+names need **164**. It was truncating *at the moment this ticket was picked
+up*, silently, from a stream added hours earlier in the same session as the
+fix.
+
+Both numbers were right when written. `VIEWER_SUBSCRIPTION_SUMMARY_MAX` is
+derived from the enum and a stated `VIEWER_STREAM_NAME_MAX`, and both ends
+are checked.
+
+`viewer_link_stream_name()` also turns the two hand-kept name lists into one
+comparison: keeping them independent is what caught an omission of four
+names last week, and now "both lists have 14 entries" becomes "both lists
+have the same 14 entries in the same order".
+
+### Mutation results, which is what "done" means here
+
+| fault reintroduced | what failed |
+|---|---|
+| session stops asking `survey_elapsed_sane()` | 5 checks, `check-survey-session` |
+| `survey_elapsed_sane()` returns 1 (the clamp) | 2 checks, `check-survey-sweep` |
+| a stream added with no pacing row | 3 checks + `-Wswitch` |
+| a name removed from the initializer | 2 checks on the NULL entry |
+| the summary buffer back to 160 | the summary assertion |
+| two streams sharing a name | 3 checks, including the cross-check |
+
+All six restore green.
+
+### Numbers
+
+`check-survey-sweep` 218, `check-survey-session` 168, `check-viewer-session`
+68 (was 41), `check-viewer-link` 408 (was 257). Gate **88 suites, 22847
+checks**. `make bench-serve`: 20.9% of a core idle, 18.9% with a
+`receiver_state` subscriber, **18.7% with all eleven data streams
+subscribed** -- within noise of idle, where this ticket's spin read 98.6%.
+
+### Not done, and deliberately
+
+The proposed guideline is in `viewer_link.h` above the publish declarations
+rather than in a skill or in `CLAUDE.md`, exactly as the ticket asked: both
+of those are read before the work, and ticket 10's fix had already produced
+a named, checked predicate that the person reintroducing the bug did not
+use. The paragraph is in the file somebody opens to find the function they
+are about to call.
