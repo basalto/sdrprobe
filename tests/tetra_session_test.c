@@ -15,8 +15,8 @@
 
 #include "check.h"
 
-#include "tetra_session.h"
-#include "sdr_dsp.h"
+#include "tech/tetra_session.h"
+#include "core/sdr_dsp.h"
 
 #include <stdint.h>
 #include <stdio.h>

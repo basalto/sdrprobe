@@ -3,10 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "signal_analysis.h"
-#include "signal_findings.h"
-#include "signal_probe.h"
-#include "srd_dsp.h"
+#include "runtime/signal_analysis.h"
+#include "core/signal_findings.h"
+#include "core/signal_probe.h"
+#include "tech/srd_dsp.h"
 
 int signal_analysis_run(const float *i_samples, const float *q_samples,
                         size_t pair_count, double sample_rate,

@@ -5,9 +5,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "device_backend.h"
-#include "device_profile.h"
-#include "iq_ring.h"
+#include "runtime/device_backend.h"
+#include "core/device_profile.h"
+#include "core/iq_ring.h"
 
 /*
  * Deliberately dump1090's block, so timing matches it -- and it is **131072
@@ -108,10 +108,10 @@ struct slot_snapshot {
 #define DB_SCALE_STEP 10.0f
 /* The calibration constants and the stability gate live in a header that
    depends on nothing, so they can be checked without a window (ADR-0012). */
-#include "calibration_gate.h"
+#include "runtime/calibration_gate.h"
 /* The band scan's step plan and its channel choice live beside the same
    argument, in scan_plan.h. */
-#include "scan_plan.h"
+#include "runtime/scan_plan.h"
 #define DRIFT_CHECK_INTERVAL_SECONDS 300.0
 #define DRIFT_CHECK_SETTLE_SECONDS 2.0
 #define DRIFT_CHECK_MEASURE_SECONDS 3.0

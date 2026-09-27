@@ -1,4 +1,4 @@
-#include "sdrgui.h"
+#include "gui/sdrgui.h"
 
 #include <math.h>
 #include <stdio.h>

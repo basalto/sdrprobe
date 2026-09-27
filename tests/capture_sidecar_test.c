@@ -9,7 +9,7 @@
 
 #include "check.h"
 
-#include "capture_sidecar.h"
+#include "core/capture_sidecar.h"
 
 /* A sidecar as scripts/rescale_capture.c writes one. */
 static const char *const S16_SIDECAR =

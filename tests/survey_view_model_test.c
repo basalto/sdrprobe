@@ -1,9 +1,9 @@
 #include "check.h"
 
-#include "survey_record.h"
-#include "survey_session.h"
-#include "survey_suspect.h"
-#include "survey_view_model.h"
+#include "runtime/survey_record.h"
+#include "runtime/survey_session.h"
+#include "core/survey_suspect.h"
+#include "model/survey_view_model.h"
 
 #include <stdio.h>
 #include <string.h>

@@ -5,9 +5,9 @@
 
 #include <raylib.h>
 
-#include "survey_mark.h"
+#include "model/survey_mark.h"
 
-#include "sdr_dsp.h"
+#include "core/sdr_dsp.h"
 
 /*
  * SDR visual components: reusable pieces of the display that render one kind of
@@ -27,7 +27,7 @@
 /* The chart geometry -- the plotting area inside an outer rectangle, and which
    bar a pointer is over -- is in a header that needs raylib for the Rectangle
    type and nothing else, so it can be checked without a window. */
-#include "sdrgui_geometry.h"
+#include "gui/sdrgui_geometry.h"
 
 /* Fill x_fraction/y_fraction/mouse for the cursor over `plot`; returns 0 when
    the cursor is outside the plot. */

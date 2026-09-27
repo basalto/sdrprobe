@@ -1,4 +1,4 @@
-#include "gsm_dsp.h"
+#include "tech/gsm_dsp.h"
 
 #include <math.h>
 #include <stdlib.h>

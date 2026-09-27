@@ -1,4 +1,4 @@
-#include "survey_store.h"
+#include "runtime/survey_store.h"
 
 #include <errno.h>
 #include <math.h>
@@ -6,8 +6,8 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "band_plan.h"
-#include "survey_suspect.h"
+#include "core/band_plan.h"
+#include "core/survey_suspect.h"
 
 /* Megahertz as the ingest script spells it: no trailing zeros, an M after. */
 static int mhz_text(double hz, char *out, size_t size) {

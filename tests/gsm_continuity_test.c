@@ -1,4 +1,4 @@
-#include "gsm_continuity.h"
+#include "tech/gsm_continuity.h"
 #include "check.h"
 
 #include <stdio.h>

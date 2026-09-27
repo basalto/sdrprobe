@@ -11,9 +11,9 @@
 #include <string.h>
 
 #include "check.h"
-#include "srd_dsp.h"
-#include "srd_frame.h"
-#include "srd_session.h"
+#include "tech/srd_dsp.h"
+#include "tech/srd_frame.h"
+#include "tech/srd_session.h"
 
 #define FS 2000000.0
 #define BLOCK_PAIRS 131072

@@ -40,7 +40,13 @@ import sys
 # nothing else.
 LAYERS = ["core", "tech", "runtime", "model", "server", "gui", "app"]
 
-INCLUDE = re.compile(r'^\s*#\s*include\s+"([a-z_0-9]+\.h)"', re.M)
+# Either `"core/sdr_dsp.h"` or a bare `"sdr_dsp.h"`. Both are read, and the
+# difference matters: since ADR-0028's second half there is one `-I`, so a
+# bare name resolves *only* within the including file's own directory. A
+# bare cross-layer include therefore cannot compile -- and this says so by
+# name rather than leaving a reader with "No such file or directory".
+INCLUDE = re.compile(
+    r'^\s*#\s*include\s+"(?:([a-z]+)/)?([a-z_0-9]+\.h)"', re.M)
 
 
 def home_of_each_header(root):
@@ -63,12 +69,19 @@ def violations(root):
             checked += 1
             with open(os.path.join(directory, name)) as handle:
                 text = handle.read()
-            for header in INCLUDE.findall(text):
+            for spelled, header in INCLUDE.findall(text):
                 # A header from vendor/ or the system is not ours to rank.
                 if header not in home:
                     continue
-                if rank[home[header]] > rank[layer]:
-                    found.append((layer, name, header, home[header]))
+                target = home[header]
+                if rank[target] > rank[layer]:
+                    found.append((layer, name, header, target, 'upward'))
+                elif target != layer and spelled != target:
+                    # Legal direction, illegal spelling: it names no layer,
+                    # or names the wrong one. Neither compiles under one
+                    # `-I`, and both would start compiling again the moment
+                    # somebody restored a per-folder `-I`.
+                    found.append((layer, name, header, target, 'unspelled'))
     return checked, found
 
 
@@ -77,16 +90,29 @@ def main(argv):
     checked, found = violations(root)
 
     if found:
-        print("  FAIL  a layer reached upward:")
-        for layer, name, header, target in found:
-            print("        src/%s/%s includes %s, which is %s/" %
-                  (layer, name, header, target))
-        print()
-        print("  The order is: " + " -> ".join(LAYERS))
-        print("  A layer may include only itself and what is beneath it.")
-        print("  Either the include belongs lower, or the file is in the")
-        print("  wrong folder -- both have happened here, and the second")
-        print("  was the commoner of the two.")
+        upward = [f for f in found if f[4] == 'upward']
+        unspelled = [f for f in found if f[4] == 'unspelled']
+        if upward:
+            print("  FAIL  a layer reached upward:")
+            for layer, name, header, target, _ in upward:
+                print("        src/%s/%s includes %s, which is %s/" %
+                      (layer, name, header, target))
+            print()
+            print("  The order is: " + " -> ".join(LAYERS))
+            print("  A layer may include only itself and what is beneath it.")
+            print("  Either the include belongs lower, or the file is in the")
+            print("  wrong folder -- both have happened here, and the second")
+            print("  was the commoner of the two.")
+        if unspelled:
+            print("  FAIL  a cross-layer include does not name its layer:")
+            for layer, name, header, target, _ in unspelled:
+                print('        src/%s/%s should say "%s/%s"' %
+                      (layer, name, target, header))
+            print()
+            print("  There is one -I (ADR-0028), so a bare name resolves only")
+            print("  inside the including file's own directory -- these do not")
+            print("  compile. Spelling the layer is also the point of the")
+            print("  move: the dependency is visible where it is written.")
         return 1
 
     print("  %-56s %5d checks   ok" %

@@ -1,13 +1,13 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "frame_advance.h"
+#include "runtime/frame_advance.h"
 /*
  * `runtime.h`, not `view.h`: everything this dispatches to is declared
  * there now, and `view.h` includes raylib for the rectangles half of its
  * declarations take. This is the step `headless` and `server` drive, so it
  * has no business compiling against a window (layer-boundaries ticket 02).
  */
-#include "runtime.h"
+#include "runtime/runtime.h"
 
 /*
  * See frame_advance.h. This reproduces sdrprobe.c's former run_gui sequence

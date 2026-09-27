@@ -1,14 +1,14 @@
 #include "check.h"
 
-#include "lte_dsp.h"
-#include "lte_gold.h"
-#include "lte_mib.h"
+#include "tech/lte_dsp.h"
+#include "tech/lte_gold.h"
+#include "tech/lte_mib.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

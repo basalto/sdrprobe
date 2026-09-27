@@ -10,9 +10,9 @@
 #include <string.h>
 
 #include "check.h"
-#include "device_profile.h"
-#include "sdr_dsp.h"
-#include "signal_analysis.h"
+#include "core/device_profile.h"
+#include "core/sdr_dsp.h"
+#include "runtime/signal_analysis.h"
 
 static int load_capture(const char *path, float **i_out, float **q_out, size_t *pairs_out) {
     FILE *f = fopen(path, "rb");

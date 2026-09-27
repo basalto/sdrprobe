@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "gsm_dsp.h"
+#include "tech/gsm_dsp.h"
 
 /*
  * The Broadcast Control Channel: four normal bursts in, one System

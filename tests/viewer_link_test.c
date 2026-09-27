@@ -1,13 +1,13 @@
 #include "check.h"
 
-#include "scope_view_model.h"
-#include "survey_mark.h"  /* SURVEY_MARK_* and the mark's own name function --
+#include "model/scope_view_model.h"
+#include "model/survey_mark.h"  /* SURVEY_MARK_* and the mark's own name function --
                          the model layer now, not sdrgui.h, which is what lets
                          this suite build with no raylib at all
                          (layer-boundaries ticket 03). */
-#include "survey_view_model.h"
-#include "viewer_link.h"
-#include "websocket.h"
+#include "model/survey_view_model.h"
+#include "server/viewer_link.h"
+#include "server/websocket.h"
 
 #include <arpa/inet.h>
 #include <errno.h>

@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "survey_bands.h"
+#include "core/survey_bands.h"
 
 #include <math.h>
 #include <string.h>
@@ -15,7 +15,7 @@
  * the Inspect button's table answers.
  */
 
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 /*
  * Two receivers, and the reason this is a property rather than a fact about

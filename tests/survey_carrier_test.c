@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "survey_carrier.h"
+#include "core/survey_carrier.h"
 
 #include <math.h>
 #include <string.h>

@@ -1,8 +1,8 @@
 #ifndef FM_VIEW_MODEL_H
 #define FM_VIEW_MODEL_H
 
-#include "fm_dsp.h"
-#include "rds.h"
+#include "tech/fm_dsp.h"
+#include "tech/rds.h"
 
 /* The FM view's own state (`app.h`), which is all this reads: forward
    declared, so nothing that takes a model has to take `struct app` with

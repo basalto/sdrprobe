@@ -3,9 +3,9 @@
 
 #include <stddef.h>
 
-#include "fm_dsp.h"
-#include "fm_scan.h"   /* fm_rds_chunk_length */
-#include "rds.h"
+#include "tech/fm_dsp.h"
+#include "tech/fm_scan.h"   /* fm_rds_chunk_length */
+#include "tech/rds.h"
 
 /*
  * An RDS decode, block by block, with no window and no receiver.

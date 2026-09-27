@@ -17,13 +17,13 @@
 #include <string.h>
 
 #include "check.h"
-#include "device_profile.h"
-#include "sdr_dsp.h"
-#include "srd_dsp.h"
+#include "core/device_profile.h"
+#include "core/sdr_dsp.h"
+#include "tech/srd_dsp.h"
 /* For SRD_FULL_FRAME_BITS alone -- the real-capture claim below is stated in
  * frames, and restating 80 here is how two numbers come to disagree. Nothing
  * from srd_frame.c is called, so the suite still links -lm and srd_dsp. */
-#include "srd_frame.h"
+#include "tech/srd_frame.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

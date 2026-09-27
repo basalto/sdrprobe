@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "signal_probe.h"
+#include "core/signal_probe.h"
 
 /*
  * What the candidate panel's numbers amount to, in words -- and, more often

@@ -1,10 +1,10 @@
-#include "startup_session.h"
+#include "runtime/startup_session.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "sdr_dsp.h"
+#include "core/sdr_dsp.h"
 
 /*
  * The machine described in startup_session.h. Nothing here touches a

@@ -3,8 +3,8 @@
 
 #include <stddef.h>
 
-#include "band_plan.h"
-#include "survey_sweep.h"
+#include "core/band_plan.h"
+#include "core/survey_sweep.h"
 
 /*
  * Which allocations the survey can be pointed at, and what range each means.

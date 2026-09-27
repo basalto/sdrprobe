@@ -4,9 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "gsm_bcch.h"
-#include "gsm_continuity.h"
-#include "gsm_dsp.h"
+#include "tech/gsm_bcch.h"
+#include "tech/gsm_continuity.h"
+#include "tech/gsm_dsp.h"
 
 /*
  * A GSM decode, block by block, with no window and no receiver.

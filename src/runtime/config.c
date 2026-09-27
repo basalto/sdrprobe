@@ -1,6 +1,6 @@
-#include "config.h"
-#include "debug_log.h"
-#include "sdr_dsp.h"
+#include "runtime/config.h"
+#include "runtime/debug_log.h"
+#include "core/sdr_dsp.h"
 
 #include <errno.h>
 #include <stdio.h>

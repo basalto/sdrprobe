@@ -62,13 +62,15 @@ Q_0=@
 Q=$(Q_$(V))
 
 SRC=src
-# One -I per layer, so the move leaves all 717 `#include` lines untouched
-# (`.scratch/layer-boundaries/issues/05-*`, staged: the layered spelling
-# -- `#include "core/sdr_dsp.h"` -- is a second commit, separately
-# verifiable). The order is the dependency order and is not meaningful to
-# the compiler; it is here so a reader sees the layering.
-SRC_INC=-I$(SRC) -I$(SRC)/core -I$(SRC)/tech -I$(SRC)/model \
-	-I$(SRC)/runtime -I$(SRC)/server -I$(SRC)/gui -I$(SRC)/app
+# One -I, and every include names its layer: `#include "core/sdr_dsp.h"`
+# (ADR-0028). It was seven -I flags for one commit, so the move itself was
+# `git mv` and nothing else; this is the second half of that split.
+#
+# The point is that the boundary is visible where the dependency is
+# *written*, not only in a folder listing -- a `runtime/` file reaching for
+# `gui/` says so on the line, and `check-layers` no longer has to map a
+# basename to a folder to find it.
+SRC_INC=-I$(SRC)
 TESTS=tests
 VENDOR=vendor
 BUILD=build

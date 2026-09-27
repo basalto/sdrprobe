@@ -13,15 +13,15 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include "app.h"
-#include "capture_sidecar.h"
-#include "debug_log.h"
-#include "device_profile.h"
-#include "frame_advance.h"
-#include "options.h"
-#include "runtime.h"
-#include "view_input.h"
-#include "sdr_dsp.h"
+#include "runtime/app.h"
+#include "core/capture_sidecar.h"
+#include "runtime/debug_log.h"
+#include "core/device_profile.h"
+#include "runtime/frame_advance.h"
+#include "runtime/options.h"
+#include "runtime/runtime.h"
+#include "runtime/view_input.h"
+#include "core/sdr_dsp.h"
 
 /*
  * The application layer: the clock, the receiver, the retune transaction,

@@ -3,11 +3,11 @@
 
 #include <stdint.h>
 
-#include "app.h"
-#include "lte_scan.h"
-#include "survey_record.h"
-#include "survey_session.h"
-#include "reading_origin.h"
+#include "runtime/app.h"
+#include "tech/lte_scan.h"
+#include "runtime/survey_record.h"
+#include "runtime/survey_session.h"
+#include "core/reading_origin.h"
 
 /*
  * What the per-block step calls, for every frontend.

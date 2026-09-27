@@ -10,9 +10,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "runtime.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "runtime/runtime.h"
 
 static void remember(struct app *app, double now, int mcc, int mnc, int colour,
                      int la) {

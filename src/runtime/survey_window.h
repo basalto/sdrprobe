@@ -1,8 +1,8 @@
 #ifndef SURVEY_WINDOW_H
 #define SURVEY_WINDOW_H
 
-#include "app.h"
-#include "freq_window.h"
+#include "runtime/app.h"
+#include "core/freq_window.h"
 
 /*
  * The adapters between `freq_window.h`'s plain doubles and the survey view's

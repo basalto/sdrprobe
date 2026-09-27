@@ -11,9 +11,9 @@
 #include <time.h>
 #include <string.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "runtime.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "runtime/runtime.h"
 
 int adsb_tuned(const struct app *app) {
     return adsb_receiver_ready(app->applied.frequency_hz,

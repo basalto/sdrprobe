@@ -1,7 +1,7 @@
 #include "check.h"
 
-#include "survey_record.h"
-#include "survey_suspect.h"
+#include "runtime/survey_record.h"
+#include "core/survey_suspect.h"
 
 #include <string.h>
 

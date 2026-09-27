@@ -1,6 +1,6 @@
-#include "lte_dsp.h"
+#include "tech/lte_dsp.h"
 
-#include "lte_gold.h"
+#include "tech/lte_gold.h"
 
 #include <math.h>
 #include <string.h>

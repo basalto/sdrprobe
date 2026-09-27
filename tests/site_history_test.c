@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "site_history.h"
+#include "runtime/site_history.h"
 
 #include <stdio.h>
 #include <string.h>

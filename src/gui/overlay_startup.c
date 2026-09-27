@@ -4,11 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "view.h"
-#include "startup_layout.h"
-#include "debug_log.h"
-#include "device_profile.h"
-#include "lte_dsp.h"
+#include "gui/view.h"
+#include "gui/startup_layout.h"
+#include "runtime/debug_log.h"
+#include "core/device_profile.h"
+#include "tech/lte_dsp.h"
 
 /*
  * The startup form: where this is, what it is listening with, and the

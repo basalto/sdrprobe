@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "tetra_dsp.h"
+#include "tech/tetra_dsp.h"
 
 #include <math.h>
 #include <stdio.h>

@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "lte_stats.h"
+#include "tech/lte_stats.h"
 
 /*
  * What the measurements amount to, in words -- and, as often, what they do

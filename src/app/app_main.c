@@ -12,14 +12,14 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include "app.h"
-#include "config.h"
-#include "debug_log.h"
-#include "device_profile.h"
-#include "installation.h"
-#include "options.h"
-#include "runtime.h"
-#include "version.h"
+#include "runtime/app.h"
+#include "runtime/config.h"
+#include "runtime/debug_log.h"
+#include "core/device_profile.h"
+#include "runtime/installation.h"
+#include "runtime/options.h"
+#include "runtime/runtime.h"
+#include "runtime/version.h"
 
 /*
  * Everything both binaries do before and after the run: parse the command

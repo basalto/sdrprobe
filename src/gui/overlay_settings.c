@@ -5,10 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "settings_layout.h"
-#include "chrome_layout.h"
-#include "view.h"
-#include "sdrgui.h"
+#include "gui/settings_layout.h"
+#include "gui/chrome_layout.h"
+#include "gui/view.h"
+#include "gui/sdrgui.h"
 #include "raygui.h"
 
 /*

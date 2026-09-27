@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "fm_scan.h"
+#include "tech/fm_scan.h"
 
 #include <math.h>
 

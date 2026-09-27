@@ -1,11 +1,11 @@
 #ifndef LTE_LAYOUT_H
 #define LTE_LAYOUT_H
 
-#include "lte_dsp.h"
+#include "tech/lte_dsp.h"
 
 #include <raylib.h>
 
-#include "panel_rows.h"
+#include "gui/panel_rows.h"
 
 /*
  * Where the LTE decode view puts things.

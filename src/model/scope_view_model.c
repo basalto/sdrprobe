@@ -3,9 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "scope_view_model.h"
-#include "app.h"
-#include "device_profile.h"
+#include "model/scope_view_model.h"
+#include "runtime/app.h"
+#include "core/device_profile.h"
 
 void scope_view_model_build(const struct scope_view_model_input *in,
                             struct scope_view_model *out) {

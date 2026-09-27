@@ -1,7 +1,7 @@
 #ifndef CALIBRATION_LAYOUT_H
 #define CALIBRATION_LAYOUT_H
 
-#include "lte_dsp.h"
+#include "tech/lte_dsp.h"
 
 #include <raylib.h>
 

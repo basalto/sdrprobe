@@ -7,7 +7,7 @@
 #include <string.h>
 #include <time.h>
 
-#include "iq_ring.h"
+#include "core/iq_ring.h"
 
 int iq_ring_init(struct iq_ring *ring, double duration_seconds) {
     if (!ring)

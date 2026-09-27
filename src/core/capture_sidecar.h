@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 /*
  * What a capture says about itself.

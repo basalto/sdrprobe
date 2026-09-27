@@ -14,9 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "runtime.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "runtime/runtime.h"
 
 /* Give the receiver back, whatever happened to the measurement. */
 void startup_release(struct app *app) {

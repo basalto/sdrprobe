@@ -1,6 +1,6 @@
 #include "check.h"
-#include "gsm_dsp.h"
-#include "options.h"
+#include "tech/gsm_dsp.h"
+#include "runtime/options.h"
 
 #include <arpa/inet.h>
 #include <math.h>

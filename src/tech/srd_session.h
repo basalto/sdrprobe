@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "srd_dsp.h"
-#include "srd_frame.h"
+#include "tech/srd_dsp.h"
+#include "tech/srd_frame.h"
 
 /*
  * An SRD (Short Range Device) decode session, block by block, with no window

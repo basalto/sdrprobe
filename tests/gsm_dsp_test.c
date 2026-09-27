@@ -1,11 +1,11 @@
 #include "check.h"
-#include "gsm_dsp.h"
-#include "sdr_dsp.h"
+#include "tech/gsm_dsp.h"
+#include "core/sdr_dsp.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 #define PI_F 3.14159265358979323846f
 

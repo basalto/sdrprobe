@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include "band_plan.h"
+#include "core/band_plan.h"
 
 /*
  * Where the survey sends a reader who presses Inspect.

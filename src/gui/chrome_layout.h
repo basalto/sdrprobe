@@ -3,7 +3,7 @@
 
 #include <raylib.h>
 
-#include "input_route.h"   /* TAB_COUNT: the tabs are the same list */
+#include "runtime/input_route.h"   /* TAB_COUNT: the tabs are the same list */
 
 /*
  * The window chrome: the tab bar, and the Settings and Calibration buttons

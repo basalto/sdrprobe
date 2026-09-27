@@ -1,7 +1,7 @@
 #include "check.h"
 
-#include "fm_dsp.h"
-#include "rds.h"
+#include "tech/fm_dsp.h"
+#include "tech/rds.h"
 
 #include <math.h>
 #include <stdio.h>

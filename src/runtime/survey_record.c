@@ -1,9 +1,9 @@
-#include "survey_record.h"
+#include "runtime/survey_record.h"
 
 #include <string.h>
 
-#include "band_plan.h"
-#include "survey_suspect.h"
+#include "core/band_plan.h"
+#include "core/survey_suspect.h"
 
 #define SURVEY_BANDWIDTH_DB 20.0f
 

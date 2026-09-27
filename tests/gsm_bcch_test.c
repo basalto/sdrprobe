@@ -1,4 +1,4 @@
-#include "gsm_bcch.h"
+#include "tech/gsm_bcch.h"
 #include "check.h"
 
 #include <stdio.h>

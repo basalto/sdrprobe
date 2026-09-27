@@ -4,11 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "view.h"
-#include "debug_log.h"
-#include "tetra_layout.h"
-#include "sdrgui.h"
-#include "sdrgui_geometry.h"
+#include "gui/view.h"
+#include "runtime/debug_log.h"
+#include "gui/tetra_layout.h"
+#include "gui/sdrgui.h"
+#include "gui/sdrgui_geometry.h"
 
 /*
  * The Decode tab's TETRA screen: what the network says about itself, and how

@@ -1,5 +1,5 @@
-#include "band_plan.h"
-#include "band_plan_view.h"
+#include "core/band_plan.h"
+#include "gui/band_plan_view.h"
 #include "check.h"
 
 #include <stdio.h>

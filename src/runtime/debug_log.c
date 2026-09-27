@@ -1,4 +1,4 @@
-#include "debug_log.h"
+#include "runtime/debug_log.h"
 
 #include <stdarg.h>
 #include <stdio.h>

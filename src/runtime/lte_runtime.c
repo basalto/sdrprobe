@@ -11,9 +11,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "runtime.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "runtime/runtime.h"
 
 int lte_on_grid(const struct app *app) {
     return app->applied.sample_rate_hz == (uint32_t)LTE_SAMPLE_RATE_HZ;

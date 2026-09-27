@@ -4,7 +4,7 @@
  */
 
 #include "check.h"
-#include "lte_confirm.h"
+#include "tech/lte_confirm.h"
 
 static void test_a_message_confirms(void) {
     struct lte_cell_tally t;

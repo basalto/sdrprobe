@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "signal_probe.h"
+#include "core/signal_probe.h"
 
 /*
  * One frequency's magnitude, by rotating a phasor rather than calling cos and

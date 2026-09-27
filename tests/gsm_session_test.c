@@ -20,8 +20,8 @@
 
 #include "check.h"
 
-#include "gsm_session.h"
-#include "sdr_dsp.h"
+#include "tech/gsm_session.h"
+#include "core/sdr_dsp.h"
 
 #include <stdint.h>
 #include <stdio.h>

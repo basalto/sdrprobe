@@ -1,4 +1,4 @@
-#include "survey_sweep.h"
+#include "core/survey_sweep.h"
 #include "check.h"
 
 #include <math.h>

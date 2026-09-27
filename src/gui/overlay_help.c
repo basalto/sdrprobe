@@ -3,9 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "help_layout.h"
-#include "view.h"
-#include "sdrgui.h"
+#include "gui/help_layout.h"
+#include "gui/view.h"
+#include "gui/sdrgui.h"
 
 /*
  * The help overlay: what each chart plots and how to read it, reachable with

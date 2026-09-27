@@ -13,7 +13,7 @@
  * Because it compiles gsm_dsp.c in, link only sdr_dsp.c alongside it (the
  * Makefile target does this).
  */
-#include "sdr_dsp.h"
+#include "core/sdr_dsp.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -22,7 +22,7 @@
 
 /* Pull in the plugin's implementation (and its statics) directly. */
 #include "gsm_dsp.c"
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 #define BLOCK_BYTES (16 * 16384)
 #define BLOCK_PAIRS (BLOCK_BYTES / 2)

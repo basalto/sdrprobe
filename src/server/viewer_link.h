@@ -4,11 +4,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "fm_view_model.h"
-#include "scope_view_model.h"
-#include "survey_view_model.h"
-#include "viewer_command.h"
-#include "websocket.h"
+#include "model/fm_view_model.h"
+#include "model/scope_view_model.h"
+#include "model/survey_view_model.h"
+#include "server/viewer_command.h"
+#include "server/websocket.h"
 
 /*
  * The Viewer link (ADR-0027): the Scope's view model, pushed to loopback

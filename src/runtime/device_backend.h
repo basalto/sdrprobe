@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 /*
  * How a receiver is driven, as opposed to what it is.

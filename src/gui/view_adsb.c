@@ -8,11 +8,11 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include "view.h"
-#include "adsb_layout.h"
-#include "debug_log.h"
-#include "sdrgui.h"
-#include "sdrgui_geometry.h"
+#include "gui/view.h"
+#include "gui/adsb_layout.h"
+#include "runtime/debug_log.h"
+#include "gui/sdrgui.h"
+#include "gui/sdrgui_geometry.h"
 
 /*
  * The Decode tab's Mode S / ADS-B screen: the message log, and an analysis

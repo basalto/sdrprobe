@@ -1,6 +1,6 @@
-#include "sdrgui_geometry.h"
-#include "sdrgui.h"
-#include "survey_suspect.h"
+#include "gui/sdrgui_geometry.h"
+#include "gui/sdrgui.h"
+#include "core/survey_suspect.h"
 #include "check.h"
 
 #include <stdio.h>

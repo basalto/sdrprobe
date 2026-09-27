@@ -1,5 +1,5 @@
-#include "survey_suspect.h"
-#include "device_profile.h"
+#include "core/survey_suspect.h"
+#include "core/device_profile.h"
 
 /*
  * The RTL2832U's crystal, which this header used to define as

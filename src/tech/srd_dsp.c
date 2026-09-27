@@ -14,9 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "sdr_dsp.h"
-#include "signal_probe.h"
-#include "srd_dsp.h"
+#include "core/sdr_dsp.h"
+#include "core/signal_probe.h"
+#include "tech/srd_dsp.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

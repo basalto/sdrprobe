@@ -5,10 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "scan_layout.h"
-#include "view.h"
-#include "sdrgui.h"
-#include "debug_log.h"
+#include "gui/scan_layout.h"
+#include "gui/view.h"
+#include "gui/sdrgui.h"
+#include "runtime/debug_log.h"
 
 /*
  * The GSM 900 band scan: sweep the downlink, chart each channel's power, and

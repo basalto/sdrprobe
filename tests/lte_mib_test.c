@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "lte_mib.h"
+#include "tech/lte_mib.h"
 
 #include <math.h>
 #include <string.h>

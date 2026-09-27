@@ -4,11 +4,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "calibration_gate.h"
-#include "gsm_dsp.h"
-#include "lte_dsp.h"
-#include "lte_scan.h"
-#include "scan_plan.h"
+#include "runtime/calibration_gate.h"
+#include "tech/gsm_dsp.h"
+#include "tech/lte_dsp.h"
+#include "tech/lte_scan.h"
+#include "runtime/scan_plan.h"
 
 /*
  * Finding a reference and measuring the crystal against it, block by block,

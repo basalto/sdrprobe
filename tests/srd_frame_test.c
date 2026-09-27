@@ -11,10 +11,10 @@
 #include <string.h>
 
 #include "check.h"
-#include "device_profile.h"
-#include "sdr_dsp.h"
-#include "srd_dsp.h"
-#include "srd_frame.h"
+#include "core/device_profile.h"
+#include "core/sdr_dsp.h"
+#include "tech/srd_dsp.h"
+#include "tech/srd_frame.h"
 
 static void unpack_bytes_to_bits(const uint8_t *bytes, size_t byte_count,
                                  uint8_t *bits_out) {

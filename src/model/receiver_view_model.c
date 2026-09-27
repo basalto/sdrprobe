@@ -3,9 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "receiver_view_model.h"
-#include "app.h"
-#include "device_profile.h"
+#include "model/receiver_view_model.h"
+#include "runtime/app.h"
+#include "core/device_profile.h"
 
 /*
  * The screen names, in `enum decode_kind`'s own order -- the table is

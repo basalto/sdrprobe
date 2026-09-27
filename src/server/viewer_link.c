@@ -1,8 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "viewer_link.h"
+#include "server/viewer_link.h"
 
-#include "debug_log.h"
+#include "runtime/debug_log.h"
 
 #include <arpa/inet.h>
 #include <errno.h>

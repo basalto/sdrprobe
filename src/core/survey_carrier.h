@@ -3,7 +3,7 @@
 
 #include <math.h>
 
-#include "sdr_dsp.h"
+#include "core/sdr_dsp.h"
 
 /*
  * From peaks to signals.

@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "tetra_dsp.h"
-#include "tetra_sync.h"
+#include "tech/tetra_dsp.h"
+#include "tech/tetra_sync.h"
 
 /*
  * A TETRA decode, block by block, with no window and no receiver.

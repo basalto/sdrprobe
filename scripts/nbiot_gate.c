@@ -36,7 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "lte_dsp.h"
+#include "tech/lte_dsp.h"
 
 #define NPSS_SUBCARRIERS 11
 #define NPSS_SYMBOLS 11

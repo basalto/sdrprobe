@@ -1,7 +1,7 @@
 #include "check.h"
 
-#include "app.h"
-#include "frame_advance.h"
+#include "runtime/app.h"
+#include "runtime/frame_advance.h"
 
 #include <math.h>
 #include <string.h>

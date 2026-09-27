@@ -1,9 +1,9 @@
 #include "check.h"
 
-#include "survey_confirm.h"
+#include "core/survey_confirm.h"
 /* For survey_measure_duty_label(): the boundary between continuous and
    intermittent is that function's, and this asserts the two agree. */
-#include "survey_sweep.h"
+#include "core/survey_sweep.h"
 
 /*
  * Asking again about what a sweep called new or missing.

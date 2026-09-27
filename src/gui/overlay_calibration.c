@@ -5,14 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "view.h"
-#include "calibration_gate.h"
-#include "lte_dsp.h"
-#include "chrome_layout.h"
-#include "calibration_layout.h"
-#include "calibration_nav.h"
-#include "lte_scan.h"
-#include "debug_log.h"
+#include "gui/view.h"
+#include "runtime/calibration_gate.h"
+#include "tech/lte_dsp.h"
+#include "gui/chrome_layout.h"
+#include "gui/calibration_layout.h"
+#include "runtime/calibration_nav.h"
+#include "tech/lte_scan.h"
+#include "runtime/debug_log.h"
 
 /*
  * Time here is monotonic_seconds(), not raylib's GetTime(). Only differences
@@ -21,7 +21,7 @@
  * program will not open unless somebody clicks is a decision no check can
  * reach, which is the thing ADR-0012 forbids.
  */
-#include "sdrgui.h"
+#include "gui/sdrgui.h"
 
 /*
  * Which bands this receiver offers, and which of them is chosen.

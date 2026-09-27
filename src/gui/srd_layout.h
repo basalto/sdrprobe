@@ -2,7 +2,7 @@
 #define SRD_LAYOUT_H
 
 #include <raylib.h>
-#include "panel_rows.h"
+#include "gui/panel_rows.h"
 
 #define SRD_PANEL_CAPTION_DROP 30.0f
 #define SRD_PANEL_ROW_HEIGHT 26.0f

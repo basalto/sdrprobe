@@ -1,8 +1,8 @@
 #include "check.h"
 
-#include "survey_store.h"
-#include "survey_record.h"
-#include "survey_suspect.h"
+#include "runtime/survey_store.h"
+#include "runtime/survey_record.h"
+#include "core/survey_suspect.h"
 
 #include <stdio.h>
 #include <stdlib.h>

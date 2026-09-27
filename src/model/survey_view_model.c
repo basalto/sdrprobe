@@ -3,9 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "survey_view_model.h"
-#include "survey_session.h"
-#include "survey_suspect.h"
+#include "model/survey_view_model.h"
+#include "runtime/survey_session.h"
+#include "core/survey_suspect.h"
 
 
 /* The sweep's own suspicion at a frequency -- the frequency-only half of a

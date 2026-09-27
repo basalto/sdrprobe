@@ -6,20 +6,20 @@
 #include <string.h>
 #include <time.h>
 
-#include "view.h"
-#include "debug_log.h"
-#include "survey_layout.h"
-#include "row_list.h"
-#include "freq_window.h"
-#include "survey_window.h"
-#include "survey_suspect.h"
-#include "survey_store.h"
-#include "band_plan_view.h"
-#include "survey_bands.h"
-#include "lte_dsp.h"
-#include "scope_layout.h"
-#include "survey_view_model.h"
-#include "sdrgui.h"
+#include "gui/view.h"
+#include "runtime/debug_log.h"
+#include "gui/survey_layout.h"
+#include "gui/row_list.h"
+#include "core/freq_window.h"
+#include "runtime/survey_window.h"
+#include "core/survey_suspect.h"
+#include "runtime/survey_store.h"
+#include "gui/band_plan_view.h"
+#include "core/survey_bands.h"
+#include "tech/lte_dsp.h"
+#include "gui/scope_layout.h"
+#include "model/survey_view_model.h"
+#include "gui/sdrgui.h"
 
 /*
  * The band survey: sweep a range, chart what is on it, and measure whichever

@@ -31,7 +31,7 @@
  */
 
 #include "check.h"
-#include "sdr_dsp.h"
+#include "core/sdr_dsp.h"
 
 #include <stdint.h>
 

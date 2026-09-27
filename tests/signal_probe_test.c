@@ -8,7 +8,7 @@
 #include <stdio.h>
 
 #include "check.h"
-#include "signal_probe.h"
+#include "core/signal_probe.h"
 
 #define N 200000
 static float ir[N], qr[N];

@@ -1,6 +1,6 @@
-#include "lte_mib.h"
+#include "tech/lte_mib.h"
 
-#include "lte_gold.h"
+#include "tech/lte_gold.h"
 
 #include <string.h>
 

@@ -36,7 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "gsm_dsp.h"
+#include "tech/gsm_dsp.h"
 
 #define MAX_PAIRS 4000000
 

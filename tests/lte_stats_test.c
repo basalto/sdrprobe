@@ -3,7 +3,7 @@
  */
 
 #include "check.h"
-#include "lte_stats.h"
+#include "tech/lte_stats.h"
 
 static void test_the_first_sample_sets_both_ends(void) {
     struct lte_stat s;

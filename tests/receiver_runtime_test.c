@@ -1,7 +1,7 @@
 #include "check.h"
 
 #include "fake_backend.h"
-#include "receiver_runtime.h"
+#include "runtime/receiver_runtime.h"
 
 #include <string.h>
 

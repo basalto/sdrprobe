@@ -1,4 +1,4 @@
-#include "lte_chain_analysis.h"
+#include "tech/lte_chain_analysis.h"
 
 #include <string.h>
 

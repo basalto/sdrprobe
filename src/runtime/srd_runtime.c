@@ -13,11 +13,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "srd_log.h"
-#include "srd_record.h"
-#include "runtime.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "tech/srd_log.h"
+#include "tech/srd_record.h"
+#include "runtime/runtime.h"
 
 int srd_tuned(const struct app *app) {
     return srd_receiver_ready(app->applied.frequency_hz,

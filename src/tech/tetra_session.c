@@ -1,4 +1,4 @@
-#include "tetra_session.h"
+#include "tech/tetra_session.h"
 
 #include <math.h>
 #include <string.h>

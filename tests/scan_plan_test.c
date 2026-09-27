@@ -1,4 +1,4 @@
-#include "scan_plan.h"
+#include "runtime/scan_plan.h"
 #include "check.h"
 
 #include <stdio.h>

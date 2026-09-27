@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "viewer_session.h"
+#include "server/viewer_session.h"
 
 /*
  * When a metadata State update is due.

@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include "check.h"
-#include "signal_findings.h"
+#include "core/signal_findings.h"
 
 static int mentions(const struct signal_findings *f, const char *needle) {
     int k;

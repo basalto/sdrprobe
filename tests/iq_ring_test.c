@@ -11,7 +11,7 @@
 #include <unistd.h>
 
 #include "check.h"
-#include "iq_ring.h"
+#include "core/iq_ring.h"
 
 static void test_init_and_configure(void) {
     struct iq_ring ring;

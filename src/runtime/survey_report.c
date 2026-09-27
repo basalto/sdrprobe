@@ -5,15 +5,15 @@
 #include <string.h>
 #include <time.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "runtime.h"
-#include "survey_session.h"
-#include "survey_sweep.h"
-#include "survey_suspect.h"
-#include "survey_store.h"
-#include "survey_carrier.h"
-#include "site_history.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "runtime/runtime.h"
+#include "runtime/survey_session.h"
+#include "core/survey_sweep.h"
+#include "core/survey_suspect.h"
+#include "runtime/survey_store.h"
+#include "core/survey_carrier.h"
+#include "runtime/site_history.h"
 
 /*
  * The band survey with no window and nobody watching: sweep, then print what

@@ -4,14 +4,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "sdr_dsp.h"
-#include "signal_probe.h"
-#include "site_history.h"
-#include "survey_carrier.h"
-#include "reading_origin.h"
-#include "survey_confirm.h"
-#include "survey_suspect.h"
-#include "survey_sweep.h"
+#include "core/sdr_dsp.h"
+#include "core/signal_probe.h"
+#include "runtime/site_history.h"
+#include "core/survey_carrier.h"
+#include "core/reading_origin.h"
+#include "core/survey_confirm.h"
+#include "core/survey_suspect.h"
+#include "core/survey_sweep.h"
 
 /*
  * A band survey, block by block, with no window and no receiver.

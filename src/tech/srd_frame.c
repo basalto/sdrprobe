@@ -9,8 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "srd_dsp.h"
-#include "srd_frame.h"
+#include "tech/srd_dsp.h"
+#include "tech/srd_frame.h"
 
 /*
  * One chip alignment's worth of generic Manchester frames.

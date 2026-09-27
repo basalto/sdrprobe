@@ -1,9 +1,9 @@
 #ifndef SURVEY_CONFIRM_H
 #define SURVEY_CONFIRM_H
 
-#include "signal_probe.h"
-#include "survey_suspect.h"
-#include "survey_sweep.h"
+#include "core/signal_probe.h"
+#include "core/survey_suspect.h"
+#include "core/survey_sweep.h"
 
 /*
  * Asking again about the handful of things that changed.

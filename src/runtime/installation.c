@@ -1,7 +1,7 @@
-#include "installation.h"
+#include "runtime/installation.h"
 
-#include "config.h"
-#include "site_history.h"
+#include "runtime/config.h"
+#include "runtime/site_history.h"
 
 #include <string.h>
 

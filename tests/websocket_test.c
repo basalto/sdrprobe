@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "websocket.h"
+#include "server/websocket.h"
 
 #include <string.h>
 

@@ -1,7 +1,7 @@
 #include "check.h"
 
-#include "app.h"
-#include "fm_view_model.h"
+#include "runtime/app.h"
+#include "model/fm_view_model.h"
 
 #include <math.h>
 #include <stdio.h>

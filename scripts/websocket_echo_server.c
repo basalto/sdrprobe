@@ -22,7 +22,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "websocket.h"
+#include "server/websocket.h"
 
 static const char PAGE[] =
     "<!doctype html><title>WebSocket echo test</title>\n"

@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "lte_scan.h"
+#include "tech/lte_scan.h"
 
 #include <stdlib.h>
 #include <string.h>

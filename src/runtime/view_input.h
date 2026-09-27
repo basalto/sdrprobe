@@ -1,7 +1,7 @@
 #ifndef VIEW_INPUT_H
 #define VIEW_INPUT_H
 
-#include "input_route.h"
+#include "runtime/input_route.h"
 
 /*
  * What each view says about itself, and how that becomes the routing state.

@@ -34,9 +34,9 @@
 /* For SAMPLE_BLOCK_PAIRS alone, so the line below cannot drift from the
    program's actual block. `acquisition.h` compiles -Wall -W clean and links
    with -lm since <rtl-sdr.h> went behind backend_rtlsdr.c. */
-#include "acquisition.h"
-#include "lte_chain_analysis.h"
-#include "lte_mib.h"
+#include "runtime/acquisition.h"
+#include "tech/lte_chain_analysis.h"
+#include "tech/lte_mib.h"
 
 /* These captures are the house 8-bit container. The multi-cell search
    takes full scale only for the two dBFS readings it ranks cells by, so

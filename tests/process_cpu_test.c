@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "process_cpu.h"
+#include "server/process_cpu.h"
 
 /*
  * The arithmetic only, against synthetic samples -- process_cpu_sample_now()

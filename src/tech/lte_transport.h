@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "lte_turbo.h"
+#include "tech/lte_turbo.h"
 
 /*
  * What happens to a transport block between the message and the air: the

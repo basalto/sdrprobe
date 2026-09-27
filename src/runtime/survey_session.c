@@ -1,8 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "survey_session.h"
+#include "runtime/survey_session.h"
 
-#include "survey_record.h"
+#include "runtime/survey_record.h"
 
 #include <math.h>
 #include <stdio.h>

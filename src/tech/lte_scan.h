@@ -1,7 +1,7 @@
 #ifndef LTE_SCAN_H
 #define LTE_SCAN_H
 
-#include "lte_dsp.h"
+#include "tech/lte_dsp.h"
 
 /*
  * The LTE band scan's arithmetic: which channels to try, and in what order.

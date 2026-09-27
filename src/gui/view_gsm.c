@@ -8,10 +8,10 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include "view.h"
-#include "debug_log.h"
-#include "gsm_layout.h"
-#include "sdrgui.h"
+#include "gui/view.h"
+#include "runtime/debug_log.h"
+#include "gui/gsm_layout.h"
+#include "gui/sdrgui.h"
 
 /* Convenience for the current window. The accessors below keep their old
    shape so call sites are unchanged; each is now a lookup, not a derivation. */

@@ -4,17 +4,17 @@
 
 #include <raylib.h>
 
-#include "app.h"
-#include "fm_scan.h"
-#include "fm_layout.h"
-#include "fm_view_model.h"
-#include "panel_rows.h"
-#include "sdrgui.h"
-#include "view.h"
-#include "debug_log.h"
-#include "sdr_dsp.h"
-#include "row_list.h"
-#include "text_wrap.h"
+#include "runtime/app.h"
+#include "tech/fm_scan.h"
+#include "gui/fm_layout.h"
+#include "model/fm_view_model.h"
+#include "gui/panel_rows.h"
+#include "gui/sdrgui.h"
+#include "gui/view.h"
+#include "runtime/debug_log.h"
+#include "core/sdr_dsp.h"
+#include "gui/row_list.h"
+#include "gui/text_wrap.h"
 
 #include "raygui.h"
 

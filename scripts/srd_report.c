@@ -29,10 +29,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "device_profile.h"
-#include "sdr_dsp.h"
-#include "srd_dsp.h"
-#include "srd_frame.h"
+#include "core/device_profile.h"
+#include "core/sdr_dsp.h"
+#include "tech/srd_dsp.h"
+#include "tech/srd_frame.h"
 
 #define MAX_RUNS 8192
 #define MAX_CHIPS 16384

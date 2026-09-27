@@ -1,4 +1,4 @@
-#include "tetra_sync.h"
+#include "tech/tetra_sync.h"
 
 #include <string.h>
 

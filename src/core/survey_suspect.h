@@ -4,11 +4,11 @@
 #include <math.h>
 #include <string.h>
 
-#include "band_plan.h"
-#include "clock_chain.h"
-#include "reading_origin.h"
-#include "sdr_dsp.h"
-#include "survey_sweep.h"
+#include "core/band_plan.h"
+#include "core/clock_chain.h"
+#include "core/reading_origin.h"
+#include "core/sdr_dsp.h"
+#include "core/survey_sweep.h"
 
 /*
  * Why a survey candidate might have been made by the receiver rather than

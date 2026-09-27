@@ -3,12 +3,12 @@
 
 #include <raylib.h>
 
-#include "app.h"
-#include "runtime.h"
-#include "gui_state.h"
-#include "survey_record.h"
-#include "lte_dsp.h"
-#include "scope_view_model.h"
+#include "runtime/app.h"
+#include "runtime/runtime.h"
+#include "gui/gui_state.h"
+#include "runtime/survey_record.h"
+#include "tech/lte_dsp.h"
+#include "model/scope_view_model.h"
 
 struct sdrgui_waterfall_marker;
 

@@ -23,8 +23,8 @@
 
 #include "check.h"
 
-#include "lte_chain_analysis.h"
-#include "sdr_dsp.h"
+#include "tech/lte_chain_analysis.h"
+#include "core/sdr_dsp.h"
 
 #include <math.h>
 #include <stdint.h>

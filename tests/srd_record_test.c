@@ -1,5 +1,5 @@
 #include "check.h"
-#include "srd_record.h"
+#include "tech/srd_record.h"
 
 #include <math.h>
 

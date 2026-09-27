@@ -3,7 +3,7 @@
 
 #include <string.h>
 
-#include "adsb_dsp.h"
+#include "tech/adsb_dsp.h"
 
 /*
  * What the ADS-B view decides: whether Mode S could be there at all, which

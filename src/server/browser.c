@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "browser.h"
+#include "server/browser.h"
 
 #include <fcntl.h>
 #include <signal.h>

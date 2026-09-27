@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include "srd_dsp.h"
+#include "tech/srd_dsp.h"
 
 /*
  * Decoder-context side of the 430-440 MHz ISM SRD module.

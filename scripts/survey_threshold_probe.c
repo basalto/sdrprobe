@@ -36,9 +36,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "sdr_dsp.h"
-#include "survey_sweep.h"
-#include "device_profile.h"
+#include "core/sdr_dsp.h"
+#include "core/survey_sweep.h"
+#include "core/device_profile.h"
 
 #define PAIRS 131072
 #define DRAWS_DEFAULT 6

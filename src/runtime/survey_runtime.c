@@ -22,13 +22,13 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "installation.h"
-#include "runtime.h"
-#include "survey_session.h"
-#include "survey_window.h"
-#include "options.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "runtime/installation.h"
+#include "runtime/runtime.h"
+#include "runtime/survey_session.h"
+#include "runtime/survey_window.h"
+#include "runtime/options.h"
 
 /*
  * What one block looks like to the session: samples, a spectrum, and the

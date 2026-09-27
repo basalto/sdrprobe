@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 /*
  * FM broadcast: the multiplex, and the front end of the RDS subcarrier.

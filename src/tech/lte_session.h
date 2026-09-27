@@ -4,9 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "lte_dsp.h"
-#include "lte_mib.h"
-#include "lte_stats.h"
+#include "tech/lte_dsp.h"
+#include "tech/lte_mib.h"
+#include "tech/lte_stats.h"
 
 /*
  * An LTE decode, block by block, with no window and no receiver.

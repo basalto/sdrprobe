@@ -18,8 +18,8 @@
 #include <string.h>
 
 #include "check.h"
-#include "sdr_dsp.h"
-#include "startup_session.h"
+#include "core/sdr_dsp.h"
+#include "runtime/startup_session.h"
 
 #define PAIRS 65536
 #define RATE 2000000.0

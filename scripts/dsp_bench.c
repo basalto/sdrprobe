@@ -16,17 +16,17 @@
  *     make bench-dsp                       # as the program is built, -O2
  *     make bench-dsp BENCH_ARCH=-march=native   # with this machine's SIMD
  */
-#include "sdr_dsp.h"
-#include "adsb_dsp.h"
-#include "gsm_dsp.h"
-#include "lte_dsp.h"
-#include "lte_mib.h"
+#include "core/sdr_dsp.h"
+#include "tech/adsb_dsp.h"
+#include "tech/gsm_dsp.h"
+#include "tech/lte_dsp.h"
+#include "tech/lte_mib.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 #define BLOCK_BYTES (16 * 16384)
 #define BLOCK_PAIRS (BLOCK_BYTES / 2)

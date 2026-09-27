@@ -1,7 +1,7 @@
 #ifndef TESTS_FAKE_BACKEND_H
 #define TESTS_FAKE_BACKEND_H
 
-#include "device_backend.h"
+#include "runtime/device_backend.h"
 
 /*
  * A device that does what it is told to do, including failing.

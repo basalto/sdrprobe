@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "config.h"
+#include "runtime/config.h"
 
 #include <string.h>
 

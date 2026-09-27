@@ -7,35 +7,35 @@
 #include <stdio.h>
 #include <time.h>
 
-#include "acquisition.h"
-#include "band_plan.h"
-#include "config.h"
-#include "site_history.h"
-#include "survey_carrier.h"
-#include "survey_confirm.h"
-#include "adsb_dsp.h"
-#include "gsm_bcch.h"
-#include "gsm_dsp.h"
-#include "lte_dsp.h"
-#include "lte_stats.h"
-#include "lte_mib.h"
-#include "lte_scan.h"
-#include "receiver_lease.h"
-#include "options.h"
-#include "gsm_session.h"
-#include "tetra_session.h"
-#include "lte_session.h"
-#include "adsb_session.h"
-#include "fm_session.h"
-#include "installation.h"
-#include "device_backend.h"
-#include "sdr_dsp.h"
-#include "receiver_runtime.h"
-#include "signal_frame.h"
-#include "signal_findings.h"
-#include "survey_sweep.h"
-#include "survey_session.h"
-#include "startup_session.h"
+#include "runtime/acquisition.h"
+#include "core/band_plan.h"
+#include "runtime/config.h"
+#include "runtime/site_history.h"
+#include "core/survey_carrier.h"
+#include "core/survey_confirm.h"
+#include "tech/adsb_dsp.h"
+#include "tech/gsm_bcch.h"
+#include "tech/gsm_dsp.h"
+#include "tech/lte_dsp.h"
+#include "tech/lte_stats.h"
+#include "tech/lte_mib.h"
+#include "tech/lte_scan.h"
+#include "runtime/receiver_lease.h"
+#include "runtime/options.h"
+#include "tech/gsm_session.h"
+#include "tech/tetra_session.h"
+#include "tech/lte_session.h"
+#include "tech/adsb_session.h"
+#include "tech/fm_session.h"
+#include "runtime/installation.h"
+#include "runtime/device_backend.h"
+#include "core/sdr_dsp.h"
+#include "runtime/receiver_runtime.h"
+#include "core/signal_frame.h"
+#include "core/signal_findings.h"
+#include "core/survey_sweep.h"
+#include "runtime/survey_session.h"
+#include "runtime/startup_session.h"
 
 
 /*
@@ -100,16 +100,16 @@ enum decode_kind {
 };
 /* What the ADS-B view decides -- the log row, which frame the charts are
    drawn from, and the funnel -- is in a header the checks can reach. */
-#include "adsb_analysis.h"
-#include "tetra_dsp.h"
-#include "tetra_sync.h"
-#include "chart_window.h"
-#include "fm_dsp.h"
-#include "fm_scan.h"
-#include "rds.h"
-#include "srd_dsp.h"
-#include "srd_frame.h"
-#include "srd_session.h"
+#include "tech/adsb_analysis.h"
+#include "tech/tetra_dsp.h"
+#include "tech/tetra_sync.h"
+#include "runtime/chart_window.h"
+#include "tech/fm_dsp.h"
+#include "tech/fm_scan.h"
+#include "tech/rds.h"
+#include "tech/srd_dsp.h"
+#include "tech/srd_frame.h"
+#include "tech/srd_session.h"
 
 /*
  * Walking band II.
@@ -292,7 +292,7 @@ struct scatter_block {
 /* The SCH decode is reported as it comes off the burst; the running memory
    kept to notice a decode that cannot be right is in gsm_continuity.h, where
    it can be checked. It flags, it never substitutes. */
-#include "gsm_continuity.h"
+#include "tech/gsm_continuity.h"
 
 /* Calibration-health indicator states. UNKNOWN must be 0 (zero-initialised). */
 enum cal_health {
@@ -324,7 +324,7 @@ enum view_kind {
    See docs/adr/0008-top-level-tab-navigation.md. */
 /* The tabs, and the precedence chain that decides which control a key press
    reaches, are in a header the checks can reach. */
-#include "input_route.h"
+#include "runtime/input_route.h"
 
 struct band_scan {
     /*

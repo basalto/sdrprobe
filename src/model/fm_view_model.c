@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "fm_view_model.h"
-#include "app.h"
+#include "model/fm_view_model.h"
+#include "runtime/app.h"
 
 /*
  * The funnel in words, which is the one thing in this file that was a

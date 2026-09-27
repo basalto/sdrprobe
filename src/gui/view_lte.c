@@ -4,11 +4,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "view.h"
-#include "lte_layout.h"
-#include "lte_findings.h"
-#include "sdrgui.h"
-#include "debug_log.h"
+#include "gui/view.h"
+#include "gui/lte_layout.h"
+#include "tech/lte_findings.h"
+#include "gui/sdrgui.h"
+#include "runtime/debug_log.h"
 
 /*
  * The Decode tab's LTE screen: which cell is on this carrier, what it

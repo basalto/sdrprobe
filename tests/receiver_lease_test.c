@@ -1,4 +1,4 @@
-#include "receiver_lease.h"
+#include "runtime/receiver_lease.h"
 #include "check.h"
 
 #include <stdio.h>

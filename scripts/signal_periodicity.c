@@ -31,7 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "signal_probe.h"
+#include "core/signal_probe.h"
 
 static int cmp(const void *a, const void *b) {
     double x = *(const double *)a, y = *(const double *)b;

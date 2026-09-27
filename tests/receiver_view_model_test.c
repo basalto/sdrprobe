@@ -1,8 +1,8 @@
 #include "check.h"
 
-#include "app.h"
-#include "device_profile.h"
-#include "receiver_view_model.h"
+#include "runtime/app.h"
+#include "core/device_profile.h"
+#include "model/receiver_view_model.h"
 
 #include <string.h>
 

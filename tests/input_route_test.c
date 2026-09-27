@@ -1,7 +1,7 @@
-#include "input_route.h"
-#include "view_input.h"
-#include "srd_log.h"
-#include "calibration_nav.h"
+#include "runtime/input_route.h"
+#include "runtime/view_input.h"
+#include "tech/srd_log.h"
+#include "runtime/calibration_nav.h"
 #include "check.h"
 
 #include <stdio.h>

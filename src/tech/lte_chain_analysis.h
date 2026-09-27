@@ -3,11 +3,11 @@
 
 #include <stddef.h>
 
-#include "lte_confirm.h"
-#include "lte_dsp.h"
-#include "lte_mib.h"
-#include "lte_session.h"
-#include "lte_stats.h"
+#include "tech/lte_confirm.h"
+#include "tech/lte_dsp.h"
+#include "tech/lte_mib.h"
+#include "tech/lte_session.h"
+#include "tech/lte_stats.h"
 
 /*
  * The public LTE chain walk, once, for a live receiver and for a capture.

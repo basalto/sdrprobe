@@ -77,12 +77,20 @@ reader on a headless box actually hits, and survives this being deleted.
 
 ## Consequences
 
-**Includes are unchanged, for now.** One `-I` per layer (`SRC_INC`), so all
-717 `#include` lines stayed as they were and the move is `git mv` plus
-Makefile paths. The layered spelling -- `#include "core/sdr_dsp.h"` against a
-single `-Isrc`, so the layer is visible at every include site and the audit
-can read it off the line -- is a second, separately verifiable step. Two
-reviewable commits instead of one 1,450-line diff.
+**Every include names its layer**, against a single `-Isrc`:
+`#include "core/sdr_dsp.h"`. Done in two commits rather than one -- seven
+`-I` flags first, so the move itself was `git mv` and Makefile paths and
+nothing else, then 635 include lines across `src/`, `tests/` and `scripts/`.
+Two reviewable steps instead of one 1,450-line diff, each green on its own.
+
+The spelling earns its churn twice. The dependency is visible where it is
+*written*, so a `runtime/` file reaching into `gui/` says so on the line
+rather than in a folder listing. And with one `-I` a bare name resolves only
+inside the including file's own directory, so **a cross-layer include that
+does not name its layer cannot compile** -- the rule is held by the compiler
+on every build, not only by the audit. `check-layers` asserts the spelling
+as a second property for the case somebody restores a per-folder `-I`, which
+would silently make bare cross-layer includes work again.
 
 **The move changed nothing observable, and that was measured rather than
 assumed.** The binary from before the move and the binary after were both run

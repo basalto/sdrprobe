@@ -1,20 +1,20 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "viewer_session.h"
+#include "server/viewer_session.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "browser.h"
-#include "fm_view_model.h"
-#include "frame_advance.h"
-#include "process_cpu.h"
-#include "scope_view_model.h"
-#include "survey_view_model.h"
-#include "runtime.h"
-#include "viewer_link.h"
+#include "server/browser.h"
+#include "model/fm_view_model.h"
+#include "runtime/frame_advance.h"
+#include "server/process_cpu.h"
+#include "model/scope_view_model.h"
+#include "model/survey_view_model.h"
+#include "runtime/runtime.h"
+#include "server/viewer_link.h"
 
 /* How often the link is serviced between blocks. Short enough that a
    65.5 ms block is never delayed by more than a fraction of its own

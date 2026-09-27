@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "adsb_analysis.h"
-#include "adsb_dsp.h"
+#include "tech/adsb_analysis.h"
+#include "tech/adsb_dsp.h"
 
 /*
  * A Mode S decode, block by block, with no window and no receiver.

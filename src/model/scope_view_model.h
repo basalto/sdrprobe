@@ -5,8 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "receiver_view_model.h"
-#include "sdr_dsp.h"
+#include "model/receiver_view_model.h"
+#include "core/sdr_dsp.h"
 
 struct signal_frame;
 struct scope_view;

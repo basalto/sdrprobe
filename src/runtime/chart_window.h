@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "freq_window.h"
+#include "core/freq_window.h"
 
 /*
  * A frequency chart's view of what the receiver is delivering, and the

@@ -5,11 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "chrome_layout.h"
-#include "view.h"
-#include "scope_layout.h"
-#include "scope_view_model.h"
-#include "sdrgui.h"
+#include "gui/chrome_layout.h"
+#include "gui/view.h"
+#include "gui/scope_layout.h"
+#include "model/scope_view_model.h"
+#include "gui/sdrgui.h"
 
 /*
  * The Scope tab: magnitude, spectrum, I/Q scatter and waterfall, plus the GPU

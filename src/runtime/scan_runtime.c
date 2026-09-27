@@ -9,9 +9,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "runtime.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "runtime/runtime.h"
 
 void update_scan(struct app *app) {
     if (!app->bandscan.running || !app->frame.spectrum_ready)

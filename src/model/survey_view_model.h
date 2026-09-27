@@ -1,12 +1,12 @@
 #ifndef SURVEY_VIEW_MODEL_H
 #define SURVEY_VIEW_MODEL_H
 
-#include "reading_origin.h"
-#include "survey_mark.h"
-#include "site_history.h"
-#include "survey_carrier.h"
-#include "survey_record.h"
-#include "survey_sweep.h"
+#include "core/reading_origin.h"
+#include "model/survey_mark.h"
+#include "runtime/site_history.h"
+#include "core/survey_carrier.h"
+#include "runtime/survey_record.h"
+#include "core/survey_sweep.h"
 
 /* What this reads, and all of it: the sweep, and the four tuning facts
    `survey_tuning_from()` already gathers. It took a `const struct app *`,

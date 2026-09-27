@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "lte_turbo.h"
+#include "tech/lte_turbo.h"
 
 #include <math.h>
 #include <stdlib.h>

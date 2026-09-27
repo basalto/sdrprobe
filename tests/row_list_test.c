@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "row_list.h"
+#include "gui/row_list.h"
 
 /*
  * The candidate list's rows and its scroll.

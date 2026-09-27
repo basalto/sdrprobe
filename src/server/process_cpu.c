@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "process_cpu.h"
+#include "server/process_cpu.h"
 
 #include <string.h>
 #include <sys/resource.h>

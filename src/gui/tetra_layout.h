@@ -3,7 +3,7 @@
 
 #include <raylib.h>
 
-#include "panel_rows.h"
+#include "gui/panel_rows.h"
 
 /* The identity panel's rows. The drawing had them 26, 26, 24 and 26 apart --
    the 24 an inconsistency rather than a decision -- and nothing could see

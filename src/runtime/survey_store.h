@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <time.h>
 
-#include "survey_record.h"
+#include "runtime/survey_record.h"
 
 /*
  * A finished sweep, written down so the next one can be compared with it.

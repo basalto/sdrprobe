@@ -15,8 +15,8 @@
 
 #include "check.h"
 
-#include "lte_session.h"
-#include "sdr_dsp.h"
+#include "tech/lte_session.h"
+#include "core/sdr_dsp.h"
 
 #include <stdint.h>
 #include <stdio.h>

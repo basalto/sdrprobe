@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "viewer_command.h"
+#include "server/viewer_command.h"
 
 #include <string.h>
 

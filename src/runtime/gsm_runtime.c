@@ -12,11 +12,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app.h"
-#include "chart_window.h"
-#include "debug_log.h"
-#include "gsm_continuity.h"
-#include "runtime.h"
+#include "runtime/app.h"
+#include "runtime/chart_window.h"
+#include "runtime/debug_log.h"
+#include "tech/gsm_continuity.h"
+#include "runtime/runtime.h"
 
 void gsm_tune_selected(struct app *app, int arfcn) {
     uint32_t expected;

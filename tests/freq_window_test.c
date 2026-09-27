@@ -1,6 +1,6 @@
 #include "check.h"
-#include "freq_window.h"
-#include "chart_window.h"
+#include "core/freq_window.h"
+#include "runtime/chart_window.h"
 
 #include <math.h>
 #include <stdio.h>

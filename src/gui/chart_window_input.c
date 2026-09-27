@@ -1,4 +1,4 @@
-#include "view.h"
+#include "gui/view.h"
 
 /*
  * The reading half of a chart's gestures, and nothing else.

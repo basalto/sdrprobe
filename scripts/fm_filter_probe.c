@@ -23,8 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "fm_dsp.h"
-#include "rds.h"
+#include "tech/fm_dsp.h"
+#include "tech/rds.h"
 
 #define CHUNK 32768
 #define BITS 262144

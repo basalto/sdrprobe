@@ -14,7 +14,7 @@
 
 #include "check.h"
 
-#include "clock_chain.h"
+#include "core/clock_chain.h"
 
 #define F CLOCK_CHAIN_MEASURED_FUNDAMENTAL_HZ
 /* One bin of the sweep that found them: 2 MHz over 2048 points. */

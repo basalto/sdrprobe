@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include "viewer_command.h"
+#include "server/viewer_command.h"
 
 #include <ctype.h>
 #include <errno.h>

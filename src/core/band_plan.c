@@ -1,4 +1,4 @@
-#include "band_plan.h"
+#include "core/band_plan.h"
 
 #include <math.h>
 #include <stddef.h>

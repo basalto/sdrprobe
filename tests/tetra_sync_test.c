@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "tetra_sync.h"
+#include "tech/tetra_sync.h"
 
 #include <stdio.h>
 #include <string.h>

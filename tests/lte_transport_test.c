@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "lte_transport.h"
+#include "tech/lte_transport.h"
 
 #include <math.h>
 #include <stdlib.h>

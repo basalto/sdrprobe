@@ -3,7 +3,7 @@
 
 #include <raylib.h>
 
-#include "panel_rows.h"
+#include "gui/panel_rows.h"
 
 /*
  * The startup form's geometry: where the session says what it is, and where

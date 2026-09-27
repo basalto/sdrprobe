@@ -5,16 +5,16 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "sdrgui.h"
-#include "sdrgui_geometry.h"
-#include "srd_dsp.h"
-#include "srd_frame.h"
-#include "srd_layout.h"
-#include "srd_log.h"
-#include "srd_record.h"
-#include "view.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "gui/sdrgui.h"
+#include "gui/sdrgui_geometry.h"
+#include "tech/srd_dsp.h"
+#include "tech/srd_frame.h"
+#include "gui/srd_layout.h"
+#include "tech/srd_log.h"
+#include "tech/srd_record.h"
+#include "gui/view.h"
 
 /* Whether the receiver is where the SRD band is now. Off 430-440 MHz nothing
    `update_srd()` finds can be a SRD remote control or a sensor -- see

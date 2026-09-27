@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "device_profile.h"
-#include "sdr_dsp.h"
+#include "core/device_profile.h"
+#include "core/sdr_dsp.h"
 
 /*
  * One sample block, converted and measured: everything both contexts read

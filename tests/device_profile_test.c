@@ -20,9 +20,9 @@
 
 #include "check.h"
 
-#include "device_profile.h"
-#include "survey_sweep.h"
-#include "survey_suspect.h"
+#include "core/device_profile.h"
+#include "core/survey_sweep.h"
+#include "core/survey_suspect.h"
 
 /* SAMPLE_BLOCK_BYTES (acquisition.h), which cannot be included here. */
 #define BLOCK_BYTES (16 * 16384)

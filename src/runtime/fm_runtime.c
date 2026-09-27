@@ -24,11 +24,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "app.h"
-#include "debug_log.h"
-#include "fm_scan.h"
-#include "runtime.h"
-#include "sdr_dsp.h"
+#include "runtime/app.h"
+#include "runtime/debug_log.h"
+#include "tech/fm_scan.h"
+#include "runtime/runtime.h"
+#include "core/sdr_dsp.h"
 void view_fm_defaults(struct app *app) {
     memset(&app->fm, 0, sizeof(app->fm));
     rds_station_init(&app->fm.session.station);

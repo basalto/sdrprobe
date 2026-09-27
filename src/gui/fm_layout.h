@@ -3,7 +3,7 @@
 
 #include <raylib.h>
 
-#include "panel_rows.h"
+#include "gui/panel_rows.h"
 
 /* draw_panel() drops its first row 36 px under the panel top, and the rows
    are 20 apart. Here rather than in the drawing, so check-layout can see

@@ -15,8 +15,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "app.h"
-#include "runtime.h"
+#include "runtime/app.h"
+#include "runtime/runtime.h"
 
 /*
  * The waterfall ring's own allocation -- the one part of

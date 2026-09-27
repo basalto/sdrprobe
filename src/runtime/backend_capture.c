@@ -15,8 +15,8 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "device_backend.h"
-#include "capture_sidecar.h"
+#include "runtime/device_backend.h"
+#include "core/capture_sidecar.h"
 
 #include <errno.h>
 #include <stdio.h>

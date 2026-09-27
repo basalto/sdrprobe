@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 /*
  * Generic, technology-independent SDR DSP primitives.

@@ -17,8 +17,8 @@
 
 #include "check.h"
 
-#include "adsb_session.h"
-#include "sdr_dsp.h"
+#include "tech/adsb_session.h"
+#include "core/sdr_dsp.h"
 
 #include <stdint.h>
 #include <stdio.h>

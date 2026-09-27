@@ -9,7 +9,7 @@
  *     make probe-adsb-chain                 # uses testfiles/adsb_modes1.bin
  *     make probe-adsb-chain FILE=other.bin
  */
-#include "sdr_dsp.h"
+#include "core/sdr_dsp.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -18,7 +18,7 @@
 
 /* Pull in the plugin's implementation directly to access statics. */
 #include "adsb_dsp.c"
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 #define BLOCK_BYTES (16 * 16384)
 #define BLOCK_PAIRS (BLOCK_BYTES / 2)

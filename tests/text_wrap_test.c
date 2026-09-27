@@ -1,6 +1,6 @@
 #include "check.h"
 
-#include "text_wrap.h"
+#include "gui/text_wrap.h"
 
 #include <string.h>
 

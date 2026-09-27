@@ -1,7 +1,7 @@
 #include "check.h"
 
-#include "debug_log.h"
-#include "input_route.h"
+#include "runtime/debug_log.h"
+#include "runtime/input_route.h"
 
 #include <string.h>
 

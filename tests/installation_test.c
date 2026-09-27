@@ -24,8 +24,8 @@
 
 #include "check.h"
 
-#include "installation.h"
-#include "site_history.h"
+#include "runtime/installation.h"
+#include "runtime/site_history.h"
 
 #include <stdlib.h>
 #include <sys/stat.h>

@@ -7,13 +7,13 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include "app.h"
-#include "view.h"
-#include "overlay_signal_report.h"
-#include "sdrgui.h"
-#include "signal_analysis.h"
-#include "signal_probe.h"
-#include "srd_dsp.h"
+#include "runtime/app.h"
+#include "gui/view.h"
+#include "gui/overlay_signal_report.h"
+#include "gui/sdrgui.h"
+#include "runtime/signal_analysis.h"
+#include "core/signal_probe.h"
+#include "tech/srd_dsp.h"
 
 static int point_in_rec(Vector2 p, Rectangle r) {
     return p.x >= r.x && p.x <= r.x + r.width &&

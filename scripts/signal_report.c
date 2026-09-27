@@ -39,9 +39,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "device_profile.h"
-#include "sdr_dsp.h"
-#include "signal_probe.h"
+#include "core/device_profile.h"
+#include "core/sdr_dsp.h"
+#include "core/signal_probe.h"
 
 /*
  * A ceiling, not a default. It used to be 4000000 -- 2.00 s at 2 MS/s -- and

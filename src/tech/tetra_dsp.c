@@ -1,6 +1,6 @@
-#include "tetra_dsp.h"
+#include "tech/tetra_dsp.h"
 
-#include "signal_probe.h"
+#include "core/signal_probe.h"
 
 #include <math.h>
 #include <string.h>

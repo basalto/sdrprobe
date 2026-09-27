@@ -1,7 +1,7 @@
-#include "options.h"
-#include "sdr_dsp.h"
+#include "runtime/options.h"
+#include "core/sdr_dsp.h"
 
-#include "gsm_dsp.h"
+#include "tech/gsm_dsp.h"
 
 #include <arpa/inet.h>
 #include <errno.h>

@@ -5,7 +5,7 @@
 #include "check.h"
 #include <string.h>
 
-#include "lte_findings.h"
+#include "tech/lte_findings.h"
 
 static void fill(struct lte_cell_stats *st, float ppm_khz, float sinr,
                  float rsrq, float spread, float drift_lo, float drift_hi) {

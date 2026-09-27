@@ -3,13 +3,13 @@
 
 #include <time.h>
 
-#include "installation.h"
-#include "survey_carrier.h"
-#include "survey_confirm.h"
-#include "sdr_dsp.h"
-#include "reading_origin.h"
-#include "survey_suspect.h"
-#include "survey_sweep.h"
+#include "runtime/installation.h"
+#include "core/survey_carrier.h"
+#include "core/survey_confirm.h"
+#include "core/sdr_dsp.h"
+#include "core/reading_origin.h"
+#include "core/survey_suspect.h"
+#include "core/survey_sweep.h"
 
 /*
  * One finished survey, as a fact rather than as a screen or a file.

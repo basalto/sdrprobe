@@ -1,7 +1,7 @@
 #ifndef FRAME_ADVANCE_H
 #define FRAME_ADVANCE_H
 
-#include "acquisition.h"
+#include "runtime/acquisition.h"
 
 struct app;
 

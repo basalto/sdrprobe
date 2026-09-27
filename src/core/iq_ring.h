@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
-#include "device_profile.h"
+#include "core/device_profile.h"
 
 /*
  * Transversal rolling ring buffer of raw I/Q samples.

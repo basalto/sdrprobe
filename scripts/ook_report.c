@@ -33,9 +33,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "device_profile.h"
-#include "sdr_dsp.h"
-#include "signal_probe.h"
+#include "core/device_profile.h"
+#include "core/sdr_dsp.h"
+#include "core/signal_probe.h"
 
 /* One scan chunk. 1024 pairs is 512 us at 2 MS/s, which resolves the start of
    a transmission to well inside the shortest press worth finding, and gives
