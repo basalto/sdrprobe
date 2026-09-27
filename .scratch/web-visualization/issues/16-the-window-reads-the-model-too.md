@@ -100,3 +100,33 @@ decisions. A colour, a font size, a rectangle, a column width, whether a
 label reads `MHz` or `MHz:` — drawing.
 
 ## Comments
+
+**2026-09-27 — SRD done.** `7fd0308`. The four acceptance criteria all met;
+`make screens NAMES="srd"` draws the same screen.
+
+It found four real drifts rather than the hypothetical one the ticket was
+written about, which is worth knowing before the other three:
+
+- **The browser had already grown a different sentence** for a log row.
+  `draw_log()` chose one of seven and `srd.js` composed its own out of the
+  bit count and the violations. Not a risk — a fact, at this commit.
+- **The 2-FSK prefix test was spelled out a second time in the markers**,
+  four lines below a comment recording that this had already happened once
+  and been fixed. And spelled *wrongly*: two bytes where
+  `srd_device_type_of()` checks three, and no test of the frame kind.
+- **A ternary chain's last branch was doing duty as its fallback**, so a
+  frame of no kind was labelled `GENERIC`.
+- **Two causes of an empty table**, which the window distinguished and the
+  browser did not.
+
+Left in the drawing deliberately: the analysis charts' envelope and chip
+arrays and the y-range computed over them. Moving that decision means moving
+512 floats into the model, and the browser has no analysis mode to show them
+in. If TETRA or LTE turns out to have the same shape, that is a ticket of
+its own about whether a view model carries bulk arrays.
+
+The check's link line grew: `srd_frame.c`, `srd_dsp.c`, `sdr_dsp.c` and
+`signal_probe.c`, which is what `check-srd-frame` already links. Still no
+raylib and no librtlsdr, which is the constraint that matters — but a model
+check that pulls in the whole technology module to ask one pure question is
+worth noticing if it happens again.
