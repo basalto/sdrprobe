@@ -5,6 +5,7 @@
 
 #include "app.h"
 #include "lte_scan.h"
+#include "survey_record.h"
 #include "survey_session.h"
 #include "reading_origin.h"
 
@@ -180,6 +181,14 @@ int scan_start(struct app *app, double now);
 void scan_stop(struct app *app);
 void scan_select(struct app *app, int row);
 
+/*
+ * One block: convert it, measure it, and say whether a spectrum came out.
+ * `fft_size` is the caller's choice -- see `frame_advance.h`. Defined in
+ * `sdrprobe.c` for now; ticket 02 has not moved it, the application layer
+ * being arguably its home.
+ */
+int process_block(struct app *app, double now, int fft_size);
+
 /* --- The Scope's per-block data: the peak's decay, the two histories --- */
 
 /*
@@ -228,7 +237,29 @@ void startup_release(struct app *app);
 int receiver_restore_held(struct app *app,
                           const struct receiver_lease_token *token);
 /* The crystal error and the correction in force, for a reading's origin. */
+/*
+ * This receiver's own reference error and the correction in force -- the two
+ * numbers `reading_origin.h` needs, and it needs two.
+ *
+ * One function because both survey adapters build a `struct survey_block` and
+ * the record needs the same pair, and this repository has just spent a ticket
+ * on what happens when two copies of a survey fact drift apart.
+ *
+ * The crystal error is 0 when this receiving setup has never been calibrated,
+ * which is a refusal downstream rather than a claim that the receiver is
+ * perfect. It is **not** 0 merely because the correction is applied: that was
+ * the first version of this and it made the whole measurement unreachable in
+ * the shipping program while every unit check stayed green, since the program
+ * restores and applies a stored calibration at startup and `calibrated -
+ * applied` is then always zero.
+ */
 struct reading_clock survey_reading_clock(const struct app *app);
+/* The four facts a candidate needs, read out of `struct app` once. This is
+   the adapter between the application and the survey's contract, so it lives
+   here and not in `survey_view_model.c`, which now takes plain state and
+   compiles without raylib (layer-boundaries ticket 03). */
+void survey_tuning_from(struct survey_record_tuning *out,
+                        const struct app *app);
 /* What a scripted sweep prints about a confirmation pass. */
 void survey_print_confirm_header(void);
 void survey_print_confirm_target(const struct survey_confirm_target *target);

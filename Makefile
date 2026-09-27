@@ -208,7 +208,7 @@ check-viewer-session: $(TESTS)/viewer_session_test.c $(TESTS)/check.h \
 check-frame-advance: $(TESTS)/frame_advance_test.c $(TESTS)/check.h \
 		$(SRC)/frame_advance.c $(SRC)/frame_advance.h $(SRC)/app.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
 		-o $(BUILD)/frame_advance_test \
 		$(TESTS)/frame_advance_test.c $(SRC)/frame_advance.c -lm
 	$(Q)./$(BUILD)/frame_advance_test
@@ -237,12 +237,12 @@ check-scope-view-model: $(TESTS)/scope_view_model_test.c $(TESTS)/check.h \
 # comment in survey_view_model.h for the two drawings' duplicated decision it
 # replaces. --cflags raylib alone for app.h's types; no raylib call in it.
 check-survey-view-model: $(TESTS)/survey_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/survey_view_model.c $(SRC)/survey_view_model.h $(SRC)/app.h \
+		$(SRC)/survey_view_model.c $(SRC)/survey_view_model.h \
 		$(SRC)/survey_session.c $(SRC)/survey_session.h \
 		$(SRC)/site_history.c $(SRC)/band_plan.c \
 		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
 		-o $(BUILD)/survey_view_model_test \
 		$(TESTS)/survey_view_model_test.c $(SRC)/survey_view_model.c \
 		$(SRC)/survey_session.c $(SRC)/site_history.c \

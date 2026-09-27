@@ -11,36 +11,59 @@
  * return here -- a single `static struct app app;` is zeroed explicitly at
  * the top of each test.
  */
-static void zero_app(struct app *app) {
-    memset(app, 0, sizeof(*app));
+/*
+ * The four structs the builder reads, and nothing else. It took a
+ * `const struct app *`, so this suite filled nine megabytes to set four
+ * fields and compiled against raylib to do it
+ * (`.scratch/layer-boundaries/issues/03-*`).
+ *
+ * `frame` and `sv` stay `static`: a `struct signal_frame` is one whole
+ * sample block and a `struct scope_view` carries the scatter history.
+ */
+static struct signal_frame frame;
+static struct scope_view sv;
+static struct receiver_applied applied;
+static struct device_profile device;
+
+static struct scope_view_model_input zero_input(void) {
+    struct scope_view_model_input in;
+
+    memset(&frame, 0, sizeof(frame));
+    memset(&sv, 0, sizeof(sv));
+    memset(&applied, 0, sizeof(applied));
+    memset(&device, 0, sizeof(device));
+    memset(&in, 0, sizeof(in));
+    in.frame = &frame;
+    in.sv = &sv;
+    in.applied = &applied;
+    in.device = &device;
+    return in;
 }
 
 static void test_measurements_pass_through(void) {
-    static struct app app;
-
-    zero_app(&app);
-    app.frame.have_samples = 1;
-    app.frame.pair_count = 131072;
-    app.frame.magnitude_min = 1.0f;
-    app.frame.magnitude_mean = 20.0f;
-    app.frame.magnitude_max = 90.0f;
-    app.frame.magnitudes[0] = 5.5f;
-    app.frame.signal_stats_ready = 1;
-    app.frame.signal_stats.snr_db = 12.5f;
-    app.frame.signal_stats.clipping_percent = 0.25f;
-    app.frame.spectrum_ready = 1;
-    app.frame.spectrum_bins = 2048;
-    app.frame.spectrum_windows = 4;
-    app.frame.spectrum_average[3] = -42.0f;
-    app.frame.spectrum_peak[3] = -20.0f;
-    app.applied.frequency_hz = 948400000;
-    app.applied.sample_rate_hz = 2000000;
-    app.applied.ppm = 7;
-    app.applied.generation = 3;
-    app.device.full_scale = 127.5f;
+    struct scope_view_model_input in = zero_input();
+    frame.have_samples = 1;
+    frame.pair_count = 131072;
+    frame.magnitude_min = 1.0f;
+    frame.magnitude_mean = 20.0f;
+    frame.magnitude_max = 90.0f;
+    frame.magnitudes[0] = 5.5f;
+    frame.signal_stats_ready = 1;
+    frame.signal_stats.snr_db = 12.5f;
+    frame.signal_stats.clipping_percent = 0.25f;
+    frame.spectrum_ready = 1;
+    frame.spectrum_bins = 2048;
+    frame.spectrum_windows = 4;
+    frame.spectrum_average[3] = -42.0f;
+    frame.spectrum_peak[3] = -20.0f;
+    applied.frequency_hz = 948400000;
+    applied.sample_rate_hz = 2000000;
+    applied.ppm = 7;
+    applied.generation = 3;
+    device.full_scale = 127.5f;
 
     struct scope_view_model svm;
-    scope_view_model_build(&app, &svm);
+    scope_view_model_build(&in, &svm);
 
     check_int("have_samples passes through", svm.have_samples, 1);
     check_int("center_hz is the applied frequency", (long)svm.center_hz,
@@ -53,22 +76,22 @@ static void test_measurements_pass_through(void) {
     check_close("full_scale passes through", svm.full_scale, 127.5, 1e-6);
     check_close("physical_magnitude_max matches device_magnitude_max()",
                 svm.physical_magnitude_max,
-                device_magnitude_max(&app.device), 1e-6);
+                device_magnitude_max(&device), 1e-6);
 
     check_int("spectrum_ready passes through", svm.spectrum_ready, 1);
     check_int("spectrum_bins passes through", svm.spectrum_bins, 2048);
     check_int("spectrum_windows passes through", svm.spectrum_windows, 4);
     check_true("spectrum_average aliases the frame's array",
-              svm.spectrum_average == app.frame.spectrum_average);
+              svm.spectrum_average == frame.spectrum_average);
     check_true("spectrum_peak aliases the frame's array",
-              svm.spectrum_peak == app.frame.spectrum_peak);
+              svm.spectrum_peak == frame.spectrum_peak);
     check_close("a spectrum_average sample reads through the alias",
                 svm.spectrum_average[3], -42.0, 1e-6);
     check_close("a spectrum_peak sample reads through the alias",
                 svm.spectrum_peak[3], -20.0, 1e-6);
 
     check_true("magnitudes aliases the frame's array",
-              svm.magnitudes == app.frame.magnitudes);
+              svm.magnitudes == frame.magnitudes);
     check_close("a magnitudes sample reads through the alias",
                 svm.magnitudes[0], 5.5, 1e-6);
     check_size("pair_count passes through", svm.pair_count, 131072);
@@ -88,14 +111,12 @@ static void test_measurements_pass_through(void) {
 /* A block with nothing measured yet: duration is zero rather than a
    division against a rate nothing was measured at. */
 static void test_no_samples_yet(void) {
-    static struct app app;
-
-    zero_app(&app);
-    app.applied.sample_rate_hz = 2000000;
-    app.frame.pair_count = 131072; /* stale from a previous block */
+    struct scope_view_model_input in = zero_input();
+    applied.sample_rate_hz = 2000000;
+    frame.pair_count = 131072; /* stale from a previous block */
 
     struct scope_view_model svm;
-    scope_view_model_build(&app, &svm);
+    scope_view_model_build(&in, &svm);
 
     check_int("have_samples is false", svm.have_samples, 0);
     check_close("duration_ms is zero with no samples", svm.duration_ms, 0.0,
@@ -106,31 +127,28 @@ static void test_no_samples_yet(void) {
    ring itself is ready -- advance_waterfall_row() (view_scope.c) always
    writes the newest row at index 0. */
 static void test_waterfall_row_is_the_rings_front(void) {
-    static struct app app;
+    struct scope_view_model_input in = zero_input();
     static float ring[SDR_DSP_FFT_MAX * 4];
 
-    zero_app(&app);
-    app.sv.waterfall_ready = 1;
-    app.sv.waterfall_dbfs = ring;
+    sv.waterfall_ready = 1;
+    sv.waterfall_dbfs = ring;
     ring[0] = -30.5f;
 
     struct scope_view_model svm;
-    scope_view_model_build(&app, &svm);
+    scope_view_model_build(&in, &svm);
 
     check_int("waterfall_ready passes through", svm.waterfall_ready, 1);
     check_true("waterfall_row aliases the ring's front",
-              svm.waterfall_row == app.sv.waterfall_dbfs);
+              svm.waterfall_row == sv.waterfall_dbfs);
     check_close("the front slot reads through the alias", svm.waterfall_row[0],
                 -30.5, 1e-6);
 }
 
 static void test_waterfall_not_ready(void) {
-    static struct app app;
-
-    zero_app(&app);
+    struct scope_view_model_input in = zero_input();
 
     struct scope_view_model svm;
-    scope_view_model_build(&app, &svm);
+    scope_view_model_build(&in, &svm);
 
     check_int("waterfall_ready is false with no ring", svm.waterfall_ready, 0);
 }
@@ -138,12 +156,10 @@ static void test_waterfall_not_ready(void) {
 /* An empty scatter history is not a wraparound case: no block has ever been
    inserted, so there is nothing to point at. */
 static void test_scatter_empty_history(void) {
-    static struct app app;
-
-    zero_app(&app);
+    struct scope_view_model_input in = zero_input();
 
     struct scope_view_model svm;
-    scope_view_model_build(&app, &svm);
+    scope_view_model_build(&in, &svm);
 
     check_true("scatter_i is null with no history", svm.scatter_i == NULL);
     check_true("scatter_q is null with no history", svm.scatter_q == NULL);
@@ -154,22 +170,20 @@ static void test_scatter_empty_history(void) {
    scatter_history_head and then advances it, so the block just inserted is
    one slot behind the head, with wraparound at either end of the ring. */
 static void test_scatter_newest_block_no_wrap(void) {
-    static struct app app;
-
-    zero_app(&app);
-    app.sv.scatter_history_count = 3;
-    app.sv.scatter_history_head = 3; /* three inserted, none wrapped yet */
-    app.sv.scatter_history[2].count = 5;
-    app.sv.scatter_history[2].i[0] = 0.25f;
-    app.sv.scatter_history[2].q[0] = -0.5f;
+    struct scope_view_model_input in = zero_input();
+    sv.scatter_history_count = 3;
+    sv.scatter_history_head = 3; /* three inserted, none wrapped yet */
+    sv.scatter_history[2].count = 5;
+    sv.scatter_history[2].i[0] = 0.25f;
+    sv.scatter_history[2].q[0] = -0.5f;
 
     struct scope_view_model svm;
-    scope_view_model_build(&app, &svm);
+    scope_view_model_build(&in, &svm);
 
     check_size("scatter_count is the newest block's count",
               svm.scatter_count, 5);
     check_true("scatter_i aliases the newest block",
-              svm.scatter_i == app.sv.scatter_history[2].i);
+              svm.scatter_i == sv.scatter_history[2].i);
     check_close("a scatter_i sample reads through the alias", svm.scatter_i[0],
                 0.25, 1e-6);
     check_close("a scatter_q sample reads through the alias", svm.scatter_q[0],
@@ -177,20 +191,18 @@ static void test_scatter_newest_block_no_wrap(void) {
 }
 
 static void test_scatter_newest_block_wraps(void) {
-    static struct app app;
-
-    zero_app(&app);
-    app.sv.scatter_history_count = SCATTER_HISTORY_BLOCKS;
-    app.sv.scatter_history_head = 0; /* head wrapped back to the start */
-    app.sv.scatter_history[SCATTER_HISTORY_BLOCKS - 1].count = 9;
+    struct scope_view_model_input in = zero_input();
+    sv.scatter_history_count = SCATTER_HISTORY_BLOCKS;
+    sv.scatter_history_head = 0; /* head wrapped back to the start */
+    sv.scatter_history[SCATTER_HISTORY_BLOCKS - 1].count = 9;
 
     struct scope_view_model svm;
-    scope_view_model_build(&app, &svm);
+    scope_view_model_build(&in, &svm);
 
     check_size("scatter_count follows the block at the ring's far end",
               svm.scatter_count, 9);
     check_true("scatter_i aliases the ring's last slot",
-              svm.scatter_i == app.sv.scatter_history[SCATTER_HISTORY_BLOCKS - 1].i);
+              svm.scatter_i == sv.scatter_history[SCATTER_HISTORY_BLOCKS - 1].i);
 }
 
 /*

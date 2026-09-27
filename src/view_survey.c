@@ -2191,7 +2191,12 @@ void draw_survey(struct app *app) {
      * computation -- see survey_view_model.h.
      */
     static struct survey_view_model svm;
-    survey_view_model_build(app, &svm);
+    {
+        struct survey_record_tuning tuning;
+
+        survey_tuning_from(&tuning, app);
+        survey_view_model_build(&app->survey.session, &tuning, &svm);
+    }
     /*
      * One flag word per peak, in the order the chart reads them, so a spur, an
      * empty frequency and a station do not draw the same mark.

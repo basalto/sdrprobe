@@ -46,8 +46,7 @@ static void fm_view_model_reading(struct fm_view_model *out, int ps_valid) {
     out->reading_tone = tone;
 }
 
-void fm_view_model_build(const struct app *app, struct fm_view_model *out) {
-    const struct fm_view *fm = &app->fm;
+void fm_view_model_build(const struct fm_view *fm, struct fm_view_model *out) {
     const struct rds_station *s = &fm->session.station;
     const char *pty_name;
 

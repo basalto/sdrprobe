@@ -33,6 +33,39 @@
  * facts about the container they came out of. No `struct app` past this
  * point, which is what lets a check drive the same machine (ADR-0012).
  */
+/*
+ * The four facts a candidate needs, read out of `struct app` once here rather
+ * than by every caller that builds a `struct survey_record` or a view model
+ * of its own -- `survey_report.c` and this file are the two.
+ *
+ * Declared in view.h rather than here: both callers already include it, and a
+ * survey record's tuning is not only this view model's business. What moved
+ * is which file defines the bodies, so that this one compiles with no
+ * raylib call in it and check-survey-view-model can link `-lm` alone --
+ * they used to live in view_survey.c, which draws.
+ */
+struct reading_clock survey_reading_clock(const struct app *app) {
+    struct reading_clock clock = { 0.0, 0.0 };
+    int calibrated = 0;
+
+    if (!app)
+        return clock;
+    if (installation_ppm(&app->installation, &calibrated))
+        clock.crystal_ppm = (double)calibrated;
+    clock.applied_ppm = (double)app->applied.ppm;
+    return clock;
+}
+
+void survey_tuning_from(struct survey_record_tuning *out,
+                        const struct app *app) {
+    memset(out, 0, sizeof(*out));
+    out->centre_hz = (double)app->applied.frequency_hz;
+    out->sample_rate_hz = (double)app->applied.sample_rate_hz;
+    out->reference_clock_hz = app->device.reference_clock_hz;
+    out->remove_dc = app->remove_dc;
+    out->clock = survey_reading_clock(app);
+}
+
 struct survey_block survey_block_of(struct app *app) {
     struct survey_block b;
 

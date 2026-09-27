@@ -5,9 +5,14 @@
 #include "survey_mark.h"
 #include "site_history.h"
 #include "survey_carrier.h"
+#include "survey_record.h"
 #include "survey_sweep.h"
 
-struct app;
+/* What this reads, and all of it: the sweep, and the four tuning facts
+   `survey_tuning_from()` already gathers. It took a `const struct app *`,
+   which made a contract depend on everything the application does
+   (`.scratch/layer-boundaries/issues/03-*`). */
+struct survey_session;
 
 /*
  * What a survey candidate is, decided once rather than by every drawing that
@@ -104,7 +109,8 @@ struct survey_view_model {
  * snapshot to keep past this frame: a candidate's carrier and history mark
  * are read fresh every call, the same as the drawing they replace did.
  */
-void survey_view_model_build(const struct app *app,
+void survey_view_model_build(const struct survey_session *ss,
+                             const struct survey_record_tuning *tuning,
                              struct survey_view_model *out);
 
 #endif

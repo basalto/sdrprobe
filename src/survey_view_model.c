@@ -4,59 +4,23 @@
 #include <string.h>
 
 #include "survey_view_model.h"
-#include "app.h"
-#include "installation.h"
 #include "survey_session.h"
 #include "survey_suspect.h"
-#include "view.h"
 
-/*
- * The four facts a candidate needs, read out of `struct app` once here rather
- * than by every caller that builds a `struct survey_record` or a view model
- * of its own -- `survey_report.c` and this file are the two.
- *
- * Declared in view.h rather than here: both callers already include it, and a
- * survey record's tuning is not only this view model's business. What moved
- * is which file defines the bodies, so that this one compiles with no
- * raylib call in it and check-survey-view-model can link `-lm` alone --
- * they used to live in view_survey.c, which draws.
- */
-struct reading_clock survey_reading_clock(const struct app *app) {
-    struct reading_clock clock = { 0.0, 0.0 };
-    int calibrated = 0;
-
-    if (!app)
-        return clock;
-    if (installation_ppm(&app->installation, &calibrated))
-        clock.crystal_ppm = (double)calibrated;
-    clock.applied_ppm = (double)app->applied.ppm;
-    return clock;
-}
-
-void survey_tuning_from(struct survey_record_tuning *out,
-                        const struct app *app) {
-    memset(out, 0, sizeof(*out));
-    out->centre_hz = (double)app->applied.frequency_hz;
-    out->sample_rate_hz = (double)app->applied.sample_rate_hz;
-    out->reference_clock_hz = app->device.reference_clock_hz;
-    out->remove_dc = app->remove_dc;
-    out->clock = survey_reading_clock(app);
-}
 
 /* The sweep's own suspicion at a frequency -- the frequency-only half of a
    candidate's flags, available whether or not anything has asked again. */
-static unsigned survey_view_model_suspect(const struct app *app, double hz) {
-    struct survey_record_tuning t;
-
-    survey_tuning_from(&t, app);
-    return survey_suspect(&app->survey.session.plan, t.reference_clock_hz, hz,
-                          0.0, t.sample_rate_hz, SDR_DSP_FFT_SIZE,
-                          t.remove_dc);
+static unsigned survey_view_model_suspect(const struct survey_session *ss,
+                                          const struct survey_record_tuning *t,
+                                          double hz) {
+    return survey_suspect(&ss->plan, t->reference_clock_hz, hz,
+                          0.0, t->sample_rate_hz, SDR_DSP_FFT_SIZE,
+                          t->remove_dc);
 }
 
-void survey_view_model_build(const struct app *app,
+void survey_view_model_build(const struct survey_session *ss,
+                             const struct survey_record_tuning *tuning,
                              struct survey_view_model *out) {
-    const struct survey_session *ss = &app->survey.session;
     int i;
 
     memset(out, 0, sizeof(*out));
@@ -96,7 +60,7 @@ void survey_view_model_build(const struct app *app,
             c->width_hz = carrier->width_hz;
             c->shape = survey_carrier_shape(carrier->width_hz);
         }
-        c->flags = survey_view_model_suspect(app, hz) |
+        c->flags = survey_view_model_suspect(ss, tuning, hz) |
                    survey_session_confirmed_flags_at(ss, asked_hz);
         c->mark = survey_mark_of(c->flags);
         c->seen = ss->history_loaded

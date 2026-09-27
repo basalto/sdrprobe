@@ -13,17 +13,20 @@
  * taken inside `draw_funnel_panel()`.
  *
  * Most of this file is the funnel's closing sentence, and deliberately so.
- * Copying a field out of `struct app` fails loudly the moment it is wrong;
+ * Copying a field out of the view's state fails loudly the moment it is wrong;
  * choosing between five sentences from five counts fails *quietly*, by
  * reporting the wrong diagnosis about a working receiver -- which is the
  * whole reason that choice does not belong in a drawing (ADR-0012).
  *
- * `struct app` is nearly 9 MB, so it is never a stack local here -- a single
- * `static struct app app;` zeroed at the top of each test, the same
- * convention scope_view_model_test.c and survey_view_model_test.c use.
+ * The input is a `struct fm_view`, not a `struct app`. The builder used to
+ * take the whole application and reach for one member, so this suite zeroed
+ * nine megabytes to fill a handful of fields, and compiled against raylib to
+ * do it (`.scratch/layer-boundaries/issues/03-*`). Still a `static`: a
+ * `struct fm_view` carries an audio ring and two spectra and has no business
+ * on a stack.
  */
-static void zero_app(struct app *app) {
-    memset(app, 0, sizeof(*app));
+static void zero_fm(struct fm_view *fm) {
+    memset(fm, 0, sizeof(*fm));
 }
 
 /*
@@ -34,8 +37,8 @@ static void zero_app(struct app *app) {
  * synthetic tone, because what is under test here is which fields the view
  * model copies and when -- not the loop, which `check-fm-dsp` already owns.
  */
-static void lock_pilot(struct app *app, double hz) {
-    struct fm_pilot *p = &app->fm.session.front.pilot;
+static void lock_pilot(struct fm_view *fm, double hz) {
+    struct fm_pilot *p = &fm->session.front.pilot;
 
     p->sample_rate = 2000000.0;
     p->settled = (long)(FM_PILOT_SETTLE_SECONDS * p->sample_rate) + 1;
@@ -70,17 +73,17 @@ static void test_the_string_sizes_match_the_decoder(void) {
  * one of them cannot pass all five.
  */
 static void test_no_pilot_outranks_every_later_clause(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
+    zero_fm(&fm);
     /* Blocks, groups and a confirmed name -- everything the three clauses
        below ask about -- and still no pilot to have produced any of it. */
-    app.fm.session.station.funnel.blocks_matched = 400;
-    app.fm.session.station.funnel.groups = 90;
-    app.fm.session.station.ps_valid = 1;
+    fm.session.station.funnel.blocks_matched = 400;
+    fm.session.station.funnel.groups = 90;
+    fm.session.station.ps_valid = 1;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("no pilot, whatever else arrived", out.pilot_locked, 0);
     check_str("the sentence says so", out.reading,
@@ -90,14 +93,14 @@ static void test_no_pilot_outranks_every_later_clause(void) {
 }
 
 static void test_a_pilot_but_no_blocks_is_a_station_without_rds(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    lock_pilot(&app, 19000.0);
-    app.fm.session.station.funnel.bits = 5000;   /* offered, none matched */
+    zero_fm(&fm);
+    lock_pilot(&fm, 19000.0);
+    fm.session.station.funnel.bits = 5000;   /* offered, none matched */
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("the pilot locked", out.pilot_locked, 1);
     check_str("no blocks is not a fault", out.reading,
@@ -109,14 +112,14 @@ static void test_a_pilot_but_no_blocks_is_a_station_without_rds(void) {
 }
 
 static void test_blocks_without_groups_is_weak_reception(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    lock_pilot(&app, 19000.0);
-    app.fm.session.station.funnel.blocks_matched = 40;
+    zero_fm(&fm);
+    lock_pilot(&fm, 19000.0);
+    fm.session.station.funnel.blocks_matched = 40;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_str("blocks but no groups", out.reading,
               "blocks but no groups: too weak to hold sync");
@@ -125,16 +128,16 @@ static void test_blocks_without_groups_is_weak_reception(void) {
 }
 
 static void test_groups_without_a_name_is_still_in_progress(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    lock_pilot(&app, 19000.0);
-    app.fm.session.station.funnel.blocks_matched = 400;
-    app.fm.session.station.funnel.groups = 90;
-    app.fm.session.station.ps_valid = 0;
+    zero_fm(&fm);
+    lock_pilot(&fm, 19000.0);
+    fm.session.station.funnel.blocks_matched = 400;
+    fm.session.station.funnel.groups = 90;
+    fm.session.station.ps_valid = 0;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_str("the name needs all four segments", out.reading,
               "groups arriving; the name needs all four segments");
@@ -145,16 +148,16 @@ static void test_groups_without_a_name_is_still_in_progress(void) {
 }
 
 static void test_a_named_station_reads_as_working(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    lock_pilot(&app, 19000.0);
-    app.fm.session.station.funnel.blocks_matched = 400;
-    app.fm.session.station.funnel.groups = 90;
-    app.fm.session.station.ps_valid = 1;
+    zero_fm(&fm);
+    lock_pilot(&fm, 19000.0);
+    fm.session.station.funnel.blocks_matched = 400;
+    fm.session.station.funnel.groups = 90;
+    fm.session.station.ps_valid = 1;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_str("reading the station", out.reading, "reading the station");
     check_int("and it reads as working", (long)out.reading_tone,
@@ -169,21 +172,21 @@ static void test_a_named_station_reads_as_working(void) {
  * rule in the one place both readers take it from.
  */
 static void test_the_pilot_rows_are_empty_without_a_lock(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
+    zero_fm(&fm);
     /* A loop tracking something, with none of the lock clauses satisfied. */
-    app.fm.session.front.pilot.sample_rate = 2000000.0;
-    app.fm.session.front.pilot.frequency_average =
+    fm.session.front.pilot.sample_rate = 2000000.0;
+    fm.session.front.pilot.frequency_average =
         2.0 * M_PI * 18950.0 / 2000000.0;
-    app.fm.session.front.pilot.coherence = 0.74; /* the "clean signal, no
+    fm.session.front.pilot.coherence = 0.74; /* the "clean signal, no
                                                     pilot" reading fm_dsp.c
                                                     names outright */
-    app.fm.session.timing_offset = 7;
-    app.fm.session.axis_radians = 1.25;
+    fm.session.timing_offset = 7;
+    fm.session.axis_radians = 1.25;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("not locked", out.pilot_locked, 0);
     check_close("no frequency is reported", out.pilot_hz, 0.0, 0.0);
@@ -197,17 +200,17 @@ static void test_the_pilot_rows_are_empty_without_a_lock(void) {
 }
 
 static void test_the_pilot_rows_are_filled_when_locked(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
+    zero_fm(&fm);
     /* 19 kHz + 19 Hz is exactly +1000 ppm, which no real transmitter is;
        chosen so a wrong denominator in the ppm arithmetic cannot pass. */
-    lock_pilot(&app, 19019.0);
-    app.fm.session.timing_offset = 7;
-    app.fm.session.axis_radians = 1.25;
+    lock_pilot(&fm, 19019.0);
+    fm.session.timing_offset = 7;
+    fm.session.axis_radians = 1.25;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("locked", out.pilot_locked, 1);
     check_close("the pilot's own frequency", out.pilot_hz, 19019.0, 1e-6);
@@ -219,21 +222,21 @@ static void test_the_pilot_rows_are_filled_when_locked(void) {
 }
 
 static void test_the_station_panel_fields(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    app.fm.session.station.pi_valid = 1;
-    app.fm.session.station.pi = 0x8343;
-    app.fm.session.station.pi_repeats = 12;
-    app.fm.session.station.ps_valid = 1;
-    snprintf(app.fm.session.station.ps, sizeof(app.fm.session.station.ps),
+    zero_fm(&fm);
+    fm.session.station.pi_valid = 1;
+    fm.session.station.pi = 0x8343;
+    fm.session.station.pi_repeats = 12;
+    fm.session.station.ps_valid = 1;
+    snprintf(fm.session.station.ps, sizeof(fm.session.station.ps),
              "%s", "TSF");
-    app.fm.session.station.rt_valid = 1;
-    snprintf(app.fm.session.station.rt, sizeof(app.fm.session.station.rt),
+    fm.session.station.rt_valid = 1;
+    snprintf(fm.session.station.rt, sizeof(fm.session.station.rt),
              "%s", "Cultura em antena2.rtp.pt");
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("the identification", (long)out.pi, 0x8343);
     check_int("how many groups agreed", out.pi_repeats, 12);
@@ -249,13 +252,13 @@ static void test_the_station_panel_fields(void) {
  * or its lowest set bit cannot pass.
  */
 static void test_ps_segments_is_a_count_not_a_mask(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    app.fm.session.station.ps_segments = 0x0B; /* segments 0, 1 and 3 */
+    zero_fm(&fm);
+    fm.session.station.ps_segments = 0x0B; /* segments 0, 1 and 3 */
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("three of the four have arrived", out.ps_segments, 3);
 }
@@ -267,23 +270,23 @@ static void test_ps_segments_is_a_count_not_a_mask(void) {
  * without it, rather than filled from index 0.
  */
 static void test_the_programme_type_waits_for_its_valid_flag(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    app.fm.session.station.pty = 3;
-    app.fm.session.station.tp = 1;
-    app.fm.session.station.ta = 1;
+    zero_fm(&fm);
+    fm.session.station.pty = 3;
+    fm.session.station.tp = 1;
+    fm.session.station.ta = 1;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("nothing has been received", out.pty_valid, 0);
     check_int("so the type is not reported", out.pty, 0);
     check_str("nor its name", out.pty_name, "");
     check_str("nor the traffic line", out.traffic, "");
 
-    app.fm.session.station.pty_valid = 1;
-    fm_view_model_build(&app, &out);
+    fm.session.station.pty_valid = 1;
+    fm_view_model_build(&fm, &out);
 
     check_int("and once it has", out.pty_valid, 1);
     check_int("the type is carried", out.pty, 3);
@@ -299,21 +302,21 @@ static void test_the_programme_type_waits_for_its_valid_flag(void) {
  * carried either way; the rate is only meaningful while a device is open.
  */
 static void test_the_audio_rate_waits_for_something_playing(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    app.fm.audio.stereo = 1;
-    app.fm.audio.audio_rate = 50000.0;
+    zero_fm(&fm);
+    fm.audio.stereo = 1;
+    fm.audio.audio_rate = 50000.0;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("the station transmits stereo", out.broadcast_stereo, 1);
     check_int("nothing is playing", out.playing, 0);
     check_close("so no rate is reported", out.audio_rate_hz, 0.0, 0.0);
 
-    app.fm.playing = 1;
-    fm_view_model_build(&app, &out);
+    fm.playing = 1;
+    fm_view_model_build(&fm, &out);
 
     check_int("playing", out.playing, 1);
     check_close("and the rate is the device's", out.audio_rate_hz, 50000.0,
@@ -321,30 +324,30 @@ static void test_the_audio_rate_waits_for_something_playing(void) {
 }
 
 static void test_the_audio_error_is_carried_verbatim(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    snprintf(app.fm.audio_error, sizeof(app.fm.audio_error), "%s",
+    zero_fm(&fm);
+    snprintf(fm.audio_error, sizeof(fm.audio_error), "%s",
              "no audio device");
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_str("the reason, as written", out.audio_error, "no audio device");
 }
 
 static void test_the_multiplex_spectrum_is_copied(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
     int i;
 
-    zero_app(&app);
-    app.fm.spectrum_bins = 256;
-    app.fm.spectrum_bin_hz = 125.0;
+    zero_fm(&fm);
+    fm.spectrum_bins = 256;
+    fm.spectrum_bin_hz = 125.0;
     for (i = 0; i < 256; i++)
-        app.fm.spectrum[i] = (float)(-100 + i);
+        fm.spectrum[i] = (float)(-100 + i);
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("as many bins as were measured", out.spectrum_bins, 256);
     check_close("and the bin width beside them", out.spectrum_bin_hz, 125.0,
@@ -360,11 +363,11 @@ static void test_the_multiplex_spectrum_is_copied(void) {
  * bin count of zero is what says so.
  */
 static void test_no_spectrum_before_the_first_refresh(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    fm_view_model_build(&app, &out);
+    zero_fm(&fm);
+    fm_view_model_build(&fm, &out);
 
     check_int("no bins", out.spectrum_bins, 0);
     check_close("and no bin width to go with them", out.spectrum_bin_hz, 0.0,
@@ -378,30 +381,30 @@ static void test_no_spectrum_before_the_first_refresh(void) {
  * buffer overrun in whoever believed it.
  */
 static void test_the_bin_count_is_clamped_to_the_array(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    app.fm.spectrum_bins = FM_VIEW_MODEL_MAX_BINS + 500;
+    zero_fm(&fm);
+    fm.spectrum_bins = FM_VIEW_MODEL_MAX_BINS + 500;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("clamped to what the array holds", out.spectrum_bins,
               FM_VIEW_MODEL_MAX_BINS);
 }
 
 static void test_the_funnel_counts_are_carried(void) {
-    static struct app app;
+    static struct fm_view fm;
     struct fm_view_model out;
 
-    zero_app(&app);
-    app.fm.session.station.funnel.bits = 12000;
-    app.fm.session.station.funnel.blocks_matched = 430;
-    app.fm.session.station.funnel.groups = 98;
-    app.fm.session.station.funnel.identified = 95;
-    app.fm.session.station.funnel.named = 4;
+    zero_fm(&fm);
+    fm.session.station.funnel.bits = 12000;
+    fm.session.station.funnel.blocks_matched = 430;
+    fm.session.station.funnel.groups = 98;
+    fm.session.station.funnel.identified = 95;
+    fm.session.station.funnel.named = 4;
 
-    fm_view_model_build(&app, &out);
+    fm_view_model_build(&fm, &out);
 
     check_int("soft bits", out.bits, 12000);
     check_int("blocks", out.blocks_matched, 430);

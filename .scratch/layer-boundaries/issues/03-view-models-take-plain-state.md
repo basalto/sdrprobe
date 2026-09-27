@@ -1,8 +1,9 @@
 # 03 - The data contracts stop taking `struct app`
 
-Status: needs-info -- items 2 and 3 done (2026-09-27). The peak mark is out
-of `sdrgui.h`, `check-viewer-link` builds with no raylib, and no enum crosses
-the wire as an integer. Items 1 and 4 remain.
+Status: needs-info -- items 1, 2 and 3 done (2026-09-27). No builder takes
+`struct app`, five checks are genuinely raylib-free, and no enum crosses the
+wire as an integer. Item 4 (a `receiver_view_model` of its own) remains, and
+is smaller than it was: `screen` already replaced `tab`/`decode`.
 Blocked by: 01 (done)
 
 ## The problem
@@ -147,3 +148,41 @@ indexed past the table.
 
 Verified on the wire (`screen=fm`), in a real browser (`check-web-layout`,
 25 checks), and with the headless survey byte-identical.
+
+
+## Item 1 done, 2026-09-27 -- no builder takes `struct app`
+
+- **FM** takes `const struct fm_view *`. It read exactly one member.
+- **Survey** takes `const struct survey_session *` and the
+  `struct survey_record_tuning` that `survey_tuning_from()` already gathers
+  -- which is what this ticket said to reuse rather than invent.
+- **Scope** takes a `struct scope_view_model_input`: frame, scope view,
+  applied tuning, device profile, tab, decode. A struct rather than six
+  parameters, on the precedent `signal_frame_input` already sets here.
+
+**`survey_reading_clock()` and `survey_tuning_from()` moved out of
+`survey_view_model.c` into `survey_runtime.c`.** They are the adapter between
+the application and the contract -- they read `struct app` -- so the model
+keeping them was what kept the model depending on the application. That was
+the last thing holding raylib into that suite.
+
+**`frame_advance.c` includes `runtime.h` instead of `view.h`**, which was the
+last raylib path into the per-block step. `process_block()`'s declaration
+moved with it.
+
+### The five checks ticket 01 predicted are all raylib-free now
+
+`check-fm-view-model`, `check-scope-view-model`, `check-survey-view-model`,
+`check-frame-advance` and `check-viewer-link`. Each verified by building the
+whole suite with a `#error` raylib.h ahead of the real one -- never by
+dropping the flag and watching it pass, since the system header sits in
+`/usr/include`.
+
+The three model suites also build their inputs directly: no `struct app`, no
+`zero_app()`, no nine-megabyte static to set four fields. The three that
+still take raylib cflags are `check-layout`, `check-geometry` and
+`check-row-list`, which test GUI geometry and use `Rectangle` on purpose.
+
+Verified: `make check` green, `check-web-layout` 25 checks, the headless
+survey and the FM decode byte-identical, a live `server` still sending
+2048-bin spectra.

@@ -336,7 +336,17 @@ int viewer_session_run(struct app *app) {
          */
         spectrum_updated = frame_advance(app, &snapshot, now,
                                          app->sv.fft_size);
-        scope_view_model_build(app, &svm);
+        {
+    struct scope_view_model_input in;
+
+    in.frame = &app->frame;
+    in.sv = &app->sv;
+    in.applied = &app->applied;
+    in.device = &app->device;
+    in.tab = (int)app->tab;
+    in.decode = (int)app->decode;
+    scope_view_model_build(&in, &svm);
+}
         now_ms = (uint64_t)(monotonic_seconds() * 1000.0);
 
         if (spectrum_updated) {
@@ -355,12 +365,17 @@ int viewer_session_run(struct app *app) {
              * because there is nothing new to build when no block arrived
              * either.
              */
-            survey_view_model_build(app, &survey_svm);
+            {
+        struct survey_record_tuning tuning;
+
+        survey_tuning_from(&tuning, app);
+        survey_view_model_build(&app->survey.session, &tuning, &survey_svm);
+    }
             viewer_link_publish_survey_spectrum(&link, &survey_svm,
                                                 svm.tuning_generation, now_ms);
             viewer_link_publish_survey_state(&link, &survey_svm, now_ms);
             /* The FM view, on the same gate and for the same reason. */
-            fm_view_model_build(app, &fm_svm);
+            fm_view_model_build(&app->fm, &fm_svm);
             viewer_link_publish_fm_spectrum(&link, &fm_svm,
                                             svm.tuning_generation, now_ms);
             viewer_link_publish_fm_state(&link, &fm_svm, now_ms);

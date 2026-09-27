@@ -4,7 +4,10 @@
 #include "fm_dsp.h"
 #include "rds.h"
 
-struct app;
+/* The FM view's own state (`app.h`), which is all this reads: forward
+   declared, so nothing that takes a model has to take `struct app` with
+   it. */
+struct fm_view;
 
 /*
  * What the FM view knows, as plain fields -- ticket 07's next view after the
@@ -141,7 +144,12 @@ struct fm_view_model {
 };
 
 /*
- * Fills `out` from `app->fm`. Not a snapshot to keep past this frame: every
+ * Fills `out` from the FM view's own state.
+
+ * It took a `const struct app *` and reached for `app->fm`, which made a
+ * contract depend on everything `struct app` depends on -- and made a check
+ * of it build a nine-megabyte struct to fill one field
+ * (`.scratch/layer-boundaries/issues/03-*`). It takes what it reads. Not a snapshot to keep past this frame: every
  * field is read fresh, the same as the drawing it serves.
  *
  * What this deliberately does not carry, said here rather than left as a gap
@@ -163,6 +171,7 @@ struct fm_view_model {
  * - **The tuned frequency.** `scope_view_model.h` carries it already, and a
  *   second copy travelling beside this one is two answers to one question.
  */
-void fm_view_model_build(const struct app *app, struct fm_view_model *out);
+void fm_view_model_build(const struct fm_view *fm,
+                         struct fm_view_model *out);
 
 #endif

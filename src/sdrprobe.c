@@ -1986,7 +1986,17 @@ static int run_gui(struct app *app) {
             } else {
                 struct scope_view_model svm;
 
-                scope_view_model_build(app, &svm);
+                {
+            struct scope_view_model_input in;
+
+            in.frame = &app->frame;
+            in.sv = &app->sv;
+            in.applied = &app->applied;
+            in.device = &app->device;
+            in.tab = (int)app->tab;
+            in.decode = (int)app->decode;
+            scope_view_model_build(&in, &svm);
+        }
                 draw_base_hud(app, &snapshot);
                 draw_scope_header(app);
                 if (app->view == VIEW_MAGNITUDE)

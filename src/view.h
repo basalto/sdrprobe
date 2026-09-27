@@ -74,11 +74,11 @@ int calibration_stop_measuring(struct app *app);
 /* Give it back. Restores with the *current* PPM, so a calibration applied
    while borrowed survives the return. A failed retune leaves the token live
    and retryable. */
-int process_block(struct app *app, double now, int fft_size);
 /* What size the screen wants the spectrum measured at -- the Scope's
    resolution stepper, but only while the Scope owns the spectrum. Asked in
    this layer because it is a question about presentation, and handed to
-   `process_block()` rather than looked up inside it. */
+   `process_block()` (declared in runtime.h) rather than looked up inside
+   it. */
 int scope_requested_fft_size(const struct app *app);
 int stop_requested(void);
 
@@ -138,25 +138,6 @@ Rectangle calculate_plot(void);
  * -- and assembling them separately is how two copies of one answer start to
  * differ. That is what `survey_session` was extracted to end, and the
  * finished-survey half of it is `.scratch/deepening/issues/12-*`.
- */
-void survey_tuning_from(struct survey_record_tuning *out,
-                        const struct app *app);
-
-/*
- * This receiver's own reference error and the correction in force -- the two
- * numbers `reading_origin.h` needs, and it needs two.
- *
- * One function because both survey adapters build a `struct survey_block` and
- * the record needs the same pair, and this repository has just spent a ticket
- * on what happens when two copies of a survey fact drift apart.
- *
- * The crystal error is 0 when this receiving setup has never been calibrated,
- * which is a refusal downstream rather than a claim that the receiver is
- * perfect. It is **not** 0 merely because the correction is applied: that was
- * the first version of this and it made the whole measurement unreachable in
- * the shipping program while every unit check stayed green, since the program
- * restores and applies a stored calibration at startup and `calibrated -
- * applied` is then always zero.
  */
 
 /* The frequency window the Scope's spectrum and waterfall share. */

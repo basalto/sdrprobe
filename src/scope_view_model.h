@@ -7,7 +7,10 @@
 
 #include "sdr_dsp.h"
 
-struct app;
+struct signal_frame;
+struct scope_view;
+struct receiver_applied;
+struct device_profile;
 
 /*
  * What the Scope's four charts show, as plain data -- no `Rectangle`, no
@@ -145,6 +148,29 @@ struct scope_view_model {
    can walk every screen without building a `struct app` for each. */
 void scope_screen_name(char *out, size_t size, int tab, int decode);
 
-void scope_view_model_build(const struct app *app, struct scope_view_model *out);
+/*
+ * What the Scope's model is built from, and all of it.
+ *
+ * A struct rather than six parameters, on the precedent `signal_frame_input`
+ * already sets here: a builder that takes a `const struct app *` makes the
+ * contract depend on everything the application does, and made this suite
+ * fill a nine-megabyte struct to set four fields
+ * (`.scratch/layer-boundaries/issues/03-*`).
+ *
+ * `tab` and `decode` are `enum active_tab` and `enum decode_kind` as ints,
+ * the way `struct app` holds them. What travels to a reader is neither --
+ * `screen` is the name they collapse to.
+ */
+struct scope_view_model_input {
+    const struct signal_frame *frame;
+    const struct scope_view *sv;
+    const struct receiver_applied *applied;
+    const struct device_profile *device;
+    int tab;
+    int decode;
+};
+
+void scope_view_model_build(const struct scope_view_model_input *in,
+                            struct scope_view_model *out);
 
 #endif

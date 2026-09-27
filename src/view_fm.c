@@ -678,7 +678,7 @@ void draw_fm(struct app *app) {
      */
     struct fm_view_model model;
 
-    fm_view_model_build(app, &model);
+    fm_view_model_build(&app->fm, &model);
 
     GuiLabel((Rectangle){ l.frequency_field.x, l.frequency_field.y - 18.0f,
                           120.0f, 16.0f }, "MHz");
