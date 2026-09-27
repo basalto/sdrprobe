@@ -9,6 +9,7 @@
 #include "runtime/calibration_gate.h"
 #include "tech/lte_dsp.h"
 #include "gui/chrome_layout.h"
+#include "model/calibration_view_model.h"
 #include "gui/calibration_layout.h"
 #include "runtime/calibration_nav.h"
 #include "tech/lte_scan.h"
@@ -32,248 +33,6 @@
  * literal -- which is why they agreed and were all wrong on any tuner but an
  * R820T.
  */
-static int cal_band_count(const struct app *app) {
-    int bands[LTE_BANDS_MAX];
-    return view_lte_bands(app, bands);
-}
-
-
-/*
- * GSM 900 channel calibration, the band scan that feeds it, and the periodic
- * drift re-check -- one overlay, drawn over whichever tab is active.
- *
- * The stability gate in update_calibration_measurement is the subtle part and
- * is documented in docs/adr/0004-calibration-stability-gate.md: the residual
- * buffer must stay source-homogeneous, because mixing centroid and FCCH
- * residuals is exactly the mistake the gate exists to catch.
- */
-
-/* The scan picks a channel and calibration measures it, so selecting one fills
-   in calibration's channel field. A function rather than a reach into that
-   buffer: the format calibration parses is its own business. */
-void calibration_select_channel(struct app *app, int arfcn) {
-    snprintf(app->cal.channel, sizeof(app->cal.channel), "%d", arfcn);
-    app->cal.channel_length = (int)strlen(app->cal.channel);
-}
-
-/*
- * Choose a technology, with everything that entails: the channel it defaults
- * to and the instruction that names it.
- *
- * One path, because there are two callers -- the button and opening the
- * overlay already on 4G -- and when the button's side effects lived inline the
- * second one showed the LTE arrangement under "Select GSM 900 ARFCN 1-124".
- */
-void calibration_select_technology(struct app *app, int technology) {
-    app->cal.technology = technology;
-    if (technology == 1) {
-        snprintf(app->cal.channel, sizeof(app->cal.channel), "6200");
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "Pick a band and Scan, or type an EARFCN, then press Start");
-    } else if (technology == 0) {
-        snprintf(app->cal.channel, sizeof(app->cal.channel), "113");
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "Select GSM 900 ARFCN 1-124, then press Start");
-    } else {
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "5G channel tables are not implemented yet");
-    }
-    app->cal.channel_length = (int)strlen(app->cal.channel);
-}
-
-/*
- * Calibrating against an LTE cell.
- *
- * The cell search measures the receiver's frequency error twice over -- a
- * phase from the primary sequence, which only sees it modulo one subcarrier,
- * and then the whole subcarriers by search. That second half is why this is
- * worth having: an uncalibrated dongle is two subcarriers out at 800 MHz, and
- * a reference that could not see them would report the error as the remainder
- * and be confidently wrong by 30 kHz.
- *
- * It runs on LTE's own 1.92 MS/s grid and refuses anything else (ADR-0014),
- * so the calibration borrows the rate and gives it back on the way out.
- */
-/*
- * Calibration takes the receiver once, whichever phase takes it first: a band
- * scan looking for something worth measuring against, or the measurement
- * itself. `acquired` says whether this call was the one that took it, so a
- * refused retune cancels only a claim it created.
- */
-static int calibration_borrow(struct app *app, int *acquired) {
-    *acquired = 0;
-    if (receiver_lease_token_active(&app->cal.lease_token))
-        return 0;
-    if (receiver_borrow(app, &app->cal.lease_token) < 0)
-        return -1;
-    *acquired = 1;
-    return 0;
-}
-
-
-
-static int start_lte_calibration(struct app *app) {
-    int earfcn;
-    uint32_t carrier;
-
-    if (parse_int(app->cal.channel, &earfcn) < 0 || earfcn <= 0 ||
-        !lte_earfcn_downlink_hz((unsigned int)earfcn, &carrier)) {
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "Not an LTE downlink EARFCN this band table knows");
-        return -1;
-    }
-    app->cal.expected_hz = carrier;
-    chart_window_sync(&app->cal.window, app->applied.frequency_hz,
-                      app->applied.sample_rate_hz, CHART_MIN_SPAN_HZ);
-    chart_window_centre_on(&app->cal.window, (double)carrier,
-                           CALIBRATION_VIEW_HALF_WIDTH_HZ,
-                           CHART_MIN_SPAN_HZ);
-    /* Tuned to the carrier's centre, not beside it as an ARFCN is: LTE never
-       transmits on the middle subcarrier, so the receiver's own DC spike
-       lands where the standard already leaves a hole. */
-    app->cal.tune_hz = carrier;
-    app->cal.measured_hz = 0.0;
-    app->cal.offset_hz = 0.0;
-    calibration_tracker_init(&app->cal.track);
-    app->cal.track.source = CALIBRATION_SOURCE_LTE;
-    int acquired;
-    if (calibration_borrow(app, &acquired) < 0) {
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "Could not take the receiver: %.100s", app->receiver_error);
-        return -1;
-    }
-    if (retune_receiver_at_rate(app, app->cal.tune_hz, LTE_SAMPLE_RATE_HZ,
-                                app->applied.ppm) < 0) {
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "The receiver would not take LTE's 1.92 MS/s: %.100s",
-                 app->receiver_error);
-        if (acquired)
-            receiver_lease_cancel(&app->lease, &app->cal.lease_token);
-        return -1;
-    }
-    app->cal.started_at = monotonic_seconds();
-    app->cal.running = 1;
-    app->cal.lte_earfcn = earfcn;
-    debug_log_write("cal", "begin lte earfcn %d expected_hz %u applied_ppm %d",
-                    earfcn, app->cal.expected_hz, app->applied.ppm);
-    snprintf(app->cal.status, sizeof(app->cal.status),
-             "Measuring LTE EARFCN %d at %.3f MHz", earfcn,
-             carrier / 1000000.0);
-    return 0;
-}
-
-int start_calibration(struct app *app) {
-    int arfcn;
-    uint32_t expected;
-    if (app->cal.technology == 1)
-        return start_lte_calibration(app);
-    if (app->cal.technology != 0 || app->cal.band != 0) {
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "Only 2G and 4G are supported in this version");
-        return -1;
-    }
-    if (app->applied.sample_rate_hz < 1000000U) {
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "GSM calibration requires a sample rate of at least 1 MS/s");
-        return -1;
-    }
-    if (parse_int(app->cal.channel, &arfcn) < 0 ||
-        arfcn < 1 || arfcn > 124 ||
-        !gsm_downlink_hz((unsigned int)arfcn, &expected)) {
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "GSM 900 ARFCN must be between 1 and 124");
-        return -1;
-    }
-
-    app->cal.expected_hz = expected;
-    chart_window_sync(&app->cal.window, app->applied.frequency_hz,
-                      app->applied.sample_rate_hz,
-                      chart_min_span(GSM900_ARFCN_SPACING_HZ));
-    chart_window_centre_on(&app->cal.window, (double)expected,
-                           CALIBRATION_VIEW_HALF_WIDTH_HZ,
-                           chart_min_span(GSM900_ARFCN_SPACING_HZ));
-    app->cal.tune_hz = expected - 400000U;
-    app->cal.measured_hz = 0.0;
-    app->cal.offset_hz = 0.0;
-    calibration_tracker_init(&app->cal.track);
-    int acquired;
-    if (calibration_borrow(app, &acquired) < 0) {
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "Could not take the receiver: %.100s", app->receiver_error);
-        return -1;
-    }
-    if (retune_receiver(app, app->cal.tune_hz, app->applied.ppm) < 0) {
-        /*
-         * Quoted rather than assumed. Both of these used to return with no
-         * status at all and let the headless report print whatever
-         * retune_receiver() had left in this same buffer -- which worked by
-         * accident and said "Calibration requires a live RTL-SDR receiver"
-         * for any receiver fault at all. The reason has its own name now
-         * (`app->receiver_error`), so asking for it is explicit.
-         */
-        snprintf(app->cal.status, sizeof(app->cal.status),
-                 "Could not tune to %.3f MHz: %.100s",
-                 app->cal.tune_hz / 1e6, app->receiver_error);
-        if (acquired)
-            receiver_lease_cancel(&app->lease, &app->cal.lease_token);
-        return -1;
-    }
-    app->cal.started_at = monotonic_seconds();
-    app->cal.running = 1;
-    debug_log_write("cal", "begin gsm arfcn %d expected_hz %u applied_ppm %d",
-                    arfcn, app->cal.expected_hz, app->applied.ppm);
-    snprintf(app->cal.status, sizeof(app->cal.status),
-             "Measuring GSM 900 ARFCN %d at %.3f MHz", arfcn,
-             expected / 1000000.0);
-    return 0;
-}
-
-
-
-
-
-
-
-
-
-
-/* Periodically verify the applied PPM against the calibrated GSM carrier. Each
-   check briefly retunes to the calibrated channel, measures the FCCH residual,
-   then retunes back to the view frequency, so it only runs when enabled, a
-   valid FCCH-backed calibration exists, and no overlay owns the tuning. See
-   docs/adr/0006-gsm-drift-indicator.md. */
-
-/*
- * Stop measuring and give the receiver back, without leaving calibration.
- *
- * An LTE calibration borrowed the sample rate as well as the tuning
- * (ADR-0014), so both go back. Leaving the receiver on 1.92 MS/s would strand
- * every Scope view at a rate they do not expect, which is the same trap the
- * LTE decode view has to avoid on the way out.
- *
- * This is the whole of what closing used to do apart from the last line, and
- * it is separate now because Back stops a measurement while staying on the
- * screen -- which is the step that did not exist before.
- */
-int calibration_stop_measuring(struct app *app) {
-    /*
-     * One claim, so one return, and the snapshot carries the rate as well as
-     * the frequency -- which is what retired the separate
-     * cal_return_sample_rate this used to have to reason about. A PPM applied
-     * while the receiver was borrowed survives, because the restore uses the
-     * current correction and the snapshot has no field to undo it with.
-     */
-    if (receiver_return(app, &app->cal.lease_token) < 0)
-        return -1;
-    app->cal.running = 0;
-    return 0;
-}
-
-void close_calibration(struct app *app) {
-    if (calibration_stop_measuring(app) < 0)
-        return;
-    app->cal.open = 0;
-}
 
 /* Whether the 2G scan left results worth returning to. Its powers survive the
    overlay closing -- only a fresh scan clears them -- so reopening the list
@@ -450,10 +209,7 @@ void handle_calibration_input(struct app *app) {
                             "apply %+d ppm (was %+d) source %s measurements %d "
                             "sem_ppm %.2f",
                             app->cal.suggested_ppm, was,
-                            app->cal.track.source == CALIBRATION_SOURCE_FCCH
-                                ? "fcch"
-                                : app->cal.track.source == CALIBRATION_SOURCE_LTE
-                                      ? "lte" : "centroid",
+                            calibration_source_name(app->cal.track.source),
                             app->cal.track.measurements,
                             app->cal.track.recent_sem);
             app->options.ppm = app->cal.suggested_ppm;
@@ -536,11 +292,20 @@ Rectangle calibration_chart_rect(const struct app *app) {
 
 void draw_calibration(struct app *app) {
     char text[256];
+    struct calibration_view_model m;
     struct calibration_layout cl =
         calibration_layout_now(app->cal.technology == 1,
                                cal_band_count(app));
     Rectangle tech_2g = cl.tech[0];
     Rectangle tech_4g = cl.tech[1];
+
+    /*
+     * What this screen says, decided once (`web-visualization/16`, `/17`):
+     * the residual and its guard, what measured it, whether the gate is
+     * satisfied and -- when it is not -- which clause is outstanding. The
+     * drawing picks a colour for a verdict it was handed.
+     */
+    calibration_view_model_build(&app->cal, GetTime(), app->applied.ppm, &m);
     Rectangle tech_5g = cl.tech[2];
     Rectangle scan = cl.scan;
     Rectangle channel = cl.channel;
@@ -665,29 +430,39 @@ void draw_calibration(struct app *app) {
              app->applied.frequency_hz / 1000000.0, app->applied.ppm);
     sdrgui_text_fit(text, (int)cl.status[0].x, (int)cl.status[0].y, 17,
                     cl.status[0].width, (Color){ 190, 208, 218, 255 });
-    if (app->cal.track.measurements > 0) {
+    if (m.measurements > 0) {
+        /*
+         * The residual is the model's, guarded. This divided by
+         * `app->cal.expected_hz` with nothing checking it was non-zero --
+         * reachable only because a measurement implies a carrier, which is
+         * an invariant this line was not the right place to rely on.
+         */
         snprintf(text, sizeof(text),
-                 "measured: %.6f MHz   offset: %+.1f kHz   observed: %+.2f PPM   center: %+.2f +/- %.2f PPM (SEM %.2f)",
+                 "measured: %.6f MHz   offset: %+.1f kHz   observed: %+.2f PPM   center: %+.2f +/- %.2f PPM (SEM %.2f)   by %s",
                  app->cal.measured_hz / 1000000.0,
                  app->cal.offset_hz / 1000.0,
-                 app->cal.offset_hz /
-                     app->cal.expected_hz * 1000000.0,
-                 app->cal.track.recent_center,
-                 app->cal.track.recent_spread,
-                 app->cal.track.recent_sem);
+                 m.observed_ppm, m.centre_ppm, m.spread_ppm, m.sem_ppm,
+                 m.source);
         sdrgui_text_fit(text, (int)cl.status[1].x, (int)cl.status[1].y, 17,
                         cl.status[1].width, (Color){ 255, 205, 91, 255 });
+        /*
+         * And **why it has not locked**, which nothing on this screen used
+         * to say: the gate returns one bit, so a reader could not tell "it
+         * needs four more seconds" from "the scatter is too wide to ever
+         * settle". `calibration_gate_unmet()` names the first unsatisfied
+         * clause, which is the one that will clear first.
+         */
         snprintf(text, sizeof(text),
-                 "peak: %.1f dBFS   guard floor: %.1f dBFS   prominence: %.1f dB   suggested correction: %+d PPM",
+                 "peak: %.1f dBFS   guard floor: %.1f dBFS   prominence: %.1f dB   suggested correction: %+d PPM%s%s",
                  app->cal.peak_dbfs, app->cal.floor_dbfs,
-                 app->cal.prominence_db,
-                 app->cal.suggested_ppm);
+                 app->cal.prominence_db, m.suggested_ppm,
+                 m.unmet[0] ? "   waiting on: " : "", m.unmet);
         sdrgui_text_fit(text, (int)cl.status[2].x, (int)cl.status[2].y, 17,
                         cl.status[2].width,
-                 app->cal.track.stable ? (Color){ 99, 228, 170, 255 }
-                                         : (Color){ 250, 190, 74, 255 });
+                 m.locked ? (Color){ 99, 228, 170, 255 }
+                          : (Color){ 250, 190, 74, 255 });
     }
-    sdrgui_text_fit(app->cal.status, (int)cl.status[3].x,
+    sdrgui_text_fit(m.status, (int)cl.status[3].x,
                     (int)cl.status[3].y, 17, cl.status[3].width,
              (Color){ 158, 204, 230, 255 });
 

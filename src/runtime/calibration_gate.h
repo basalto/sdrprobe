@@ -116,6 +116,69 @@ static inline double calibration_standard_error(double spread, int count) {
  * Every clause a correction must satisfy before it may be applied. Kept as one
  * function so the rule can be read, and tested, in one place.
  */
+/*
+ * What a residual was measured by, by name.
+ *
+ * It was a ternary chain inside `headless_run.c`'s `cal-measure` line, which
+ * is the only place the three sources were ever spelled -- so the overlay
+ * showed a number with no way to say what produced it, and any second reader
+ * would have had to invent its own words for the same three values
+ * (`web-visualization/17`). The source is load-bearing here: ADR-0004's
+ * whole point is that a buffer mixing two of them passes the gate while
+ * suggesting a correction belonging to neither.
+ */
+static inline const char *calibration_source_name(int source) {
+    switch (source) {
+    case CALIBRATION_SOURCE_FCCH:     return "fcch";
+    case CALIBRATION_SOURCE_LTE:      return "lte";
+    case CALIBRATION_SOURCE_CENTROID: return "centroid";
+    }
+    return "unknown";
+}
+
+/*
+ * Which clause of the gate is still unsatisfied, or NULL once none is.
+ *
+ * `calibration_is_stable()` returns one bit, and a reader watching a
+ * calibration that will not lock has no way to tell "it needs four more
+ * seconds" from "the scatter is too wide to ever settle" -- which are
+ * different situations and only one is worth waiting out. The clauses are
+ * asked in the order the gate ands them, so the answer is the *first*
+ * reason, which is the one that will clear first.
+ *
+ * Kept beside the gate rather than in a drawing, and returning a name rather
+ * than a sentence, so the overlay and a browser cannot word it differently.
+ */
+static inline const char *calibration_gate_unmet(double elapsed_seconds,
+                                                 int measurements,
+                                                 int residual_count,
+                                                 double standard_error_ppm,
+                                                 int source, float quality) {
+    if (elapsed_seconds < CALIBRATION_MIN_SECONDS)
+        return "too-soon";
+    if (measurements < CALIBRATION_MIN_MEASUREMENTS)
+        return "too-few-measurements";
+    if (residual_count < CALIBRATION_MIN_RESIDUALS)
+        return "too-few-residuals";
+    if (standard_error_ppm > CALIBRATION_MAX_SEM_PPM)
+        return "scatter-too-wide";
+    switch (source) {
+    case CALIBRATION_SOURCE_FCCH:
+        /* A tone lock is its own quality gate: the detector would not have
+           locked otherwise. */
+        break;
+    case CALIBRATION_SOURCE_LTE:
+        if (quality < CALIBRATION_MIN_PSS)
+            return "weak-cell";
+        break;
+    default:
+        if (quality < CALIBRATION_MIN_PROMINENCE_DB)
+            return "weak-carrier";
+        break;
+    }
+    return NULL;
+}
+
 static inline int calibration_is_stable(double elapsed_seconds,
                                         int measurements, int residual_count,
                                         double standard_error_ppm, int source,

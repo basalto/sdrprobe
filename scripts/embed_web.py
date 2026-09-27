@@ -63,6 +63,7 @@ JS_ORDER = [
     "views/srd.js",
     "views/lte.js",
     "views/settings.js",
+    "views/calibration.js",
     "viewer.js",
 ]
 

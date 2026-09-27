@@ -991,10 +991,7 @@ int run_headless(struct app *app) {
                            : 0.0,
                        session->track.recent_center, session->track.recent_sem,
                        session->track.recent_spread,
-                       session->track.source == CALIBRATION_SOURCE_FCCH
-                           ? "fcch"
-                           : session->track.source == CALIBRATION_SOURCE_LTE
-                                 ? "lte" : "centroid",
+                       calibration_source_name(session->track.source),
                        (double)session->quality);
                 fflush(stdout);
             }

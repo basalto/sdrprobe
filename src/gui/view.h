@@ -55,7 +55,6 @@ void draw_startup(struct app *app);
 void draw_button_enabled(Rectangle rectangle, const char *label, int enabled);
 /* Stop measuring and hand the receiver back, staying on the screen. Returns
    negative when the retune failed, in which case nothing changed. */
-int calibration_stop_measuring(struct app *app);
 
 /*
  * Borrowing the receiver's tuning, in the order it was borrowed.
@@ -304,13 +303,9 @@ void draw_help(const struct app *app);
    periodic drift re-check. Drawn over whichever tab is active. */
 /* Choose 2G, 4G or 5G, with the channel default and the instruction that
    goes with it. Shared by the buttons and by opening already on one. */
-void calibration_select_technology(struct app *app, int technology);
-void close_calibration(struct app *app);
 void handle_calibration_input(struct app *app);
 void draw_calibration(struct app *app);
 void draw_scan(struct app *app);
-void calibration_select_channel(struct app *app, int arfcn);
-int start_calibration(struct app *app);
 
 void handle_scan_input(struct app *app);
 void draw_health_indicator(const struct app *app);

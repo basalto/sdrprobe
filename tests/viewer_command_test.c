@@ -393,7 +393,39 @@ static void test_the_overlays_are_screens(void) {
     check_int("too", cmd.screen, VIEWER_SCREEN_CALIBRATION);
 }
 
+/*
+ * `calibrate <reference>` starts a measurement, and `calibrate stop` ends
+ * one. It does **not** apply the result, and the check says so by what it
+ * does not assert: a calibration writes a standing fact about this receiver
+ * at this site (ADR-0018, ADR-0022), so applying it is `set ppm` plus
+ * `apply` -- one more deliberate act, which is what stops a browser
+ * silently recalibrating a receiver.
+ */
+static void test_calibrate_names_its_reference(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("the GSM reference", parse("calibrate gsm", &cmd, error), 0);
+    check_int("is a calibrate", cmd.type, VIEWER_COMMAND_CALIBRATE);
+    check_int("against a tone", cmd.reference, VIEWER_CALIBRATE_GSM);
+
+    check_int("the LTE one", parse("calibrate lte", &cmd, error), 0);
+    check_int("against a cell", cmd.reference, VIEWER_CALIBRATE_LTE);
+
+    check_int("and stopping", parse("calibrate stop", &cmd, error), 0);
+    check_int("is the same command", cmd.type, VIEWER_COMMAND_CALIBRATE);
+    check_int("asking for a stop", cmd.reference, VIEWER_CALIBRATE_STOP);
+
+    check_int("a reference nobody has",
+              parse("calibrate nmr", &cmd, error), -1);
+    check_true("is named as such", strstr(error, "reference") != NULL);
+    check_int("and none at all", parse("calibrate", &cmd, error), -1);
+    check_int("nor a trailing field",
+              parse("calibrate gsm now", &cmd, error), -1);
+}
+
 int main(void) {
+    test_calibrate_names_its_reference();
     test_set_stages_one_field();
     test_a_toggle_takes_words_as_well_as_numbers();
     test_a_value_out_of_range_is_refused_here();

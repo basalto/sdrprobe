@@ -8,6 +8,7 @@
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
 #include "model/lte_view_model.h"
+#include "model/calibration_view_model.h"
 #include "model/settings_view_model.h"
 #include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
@@ -170,6 +171,7 @@ enum viewer_stream {
     VIEWER_STREAM_SRD_STATE,
     VIEWER_STREAM_LTE_STATE,
     VIEWER_STREAM_SETTINGS_STATE,
+    VIEWER_STREAM_CAL_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -455,6 +457,13 @@ void viewer_link_publish_lte_state(struct viewer_link *link,
 void viewer_link_publish_settings_state(struct viewer_link *link,
                                         const struct settings_view_model *svm,
                                         uint64_t now_ms);
+
+/* The Calibration overlay: the staged reference, the residual buffer, which
+   clause of the gate is unsatisfied, and what the two references make of
+   each other. On time, like the Settings panel. */
+void viewer_link_publish_cal_state(struct viewer_link *link,
+                                   const struct calibration_view_model *cvm,
+                                   uint64_t now_ms);
 
 /*
  * Ticket 07's Survey tab, mirroring the pair above: the swept spectrum as a

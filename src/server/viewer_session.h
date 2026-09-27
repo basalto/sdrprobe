@@ -145,6 +145,9 @@ viewer_stream_pacing(enum viewer_stream stream) {
      * exactly when a reader is most likely to be changing settings.
      */
     case VIEWER_STREAM_SETTINGS_STATE:
+    /* And the Calibration overlay, for the same reason: it is a panel
+       somebody is watching rather than a measurement of this block. */
+    case VIEWER_STREAM_CAL_STATE:
         return VIEWER_PACED_ON_TIME;
     case VIEWER_STREAM_COMMAND_RESULT:
         return VIEWER_PACED_ON_DEMAND;

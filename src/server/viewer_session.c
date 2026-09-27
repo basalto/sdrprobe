@@ -12,6 +12,7 @@
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
 #include "model/lte_view_model.h"
+#include "model/calibration_view_model.h"
 #include "model/settings_view_model.h"
 #include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
@@ -191,6 +192,37 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
         }
         app->set.error[0] = '\0';
         return 0;
+    case VIEWER_COMMAND_CALIBRATE:
+        /*
+         * Starting a measurement, and nothing more -- it does **not** apply
+         * the result. A calibration writes a standing fact about this
+         * receiver at this site (ADR-0018, ADR-0022), and applying it is
+         * `set ppm` plus `apply`: one more deliberate act, which is what
+         * stops a browser silently recalibrating a receiver.
+         */
+        if (cmd->reference == VIEWER_CALIBRATE_STOP) {
+            if (calibration_stop_measuring(app) < 0) {
+                snprintf(error, error_cap, "%s",
+                         app->cal.status[0] ? app->cal.status
+                                            : "could not stop the "
+                                              "measurement");
+                return -1;
+            }
+            return 0;
+        }
+        if (!app->cal.open)
+            open_calibration(app);
+        calibration_select_technology(app,
+                                      cmd->reference == VIEWER_CALIBRATE_LTE);
+        if (start_calibration(app) < 0) {
+            /* The overlay's own status line, quoted rather than reworded --
+               the same sentence a reader at the window would see. */
+            snprintf(error, error_cap, "%s",
+                     app->cal.status[0] ? app->cal.status
+                                        : "the calibration would not start");
+            return -1;
+        }
+        return 0;
     case VIEWER_COMMAND_APPLY: {
         int clear_waterfall = 0;
 
@@ -246,6 +278,7 @@ int viewer_session_run(struct app *app) {
        from its own start reaches a real 0.0, so 0.0 cannot mean never. */
     double health_published_at = -1.0;
     double settings_published_at = -1.0;
+    double cal_published_at = -1.0;
     double state_published_at = -1.0;
     uint32_t state_generation = 0;
     int state_ever_published = 0;
@@ -610,6 +643,19 @@ int viewer_session_run(struct app *app) {
                                       app->applied.sample_rate_hz, &set_svm);
             viewer_link_publish_settings_state(&link, &set_svm, now_ms);
             settings_published_at = now;
+        }
+
+        /* And the Calibration overlay, on the same clock as the Settings
+           panel and for the same reason. */
+        if (viewer_publish_due(VIEWER_STREAM_CAL_STATE, spectrum_updated,
+                               now, cal_published_at,
+                               VIEWER_SESSION_STATE_INTERVAL_SECONDS, 0)) {
+            struct calibration_view_model cvm;
+
+            calibration_view_model_build(&app->cal, now, app->applied.ppm,
+                                         &cvm);
+            viewer_link_publish_cal_state(&link, &cvm, now_ms);
+            cal_published_at = now;
         }
 
         if (viewer_publish_due(VIEWER_STREAM_LINK_HEALTH, spectrum_updated,

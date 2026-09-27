@@ -30,7 +30,24 @@ enum viewer_command_type {
      * already why that function applies the size first.
      */
     VIEWER_COMMAND_SET,
-    VIEWER_COMMAND_APPLY
+    VIEWER_COMMAND_APPLY,
+    /*
+     * `calibrate gsm|lte` starts a measurement against that reference and
+     * `calibrate stop` ends it. Starting is all a command does -- it does
+     * **not** apply the result, and that is deliberate: a calibration writes
+     * a standing fact about this receiver at this site (ADR-0018, ADR-0022),
+     * and applying it is `set ppm` plus `apply`, which is one more
+     * deliberate act. A browser that could silently recalibrate a receiver
+     * would be a worse thing than one that cannot.
+     */
+    VIEWER_COMMAND_CALIBRATE
+};
+
+/* Which reference a `calibrate` names, or that it is asking for a stop. */
+enum viewer_calibrate {
+    VIEWER_CALIBRATE_GSM = 0,
+    VIEWER_CALIBRATE_LTE,
+    VIEWER_CALIBRATE_STOP
 };
 
 /* Which Settings field a `set` names. Each is one row in a table the parser
@@ -80,6 +97,7 @@ struct viewer_command {
     uint32_t hz;               /* VIEWER_COMMAND_TUNE */
     enum viewer_screen screen; /* VIEWER_COMMAND_VIEW */
     enum viewer_setting setting; /* VIEWER_COMMAND_SET */
+    enum viewer_calibrate reference; /* VIEWER_COMMAND_CALIBRATE */
     /*
      * The value, as a signed integer for every field there is: a PPM is
      * signed, a transform size and a gain index are counts, and an on/off is

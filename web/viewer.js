@@ -14,7 +14,8 @@ const health = document.getElementById('health');
 // The views used to also declare `tab` and `decode` as raw numbers, which
 // was two of this program's enums re-declared in JavaScript.
 const VIEWS = [ScopeView, SurveyView, FmView, GsmView, AdsbView, TetraView,
-               SrdView, LteView, SettingsView];
+               SrdView, LteView, SettingsView,
+               CalibrationView];
 
 let activeView = null;
 // The view this page has asked the server for and not yet been told it has.

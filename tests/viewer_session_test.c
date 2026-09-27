@@ -179,8 +179,8 @@ static void test_every_stream_says_what_paces_it(void) {
      * should not.
      */
     check_int("the eleven view streams are paced on data", on_data, 11);
-    check_int("receiver_state, link_health and settings_state on time",
-              on_time, 3);
+    check_int("receiver_state, link_health and the two panels on time",
+              on_time, 4);
     check_int("and command_result is a reply, not a stream", on_demand, 1);
     check_int("which is all of them", on_data + on_time + on_demand,
               VIEWER_STREAM_COUNT);

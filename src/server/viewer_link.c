@@ -90,7 +90,7 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
     "gsm_state", "adsb_state", "tetra_state", "srd_state",
-    "lte_state", "settings_state"
+    "lte_state", "settings_state", "cal_state"
 };
 
 const char *viewer_link_stream_name(enum viewer_stream stream) {
@@ -1774,6 +1774,80 @@ void viewer_link_publish_settings_state(struct viewer_link *link,
             !c->subscribed[VIEWER_STREAM_SETTINGS_STATE])
             continue;
         slot = &c->slot[VIEWER_STREAM_SETTINGS_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
+void viewer_link_publish_cal_state(struct viewer_link *link,
+                                   const struct calibration_view_model *cvm,
+                                   uint64_t now_ms) {
+    char json[2048];
+    char status[384];
+    char notice[384];
+    int json_len, i;
+
+    json_escape_into(status, sizeof(status), cvm->status,
+                     strlen(cvm->status));
+    json_escape_into(notice, sizeof(notice), cvm->drift_notice,
+                     strlen(cvm->drift_notice));
+
+    json_len = snprintf(json, sizeof(json),
+                        "{\"type\":\"cal_state\",\"timestamp_ms\":%llu,"
+                        "\"open\":%s,\"running\":%s,\"scanning\":%s,"
+                        "\"technology\":%d,\"channel\":\"%s\","
+                        "\"band\":%d,\"expected_hz\":%u,"
+                        "\"status\":\"%s\","
+                        "\"source\":\"%s\",\"observed_ppm\":%.2f,"
+                        "\"centre_ppm\":%.2f,\"sem_ppm\":%.2f,"
+                        "\"spread_ppm\":%.2f,\"measurements\":%d,"
+                        "\"residuals\":%d,\"quality\":%.2f,"
+                        "\"locked\":%s,\"unmet\":\"%s\","
+                        "\"suggested_ppm\":%d,\"applied_ppm\":%d,"
+                        "\"gsm\":{\"valid\":%s,\"ppm\":%d,"
+                        "\"arfcn\":%d},"
+                        "\"lte\":{\"valid\":%s,\"ppm\":%d,"
+                        "\"earfcn\":%d},"
+                        "\"have_both\":%s,\"apart_ppm\":%.2f,"
+                        "\"health\":\"%s\",\"notice\":\"%s\"}",
+                        (unsigned long long)now_ms,
+                        cvm->open ? "true" : "false",
+                        cvm->running ? "true" : "false",
+                        cvm->scanning ? "true" : "false",
+                        cvm->technology, cvm->channel, cvm->band,
+                        cvm->expected_hz, status,
+                        cvm->source, cvm->observed_ppm, cvm->centre_ppm,
+                        cvm->sem_ppm, cvm->spread_ppm, cvm->measurements,
+                        cvm->residuals, cvm->quality,
+                        cvm->locked ? "true" : "false", cvm->unmet,
+                        cvm->suggested_ppm, cvm->applied_ppm,
+                        cvm->gsm_valid ? "true" : "false", cvm->gsm_ppm,
+                        cvm->gsm_arfcn,
+                        cvm->lte_valid ? "true" : "false", cvm->lte_ppm,
+                        cvm->lte_earfcn,
+                        cvm->have_both ? "true" : "false",
+                        cvm->references_apart_ppm,
+                        cvm->health, notice);
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_CAL_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_CAL_STATE];
         if (!slot_ready_for_new_message(slot))
             continue;
         frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,

@@ -252,7 +252,7 @@ async function run() {
     // "none" -- which is the point: a view has to lay out correctly before
     // it has anything to show, and that is the state a reader meets first.
     for (const tab of ['scope', 'survey', 'fm', 'gsm', 'adsb', 'tetra', 'srd',
-                     'lte', 'settings']) {
+                     'lte', 'settings', 'calibration']) {
       await evaluate(`document.getElementById('tab-${tab}').click(); true`);
       /*
        * Wait for the panel to actually be the one showing, rather than

@@ -202,6 +202,16 @@ struct receiver_runtime runtime_over(struct app *app);
 
 void open_settings(struct app *app);
 void open_calibration(struct app *app);
+void close_calibration(struct app *app);
+int start_calibration(struct app *app);
+int calibration_stop_measuring(struct app *app);
+void calibration_select_technology(struct app *app, int technology);
+void calibration_select_channel(struct app *app, int arfcn);
+/* How many 4G bands this receiver can reach, and the receiver-borrow the
+   measurement and the band scan looking for one share -- both read by the
+   overlay's drawing as well as by the machine, so neither is static. */
+int cal_band_count(const struct app *app);
+int calibration_borrow(struct app *app, int *acquired);
 int settings_apply(struct app *app, int *clear_waterfall_out);
 /* Which band the scan's picker has selected, or NULL when the receiver
    reaches none -- a capture. Read by the drawing and by the scan alike. */

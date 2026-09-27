@@ -130,6 +130,42 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
         set_error(error, error_cap, "unrecognized screen");
         return -1;
     }
+    if (strcmp(word, "calibrate") == 0) {
+        static const struct {
+            const char *name;
+            enum viewer_calibrate reference;
+        } references[] = {
+            { "gsm",  VIEWER_CALIBRATE_GSM },
+            { "lte",  VIEWER_CALIBRATE_LTE },
+            { "stop", VIEWER_CALIBRATE_STOP }
+        };
+        char which[32];
+        int which_consumed = 0;
+        size_t k;
+
+        value_start = buf + word_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%31s%n", which, &which_consumed) != 1) {
+            set_error(error, error_cap,
+                      "calibrate requires gsm, lte or stop");
+            return -1;
+        }
+        for (i = 0; value_start[which_consumed + i] != '\0'; i++) {
+            if (!isspace((unsigned char)value_start[which_consumed + i])) {
+                set_error(error, error_cap, "unexpected trailing field");
+                return -1;
+            }
+        }
+        for (k = 0; k < sizeof(references) / sizeof(references[0]); k++)
+            if (strcmp(which, references[k].name) == 0) {
+                out->type = VIEWER_COMMAND_CALIBRATE;
+                out->reference = references[k].reference;
+                return 0;
+            }
+        set_error(error, error_cap, "unrecognized reference");
+        return -1;
+    }
     if (strcmp(word, "apply") == 0) {
         for (i = (size_t)word_consumed; buf[i] != '\0'; i++) {
             if (!isspace((unsigned char)buf[i])) {
