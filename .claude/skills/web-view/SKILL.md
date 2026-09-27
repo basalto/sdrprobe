@@ -9,9 +9,8 @@ description: Build or change a view in the browser Viewer (web/). Use when addin
 ADR-0027 keeps the window primary, which makes it the thing a web view is a
 view *of* — not a separate product with its own opinions.
 
-Three views are still to come (TETRA, LTE, SRD — ticket 07); GSM and ADS-B
-landed 2026-09-27, so everything below has now been done three times past
-FM.
+Two views are still to come (LTE, SRD — ticket 07); GSM, ADS-B and TETRA
+landed 2026-09-27, so everything below has now been done four times past FM.
 
 ## Ask before deciding
 
@@ -107,6 +106,16 @@ files against the three; those others are their own thing.
 
 ## The C side is where a decision belongs
 
+**Look for what the window computes and throws away.** Three of the four
+migrated views turned one up. FM computed its multiplex spectrum only when
+a drawing toggle was on, so the stream published nothing under `server`.
+GSM decided four SCH sentences and three BCCH ones inside `DrawText`.
+TETRA's session reported `rate_unsupported` in its event every block and
+`update_tetra()` **discarded it**, so the window could not say why a wrong
+sample rate decoded nothing while the headless path printed it. A field a
+view model needs and cannot source is usually a fact the window already had
+and dropped.
+
 **A web view must not compute anything the window decides.** If a view
 needs a field the view model does not carry, add it to the view model,
 where `check-*` can reach it (ADR-0012) — never to the JavaScript.
@@ -195,6 +204,11 @@ more than half:
 | fm | waterfall, then the three panels | waterfall 481 |
 | gsm | waterfall `3`, channel scan `1` | waterfall 372 |
 | adsb | waterfall `2`, message log `3` | **log** 370 |
+| tetra | waterfall `3`, identity log `1` | waterfall 484 |
+
+TETRA's log is one row per *identity*, not per burst -- a base station has
+one -- so it is the chart that needs the room there, the opposite of ADS-B.
+Look at what the view's table actually fills before choosing a weight.
 
 **Not every view is chart-led, and assuming they all were was wrong.**
 ADS-B is a decoded-message log with a waterfall for context -- the window

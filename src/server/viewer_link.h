@@ -7,6 +7,7 @@
 #include "model/fm_view_model.h"
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
+#include "model/tetra_view_model.h"
 #include "model/scope_view_model.h"
 #include "model/survey_view_model.h"
 #include "server/viewer_command.h"
@@ -162,6 +163,7 @@ enum viewer_stream {
     VIEWER_STREAM_FM_STATE,
     VIEWER_STREAM_GSM_STATE,
     VIEWER_STREAM_ADSB_STATE,
+    VIEWER_STREAM_TETRA_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -348,6 +350,13 @@ void viewer_link_publish_gsm_state(struct viewer_link *link,
 void viewer_link_publish_adsb_state(struct viewer_link *link,
                                     const struct adsb_view_model *avm,
                                     uint64_t now_ms);
+
+/* The TETRA screen: the identity, the funnel whose middle term separates a
+   weak TETRA carrier from one that is not TETRA, and the whole identity
+   log (64 rows is about 5 KB, so there is no newest-N question). */
+void viewer_link_publish_tetra_state(struct viewer_link *link,
+                                     const struct tetra_view_model *tvm,
+                                     uint64_t now_ms);
 
 /*
  * Ticket 07's Survey tab, mirroring the pair above: the swept spectrum as a

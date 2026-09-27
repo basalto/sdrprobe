@@ -89,7 +89,7 @@ int viewer_link_open(struct viewer_link *link, uint16_t port,
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
-    "gsm_state", "adsb_state"
+    "gsm_state", "adsb_state", "tetra_state"
 };
 
 /*
@@ -1470,6 +1470,75 @@ void viewer_link_publish_adsb_state(struct viewer_link *link,
             !c->subscribed[VIEWER_STREAM_ADSB_STATE])
             continue;
         slot = &c->slot[VIEWER_STREAM_ADSB_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
+/* The TETRA screen. 64 log rows of seven numbers, so a few kilobytes. */
+void viewer_link_publish_tetra_state(struct viewer_link *link,
+                                     const struct tetra_view_model *tvm,
+                                     uint64_t now_ms) {
+    char json[8192];
+    int json_len, used, i;
+
+    used = snprintf(json, sizeof(json),
+                    "{\"type\":\"tetra_state\",\"timestamp_ms\":%llu,"
+                    "\"rate_supported\":%s,\"lock\":%.3f,"
+                    "\"offset_hz\":%.1f,\"have_identity\":%s,"
+                    "\"mcc\":%d,\"mnc\":%d,\"colour\":%d,\"la\":%d,"
+                    "\"bursts\":%d,\"blocks\":%d,\"broadcast\":%d,"
+                    "\"bursts_total\":%llu,\"blocks_total\":%llu,"
+                    "\"broadcast_total\":%llu,\"blocks_failed\":%llu,"
+                    "\"log\":[",
+                    (unsigned long long)now_ms,
+                    tvm->rate_supported ? "true" : "false",
+                    (double)tvm->lock, tvm->offset_hz,
+                    tvm->have_identity ? "true" : "false",
+                    tvm->mcc, tvm->mnc, tvm->colour, tvm->la,
+                    tvm->bursts, tvm->blocks, tvm->broadcast,
+                    (unsigned long long)tvm->bursts_total,
+                    (unsigned long long)tvm->blocks_total,
+                    (unsigned long long)tvm->broadcast_total,
+                    (unsigned long long)tvm->blocks_failed);
+    if (used <= 0 || (size_t)used >= sizeof(json))
+        return;
+
+    for (i = 0; i < tvm->log_count; i++) {
+        const struct tetra_log_entry *e = &tvm->log[i];
+
+        if (used > (int)sizeof(json) - 256)
+            break;      /* stop the list rather than truncate the object */
+        used += snprintf(json + used, sizeof(json) - (size_t)used,
+                         "%s{\"at\":%.2f,\"mcc\":%d,\"mnc\":%d,"
+                         "\"colour\":%d,\"la\":%d,\"bursts\":%d,"
+                         "\"blocks\":%d,\"broadcast\":%d}",
+                         i ? "," : "", e->at, e->mcc, e->mnc, e->colour,
+                         e->la, e->bursts, e->blocks, e->broadcast);
+    }
+    used += snprintf(json + used, sizeof(json) - (size_t)used, "]}");
+
+    json_len = used;
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_TETRA_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_TETRA_STATE];
         if (!slot_ready_for_new_message(slot))
             continue;
         frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,

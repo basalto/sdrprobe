@@ -1,6 +1,6 @@
 # 07 - Migrating the remaining views
 
-Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); **GSM and ADS-B are done** (2026-09-27); TETRA, LTE and SRD remain, then the two overlays.
+Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); **GSM, ADS-B and TETRA are done** (2026-09-27); LTE and SRD remain, then the two overlays.
 
 ## Goal
 
@@ -361,3 +361,43 @@ chart-led views, corrected by the first log-led one.
 
 `make check`: **85 suites, 22434 checks**. `check-web-layout` 68 checks,
 five views.
+
+## Done, 2026-09-27 -- TETRA
+
+The three page files, `src/model/tetra_view_model.h`, its builder in
+`src/runtime/`, `check-tetra-view-model` (24 checks, `-lm` alone) and a
+`tetra_state` stream. Verified live over `tetra_cc17.bin`: lock 0.81 to
+0.85, MCC 268 MNC 3, colour code 17, LA 4375 -- the identity
+`check-pipelines` pins -- with the funnel walking.
+
+No "what travels" question this time, and that is worth noting: the pattern
+is settled. Identity, funnel, log, and the Scope's waterfall shared. The
+log is 64 rows of seven numbers, about 5 KB, so it travels **whole** with
+none of ADS-B's newest-N arithmetic.
+
+### The window was throwing away an answer it already had
+
+`tetra_session_feed()` reports `rate_unsupported` in its event on every
+block -- the channel filter decimates by a whole number or not at all, so a
+run at the wrong rate decodes nothing for a reason that has nothing to do
+with what is on air. The **headless path has always printed it**.
+`update_tetra()` read the event and never stored the flag, so on screen a
+wrong sample rate and an empty band looked identical.
+
+It is a field of `struct tetra_view` now, set from the event, and both
+readers can say it. This is the third of four migrated views to turn up a
+fact the window computed and dropped -- FM's multiplex spectrum behind a
+drawing toggle, GSM's two readouts decided inside `DrawText`, and now this
+-- so the skill says to go looking for it.
+
+### A contract that was living above its readers
+
+`struct tetra_log_entry` and `TETRA_LOG_CAPACITY` were in `runtime/app.h`.
+The browser renders those rows, so it is a contract, and `check-layers`
+refuses a model that reaches up for one (ADR-0028). Moved into
+`model/tetra_view_model.h`, which is the third time that move has been
+needed -- after `site_seen.h` and `survey_tuning.h` -- and the first where
+the new view is what surfaced it.
+
+`make check`: **86 suites, 22476 checks**. `check-web-layout` 79 checks,
+six views.

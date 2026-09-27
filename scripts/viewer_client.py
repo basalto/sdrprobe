@@ -93,7 +93,7 @@ RANGE_HEADER_TYPES = (3, 4)
 # VIEWER_MESSAGE_SURVEY_SPECTRUM is what they are transcribed from).
 ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
                "survey_spectrum", "survey_state", "fm_spectrum",
-               "fm_state", "gsm_state", "adsb_state")
+               "fm_state", "gsm_state", "adsb_state", "tetra_state")
 
 
 class ViewerClient:
@@ -336,6 +336,15 @@ def run_print(client, count):
                      f"funnel={state['preambles']}/{state['shaped']}/"
                      f"{state['crc_failed']}/{state['decoded']} "
                      f"log={len(state['log'])} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            elif state.get("type") == "tetra_state":
+                print(f"tetra_state     rate_ok={state['rate_supported']} "
+                     f"lock={state['lock']:.2f} "
+                     f"id={state['mcc']}-{state['mnc']} "
+                     f"colour={state['colour']} la={state['la']} "
+                     f"funnel={state['bursts_total']}/"
+                     f"{state['blocks_total']}/{state['blocks_failed']}/"
+                     f"{state['broadcast_total']} log={len(state['log'])} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             elif state.get("type") == "receiver_state":
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "

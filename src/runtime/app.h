@@ -103,6 +103,7 @@ enum decode_kind {
 #include "tech/adsb_analysis.h"
 #include "tech/tetra_dsp.h"
 #include "tech/tetra_sync.h"
+#include "model/tetra_view_model.h"
 #include "runtime/chart_window.h"
 #include "tech/fm_dsp.h"
 #include "tech/fm_scan.h"
@@ -520,16 +521,19 @@ struct adsb_view {
  * blocks. What is kept here is the last identity read, the totals behind it,
  * and enough of the last block to draw.
  */
-#define TETRA_LOG_CAPACITY 64
-
-struct tetra_log_entry {
-    double at;                  /* seconds since the run started */
-    int mcc, mnc, colour, la;
-    int bursts, blocks, broadcast;
-};
-
 struct tetra_view {
     int analysis_mode;
+    /*
+     * Whether the last block could be decoded at this rate at all.
+     *
+     * The channel filter decimates by a whole number or not at all, so a
+     * run at the wrong rate reads nothing for a reason that has nothing to
+     * do with what is on air. `tetra_session_feed()` has always said so in
+     * its event and the headless path has always printed it; the window
+     * threw the event away, so on screen a wrong rate and an empty band
+     * looked identical (`web-visualization/07`).
+     */
+    int rate_unsupported;
     /* The decode: identity, lock, counters and the last block's symbols. It
        takes samples and gives back events (tetra_session.h). */
     struct tetra_session session;

@@ -13,7 +13,7 @@ const health = document.getElementById('health');
 // sends, what `receiver_state.screen` comes back as, and the DOM id suffix.
 // The views used to also declare `tab` and `decode` as raw numbers, which
 // was two of this program's enums re-declared in JavaScript.
-const VIEWS = [ScopeView, SurveyView, FmView, GsmView, AdsbView];
+const VIEWS = [ScopeView, SurveyView, FmView, GsmView, AdsbView, TetraView];
 
 let activeView = null;
 // The view this page has asked the server for and not yet been told it has.

@@ -59,6 +59,7 @@ JS_ORDER = [
     "views/fm.js",
     "views/gsm.js",
     "views/adsb.js",
+    "views/tetra.js",
     "viewer.js",
 ]
 
