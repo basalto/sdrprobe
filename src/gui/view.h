@@ -197,15 +197,7 @@ int scope_header_input(struct app *app);
 void draw_scope_header(const struct app *app);
 void clear_scatter(struct app *app);
 int recreate_scatter(struct app *app, Rectangle plot);
-/*
- * The receiver transaction over this application's state, built one way.
- *
- * `retune_receiver()` and the Settings panel both change what the receiver is
- * doing, and both used to construct their own sequence -- which is how the
- * Settings panel came to move the tuning without advancing the generation
- * ADR-0027 publishes. One constructor, so there is one transaction.
- */
-struct receiver_runtime runtime_over(struct app *app);
+
 
 int recreate_waterfall(struct app *app, Rectangle plot, int clear_history);
 void render_waterfall(struct app *app);
@@ -310,7 +302,6 @@ void draw_help(const struct app *app);
 
 /* Calibration overlay: the GSM 900 channel calibration, its band scan, and the
    periodic drift re-check. Drawn over whichever tab is active. */
-void open_calibration(struct app *app);
 /* Choose 2G, 4G or 5G, with the channel default and the instruction that
    goes with it. Shared by the buttons and by opening already on one. */
 void calibration_select_technology(struct app *app, int technology);
@@ -327,7 +318,6 @@ void draw_health_indicator(const struct app *app);
 
 /* Settings panel, and the two buttons that open it and the calibration
    overlay. */
-void open_settings(struct app *app);
 int apply_settings(struct app *app);
 void handle_settings_input(struct app *app);
 void draw_settings(const struct app *app);

@@ -130,6 +130,10 @@ struct scope_view_model_input {
     const struct device_profile *device;
     int tab;
     int decode;
+    /* Whether an overlay is up. They outrank the tab in the screen name,
+       because that is what the window is showing (ADR-0008). */
+    int settings_open;
+    int calibration_open;
 };
 
 void scope_view_model_build(const struct scope_view_model_input *in,

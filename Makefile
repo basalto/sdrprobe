@@ -119,7 +119,7 @@ CORE_SRC=$(SRC)/runtime/installation.c $(SRC)/runtime/backend_rtlsdr.c $(SRC)/ru
 	$(SRC)/tech/lte_chain_analysis.c $(SRC)/core/signal_frame.c $(SRC)/runtime/receiver_runtime.c \
 	$(SRC)/runtime/frame_advance.c $(SRC)/runtime/app_runtime.c $(SRC)/app/app_main.c \
 	$(SRC)/app/headless_run.c $(SRC)/runtime/receiver_view_model.c $(SRC)/runtime/scope_view_model.c \
-	$(SRC)/runtime/survey_view_model.c $(SRC)/runtime/fm_view_model.c $(SRC)/runtime/gsm_view_model.c $(SRC)/runtime/adsb_view_model.c $(SRC)/runtime/tetra_view_model.c $(SRC)/runtime/srd_view_model.c $(SRC)/runtime/lte_view_model.c $(SRC)/server/websocket.c \
+	$(SRC)/runtime/survey_view_model.c $(SRC)/runtime/fm_view_model.c $(SRC)/runtime/gsm_view_model.c $(SRC)/runtime/adsb_view_model.c $(SRC)/runtime/tetra_view_model.c $(SRC)/runtime/srd_view_model.c $(SRC)/runtime/lte_view_model.c $(SRC)/runtime/settings_view_model.c $(SRC)/runtime/settings_runtime.c $(SRC)/server/websocket.c \
 	$(SRC)/server/viewer_link.c $(SRC)/server/viewer_session.c $(SRC)/runtime/fm_runtime.c \
 	$(SRC)/runtime/gsm_runtime.c $(SRC)/runtime/adsb_runtime.c $(SRC)/runtime/tetra_runtime.c \
 	$(SRC)/runtime/srd_runtime.c $(SRC)/runtime/lte_runtime.c $(SRC)/runtime/scope_runtime.c \
@@ -153,7 +153,7 @@ CORE_HDR=$(SRC)/runtime/options.h $(SRC)/runtime/config.h $(SRC)/core/reading_or
 	$(SRC)/runtime/survey_record.h $(SRC)/core/signal_frame.h $(SRC)/runtime/receiver_runtime.h \
 	$(SRC)/runtime/frame_advance.h $(SRC)/model/receiver_view_model.h $(SRC)/model/scope_view_model.h \
 	$(SRC)/model/survey_view_model.h $(SRC)/model/site_seen.h $(SRC)/model/survey_tuning.h \
-	$(SRC)/model/fm_view_model.h $(SRC)/model/gsm_view_model.h $(SRC)/model/adsb_view_model.h $(SRC)/model/tetra_view_model.h $(SRC)/model/srd_view_model.h $(SRC)/model/lte_view_model.h $(SRC)/runtime/runtime.h $(SRC)/server/websocket.h \
+	$(SRC)/model/fm_view_model.h $(SRC)/model/gsm_view_model.h $(SRC)/model/adsb_view_model.h $(SRC)/model/tetra_view_model.h $(SRC)/model/srd_view_model.h $(SRC)/model/lte_view_model.h $(SRC)/model/settings_view_model.h $(SRC)/runtime/runtime.h $(SRC)/server/websocket.h \
 	$(SRC)/server/viewer_link.h $(SRC)/server/viewer_session.h $(SRC)/server/process_cpu.h \
 	$(SRC)/server/viewer_command.h $(SRC)/tech/srd_session.h $(SRC)/server/browser.h \
 	$(SRC)/runtime/survey_window.h $(SRC)/core/freq_window.h $(SRC)/core/survey_sweep.h \
@@ -426,6 +426,17 @@ check-survey-view-model: $(TESTS)/survey_view_model_test.c $(TESTS)/check.h \
 # What the GSM screen says -- four SCH sentences and three BCCH ones, chosen
 # inside `DrawText` calls until `web-visualization/07`. Two plain structs in,
 # so `-lm` alone; no `struct app`.
+#: [Checks] the Settings panel's staged set against what is applied
+check-settings-view-model: $(TESTS)/settings_view_model_test.c $(TESTS)/check.h \
+		$(SRC)/runtime/settings_view_model.c \
+		$(SRC)/model/settings_view_model.h $(SRC)/runtime/app.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
+		-o $(BUILD)/settings_view_model_test \
+		$(TESTS)/settings_view_model_test.c \
+		$(SRC)/runtime/settings_view_model.c $(SRC)/core/sdr_dsp.c -lm
+	$(Q)./$(BUILD)/settings_view_model_test
+
 #: [Checks] the LTE screen's cell, statistics, broadcast and findings
 check-lte-view-model: $(TESTS)/lte_view_model_test.c $(TESTS)/check.h \
 		$(SRC)/runtime/lte_view_model.c $(SRC)/model/lte_view_model.h \
@@ -1210,7 +1221,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-layers check-no-window-link check-no-raylib-headers check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-gsm-view-model check-adsb-view-model check-tetra-view-model check-srd-view-model check-lte-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-layers check-no-window-link check-no-raylib-headers check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-gsm-view-model check-adsb-view-model check-tetra-view-model check-srd-view-model check-lte-view-model check-settings-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \

@@ -170,10 +170,20 @@ static void test_every_stream_says_what_paces_it(void) {
      * and one predicate that flattened them would either spin the metadata
      * streams or stall the data ones.
      */
-    check_int("the view streams are paced on data", on_data,
-              VIEWER_STREAM_COUNT - 3);
-    check_int("receiver_state and link_health on time", on_time, 2);
+    /*
+     * Stated as counts rather than as `COUNT - n`, so adding a stream makes
+     * somebody say which family it joined. That is not hypothetical: adding
+     * `settings_state` failed this check until the on-time count was raised
+     * from 2 to 3, which is the moment to think about whether a panel that
+     * changes when somebody *types* should wait for a sample block. It
+     * should not.
+     */
+    check_int("the eleven view streams are paced on data", on_data, 11);
+    check_int("receiver_state, link_health and settings_state on time",
+              on_time, 3);
     check_int("and command_result is a reply, not a stream", on_demand, 1);
+    check_int("which is all of them", on_data + on_time + on_demand,
+              VIEWER_STREAM_COUNT);
     check_str("which is what it is called",
               viewer_pacing_name(
                   viewer_stream_pacing(VIEWER_STREAM_COMMAND_RESULT)),

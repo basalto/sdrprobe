@@ -27,7 +27,8 @@ static void test_the_applied_state_passes_through(void) {
     applied.generation = 3;
     device.full_scale = 127.5f;
 
-    receiver_view_model_build(&applied, &device, TAB_SCOPE, DECODE_FM, &rvm);
+    receiver_view_model_build(&applied, &device, TAB_SCOPE, DECODE_FM, 0, 0,
+                              &rvm);
 
     check_int("center_hz is the applied frequency", (long)rvm.center_hz,
               948400000);
@@ -54,7 +55,7 @@ static void test_nothing_applied_yet(void) {
     memset(&device, 0, sizeof(device));
     memset(&rvm, 0xff, sizeof(rvm));
 
-    receiver_view_model_build(&applied, &device, TAB_SURVEY, 0, &rvm);
+    receiver_view_model_build(&applied, &device, TAB_SURVEY, 0, 0, 0, &rvm);
 
     check_int("center_hz is zero", (long)rvm.center_hz, 0);
     check_int("sample_rate_hz is zero", (long)rvm.sample_rate_hz, 0);
@@ -96,23 +97,52 @@ static void test_every_screen_has_a_name(void) {
 
     for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
         receiver_screen_name(name, sizeof(name), cases[i].tab,
-                             cases[i].decode);
+                             cases[i].decode, 0, 0);
         check_msg(strcmp(name, cases[i].want) == 0,
                   "tab %d decode %d spells \"%s\", expected \"%s\"\n",
                   cases[i].tab, cases[i].decode, name, cases[i].want);
     }
     /* The tab decides on the Decode tab and nowhere else: the Survey's name
        must not change with whatever decode kind was last chosen. */
-    receiver_screen_name(name, sizeof(name), TAB_SURVEY, DECODE_SRD);
+    receiver_screen_name(name, sizeof(name), TAB_SURVEY, DECODE_SRD, 0, 0);
     check_str("the survey is the survey whatever decode is remembered",
              name, "survey");
     /* And a decode kind past the end of the table is named, not indexed. */
-    receiver_screen_name(name, sizeof(name), TAB_DECODE, 99);
+    receiver_screen_name(name, sizeof(name), TAB_DECODE, 99, 0, 0);
     check_str("an unknown decode kind falls back rather than reading past "
              "the table", name, "decode");
 }
 
+/*
+ * An overlay is a screen, and it outranks the tab.
+ *
+ * Settings and Calibration are full-screen modals over whatever tab is
+ * underneath (ADR-0008), so a Viewer told the tab would name the screen a
+ * reader is *not* looking at -- and `viewForState()` would put the browser
+ * on it (`web-visualization/17`).
+ */
+static void test_an_overlay_outranks_the_tab_underneath(void) {
+    char name[16];
+
+    receiver_screen_name(name, sizeof(name), TAB_DECODE, DECODE_LTE, 0, 0);
+    check_str("no overlay: the tab's own screen", name, "lte");
+
+    receiver_screen_name(name, sizeof(name), TAB_DECODE, DECODE_LTE, 1, 0);
+    check_str("settings over it", name, "settings");
+
+    receiver_screen_name(name, sizeof(name), TAB_SURVEY, DECODE_LTE, 0, 1);
+    check_str("calibration over it", name, "calibration");
+
+    /* Both at once: settings wins, the same way the frame loop's input
+       chain resolves it -- settings can be opened over calibration and not
+       the other way round. */
+    receiver_screen_name(name, sizeof(name), TAB_SCOPE, DECODE_FM, 1, 1);
+    check_str("settings can be opened over calibration, so it is on top",
+              name, "settings");
+}
+
 int main(void) {
+    test_an_overlay_outranks_the_tab_underneath();
     test_the_applied_state_passes_through();
     test_nothing_applied_yet();
     test_every_screen_has_a_name();

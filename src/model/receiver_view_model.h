@@ -34,7 +34,12 @@ struct receiver_view_model {
      * marks swapped for months (`web-visualization/15`). The vocabulary is
      * the one `view <name>` already uses: "survey", "scope", and on the
      * Decode tab the technology -- "fm", "adsb", "gsm", "lte", "tetra",
-     * "srd". It matches each browser view's own `id` exactly, so the shell
+     * "srd" -- and, when one is up, the overlay: "settings" or
+     * "calibration". The overlays outrank the tab because that is what the
+     * window shows: they are full-screen modals over whatever tab is
+     * underneath (ADR-0008), so a Viewer that reported the tab would name
+     * the screen a reader is *not* looking at. It matches each browser
+     * view's own `id` exactly, so the shell
      * looks a view up by name.
      *
      * The two integers were kept beside it for one ticket and are gone:
@@ -69,7 +74,8 @@ struct receiver_view_model {
  * `enum decode_kind` (app.h), as ints -- the way `struct app` holds them.
  * Neither travels; the name they collapse to is what does.
  */
-void receiver_screen_name(char *out, size_t size, int tab, int decode);
+void receiver_screen_name(char *out, size_t size, int tab, int decode,
+                          int settings_open, int calibration_open);
 
 /*
  * Fills `out` from the receiver's applied state and the device profile.
@@ -77,7 +83,8 @@ void receiver_screen_name(char *out, size_t size, int tab, int decode);
  */
 void receiver_view_model_build(const struct receiver_applied *applied,
                                const struct device_profile *device,
-                               int tab, int decode,
+                               int tab, int decode, int settings_open,
+                               int calibration_open,
                                struct receiver_view_model *out);
 
 #endif

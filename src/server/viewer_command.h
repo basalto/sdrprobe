@@ -16,7 +16,32 @@
 
 enum viewer_command_type {
     VIEWER_COMMAND_TUNE = 0,
-    VIEWER_COMMAND_VIEW
+    VIEWER_COMMAND_VIEW,
+    /*
+     * `set <field> <value>` stages one Settings field, and `apply` commits
+     * the staged set -- which is the window's own shape, not an invention:
+     * `handle_settings_input()` only stages and `apply_settings()` validates
+     * and applies the whole set at once (`web-visualization/17`).
+     *
+     * They are two commands rather than one because that is load-bearing.
+     * One click on a stepper must not restart acquisition, and
+     * `apply_settings()` validates the set *together* -- a rejected PPM must
+     * not also lose a transform size the reader had just chosen, which is
+     * already why that function applies the size first.
+     */
+    VIEWER_COMMAND_SET,
+    VIEWER_COMMAND_APPLY
+};
+
+/* Which Settings field a `set` names. Each is one row in a table the parser
+   walks, for the reason the screen names are a table: a hand-written branch
+   per name is what left the subscribe parser two names short, silently. */
+enum viewer_setting {
+    VIEWER_SETTING_PPM = 0,
+    VIEWER_SETTING_FFT,
+    VIEWER_SETTING_GAIN,
+    VIEWER_SETTING_DC,
+    VIEWER_SETTING_DRIFT
 };
 
 /*
@@ -41,20 +66,35 @@ enum viewer_screen {
     VIEWER_SCREEN_ADSB,
     VIEWER_SCREEN_TETRA,
     VIEWER_SCREEN_SRD,
-    VIEWER_SCREEN_LTE
+    VIEWER_SCREEN_LTE,
+    /* The two overlays. They are screens here for the same reason
+       `receiver_state.screen` names them: the window shows a full-screen
+       modal, so "which screen is up" is the overlay, not the tab
+       underneath (`web-visualization/17`). */
+    VIEWER_SCREEN_SETTINGS,
+    VIEWER_SCREEN_CALIBRATION
 };
 
 struct viewer_command {
     enum viewer_command_type type;
-    uint32_t hz;              /* VIEWER_COMMAND_TUNE */
+    uint32_t hz;               /* VIEWER_COMMAND_TUNE */
     enum viewer_screen screen; /* VIEWER_COMMAND_VIEW */
+    enum viewer_setting setting; /* VIEWER_COMMAND_SET */
+    /*
+     * The value, as a signed integer for every field there is: a PPM is
+     * signed, a transform size and a gain index are counts, and an on/off is
+     * 1 or 0. `ppm` is parsed here rather than passed as text because a
+     * command is not a text field -- there is no half-typed state to
+     * represent, which is the one thing `settings_view_model`'s
+     * `staged_ppm` has to carry and this does not.
+     */
+    int value;
 };
 
 /* Longest command line this parser will read at all -- past this, a line
    is refused rather than silently truncated. Generous for "tune <hz>"
    and its trailing whitespace; generous for "view survey" too, ticket
-   07's own second command, and not sized for a third this file does not
-   yet have. */
+   07's own second command, and generous for `set drift off` too. */
 #define VIEWER_COMMAND_LINE_MAX 128
 
 /*

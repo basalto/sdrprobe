@@ -12,6 +12,7 @@
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
 #include "model/lte_view_model.h"
+#include "model/settings_view_model.h"
 #include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
 #include "runtime/frame_advance.h"
@@ -127,6 +128,18 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
                 set_decode(app, DECODE_LTE, now);
                 set_tab(app, TAB_DECODE, now);
                 break;
+            /*
+             * The overlays are opened rather than tabbed to, because that is
+             * what they are: full-screen modals orthogonal to the tab bar
+             * (ADR-0008). `receiver_state.screen` then reports the overlay
+             * rather than the tab underneath, so a browser follows.
+             */
+            case VIEWER_SCREEN_SETTINGS:
+                open_settings(app);
+                break;
+            case VIEWER_SCREEN_CALIBRATION:
+                open_calibration(app);
+                break;
             case VIEWER_SCREEN_SCOPE:
             default:
                 set_tab(app, TAB_SCOPE, now);
@@ -134,6 +147,71 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
             }
         }
         return 0;
+    case VIEWER_COMMAND_SET:
+        /*
+         * Staging only -- the same thing `handle_settings_input()` does, and
+         * the reason `set` and `apply` are two commands: one step of a
+         * stepper must not restart acquisition, and `settings_apply()`
+         * validates the staged set *together*, so a rejected PPM must not
+         * also lose a transform size the reader had just chosen.
+         */
+        switch (cmd->setting) {
+        case VIEWER_SETTING_PPM:
+            snprintf(app->set.ppm, sizeof(app->set.ppm), "%d", cmd->value);
+            app->set.ppm_length = (int)strlen(app->set.ppm);
+            break;
+        case VIEWER_SETTING_FFT: {
+            int choice = sdr_dsp_fft_choice_of(cmd->value);
+
+            if (choice < 0) {
+                snprintf(error, error_cap,
+                         "not a transform size this program offers");
+                return -1;
+            }
+            app->set.fft_choice = choice;
+            break;
+        }
+        case VIEWER_SETTING_GAIN:
+            /* The device's list is the bound, and only the device knows it
+               -- the command table left the upper end wide for exactly
+               this. 0 is automatic, so the count is the last index. */
+            if (cmd->value > device_gain_option_count(&app->device)) {
+                snprintf(error, error_cap,
+                         "this receiver has no such gain step");
+                return -1;
+            }
+            app->set.gain_choice = cmd->value;
+            break;
+        case VIEWER_SETTING_DC:
+            app->set.remove_dc = cmd->value;
+            break;
+        case VIEWER_SETTING_DRIFT:
+            app->set.auto_drift = cmd->value;
+            break;
+        }
+        app->set.error[0] = '\0';
+        return 0;
+    case VIEWER_COMMAND_APPLY: {
+        int clear_waterfall = 0;
+
+        /*
+         * The same transaction the panel's Apply button runs, and the same
+         * sentence when it refuses -- `settings_apply()` writes
+         * `app->set.error` and this quotes it, so a command's failure and
+         * the window's notice cannot come to different wordings.
+         *
+         * The waterfall flag is discarded here on purpose: there is no
+         * texture to recreate without a window, and a Viewer's waterfall is
+         * rows it has already been sent.
+         */
+        if (settings_apply(app, &clear_waterfall) < 0) {
+            snprintf(error, error_cap, "%s",
+                     app->set.error[0] ? app->set.error
+                                       : "the settings were refused");
+            return -1;
+        }
+        return 0;
+    }
     default:
         snprintf(error, error_cap, "unimplemented command");
         return -1;
@@ -167,6 +245,7 @@ int viewer_session_run(struct app *app) {
     /* Negative is "never published" -- see viewer_update_due(). A loop timing
        from its own start reaches a real 0.0, so 0.0 cannot mean never. */
     double health_published_at = -1.0;
+    double settings_published_at = -1.0;
     double state_published_at = -1.0;
     uint32_t state_generation = 0;
     int state_ever_published = 0;
@@ -376,6 +455,8 @@ int viewer_session_run(struct app *app) {
     in.device = &app->device;
     in.tab = (int)app->tab;
     in.decode = (int)app->decode;
+    in.settings_open = app->set.open;
+    in.calibration_open = app->cal.open;
     scope_view_model_build(&in, &svm);
 }
         /* The shell's half of what a Viewer is told -- the screen, the
@@ -508,6 +589,27 @@ int viewer_session_run(struct app *app) {
             state_published_at = now;
             state_generation = rvm->tuning_generation;
             state_ever_published = 1;
+        }
+
+        /*
+         * The Settings panel, on the same clock as `receiver_state` and for
+         * the same reason: it changes when somebody types, not when a block
+         * arrives (`viewer_stream_pacing()`).
+         */
+        if (viewer_publish_due(VIEWER_STREAM_SETTINGS_STATE, spectrum_updated,
+                               now, settings_published_at,
+                               VIEWER_SESSION_STATE_INTERVAL_SECONDS, 0)) {
+            struct settings_view_model set_svm;
+
+            settings_view_model_build(&app->set, &app->device,
+                                      app->receiver_mode,
+                                      app->applied_manual_gain,
+                                      app->applied_gain_tenths,
+                                      app->applied.ppm, app->sv.fft_size,
+                                      app->remove_dc, app->cal.auto_drift,
+                                      app->applied.sample_rate_hz, &set_svm);
+            viewer_link_publish_settings_state(&link, &set_svm, now_ms);
+            settings_published_at = now;
         }
 
         if (viewer_publish_due(VIEWER_STREAM_LINK_HEALTH, spectrum_updated,

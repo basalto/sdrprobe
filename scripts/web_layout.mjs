@@ -252,7 +252,7 @@ async function run() {
     // "none" -- which is the point: a view has to lay out correctly before
     // it has anything to show, and that is the state a reader meets first.
     for (const tab of ['scope', 'survey', 'fm', 'gsm', 'adsb', 'tetra', 'srd',
-                     'lte']) {
+                     'lte', 'settings']) {
       await evaluate(`document.getElementById('tab-${tab}').click(); true`);
       /*
        * Wait for the panel to actually be the one showing, rather than
@@ -339,7 +339,24 @@ async function run() {
       // author `display` beats the `hidden` attribute's own UA rule.
       ok(`${at}: exactly one view panel is laid out`, m.shownPanels === 1,
          String(m.shownPanels));
-      ok(`${at}: has a canvas`, m.canvases.length > 0);
+      /*
+       * **And not every view shows a measurement.** Settings is a form: no
+       * canvas, and a panel sized to its content rather than to the
+       * viewport, because a page of controls stretched to fill 900 px is
+       * worse than one that stops. The three properties below are about a
+       * view whose job is to *show* something, so a form is held to a
+       * different rule -- that its controls are all reachable, which the
+       * scroll assertions above already cover for it.
+       *
+       * Asserting every view is chart-led was wrong twice now: once for
+       * ADS-B, whose substance is a table, and once here. The list is kept
+       * rather than inferred from `m.canvases.length` so that a view that
+       * *should* have a chart and lost it still fails.
+       */
+      const isForm = tab === 'settings' || tab === 'calibration';
+
+      if (!isForm)
+        ok(`${at}: has a canvas`, m.canvases.length > 0);
       /*
        * The charts are what a reader is here for, and the text around them
        * had been taking the room. Measured at 1400x900 before this was
@@ -390,10 +407,11 @@ async function run() {
        * only has to not be a sliver.
        */
       const substance = Math.max(tallestChart, m.tallestScroller);
-      ok(`${at}: its biggest chart is not a sliver`,
-         tallestChart >= m.panelH * 0.25,
-         `tallest canvas ${tallestChart} of panel ${m.panelH}`);
-      if (m.panelH >= 500)
+      if (!isForm)
+        ok(`${at}: its biggest chart is not a sliver`,
+           tallestChart >= m.panelH * 0.25,
+           `tallest canvas ${tallestChart} of panel ${m.panelH}`);
+      if (!isForm && m.panelH >= 500)
         ok(`${at}: and its main content dominates the panel`,
            substance >= m.panelH * 0.4,
            `biggest chart or list ${substance} of panel ${m.panelH}`);

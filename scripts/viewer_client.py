@@ -94,7 +94,7 @@ RANGE_HEADER_TYPES = (3, 4)
 ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
                "survey_spectrum", "survey_state", "fm_spectrum",
                "fm_state", "gsm_state", "adsb_state", "tetra_state", "srd_state",
-               "lte_state")
+               "lte_state", "settings_state")
 
 
 class ViewerClient:
@@ -365,6 +365,16 @@ def run_print(client, count):
                      f"{state['antenna_ports']}port "
                      f"findings={len(state['findings'])} "
                      f"found={len(state['found'])} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            elif state.get("type") == "settings_state":
+                st, ap = state["staged"], state["applied"]
+                print(f"settings_state  open={state['open']} "
+                     f"dirty={state['dirty']} "
+                     f"ppm={st['ppm']!r}/{ap['ppm']} "
+                     f"gain={st['gain']!r}/{ap['gain']!r} "
+                     f"fft={st['fft_size']}/{ap['fft_size']} "
+                     f"dc={st['remove_dc']}/{ap['remove_dc']} "
+                     f"err={state['error']!r} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             elif state.get("type") == "receiver_state":
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "

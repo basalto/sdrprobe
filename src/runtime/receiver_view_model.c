@@ -31,9 +31,26 @@ typedef char decode_screens_match_the_enum
  * enums it spells are `app.h`'s and `input_route.h`'s respectively -- this
  * is the only place both are already in hand.
  */
-void receiver_screen_name(char *out, size_t size, int tab, int decode) {
+void receiver_screen_name(char *out, size_t size, int tab, int decode,
+                          int settings_open, int calibration_open) {
     const char *name = "scope";
 
+    /*
+     * An overlay outranks the tab, because that is what the window is
+     * showing: they are full-screen modals over whatever tab is underneath
+     * (ADR-0008), so reporting the tab would name a screen the reader is not
+     * looking at. Settings outranks calibration for the same reason the
+     * frame loop's input chain does -- settings can be opened over
+     * calibration and not the other way round.
+     */
+    if (settings_open) {
+        snprintf(out, size, "%s", "settings");
+        return;
+    }
+    if (calibration_open) {
+        snprintf(out, size, "%s", "calibration");
+        return;
+    }
     if (tab == TAB_SURVEY)
         name = "survey";
     else if (tab == TAB_DECODE)
@@ -44,11 +61,13 @@ void receiver_screen_name(char *out, size_t size, int tab, int decode) {
 
 void receiver_view_model_build(const struct receiver_applied *applied,
                                const struct device_profile *device,
-                               int tab, int decode,
+                               int tab, int decode, int settings_open,
+                               int calibration_open,
                                struct receiver_view_model *out) {
     memset(out, 0, sizeof(*out));
 
-    receiver_screen_name(out->screen, sizeof(out->screen), tab, decode);
+    receiver_screen_name(out->screen, sizeof(out->screen), tab, decode,
+                         settings_open, calibration_open);
 
     out->center_hz = applied->frequency_hz;
     out->sample_rate_hz = applied->sample_rate_hz;

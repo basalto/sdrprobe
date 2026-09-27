@@ -81,27 +81,6 @@ void calibration_select_technology(struct app *app, int technology) {
     app->cal.channel_length = (int)strlen(app->cal.channel);
 }
 
-void open_calibration(struct app *app) {
-    app->cal.open = 1;
-    app->cal.running = 0;
-    app->cal.technology = 0;
-    app->cal.band = 0;
-    snprintf(app->cal.channel, sizeof(app->cal.channel),
-             "113");
-    app->cal.channel_length = 3;
-    app->cal.expected_hz = 0;
-    calibration_tracker_init(&app->cal.track);
-    app->cal.fcch_confidence = 0.0f;
-    app->bandscan.open = 0;
-    app->bandscan.running = 0;
-    scan_release_receiver(app);
-    app->cal.measured_hz = 0.0;
-    app->cal.offset_hz = 0.0;
-    app->cal.suggested_ppm = app->applied.ppm;
-    snprintf(app->cal.status, sizeof(app->cal.status),
-             "Select GSM 900 ARFCN 1-124, then press Start");
-}
-
 /*
  * Calibrating against an LTE cell.
  *

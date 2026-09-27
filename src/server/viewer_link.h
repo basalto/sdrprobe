@@ -8,6 +8,7 @@
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
 #include "model/lte_view_model.h"
+#include "model/settings_view_model.h"
 #include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
 #include "model/scope_view_model.h"
@@ -168,6 +169,7 @@ enum viewer_stream {
     VIEWER_STREAM_TETRA_STATE,
     VIEWER_STREAM_SRD_STATE,
     VIEWER_STREAM_LTE_STATE,
+    VIEWER_STREAM_SETTINGS_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -446,6 +448,13 @@ void viewer_link_publish_srd_state(struct viewer_link *link,
 void viewer_link_publish_lte_state(struct viewer_link *link,
                                    const struct lte_view_model *lvm,
                                    uint64_t now_ms);
+
+/* The Settings panel: the staged set, what is applied, whether the two
+   differ, and the panel's own failure line. Paced **on time** rather than on
+   data -- it changes when somebody types, not when a block arrives. */
+void viewer_link_publish_settings_state(struct viewer_link *link,
+                                        const struct settings_view_model *svm,
+                                        uint64_t now_ms);
 
 /*
  * Ticket 07's Survey tab, mirroring the pair above: the swept spectrum as a

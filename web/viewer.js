@@ -14,7 +14,7 @@ const health = document.getElementById('health');
 // The views used to also declare `tab` and `decode` as raw numbers, which
 // was two of this program's enums re-declared in JavaScript.
 const VIEWS = [ScopeView, SurveyView, FmView, GsmView, AdsbView, TetraView,
-               SrdView, LteView];
+               SrdView, LteView, SettingsView];
 
 let activeView = null;
 // The view this page has asked the server for and not yet been told it has.
@@ -74,7 +74,19 @@ function mountViews() {
   panels.innerHTML = VIEWS.map((v) => '<div id="panel-' + v.id + '" hidden>' + v.markup + '</div>').join('');
   VIEWS.forEach((v) => {
     document.getElementById('tab-' + v.id).onclick = () => selectView(v, true);
+    // A view with controls binds them once, here, after its markup is in
+    // the document -- the same reason `elements()` is lazy. Optional: only
+    // the views that *write* have anything to bind.
+    if (typeof v.mounted === 'function') v.mounted();
   });
+}
+
+// The one way a view sends anything. Views never touch the socket (the
+// layer rule in the web-view skill), and a command sent before the link is
+// up is dropped rather than queued -- the server's state is the truth and
+// the next `settings_state` will say what actually happened.
+function sendCommand(line) {
+  if (ws && ws.readyState === 1) ws.send(line);
 }
 
 // Ticket 07: which view is showing, and which the server has confirmed.
@@ -87,14 +99,14 @@ function mountViews() {
 // Ticket 14 Phase 3: a change of view also rebuilds the subscribe line,
 // which is the point of the registry existing at all -- the server
 // should send only what whichever view is showing actually draws.
-function selectView(view, sendCommand) {
+function selectView(view, announce) {
   const changed = view !== activeView;
   activeView = view;
   VIEWS.forEach((v) => {
     document.getElementById('panel-' + v.id).hidden = (v !== view);
     document.getElementById('tab-' + v.id).classList.toggle('active', v === view);
   });
-  if (sendCommand && ws) {
+  if (announce && ws) {
     pendingScreen = view.id;
     ws.send('view ' + view.id);
   }

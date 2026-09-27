@@ -137,6 +137,14 @@ viewer_stream_pacing(enum viewer_stream stream) {
     switch (stream) {
     case VIEWER_STREAM_RECEIVER_STATE:
     case VIEWER_STREAM_LINK_HEALTH:
+    /*
+     * The Settings panel is **on time**, not on data: it changes when
+     * somebody types into a field or presses Apply, and a block arriving
+     * says nothing about it. Pacing it on data would leave a staged value
+     * unreported on a source that had stopped delivering -- which is
+     * exactly when a reader is most likely to be changing settings.
+     */
+    case VIEWER_STREAM_SETTINGS_STATE:
         return VIEWER_PACED_ON_TIME;
     case VIEWER_STREAM_COMMAND_RESULT:
         return VIEWER_PACED_ON_DEMAND;

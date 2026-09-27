@@ -1030,6 +1030,8 @@ static int run_gui(struct app *app) {
             in.device = &app->device;
             in.tab = (int)app->tab;
             in.decode = (int)app->decode;
+    in.settings_open = app->set.open;
+    in.calibration_open = app->cal.open;
             scope_view_model_build(&in, &svm);
         }
                 draw_base_hud(app, &snapshot);

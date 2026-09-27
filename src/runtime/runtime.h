@@ -178,6 +178,31 @@ int lte_scan_running(const struct app *app);
 /* Whether the receiver is on LTE's 1.92 MS/s grid, which is the one thing
    that has to be true before any of it works (ADR-0014). */
 int lte_on_grid(const struct app *app);
+
+/*
+ * The Settings panel, without the drawing: seed the staged set from what is
+ * applied, and commit it.
+ *
+ * `settings_apply()` returns 0, or -1 with the reason in `app->set.error` --
+ * the same sentence the panel's own line shows, so a Viewer's `apply` and
+ * the window report the failure identically. `clear_waterfall_out` carries
+ * the one fact a caller's drawing needs and cannot recompute afterwards:
+ * whether a gain changed, since `app->applied_gain_*` has by then been
+ * overwritten with what was wanted (`web-visualization/17`).
+ */
+/*
+ * The receiver transaction over this application's state, built one way.
+ *
+ * `retune_receiver()` and the Settings panel both change what the receiver is
+ * doing, and both used to construct their own sequence -- which is how the
+ * Settings panel came to move the tuning without advancing the generation
+ * ADR-0027 publishes. One constructor, so there is one transaction.
+ */
+struct receiver_runtime runtime_over(struct app *app);
+
+void open_settings(struct app *app);
+void open_calibration(struct app *app);
+int settings_apply(struct app *app, int *clear_waterfall_out);
 /* Which band the scan's picker has selected, or NULL when the receiver
    reaches none -- a capture. Read by the drawing and by the scan alike. */
 const struct lte_band *selected_band(const struct app *app);

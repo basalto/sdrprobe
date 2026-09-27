@@ -290,7 +290,115 @@ static void test_a_null_error_buffer_is_accepted(void) {
              viewer_command_parse("", 0, &cmd, NULL, 0), -1);
 }
 
+/* The parser, with the line's length taken for you. */
+static int parse(const char *line, struct viewer_command *cmd, char *error) {
+    return viewer_command_parse(line, strlen(line), cmd, error, 64);
+}
+
+/*
+ * `set <field> <value>` stages, and `apply` commits.
+ *
+ * Two commands rather than one, and that is load-bearing: one step of a
+ * stepper must not restart acquisition, and `settings_apply()` validates the
+ * staged set *together*, so a rejected PPM must not also lose a transform
+ * size the reader had just chosen -- which is already why that function
+ * applies the size first (`web-visualization/17`).
+ */
+static void test_set_stages_one_field(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("a signed correction", parse("set ppm -32", &cmd, error), 0);
+    check_int("is a set", cmd.type, VIEWER_COMMAND_SET);
+    check_int("of the tuning correction", cmd.setting, VIEWER_SETTING_PPM);
+    check_int("with its value", cmd.value, -32);
+
+    check_int("a transform size", parse("set fft 16384", &cmd, error), 0);
+    check_int("names the field", cmd.setting, VIEWER_SETTING_FFT);
+    check_int("and the size", cmd.value, 16384);
+
+    check_int("a gain step", parse("set gain 12", &cmd, error), 0);
+    check_int("by index", cmd.setting, VIEWER_SETTING_GAIN);
+    check_int("into the device's own list", cmd.value, 12);
+}
+
+/*
+ * A toggle takes `on` and `off` as well as 1 and 0, because typing
+ * `set dc on` is what a person does and refusing it to save a line of
+ * parsing would be a rule nobody wants.
+ */
+static void test_a_toggle_takes_words_as_well_as_numbers(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("on", parse("set dc on", &cmd, error), 0);
+    check_int("is one", cmd.value, 1);
+    check_int("off", parse("set drift off", &cmd, error), 0);
+    check_int("is zero", cmd.value, 0);
+    check_int("and so is 0", parse("set dc 0", &cmd, error), 0);
+    check_int("still zero", cmd.value, 0);
+
+    check_int("but not a number that is neither",
+              parse("set dc 7", &cmd, error), -1);
+    check_true("and it says why", strstr(error, "on or off") != NULL);
+}
+
+/*
+ * The bounds are the applier's own, stated in the command table so a value
+ * is refused where it was typed rather than two layers later with a
+ * different sentence.
+ */
+static void test_a_value_out_of_range_is_refused_here(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("the applier's own bound", parse("set ppm 1000", &cmd, error),
+              0);
+    check_int("one past it", parse("set ppm 1001", &cmd, error), -1);
+    check_true("and it says so", strstr(error, "range") != NULL);
+    check_int("and the other end", parse("set ppm -1001", &cmd, error), -1);
+
+    check_int("a value that is not a number at all",
+              parse("set ppm twelve", &cmd, error), -1);
+    check_true("says that instead", strstr(error, "integer") != NULL);
+}
+
+static void test_set_and_apply_are_refused_when_malformed(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("a field nobody has", parse("set colour 3", &cmd, error), -1);
+    check_true("is named as such", strstr(error, "setting") != NULL);
+    check_int("a field with no value", parse("set ppm", &cmd, error), -1);
+    check_int("no field at all", parse("set", &cmd, error), -1);
+    check_int("and a trailing field", parse("set ppm 3 now", &cmd, error),
+              -1);
+
+    check_int("apply takes nothing", parse("apply", &cmd, error), 0);
+    check_int("and is an apply", cmd.type, VIEWER_COMMAND_APPLY);
+    check_int("so a trailing field is refused",
+              parse("apply now", &cmd, error), -1);
+}
+
+/* The two overlays are screens, because that is what `receiver_state.screen`
+   reports when one is up: a full-screen modal over whatever tab is
+   underneath (ADR-0008). */
+static void test_the_overlays_are_screens(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("settings", parse("view settings", &cmd, error), 0);
+    check_int("is a screen", cmd.screen, VIEWER_SCREEN_SETTINGS);
+    check_int("calibration", parse("view calibration", &cmd, error), 0);
+    check_int("too", cmd.screen, VIEWER_SCREEN_CALIBRATION);
+}
+
 int main(void) {
+    test_set_stages_one_field();
+    test_a_toggle_takes_words_as_well_as_numbers();
+    test_a_value_out_of_range_is_refused_here();
+    test_set_and_apply_are_refused_when_malformed();
+    test_the_overlays_are_screens();
     test_a_valid_tune_line();
     test_trailing_whitespace_is_tolerated();
     test_leading_whitespace_is_tolerated();

@@ -35,7 +35,37 @@ static const struct {
     { "adsb",   VIEWER_SCREEN_ADSB },
     { "tetra",  VIEWER_SCREEN_TETRA },
     { "srd",    VIEWER_SCREEN_SRD },
-    { "lte",    VIEWER_SCREEN_LTE }
+    { "lte",    VIEWER_SCREEN_LTE },
+    { "settings", VIEWER_SCREEN_SETTINGS },
+    { "calibration", VIEWER_SCREEN_CALIBRATION }
+};
+
+/*
+ * The Settings fields `set` can name, and what each accepts.
+ *
+ * A table for the reason the screen names are one: a hand-written branch per
+ * name is what left the subscribe parser two names short, silently
+ * (`web-visualization/12`). `lo`/`hi` bound the value, and `boolean` says
+ * the field takes `on`/`off` as well as 1/0 -- typing `set dc on` is what a
+ * person does, and refusing it to save a line of parsing would be a rule
+ * nobody wants.
+ */
+static const struct {
+    const char *name;
+    enum viewer_setting setting;
+    int lo, hi;
+    int boolean;
+} viewer_settings[] = {
+    /* The same bound `apply_settings()` enforces, stated here so a command
+       is refused where it was typed rather than two layers later. */
+    { "ppm",   VIEWER_SETTING_PPM,   -1000, 1000, 0 },
+    { "fft",   VIEWER_SETTING_FFT,     256, 16384, 0 },
+    /* An index into the device's own gain list, where 0 is automatic. The
+       upper bound is the device's and cannot be stated here, so it is left
+       wide and refused by the applier, which has the profile. */
+    { "gain",  VIEWER_SETTING_GAIN,      0, 1000, 0 },
+    { "dc",    VIEWER_SETTING_DC,        0, 1, 1 },
+    { "drift", VIEWER_SETTING_DRIFT,     0, 1, 1 }
 };
 
 int viewer_command_parse(const char *line, size_t len, struct viewer_command *out,
@@ -98,6 +128,78 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
             }
         }
         set_error(error, error_cap, "unrecognized screen");
+        return -1;
+    }
+    if (strcmp(word, "apply") == 0) {
+        for (i = (size_t)word_consumed; buf[i] != '\0'; i++) {
+            if (!isspace((unsigned char)buf[i])) {
+                set_error(error, error_cap, "unexpected trailing field");
+                return -1;
+            }
+        }
+        out->type = VIEWER_COMMAND_APPLY;
+        return 0;
+    }
+    if (strcmp(word, "set") == 0) {
+        char field[32], text[32];
+        int field_consumed = 0, text_consumed = 0;
+        size_t k;
+
+        value_start = buf + word_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%31s%n", field, &field_consumed) != 1) {
+            set_error(error, error_cap,
+                      "set requires a field and a value");
+            return -1;
+        }
+        value_start += field_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%31s%n", text, &text_consumed) != 1) {
+            set_error(error, error_cap, "set requires a value");
+            return -1;
+        }
+        for (i = 0; value_start[text_consumed + i] != '\0'; i++) {
+            if (!isspace((unsigned char)value_start[text_consumed + i])) {
+                set_error(error, error_cap, "unexpected trailing field");
+                return -1;
+            }
+        }
+        for (k = 0; k < sizeof(viewer_settings) / sizeof(viewer_settings[0]);
+             k++) {
+            long v;
+            char *end;
+
+            if (strcmp(field, viewer_settings[k].name) != 0)
+                continue;
+            if (viewer_settings[k].boolean) {
+                if (strcmp(text, "on") == 0 || strcmp(text, "1") == 0)
+                    v = 1;
+                else if (strcmp(text, "off") == 0 || strcmp(text, "0") == 0)
+                    v = 0;
+                else {
+                    set_error(error, error_cap, "value must be on or off");
+                    return -1;
+                }
+            } else {
+                errno = 0;
+                v = strtol(text, &end, 10);
+                if (end == text || *end != '\0' || errno == ERANGE) {
+                    set_error(error, error_cap, "value must be an integer");
+                    return -1;
+                }
+                if (v < viewer_settings[k].lo || v > viewer_settings[k].hi) {
+                    set_error(error, error_cap, "value out of range");
+                    return -1;
+                }
+            }
+            out->type = VIEWER_COMMAND_SET;
+            out->setting = viewer_settings[k].setting;
+            out->value = (int)v;
+            return 0;
+        }
+        set_error(error, error_cap, "unrecognized setting");
         return -1;
     }
     if (strcmp(word, "tune") != 0) {

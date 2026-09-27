@@ -90,7 +90,7 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
     "gsm_state", "adsb_state", "tetra_state", "srd_state",
-    "lte_state"
+    "lte_state", "settings_state"
 };
 
 const char *viewer_link_stream_name(enum viewer_stream stream) {
@@ -1711,6 +1711,69 @@ void viewer_link_publish_lte_state(struct viewer_link *link,
             !c->subscribed[VIEWER_STREAM_LTE_STATE])
             continue;
         slot = &c->slot[VIEWER_STREAM_LTE_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
+void viewer_link_publish_settings_state(struct viewer_link *link,
+                                        const struct settings_view_model *svm,
+                                        uint64_t now_ms) {
+    char json[2048];
+    char ppm[64];
+    char error[384];
+    int json_len, i;
+
+    json_escape_into(ppm, sizeof(ppm), svm->staged_ppm,
+                     strlen(svm->staged_ppm));
+    json_escape_into(error, sizeof(error), svm->error, strlen(svm->error));
+
+    json_len = snprintf(json, sizeof(json),
+                        "{\"type\":\"settings_state\",\"timestamp_ms\":%llu,"
+                        "\"open\":%s,\"dirty\":%s,"
+                        "\"gain_adjustable\":%s,\"gain_options\":%d,"
+                        "\"staged\":{\"ppm\":\"%s\",\"gain_choice\":%d,"
+                        "\"gain\":\"%s\",\"fft_size\":%d,"
+                        "\"fft\":\"%s\",\"remove_dc\":%s,"
+                        "\"auto_drift\":%s},"
+                        "\"applied\":{\"ppm\":%d,\"gain\":\"%s\","
+                        "\"fft_size\":%d,\"remove_dc\":%s,"
+                        "\"auto_drift\":%s},"
+                        "\"error\":\"%s\"}",
+                        (unsigned long long)now_ms,
+                        svm->open ? "true" : "false",
+                        svm->dirty ? "true" : "false",
+                        svm->gain_adjustable ? "true" : "false",
+                        svm->gain_option_count,
+                        ppm, svm->staged_gain_choice, svm->staged_gain,
+                        svm->staged_fft_size, svm->staged_fft,
+                        svm->staged_remove_dc ? "true" : "false",
+                        svm->staged_auto_drift ? "true" : "false",
+                        svm->applied_ppm, svm->applied_gain,
+                        svm->applied_fft_size,
+                        svm->applied_remove_dc ? "true" : "false",
+                        svm->applied_auto_drift ? "true" : "false",
+                        error);
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_SETTINGS_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_SETTINGS_STATE];
         if (!slot_ready_for_new_message(slot))
             continue;
         frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
