@@ -62,6 +62,13 @@ Q_0=@
 Q=$(Q_$(V))
 
 SRC=src
+# One -I per layer, so the move leaves all 717 `#include` lines untouched
+# (`.scratch/layer-boundaries/issues/05-*`, staged: the layered spelling
+# -- `#include "core/sdr_dsp.h"` -- is a second commit, separately
+# verifiable). The order is the dependency order and is not meaningful to
+# the compiler; it is here so a reader sees the layering.
+SRC_INC=-I$(SRC) -I$(SRC)/core -I$(SRC)/tech -I$(SRC)/model \
+	-I$(SRC)/runtime -I$(SRC)/server -I$(SRC)/gui -I$(SRC)/app
 TESTS=tests
 VENDOR=vendor
 BUILD=build
@@ -93,9 +100,9 @@ help:
 #: [Build] build both binaries: ./sdrprobe and ./sdrprobe-gui
 all: sdrprobe sdrprobe-gui
 
-DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/adsb_session.c $(SRC)/fm_session.c $(SRC)/srd_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
-	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
-	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c $(SRC)/srd_dsp.c $(SRC)/srd_frame.c
+DSP_SRC=$(SRC)/tech/gsm_session.c $(SRC)/tech/tetra_session.c $(SRC)/tech/lte_session.c $(SRC)/tech/adsb_session.c $(SRC)/tech/fm_session.c $(SRC)/tech/srd_session.c $(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c $(SRC)/tech/gsm_dsp.c $(SRC)/tech/gsm_bcch.c $(SRC)/tech/adsb_dsp.c \
+	$(SRC)/tech/lte_dsp.c $(SRC)/tech/lte_mib.c $(SRC)/tech/fm_dsp.c $(SRC)/tech/rds.c \
+	$(SRC)/tech/tetra_dsp.c $(SRC)/tech/tetra_sync.c $(SRC)/tech/srd_dsp.c $(SRC)/tech/srd_frame.c
 #
 # CORE_SRC is every application source that does **not** draw: it compiles
 # with no raylib header and links with no raylib library, which is what
@@ -103,57 +110,57 @@ DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/
 # (`.scratch/layer-boundaries/issues/04-*`). VIEW_SRC is the window's half.
 # APP_SRC is both, and is what `./sdrprobe` is built from -- so there is one
 # list, split, rather than two lists to keep in step.
-CORE_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
-	$(SRC)/backend_uhd.c \
-	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c \
-	$(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c \
-	$(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c \
-	$(SRC)/frame_advance.c $(SRC)/app_runtime.c $(SRC)/app_main.c \
-	$(SRC)/headless_run.c $(SRC)/receiver_view_model.c $(SRC)/scope_view_model.c \
-	$(SRC)/survey_view_model.c $(SRC)/fm_view_model.c $(SRC)/websocket.c \
-	$(SRC)/viewer_link.c $(SRC)/viewer_session.c $(SRC)/fm_runtime.c \
-	$(SRC)/gsm_runtime.c $(SRC)/adsb_runtime.c $(SRC)/tetra_runtime.c \
-	$(SRC)/srd_runtime.c $(SRC)/lte_runtime.c $(SRC)/scope_runtime.c \
-	$(SRC)/scan_runtime.c $(SRC)/calibration_runtime.c $(SRC)/startup_runtime.c \
-	$(SRC)/survey_runtime.c \
-	$(SRC)/band_plan.c \
-	$(SRC)/signal_analysis.c \
-	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
-	$(SRC)/startup_session.c \
-	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c $(SRC)/browser.c
-VIEW_SRC=$(SRC)/view_scope.c $(SRC)/view_gsm.c \
-	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
-	$(SRC)/view_srd.c \
-	$(SRC)/view_survey.c \
-	$(SRC)/overlay_calibration.c $(SRC)/overlay_startup.c $(SRC)/overlay_scan.c \
-	$(SRC)/overlay_settings.c $(SRC)/overlay_help.c $(SRC)/overlay_signal_report.c
+CORE_SRC=$(SRC)/runtime/installation.c $(SRC)/runtime/backend_rtlsdr.c $(SRC)/runtime/backend_capture.c \
+	$(SRC)/runtime/backend_uhd.c \
+	$(SRC)/runtime/acquisition.c $(SRC)/core/iq_ring.c $(SRC)/runtime/options.c $(SRC)/runtime/chart_window.c \
+	$(SRC)/runtime/config.c $(SRC)/runtime/site_history.c $(SRC)/runtime/survey_record.c \
+	$(SRC)/tech/lte_chain_analysis.c $(SRC)/core/signal_frame.c $(SRC)/runtime/receiver_runtime.c \
+	$(SRC)/runtime/frame_advance.c $(SRC)/runtime/app_runtime.c $(SRC)/app/app_main.c \
+	$(SRC)/app/headless_run.c $(SRC)/model/receiver_view_model.c $(SRC)/model/scope_view_model.c \
+	$(SRC)/model/survey_view_model.c $(SRC)/model/fm_view_model.c $(SRC)/server/websocket.c \
+	$(SRC)/server/viewer_link.c $(SRC)/server/viewer_session.c $(SRC)/runtime/fm_runtime.c \
+	$(SRC)/runtime/gsm_runtime.c $(SRC)/runtime/adsb_runtime.c $(SRC)/runtime/tetra_runtime.c \
+	$(SRC)/runtime/srd_runtime.c $(SRC)/runtime/lte_runtime.c $(SRC)/runtime/scope_runtime.c \
+	$(SRC)/runtime/scan_runtime.c $(SRC)/runtime/calibration_runtime.c $(SRC)/runtime/startup_runtime.c \
+	$(SRC)/runtime/survey_runtime.c \
+	$(SRC)/core/band_plan.c \
+	$(SRC)/runtime/signal_analysis.c \
+	$(SRC)/runtime/survey_report.c $(SRC)/runtime/survey_store.c $(SRC)/runtime/survey_session.c \
+	$(SRC)/runtime/startup_session.c \
+	$(SRC)/runtime/debug_log.c $(SRC)/server/process_cpu.c $(SRC)/server/viewer_command.c $(SRC)/server/browser.c
+VIEW_SRC=$(SRC)/gui/view_scope.c $(SRC)/gui/view_gsm.c \
+	$(SRC)/gui/view_adsb.c $(SRC)/gui/view_lte.c $(SRC)/gui/view_fm.c $(SRC)/gui/view_tetra.c \
+	$(SRC)/gui/view_srd.c \
+	$(SRC)/gui/view_survey.c \
+	$(SRC)/gui/overlay_calibration.c $(SRC)/gui/overlay_startup.c $(SRC)/gui/overlay_scan.c \
+	$(SRC)/gui/overlay_settings.c $(SRC)/gui/overlay_help.c $(SRC)/gui/overlay_signal_report.c
 APP_SRC=$(CORE_SRC) $(VIEW_SRC)
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/receiver_view_model.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/gui_state.h $(SRC)/runtime.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
-	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h $(SRC)/browser.h \
-	$(SRC)/survey_window.h $(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
-	$(SRC)/survey_session.h $(SRC)/startup_session.h \
-	$(SRC)/startup_layout.h \
-	$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/chrome_layout.h \
-	$(SRC)/band_plan.h $(SRC)/calibration_gate.h $(SRC)/scan_plan.h \
-	$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h \
-	$(SRC)/view_input.h $(SRC)/srd_log.h $(SRC)/debug_log.h \
-	$(SRC)/receiver_lease.h $(SRC)/device_profile.h $(SRC)/overlay_signal_report.h \
-	$(SRC)/signal_analysis.h \
-	$(SRC)/installation.h \
-	$(SRC)/capture_sidecar.h $(SRC)/device_backend.h \
-	$(SRC)/app.h $(SRC)/view.h \
-	$(SRC)/version.h \
-	$(SRC)/panel_rows.h $(SRC)/lte_stats.h $(SRC)/lte_confirm.h \
-	$(SRC)/lte_findings.h \
-	$(SRC)/chart_window.h $(SRC)/help_layout.h $(SRC)/scan_layout.h \
-	$(SRC)/scope_layout.h $(SRC)/settings_layout.h
-DSP_HDR=$(SRC)/gsm_session.h $(SRC)/tetra_session.h $(SRC)/lte_session.h $(SRC)/adsb_session.h $(SRC)/fm_session.h $(SRC)/device_profile.h $(SRC)/signal_probe.h $(SRC)/signal_findings.h $(SRC)/sdr_dsp.h $(SRC)/gsm_dsp.h $(SRC)/gsm_bcch.h $(SRC)/adsb_dsp.h \
-	$(SRC)/lte_dsp.h $(SRC)/lte_mib.h $(SRC)/lte_gold.h $(SRC)/lte_scan.h \
-	$(SRC)/fm_dsp.h $(SRC)/rds.h $(SRC)/tetra_dsp.h $(SRC)/tetra_sync.h \
-	$(SRC)/srd_dsp.h $(SRC)/srd_frame.h $(SRC)/srd_record.h
-GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
-	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c $(SRC)/chart_window_input.c
-GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
+APP_HDR=$(SRC)/runtime/options.h $(SRC)/runtime/config.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/tech/lte_chain_analysis.h $(SRC)/gui/calibration_layout.h $(SRC)/core/survey_carrier.h $(SRC)/core/survey_confirm.h $(SRC)/runtime/site_history.h $(SRC)/runtime/survey_store.h $(SRC)/runtime/survey_record.h $(SRC)/core/signal_frame.h $(SRC)/runtime/receiver_runtime.h $(SRC)/runtime/frame_advance.h $(SRC)/model/receiver_view_model.h $(SRC)/model/scope_view_model.h $(SRC)/model/survey_view_model.h $(SRC)/model/fm_view_model.h $(SRC)/gui/gui_state.h $(SRC)/runtime/runtime.h $(SRC)/server/websocket.h $(SRC)/server/viewer_link.h $(SRC)/server/viewer_session.h $(SRC)/server/process_cpu.h $(SRC)/server/viewer_command.h $(SRC)/gui/gsm_layout.h $(SRC)/gui/adsb_layout.h $(SRC)/gui/tetra_layout.h \
+	$(SRC)/gui/lte_layout.h $(SRC)/gui/fm_layout.h $(SRC)/gui/srd_layout.h $(SRC)/tech/srd_session.h $(SRC)/server/browser.h \
+	$(SRC)/runtime/survey_window.h $(SRC)/gui/survey_layout.h $(SRC)/core/freq_window.h $(SRC)/core/survey_sweep.h \
+	$(SRC)/runtime/survey_session.h $(SRC)/runtime/startup_session.h \
+	$(SRC)/gui/startup_layout.h \
+	$(SRC)/core/survey_suspect.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/gui/chrome_layout.h \
+	$(SRC)/core/band_plan.h $(SRC)/runtime/calibration_gate.h $(SRC)/runtime/scan_plan.h \
+	$(SRC)/tech/adsb_analysis.h $(SRC)/tech/gsm_continuity.h $(SRC)/runtime/input_route.h \
+	$(SRC)/runtime/view_input.h $(SRC)/tech/srd_log.h $(SRC)/runtime/debug_log.h \
+	$(SRC)/runtime/receiver_lease.h $(SRC)/core/device_profile.h $(SRC)/gui/overlay_signal_report.h \
+	$(SRC)/runtime/signal_analysis.h \
+	$(SRC)/runtime/installation.h \
+	$(SRC)/core/capture_sidecar.h $(SRC)/runtime/device_backend.h \
+	$(SRC)/runtime/app.h $(SRC)/gui/view.h \
+	$(SRC)/runtime/version.h \
+	$(SRC)/gui/panel_rows.h $(SRC)/tech/lte_stats.h $(SRC)/tech/lte_confirm.h \
+	$(SRC)/tech/lte_findings.h \
+	$(SRC)/runtime/chart_window.h $(SRC)/gui/help_layout.h $(SRC)/gui/scan_layout.h \
+	$(SRC)/gui/scope_layout.h $(SRC)/gui/settings_layout.h
+DSP_HDR=$(SRC)/tech/gsm_session.h $(SRC)/tech/tetra_session.h $(SRC)/tech/lte_session.h $(SRC)/tech/adsb_session.h $(SRC)/tech/fm_session.h $(SRC)/core/device_profile.h $(SRC)/core/signal_probe.h $(SRC)/core/signal_findings.h $(SRC)/core/sdr_dsp.h $(SRC)/tech/gsm_dsp.h $(SRC)/tech/gsm_bcch.h $(SRC)/tech/adsb_dsp.h \
+	$(SRC)/tech/lte_dsp.h $(SRC)/tech/lte_mib.h $(SRC)/tech/lte_gold.h $(SRC)/tech/lte_scan.h \
+	$(SRC)/tech/fm_dsp.h $(SRC)/tech/rds.h $(SRC)/tech/tetra_dsp.h $(SRC)/tech/tetra_sync.h \
+	$(SRC)/tech/srd_dsp.h $(SRC)/tech/srd_frame.h $(SRC)/tech/srd_record.h
+GUI_SRC=$(SRC)/gui/sdrgui_plot.c $(SRC)/gui/sdrgui_scope.c \
+	$(SRC)/gui/sdrgui_decode.c $(SRC)/gui/sdrgui_widgets.c $(SRC)/gui/chart_window_input.c
+GUI_HDR=$(SRC)/gui/sdrgui.h $(SRC)/gui/sdrgui_geometry.h
 RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 
 # The Viewer page (tickets 13 and 14): a person edits these,
@@ -188,17 +195,17 @@ $(BUILD)/viewer_page.h: scripts/embed_web.py $(WEB_SRC)
 
 # The vendored raygui header is not -Wall -W clean; compile it in isolation.
 # The one intermediate object lives under $(BUILD)/ to keep the root tidy.
-$(BUILD)/raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
+$(BUILD)/raygui_impl.o: $(SRC)/gui/raygui_impl.c $(VENDOR)/raygui.h
 	@mkdir -p $(BUILD)
 	$(Q)printf '  cc  %s\n' $@
-	$(Q)$(CC) -O2 $(RAYGUI_FLAGS) -w -c $(SRC)/raygui_impl.c -o $@
+	$(Q)$(CC) -O2 $(SRC_INC) $(RAYGUI_FLAGS) -w -c $(SRC)/gui/raygui_impl.c -o $@
 
 #: [Build] build ./sdrprobe-gui, the window (needs raylib dev headers)
-sdrprobe-gui: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
+sdrprobe-gui: $(SRC)/app/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 		$(GUI_SRC) $(GUI_HDR) $(BUILD)/raygui_impl.o $(BUILD)/viewer_page.h
 	$(Q)printf '  cc  %s\n' $@
-	$(Q)$(CC) $(CFLAGS) $(RAYGUI_FLAGS) $(WEB_CFLAGS) -pthread \
-		-o $@ $(SRC)/sdrprobe.c $(APP_SRC) $(DSP_SRC) $(GUI_SRC) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) $(RAYGUI_FLAGS) $(WEB_CFLAGS) -pthread \
+		-o $@ $(SRC)/app/sdrprobe.c $(APP_SRC) $(DSP_SRC) $(GUI_SRC) \
 		$(BUILD)/raygui_impl.o \
 		$(LDFLAGS) $(LDLIBS) $(shell pkg-config --libs raylib) -pthread
 
@@ -209,16 +216,16 @@ sdrprobe-gui: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 # reads its own ld output back and says which file called what, before
 # printing the raw text underneath for anyone who wants it.
 #: [Build] build ./sdrprobe: headless and web, with no raylib (needs librtlsdr only)
-sdrprobe: $(SRC)/sdrprobe_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
+sdrprobe: $(SRC)/app/sdrprobe_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 		$(BUILD)/viewer_page.h
 	@mkdir -p $(BUILD)
 	$(Q)printf '  cc  %s\n' $@
-	$(Q)$(CC) $(CFLAGS) $(WEB_CFLAGS) -pthread \
-		-o $@ $(SRC)/sdrprobe_main.c $(CORE_SRC) $(DSP_SRC) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) $(WEB_CFLAGS) -pthread \
+		-o $@ $(SRC)/app/sdrprobe_main.c $(CORE_SRC) $(DSP_SRC) \
 		$(LDFLAGS) $(LDLIBS) -pthread 2> $(BUILD)/server_link.err || { \
 		echo ""; \
 		echo "  The server pulled in the window. What reached for it:"; \
-		sed -n "s|.*/\([a-z_0-9]*\.c\):\([0-9]*\):.*undefined reference to .\([A-Za-z_0-9]*\).*|    src/\1 line \2 calls \3()|p" \
+		sed -n "s|.*\(src/[a-z]*/[a-z_0-9]*\.c\):\([0-9]*\):.*undefined reference to .\([A-Za-z_0-9]*\).*|    \1 line \2 calls \3()|p" \
 			$(BUILD)/server_link.err | sort -u; \
 		echo ""; \
 		echo "  Each of those is raylib's or a view's, and CORE_SRC may not"; \
@@ -239,6 +246,16 @@ sdrprobe: $(SRC)/sdrprobe_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 # It is the whole `./sdrprobe` binary and not a contrivance: the same
 # rule ships it. A check that built something nobody runs would rot exactly
 # the way `check-signal-probe` did while it was green and ungated.
+# Folders are link boundaries (ADR-0028): core -> tech -> runtime -> model
+# -> server -> gui -> app, and a layer may include only what is beneath it.
+# Checked rather than described, because a list kept by hand is what ticket
+# 04's own header audit was -- and it silently began reporting 104 false
+# positives the moment the files moved.
+#: [Checks] a layer includes only what is beneath it (ADR-0028)
+check-layers: $(wildcard $(SRC)/*/*.c) $(wildcard $(SRC)/*/*.h) \
+		scripts/layer_audit.py
+	$(Q)CHECK_TALLY=$(CHECK_TALLY) python3 scripts/layer_audit.py $(SRC)
+
 # The linker cannot catch this and did not. Two CORE_SRC files included
 # `view.h`, which includes `<raylib.h>` -- they called nothing from it, so
 # `check-no-window-link` passed and the trial link resolved every symbol,
@@ -260,7 +277,7 @@ check-no-raylib-headers: $(CORE_SRC) $(DSP_SRC) $(APP_HDR) $(DSP_HDR) \
 	$(Q)n=0; bad=0; \
 	for f in $(CORE_SRC) $(DSP_SRC); do \
 		n=$$((n + 1)); \
-		$(CC) -fsyntax-only $(CFLAGS) -I$(BUILD)/poison -I$(SRC) \
+		$(CC) -fsyntax-only $(CFLAGS) -I$(BUILD)/poison $(SRC_INC) \
 			$(WEB_CFLAGS) $$f 2>$(BUILD)/poison/err || { \
 			echo "  FAIL  $$f compiles against the window:"; \
 			sed -n '1,4p' $(BUILD)/poison/err | sed 's/^/        /'; \
@@ -294,22 +311,22 @@ check-no-window-link: sdrprobe
 # Test sources live in $(TESTS)/ and include the DSP headers from $(SRC)/.
 check-receiver-runtime: $(TESTS)/receiver_runtime_test.c $(TESTS)/check.h \
 		$(TESTS)/fake_backend.c $(TESTS)/fake_backend.h \
-		$(SRC)/receiver_runtime.c $(SRC)/receiver_runtime.h \
-		$(SRC)/device_backend.h $(SRC)/device_profile.h
+		$(SRC)/runtime/receiver_runtime.c $(SRC)/runtime/receiver_runtime.h \
+		$(SRC)/runtime/device_backend.h $(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/receiver_runtime_test \
 		$(TESTS)/receiver_runtime_test.c $(TESTS)/fake_backend.c \
-		$(SRC)/receiver_runtime.c -lm
+		$(SRC)/runtime/receiver_runtime.c -lm
 	$(Q)./$(BUILD)/receiver_runtime_test
 
 # The per-block dispatch, with every callee faked -- see the file comment.
 # No raylib and no sockets: viewer_session.h's pacing decision is a header
 # function precisely so a check can reach it without the loop it lives in.
 check-viewer-session: $(TESTS)/viewer_session_test.c $(TESTS)/check.h \
-		$(SRC)/viewer_session.h
+		$(SRC)/server/viewer_session.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/viewer_session_test \
 		$(TESTS)/viewer_session_test.c -lm
 	$(Q)./$(BUILD)/viewer_session_test
@@ -317,15 +334,15 @@ check-viewer-session: $(TESTS)/viewer_session_test.c $(TESTS)/check.h \
 # `--cflags raylib` alone (no `--libs`) is the point: app.h needs raylib's
 # types, and frame_advance.c must not need its library.
 check-frame-advance: $(TESTS)/frame_advance_test.c $(TESTS)/check.h \
-		$(SRC)/fm_runtime.c $(SRC)/fm_session.c $(SRC)/fm_dsp.c \
-		$(SRC)/rds.c $(SRC)/sdr_dsp.c $(SRC)/debug_log.c \
-		$(SRC)/frame_advance.c $(SRC)/frame_advance.h $(SRC)/app.h
+		$(SRC)/runtime/fm_runtime.c $(SRC)/tech/fm_session.c $(SRC)/tech/fm_dsp.c \
+		$(SRC)/tech/rds.c $(SRC)/core/sdr_dsp.c $(SRC)/runtime/debug_log.c \
+		$(SRC)/runtime/frame_advance.c $(SRC)/runtime/frame_advance.h $(SRC)/runtime/app.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/frame_advance_test \
-		$(TESTS)/frame_advance_test.c $(SRC)/frame_advance.c \
-		$(SRC)/fm_runtime.c $(SRC)/fm_session.c $(SRC)/fm_dsp.c \
-		$(SRC)/rds.c $(SRC)/sdr_dsp.c $(SRC)/debug_log.c -lm
+		$(TESTS)/frame_advance_test.c $(SRC)/runtime/frame_advance.c \
+		$(SRC)/runtime/fm_runtime.c $(SRC)/tech/fm_session.c $(SRC)/tech/fm_dsp.c \
+		$(SRC)/tech/rds.c $(SRC)/core/sdr_dsp.c $(SRC)/runtime/debug_log.c -lm
 	$(Q)./$(BUILD)/frame_advance_test
 
 # The Scope's view model, built from known inputs -- see the file comment
@@ -341,13 +358,13 @@ check-frame-advance: $(TESTS)/frame_advance_test.c $(TESTS)/check.h \
 # compile a .c that includes `view.h`, which is a GUI header and includes
 # raylib itself. Ticket 02 of that spec splits it.
 check-scope-view-model: $(TESTS)/scope_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h \
-		$(SRC)/receiver_view_model.c $(SRC)/receiver_view_model.h $(SRC)/app.h
+		$(SRC)/model/scope_view_model.c $(SRC)/model/scope_view_model.h \
+		$(SRC)/model/receiver_view_model.c $(SRC)/model/receiver_view_model.h $(SRC)/runtime/app.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/scope_view_model_test \
-		$(TESTS)/scope_view_model_test.c $(SRC)/scope_view_model.c \
-		$(SRC)/receiver_view_model.c -lm
+		$(TESTS)/scope_view_model_test.c $(SRC)/model/scope_view_model.c \
+		$(SRC)/model/receiver_view_model.c -lm
 	$(Q)./$(BUILD)/scope_view_model_test
 
 # The shell's half of what a Viewer is told -- the screen's name and the
@@ -355,27 +372,27 @@ check-scope-view-model: $(TESTS)/scope_view_model_test.c $(TESTS)/check.h \
 # `.scratch/layer-boundaries/issues/03-*` item 4. No sample block and no
 # scatter history: two plain structs in, one out, and `-lm` alone.
 check-receiver-view-model: $(TESTS)/receiver_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/receiver_view_model.c $(SRC)/receiver_view_model.h $(SRC)/app.h
+		$(SRC)/model/receiver_view_model.c $(SRC)/model/receiver_view_model.h $(SRC)/runtime/app.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/receiver_view_model_test \
-		$(TESTS)/receiver_view_model_test.c $(SRC)/receiver_view_model.c -lm
+		$(TESTS)/receiver_view_model_test.c $(SRC)/model/receiver_view_model.c -lm
 	$(Q)./$(BUILD)/receiver_view_model_test
 
 # The survey's candidate view model, built from known inputs -- see the file
 # comment in survey_view_model.h for the two drawings' duplicated decision it
 # replaces. --cflags raylib alone for app.h's types; no raylib call in it.
 check-survey-view-model: $(TESTS)/survey_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/survey_view_model.c $(SRC)/survey_view_model.h \
-		$(SRC)/survey_session.c $(SRC)/survey_session.h \
-		$(SRC)/site_history.c $(SRC)/band_plan.c \
-		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c
+		$(SRC)/model/survey_view_model.c $(SRC)/model/survey_view_model.h \
+		$(SRC)/runtime/survey_session.c $(SRC)/runtime/survey_session.h \
+		$(SRC)/runtime/site_history.c $(SRC)/core/band_plan.c \
+		$(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/survey_view_model_test \
-		$(TESTS)/survey_view_model_test.c $(SRC)/survey_view_model.c \
-		$(SRC)/survey_session.c $(SRC)/site_history.c \
-		$(SRC)/band_plan.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
+		$(TESTS)/survey_view_model_test.c $(SRC)/model/survey_view_model.c \
+		$(SRC)/runtime/survey_session.c $(SRC)/runtime/site_history.c \
+		$(SRC)/core/band_plan.c $(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_view_model_test
 
 # The FM view's model, built from known inputs -- most of it the funnel's
@@ -383,14 +400,14 @@ check-survey-view-model: $(TESTS)/survey_view_model_test.c $(TESTS)/check.h \
 # decide for itself (ADR-0012). --cflags raylib alone for app.h's types; no
 # raylib call in it.
 check-fm-view-model: $(TESTS)/fm_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/fm_view_model.c $(SRC)/fm_view_model.h $(SRC)/app.h \
-		$(SRC)/fm_dsp.c $(SRC)/fm_dsp.h $(SRC)/rds.c $(SRC)/rds.h \
-		$(SRC)/sdr_dsp.c
+		$(SRC)/model/fm_view_model.c $(SRC)/model/fm_view_model.h $(SRC)/runtime/app.h \
+		$(SRC)/tech/fm_dsp.c $(SRC)/tech/fm_dsp.h $(SRC)/tech/rds.c $(SRC)/tech/rds.h \
+		$(SRC)/core/sdr_dsp.c
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/fm_view_model_test \
-		$(TESTS)/fm_view_model_test.c $(SRC)/fm_view_model.c \
-		$(SRC)/fm_dsp.c $(SRC)/rds.c $(SRC)/sdr_dsp.c -lm
+		$(TESTS)/fm_view_model_test.c $(SRC)/model/fm_view_model.c \
+		$(SRC)/tech/fm_dsp.c $(SRC)/tech/rds.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/fm_view_model_test
 
 # The browser page's own layout, in a real browser (ticket 11). A Node DOM
@@ -414,11 +431,11 @@ check-web-layout: sdrprobe scripts/web_layout.mjs $(WEB_SRC)
 	CHECK_TALLY=$(CHECK_TALLY) node scripts/web_layout.mjs --sizes $(WEB_SIZES)
 
 check-websocket: $(TESTS)/websocket_test.c $(TESTS)/check.h \
-		$(SRC)/websocket.c $(SRC)/websocket.h
+		$(SRC)/server/websocket.c $(SRC)/server/websocket.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/websocket_test \
-		$(TESTS)/websocket_test.c $(SRC)/websocket.c -lm
+		$(TESTS)/websocket_test.c $(SRC)/server/websocket.c -lm
 	$(Q)./$(BUILD)/websocket_test
 
 # The Viewer link over real loopback sockets -- no window, no receiver, no
@@ -426,62 +443,62 @@ check-websocket: $(TESTS)/websocket_test.c $(TESTS)/check.h \
 # (types only); --libs raylib is deliberately absent, and check-viewer-link
 # is the proof: nothing here needs it to link.
 check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
-		$(SRC)/viewer_link.c $(SRC)/viewer_link.h $(BUILD)/viewer_page.h \
-		$(SRC)/websocket.c $(SRC)/websocket.h \
-		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h \
-		$(SRC)/receiver_view_model.c $(SRC)/receiver_view_model.h \
-		$(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/survey_mark.h \
-		$(SRC)/debug_log.c $(SRC)/debug_log.h \
-		$(SRC)/viewer_command.c $(SRC)/viewer_command.h
+		$(SRC)/server/viewer_link.c $(SRC)/server/viewer_link.h $(BUILD)/viewer_page.h \
+		$(SRC)/server/websocket.c $(SRC)/server/websocket.h \
+		$(SRC)/model/scope_view_model.c $(SRC)/model/scope_view_model.h \
+		$(SRC)/model/receiver_view_model.c $(SRC)/model/receiver_view_model.h \
+		$(SRC)/model/survey_view_model.h $(SRC)/model/fm_view_model.h $(SRC)/model/survey_mark.h \
+		$(SRC)/runtime/debug_log.c $(SRC)/runtime/debug_log.h \
+		$(SRC)/server/viewer_command.c $(SRC)/server/viewer_command.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(WEB_CFLAGS) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) $(WEB_CFLAGS) \
 		-o $(BUILD)/viewer_link_test \
-		$(TESTS)/viewer_link_test.c $(SRC)/viewer_link.c $(SRC)/websocket.c \
-		$(SRC)/scope_view_model.c $(SRC)/receiver_view_model.c \
-		$(SRC)/debug_log.c $(SRC)/viewer_command.c -lm
+		$(TESTS)/viewer_link_test.c $(SRC)/server/viewer_link.c $(SRC)/server/websocket.c \
+		$(SRC)/model/scope_view_model.c $(SRC)/model/receiver_view_model.c \
+		$(SRC)/runtime/debug_log.c $(SRC)/server/viewer_command.c -lm
 	$(Q)./$(BUILD)/viewer_link_test
 
 # The percentage arithmetic behind the Health panel's server-CPU reading,
 # against synthetic (wall, cpu) samples -- no process, no socket, no window.
 check-process-cpu: $(TESTS)/process_cpu_test.c $(TESTS)/check.h \
-		$(SRC)/process_cpu.c $(SRC)/process_cpu.h
+		$(SRC)/server/process_cpu.c $(SRC)/server/process_cpu.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) -o $(BUILD)/process_cpu_test \
-		$(TESTS)/process_cpu_test.c $(SRC)/process_cpu.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) -o $(BUILD)/process_cpu_test \
+		$(TESTS)/process_cpu_test.c $(SRC)/server/process_cpu.c -lm
 	$(Q)./$(BUILD)/process_cpu_test
 
 # The Viewer command line parser (ticket 06), alone: no socket, no
 # struct app, no receiver -- what it accepts and, deliberately more of
 # what it rejects.
 check-viewer-command: $(TESTS)/viewer_command_test.c $(TESTS)/check.h \
-		$(SRC)/viewer_command.c $(SRC)/viewer_command.h
+		$(SRC)/server/viewer_command.c $(SRC)/server/viewer_command.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) -o $(BUILD)/viewer_command_test \
-		$(TESTS)/viewer_command_test.c $(SRC)/viewer_command.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) -o $(BUILD)/viewer_command_test \
+		$(TESTS)/viewer_command_test.c $(SRC)/server/viewer_command.c -lm
 	$(Q)./$(BUILD)/viewer_command_test
 
 check-signal-frame: $(TESTS)/signal_frame_test.c $(TESTS)/check.h \
-		$(SRC)/signal_frame.c $(SRC)/signal_frame.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(SRC)/device_profile.h
+		$(SRC)/core/signal_frame.c $(SRC)/core/signal_frame.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h $(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_frame_test \
-		$(TESTS)/signal_frame_test.c $(SRC)/signal_frame.c \
-		$(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/signal_frame_test \
+		$(TESTS)/signal_frame_test.c $(SRC)/core/signal_frame.c \
+		$(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/signal_frame_test
 
-check-sdr-dsp: $(TESTS)/sdr_dsp_test.c $(TESTS)/check.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
-		$(SRC)/device_profile.h
+check-sdr-dsp: $(TESTS)/sdr_dsp_test.c $(TESTS)/check.h $(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/sdr_dsp_test \
-		$(TESTS)/sdr_dsp_test.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/sdr_dsp_test \
+		$(TESTS)/sdr_dsp_test.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/sdr_dsp_test
 
-check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
-		$(SRC)/device_profile.h
+check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/tech/gsm_dsp.c $(SRC)/tech/gsm_dsp.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_dsp_test \
-		$(TESTS)/gsm_dsp_test.c $(SRC)/gsm_dsp.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/gsm_dsp_test \
+		$(TESTS)/gsm_dsp_test.c $(SRC)/tech/gsm_dsp.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/gsm_dsp_test
 
 # The band plan is a table, not DSP: its own check, and the only one here that
@@ -491,95 +508,95 @@ check-gsm-dsp: $(TESTS)/gsm_dsp_test.c $(TESTS)/check.h $(SRC)/gsm_dsp.c $(SRC)/
 # RDS: the block code, the search that finds group boundaries without a
 # preamble, and what a station says about itself. Decoder side; links fm_dsp
 # only to reach the real capture.
-check-rds: $(TESTS)/rds_test.c $(TESTS)/check.h $(SRC)/rds.c $(SRC)/rds.h \
-		$(SRC)/fm_dsp.c $(SRC)/fm_dsp.h \
-		$(SRC)/device_profile.h
+check-rds: $(TESTS)/rds_test.c $(TESTS)/check.h $(SRC)/tech/rds.c $(SRC)/tech/rds.h \
+		$(SRC)/tech/fm_dsp.c $(SRC)/tech/fm_dsp.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/rds_test \
-		$(TESTS)/rds_test.c $(SRC)/rds.c $(SRC)/fm_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/rds_test \
+		$(TESTS)/rds_test.c $(SRC)/tech/rds.c $(SRC)/tech/fm_dsp.c -lm
 	$(Q)./$(BUILD)/rds_test
 
 # Band II's scan: the 100 kHz raster, that the coarse sweep covers the band
 # with no gap, and what the two passes cost.
-check-fm-scan: $(TESTS)/fm_scan_test.c $(TESTS)/check.h $(SRC)/fm_scan.h
+check-fm-scan: $(TESTS)/fm_scan_test.c $(TESTS)/check.h $(SRC)/tech/fm_scan.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_scan_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/fm_scan_test \
 		$(TESTS)/fm_scan_test.c -lm
 	$(Q)./$(BUILD)/fm_scan_test
 
-check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/fm_dsp.c \
-		$(SRC)/fm_dsp.h \
-		$(SRC)/device_profile.h
+check-fm-dsp: $(TESTS)/fm_dsp_test.c $(TESTS)/check.h $(SRC)/tech/fm_dsp.c \
+		$(SRC)/tech/fm_dsp.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_dsp_test \
-		$(TESTS)/fm_dsp_test.c $(SRC)/fm_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/fm_dsp_test \
+		$(TESTS)/fm_dsp_test.c $(SRC)/tech/fm_dsp.c -lm
 	$(Q)./$(BUILD)/fm_dsp_test
 
 # Which allocations the survey offers to sweep, what range each means, and
 # the dwell that comes with it. Reads the band plan, links no receiver.
 check-survey-bands: $(TESTS)/survey_bands_test.c $(TESTS)/check.h \
-		$(SRC)/survey_bands.h $(SRC)/band_plan.c $(SRC)/band_plan.h \
-		$(SRC)/survey_sweep.h
+		$(SRC)/core/survey_bands.h $(SRC)/core/band_plan.c $(SRC)/core/band_plan.h \
+		$(SRC)/core/survey_sweep.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_bands_test \
-		$(TESTS)/survey_bands_test.c $(SRC)/band_plan.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/survey_bands_test \
+		$(TESTS)/survey_bands_test.c $(SRC)/core/band_plan.c -lm
 	$(Q)./$(BUILD)/survey_bands_test
 
-check-band-plan: $(TESTS)/band_plan_test.c $(TESTS)/check.h $(SRC)/band_plan.c $(SRC)/band_plan.h $(SRC)/band_plan_view.h
+check-band-plan: $(TESTS)/band_plan_test.c $(TESTS)/check.h $(SRC)/core/band_plan.c $(SRC)/core/band_plan.h $(SRC)/gui/band_plan_view.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/band_plan_test \
-		$(TESTS)/band_plan_test.c $(SRC)/band_plan.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/band_plan_test \
+		$(TESTS)/band_plan_test.c $(SRC)/core/band_plan.c -lm
 	$(Q)./$(BUILD)/band_plan_test
 
-check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(TESTS)/check.h $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h
+check-adsb-dsp: $(TESTS)/adsb_dsp_test.c $(TESTS)/check.h $(SRC)/tech/adsb_dsp.c $(SRC)/tech/adsb_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_dsp_test \
-		$(TESTS)/adsb_dsp_test.c $(SRC)/adsb_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/adsb_dsp_test \
+		$(TESTS)/adsb_dsp_test.c $(SRC)/tech/adsb_dsp.c -lm
 	$(Q)./$(BUILD)/adsb_dsp_test
 
 # The LTE cell search: the channel map, the three sequences the standard
 # fixes, and a whole frame synthesised here and read back. The frame is what
 # makes it worth running -- every mapping the plugin uses is written out a
 # second time and independently, so agreement means something.
-check-lte-dsp: $(TESTS)/lte_dsp_test.c $(TESTS)/check.h $(SRC)/lte_dsp.c \
-		$(SRC)/lte_dsp.h $(SRC)/lte_gold.h $(SRC)/lte_mib.c $(SRC)/lte_mib.h \
-		$(SRC)/device_profile.h
+check-lte-dsp: $(TESTS)/lte_dsp_test.c $(TESTS)/check.h $(SRC)/tech/lte_dsp.c \
+		$(SRC)/tech/lte_dsp.h $(SRC)/tech/lte_gold.h $(SRC)/tech/lte_mib.c $(SRC)/tech/lte_mib.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_dsp_test \
-		$(TESTS)/lte_dsp_test.c $(SRC)/lte_dsp.c $(SRC)/lte_mib.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_dsp_test \
+		$(TESTS)/lte_dsp_test.c $(SRC)/tech/lte_dsp.c $(SRC)/tech/lte_mib.c -lm
 	$(Q)./$(BUILD)/lte_dsp_test
 
 # And the Decoder side of LTE: 480 soft bits to a Master Information Block.
 # Scrambling, rate matching, a tail-biting trellis and a masked parity, each
 # pushed on in both directions. No samples, no receiver.
-check-lte-mib: $(TESTS)/lte_mib_test.c $(TESTS)/check.h $(SRC)/lte_mib.c \
-		$(SRC)/lte_mib.h $(SRC)/lte_gold.h
+check-lte-mib: $(TESTS)/lte_mib_test.c $(TESTS)/check.h $(SRC)/tech/lte_mib.c \
+		$(SRC)/tech/lte_mib.h $(SRC)/tech/lte_gold.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_mib_test \
-		$(TESTS)/lte_mib_test.c $(SRC)/lte_mib.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_mib_test \
+		$(TESTS)/lte_mib_test.c $(SRC)/tech/lte_mib.c -lm
 	$(Q)./$(BUILD)/lte_mib_test
 
 # The LTE band scan's order: every channel of a band named exactly once, and
 # the likely carrier centres named first. Links lte_dsp.c for the band table.
-check-lte-scan: $(TESTS)/lte_scan_test.c $(TESTS)/check.h $(SRC)/lte_scan.h \
-		$(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
-		$(SRC)/device_profile.h
+check-lte-scan: $(TESTS)/lte_scan_test.c $(TESTS)/check.h $(SRC)/tech/lte_scan.h \
+		$(SRC)/tech/lte_dsp.c $(SRC)/tech/lte_dsp.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_scan_test \
-		$(TESTS)/lte_scan_test.c $(SRC)/lte_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_scan_test \
+		$(TESTS)/lte_scan_test.c $(SRC)/tech/lte_dsp.c -lm
 	$(Q)./$(BUILD)/lte_scan_test
 
 # Layout check: the GSM and ADS-B views' rectangles and the window chrome,
 # pinned at several window sizes. Needs raylib's headers for the Rectangle type but not
 # the library -- both layouts are pure functions of the window size, which is
 # what makes them testable without opening a window.
-check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
-		$(SRC)/adsb_layout.h $(SRC)/chrome_layout.h $(SRC)/lte_layout.h \
-		$(SRC)/survey_window.h $(SRC)/survey_layout.h $(SRC)/calibration_layout.h \
-		$(SRC)/fm_layout.h $(SRC)/tetra_layout.h $(SRC)/srd_layout.h \
-		$(SRC)/row_list.h
+check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gui/gsm_layout.h \
+		$(SRC)/gui/adsb_layout.h $(SRC)/gui/chrome_layout.h $(SRC)/gui/lte_layout.h \
+		$(SRC)/runtime/survey_window.h $(SRC)/gui/survey_layout.h $(SRC)/gui/calibration_layout.h \
+		$(SRC)/gui/fm_layout.h $(SRC)/gui/tetra_layout.h $(SRC)/gui/srd_layout.h \
+		$(SRC)/gui/row_list.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/layout_test $(TESTS)/layout_test.c -lm
 	$(Q)./$(BUILD)/layout_test
 
@@ -590,108 +607,108 @@ check-layout: $(TESTS)/layout_test.c $(TESTS)/check.h $(SRC)/gsm_layout.h \
 # legacy site-only history is never opened, which nothing pure can assert. It
 # runs in a temporary directory of its own and never touches surveys/.
 check-installation: $(TESTS)/installation_test.c $(TESTS)/check.h \
-		$(SRC)/installation.h $(SRC)/installation.c $(SRC)/config.c \
-		$(SRC)/debug_log.c $(SRC)/debug_log.h \
-		$(SRC)/site_history.h $(SRC)/site_history.c
+		$(SRC)/runtime/installation.h $(SRC)/runtime/installation.c $(SRC)/runtime/config.c \
+		$(SRC)/runtime/debug_log.c $(SRC)/runtime/debug_log.h \
+		$(SRC)/runtime/site_history.h $(SRC)/runtime/site_history.c
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/installation_test \
-		$(TESTS)/installation_test.c $(SRC)/installation.c \
-		$(SRC)/config.c $(SRC)/site_history.c $(SRC)/debug_log.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/installation_test \
+		$(TESTS)/installation_test.c $(SRC)/runtime/installation.c \
+		$(SRC)/runtime/config.c $(SRC)/runtime/site_history.c $(SRC)/runtime/debug_log.c -lm
 	$(Q)./$(BUILD)/installation_test
 
-check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/config.c \
-		$(SRC)/debug_log.c $(SRC)/debug_log.h \
-		$(SRC)/config.h $(SRC)/sdr_dsp.h \
-		$(SRC)/device_profile.h
+check-config: $(TESTS)/config_test.c $(TESTS)/check.h $(SRC)/runtime/config.c \
+		$(SRC)/runtime/debug_log.c $(SRC)/runtime/debug_log.h \
+		$(SRC)/runtime/config.h $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/config_test \
-		$(TESTS)/config_test.c $(SRC)/config.c $(SRC)/debug_log.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/config_test \
+		$(TESTS)/config_test.c $(SRC)/runtime/config.c $(SRC)/runtime/debug_log.c -lm
 	$(Q)./$(BUILD)/config_test
 
 # Naming a saved sweep, and escaping what goes in it. The write itself needs a
 # receiver and a directory; these two do not, and they are where it goes wrong.
 check-survey-record: $(TESTS)/survey_record_test.c $(TESTS)/check.h \
-		$(SRC)/survey_record.c $(SRC)/survey_record.h \
-		$(SRC)/survey_carrier.h $(SRC)/survey_confirm.h \
-		$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/survey_sweep.h \
-		$(SRC)/band_plan.c $(SRC)/band_plan.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(SRC)/installation.h
+		$(SRC)/runtime/survey_record.c $(SRC)/runtime/survey_record.h \
+		$(SRC)/core/survey_carrier.h $(SRC)/core/survey_confirm.h \
+		$(SRC)/core/survey_suspect.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/core/survey_sweep.h \
+		$(SRC)/core/band_plan.c $(SRC)/core/band_plan.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h $(SRC)/runtime/installation.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_record_test \
-		$(TESTS)/survey_record_test.c $(SRC)/survey_record.c \
-		$(SRC)/band_plan.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/survey_record_test \
+		$(TESTS)/survey_record_test.c $(SRC)/runtime/survey_record.c \
+		$(SRC)/core/band_plan.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_record_test
 
 check-survey-store: $(TESTS)/survey_store_test.c $(TESTS)/check.h \
-		$(SRC)/survey_store.c $(SRC)/survey_store.h \
-		$(SRC)/survey_record.c $(SRC)/survey_record.h
+		$(SRC)/runtime/survey_store.c $(SRC)/runtime/survey_store.h \
+		$(SRC)/runtime/survey_record.c $(SRC)/runtime/survey_record.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) \
 		-o $(BUILD)/survey_store_test $(TESTS)/survey_store_test.c \
-		$(SRC)/survey_store.c $(SRC)/survey_record.c $(SRC)/sdr_dsp.c \
-		$(SRC)/band_plan.c -lm
+		$(SRC)/runtime/survey_store.c $(SRC)/runtime/survey_record.c $(SRC)/core/sdr_dsp.c \
+		$(SRC)/core/band_plan.c -lm
 	$(Q)./$(BUILD)/survey_store_test
 
 # One LTE chain walk, over both external captures. No window, no receiver.
 check-lte-chain-analysis: $(TESTS)/lte_chain_analysis_test.c $(TESTS)/check.h \
-		$(SRC)/lte_chain_analysis.c $(SRC)/lte_chain_analysis.h \
-		$(SRC)/lte_confirm.h $(SRC)/lte_stats.h $(SRC)/lte_session.c \
-		$(SRC)/lte_session.h $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
-		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/sdr_dsp.c \
-		$(SRC)/device_profile.h
+		$(SRC)/tech/lte_chain_analysis.c $(SRC)/tech/lte_chain_analysis.h \
+		$(SRC)/tech/lte_confirm.h $(SRC)/tech/lte_stats.h $(SRC)/tech/lte_session.c \
+		$(SRC)/tech/lte_session.h $(SRC)/tech/lte_dsp.c $(SRC)/tech/lte_dsp.h \
+		$(SRC)/tech/lte_mib.c $(SRC)/tech/lte_mib.h $(SRC)/core/sdr_dsp.c \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_chain_analysis_test \
-		$(TESTS)/lte_chain_analysis_test.c $(SRC)/lte_chain_analysis.c \
-		$(SRC)/lte_session.c $(SRC)/lte_dsp.c $(SRC)/lte_mib.c \
-		$(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_chain_analysis_test \
+		$(TESTS)/lte_chain_analysis_test.c $(SRC)/tech/lte_chain_analysis.c \
+		$(SRC)/tech/lte_session.c $(SRC)/tech/lte_dsp.c $(SRC)/tech/lte_mib.c \
+		$(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/lte_chain_analysis_test
 
 # A clock family in octaves rather than harmonics: f, 2f, 4f and never 3f.
 check-clock-chain: $(TESTS)/clock_chain_test.c $(TESTS)/check.h \
-		$(SRC)/clock_chain.h
+		$(SRC)/core/clock_chain.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/clock_chain_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/clock_chain_test \
 		$(TESTS)/clock_chain_test.c -lm
 	$(Q)./$(BUILD)/clock_chain_test
 
 # Whose oscillator a reading belongs to: three numbers, no receiver.
 check-reading-origin: $(TESTS)/reading_origin_test.c $(TESTS)/check.h \
-		$(SRC)/reading_origin.h
+		$(SRC)/core/reading_origin.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/reading_origin_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/reading_origin_test \
 		$(TESTS)/reading_origin_test.c -lm
 	$(Q)./$(BUILD)/reading_origin_test
 
 # What a site has heard before, and how a sweep is judged against it.
 check-site-history: $(TESTS)/site_history_test.c $(TESTS)/check.h \
-		$(SRC)/site_history.c $(SRC)/site_history.h
+		$(SRC)/runtime/site_history.c $(SRC)/runtime/site_history.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/site_history_test \
-		$(TESTS)/site_history_test.c $(SRC)/site_history.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/site_history_test \
+		$(TESTS)/site_history_test.c $(SRC)/runtime/site_history.c -lm
 	$(Q)./$(BUILD)/site_history_test
 
 # Asking again about what a sweep called new or missing.
 check-survey-confirm: $(TESTS)/survey_confirm_test.c $(TESTS)/check.h \
-		$(SRC)/survey_confirm.h $(SRC)/survey_sweep.h
+		$(SRC)/core/survey_confirm.h $(SRC)/core/survey_sweep.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_confirm_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/survey_confirm_test \
 		$(TESTS)/survey_confirm_test.c -lm
 	$(Q)./$(BUILD)/survey_confirm_test
 
 # Local maxima to signals: one carrier has several, and reporting each is how
 # one station becomes five things to remember.
 check-survey-carrier: $(TESTS)/survey_carrier_test.c $(TESTS)/check.h \
-		$(SRC)/survey_carrier.h $(SRC)/sdr_dsp.h \
-		$(SRC)/device_profile.h
+		$(SRC)/core/survey_carrier.h $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_carrier_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/survey_carrier_test \
 		$(TESTS)/survey_carrier_test.c -lm
 	$(Q)./$(BUILD)/survey_carrier_test
 
-check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/options.c $(SRC)/options.h
+check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/runtime/options.c $(SRC)/runtime/options.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/options_test \
-		$(TESTS)/options_test.c $(SRC)/options.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/options_test \
+		$(TESTS)/options_test.c $(SRC)/runtime/options.c -lm
 	$(Q)./$(BUILD)/options_test
 
 # Whole paths through the built program, over the captures in testfiles/:
@@ -703,9 +720,9 @@ check-pipelines: sdrprobe sdrprobe-gui $(TESTS)/pipelines.sh $(FORMAT16)
 
 # When a frequency correction may be trusted (ADR-0004). Pure arithmetic, so
 # the rule can be checked clause by clause without a receiver.
-check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/calibration_gate.h
+check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/runtime/calibration_gate.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/calibration_gate_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/calibration_gate_test \
 		$(TESTS)/calibration_gate_test.c -lm
 	$(Q)./$(BUILD)/calibration_gate_test
 
@@ -716,16 +733,16 @@ check-calibration: $(TESTS)/calibration_gate_test.c $(TESTS)/check.h $(SRC)/cali
 # library.
 # Where a line of text breaks when a panel is narrower than it. Pure
 # arithmetic; how wide a line may be is the caller's font question.
-check-text-wrap: $(TESTS)/text_wrap_test.c $(TESTS)/check.h $(SRC)/text_wrap.h
+check-text-wrap: $(TESTS)/text_wrap_test.c $(TESTS)/check.h $(SRC)/gui/text_wrap.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/text_wrap_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/text_wrap_test \
 		$(TESTS)/text_wrap_test.c -lm
 	$(Q)./$(BUILD)/text_wrap_test
 
 check-row-list: $(TESTS)/row_list_test.c $(TESTS)/check.h \
-		$(SRC)/row_list.h
+		$(SRC)/gui/row_list.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/row_list_test $(TESTS)/row_list_test.c -lm
 	$(Q)./$(BUILD)/row_list_test
 
@@ -733,26 +750,26 @@ check-row-list: $(TESTS)/row_list_test.c $(TESTS)/check.h \
 # and whether a screen changed. It is believed when nothing else can be, so a
 # mislabelled line is worse than no line.
 check-debug-log: $(TESTS)/debug_log_test.c $(TESTS)/check.h \
-		$(SRC)/debug_log.c $(SRC)/debug_log.h $(SRC)/input_route.h
+		$(SRC)/runtime/debug_log.c $(SRC)/runtime/debug_log.h $(SRC)/runtime/input_route.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/debug_log_test \
-		$(TESTS)/debug_log_test.c $(SRC)/debug_log.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/debug_log_test \
+		$(TESTS)/debug_log_test.c $(SRC)/runtime/debug_log.c -lm
 	$(Q)./$(BUILD)/debug_log_test
 
-check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/input_route.h \
-		$(SRC)/view_input.h $(SRC)/srd_log.h \
-		$(SRC)/calibration_nav.h
+check-input: $(TESTS)/input_route_test.c $(TESTS)/check.h $(SRC)/runtime/input_route.h \
+		$(SRC)/runtime/view_input.h $(SRC)/tech/srd_log.h \
+		$(SRC)/runtime/calibration_nav.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/input_route_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/input_route_test \
 		$(TESTS)/input_route_test.c -lm
 	$(Q)./$(BUILD)/input_route_test
 
 # Chart geometry: where the plot sits inside a chart, and which bar the
 # pointer is over. Needs raylib's headers for Rectangle but not the library.
 check-geometry: $(TESTS)/sdrgui_geometry_test.c $(TESTS)/check.h \
-		$(SRC)/sdrgui_geometry.h $(SRC)/sdrgui.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h
+		$(SRC)/gui/sdrgui_geometry.h $(SRC)/gui/sdrgui.h $(SRC)/core/survey_suspect.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) $(shell pkg-config --cflags raylib) \
 		-o $(BUILD)/sdrgui_geometry_test \
 		$(TESTS)/sdrgui_geometry_test.c -lm
 	$(Q)./$(BUILD)/sdrgui_geometry_test
@@ -760,85 +777,85 @@ check-geometry: $(TESTS)/sdrgui_geometry_test.c $(TESTS)/check.h \
 # The BCCH: four bursts to a System Information message. The Decoder context's
 # side of GSM -- interleaving, the Fire code, the convolutional code, and what
 # the message says. No samples, no receiver.
-check-gsm-bcch: $(TESTS)/gsm_bcch_test.c $(TESTS)/check.h $(SRC)/gsm_bcch.c \
-		$(SRC)/gsm_bcch.h
+check-gsm-bcch: $(TESTS)/gsm_bcch_test.c $(TESTS)/check.h $(SRC)/tech/gsm_bcch.c \
+		$(SRC)/tech/gsm_bcch.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_bcch_test \
-		$(TESTS)/gsm_bcch_test.c $(SRC)/gsm_bcch.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/gsm_bcch_test \
+		$(TESTS)/gsm_bcch_test.c $(SRC)/tech/gsm_bcch.c -lm
 	$(Q)./$(BUILD)/gsm_bcch_test
 
 # Whether consecutive SCH decodes hang together: the hyperframe wrap, the
 # elapsed time a frame number is judged against, and a BSIC that changes.
 check-fm-session: $(TESTS)/fm_session_test.c $(TESTS)/check.h \
-		$(SRC)/fm_session.c $(SRC)/fm_session.h $(SRC)/fm_dsp.c \
-		$(SRC)/rds.c $(SRC)/fm_scan.h $(SRC)/sdr_dsp.c \
-		$(SRC)/device_profile.h
+		$(SRC)/tech/fm_session.c $(SRC)/tech/fm_session.h $(SRC)/tech/fm_dsp.c \
+		$(SRC)/tech/rds.c $(SRC)/tech/fm_scan.h $(SRC)/core/sdr_dsp.c \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_session_test \
-		$(TESTS)/fm_session_test.c $(SRC)/fm_session.c $(SRC)/fm_dsp.c \
-		$(SRC)/rds.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/fm_session_test \
+		$(TESTS)/fm_session_test.c $(SRC)/tech/fm_session.c $(SRC)/tech/fm_dsp.c \
+		$(SRC)/tech/rds.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/fm_session_test
 
 check-adsb-session: $(TESTS)/adsb_session_test.c $(TESTS)/check.h \
-		$(SRC)/adsb_session.c $(SRC)/adsb_session.h $(SRC)/adsb_dsp.c \
-		$(SRC)/adsb_analysis.h $(SRC)/sdr_dsp.c $(SRC)/device_profile.h
+		$(SRC)/tech/adsb_session.c $(SRC)/tech/adsb_session.h $(SRC)/tech/adsb_dsp.c \
+		$(SRC)/tech/adsb_analysis.h $(SRC)/core/sdr_dsp.c $(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_session_test \
-		$(TESTS)/adsb_session_test.c $(SRC)/adsb_session.c \
-		$(SRC)/adsb_dsp.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/adsb_session_test \
+		$(TESTS)/adsb_session_test.c $(SRC)/tech/adsb_session.c \
+		$(SRC)/tech/adsb_dsp.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/adsb_session_test
 
 check-lte-session: $(TESTS)/lte_session_test.c $(TESTS)/check.h \
-		$(SRC)/lte_session.c $(SRC)/lte_session.h $(SRC)/lte_dsp.c \
-		$(SRC)/lte_mib.c $(SRC)/lte_stats.h $(SRC)/sdr_dsp.c \
-		$(SRC)/device_profile.h
+		$(SRC)/tech/lte_session.c $(SRC)/tech/lte_session.h $(SRC)/tech/lte_dsp.c \
+		$(SRC)/tech/lte_mib.c $(SRC)/tech/lte_stats.h $(SRC)/core/sdr_dsp.c \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_session_test \
-		$(TESTS)/lte_session_test.c $(SRC)/lte_session.c $(SRC)/lte_dsp.c \
-		$(SRC)/lte_mib.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_session_test \
+		$(TESTS)/lte_session_test.c $(SRC)/tech/lte_session.c $(SRC)/tech/lte_dsp.c \
+		$(SRC)/tech/lte_mib.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/lte_session_test
 
 check-tetra-session: $(TESTS)/tetra_session_test.c $(TESTS)/check.h \
-		$(SRC)/tetra_session.c $(SRC)/tetra_session.h $(SRC)/tetra_dsp.c \
-		$(SRC)/tetra_sync.c $(SRC)/sdr_dsp.c $(SRC)/signal_probe.c \
-		$(SRC)/device_profile.h
+		$(SRC)/tech/tetra_session.c $(SRC)/tech/tetra_session.h $(SRC)/tech/tetra_dsp.c \
+		$(SRC)/tech/tetra_sync.c $(SRC)/core/sdr_dsp.c $(SRC)/core/signal_probe.c \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/tetra_session_test \
-		$(TESTS)/tetra_session_test.c $(SRC)/tetra_session.c \
-		$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c $(SRC)/sdr_dsp.c \
-		$(SRC)/signal_probe.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/tetra_session_test \
+		$(TESTS)/tetra_session_test.c $(SRC)/tech/tetra_session.c \
+		$(SRC)/tech/tetra_dsp.c $(SRC)/tech/tetra_sync.c $(SRC)/core/sdr_dsp.c \
+		$(SRC)/core/signal_probe.c -lm
 	$(Q)./$(BUILD)/tetra_session_test
 
 check-gsm-session: $(TESTS)/gsm_session_test.c $(TESTS)/check.h \
-		$(SRC)/gsm_session.c $(SRC)/gsm_session.h $(SRC)/gsm_dsp.c \
-		$(SRC)/gsm_bcch.c $(SRC)/sdr_dsp.c $(SRC)/device_profile.h
+		$(SRC)/tech/gsm_session.c $(SRC)/tech/gsm_session.h $(SRC)/tech/gsm_dsp.c \
+		$(SRC)/tech/gsm_bcch.c $(SRC)/core/sdr_dsp.c $(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_session_test \
-		$(TESTS)/gsm_session_test.c $(SRC)/gsm_session.c \
-		$(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/gsm_session_test \
+		$(TESTS)/gsm_session_test.c $(SRC)/tech/gsm_session.c \
+		$(SRC)/tech/gsm_dsp.c $(SRC)/tech/gsm_bcch.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/gsm_session_test
 
 check-gsm-continuity: $(TESTS)/gsm_continuity_test.c $(TESTS)/check.h \
-		$(SRC)/gsm_continuity.h $(SRC)/input_route.h
+		$(SRC)/tech/gsm_continuity.h $(SRC)/runtime/input_route.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_continuity_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/gsm_continuity_test \
 		$(TESTS)/gsm_continuity_test.c -lm
 	$(Q)./$(BUILD)/gsm_continuity_test
 
 # What the ADS-B view decides: whether Mode S could be there, which frame the
 # analysis charts describe, the message log, and the funnel counters.
 check-adsb-analysis: $(TESTS)/adsb_analysis_test.c $(TESTS)/check.h \
-		$(SRC)/adsb_analysis.h $(SRC)/gsm_continuity.h $(SRC)/input_route.h $(SRC)/adsb_dsp.h
+		$(SRC)/tech/adsb_analysis.h $(SRC)/tech/gsm_continuity.h $(SRC)/runtime/input_route.h $(SRC)/tech/adsb_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_analysis_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/adsb_analysis_test \
 		$(TESTS)/adsb_analysis_test.c -lm
 	$(Q)./$(BUILD)/adsb_analysis_test
 
 # The GSM 900 band scan: how the downlink is covered, and which channel the
 # operator is handed at the end. That single ARFCN is the scan's whole output.
-check-scan: $(TESTS)/scan_plan_test.c $(TESTS)/check.h $(SRC)/scan_plan.h
+check-scan: $(TESTS)/scan_plan_test.c $(TESTS)/check.h $(SRC)/runtime/scan_plan.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/scan_plan_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/scan_plan_test \
 		$(TESTS)/scan_plan_test.c -lm
 	$(Q)./$(BUILD)/scan_plan_test
 
@@ -847,41 +864,41 @@ check-scan: $(TESTS)/scan_plan_test.c $(TESTS)/check.h $(SRC)/scan_plan.h
 # the file worker driven against a real capture. Links librtlsdr for the device
 # type only -- it never opens one.
 check-acquisition: $(TESTS)/acquisition_test.c $(TESTS)/check.h \
-		$(SRC)/acquisition.c $(SRC)/acquisition.h \
-		$(SRC)/iq_ring.c $(SRC)/iq_ring.h \
-		$(SRC)/device_profile.h
+		$(SRC)/runtime/acquisition.c $(SRC)/runtime/acquisition.h \
+		$(SRC)/core/iq_ring.c $(SRC)/core/iq_ring.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -pthread -o $(BUILD)/acquisition_test \
-		$(TESTS)/acquisition_test.c $(SRC)/acquisition.c $(SRC)/iq_ring.c \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -pthread -o $(BUILD)/acquisition_test \
+		$(TESTS)/acquisition_test.c $(SRC)/runtime/acquisition.c $(SRC)/core/iq_ring.c \
 		$(shell pkg-config --libs librtlsdr) -lm -pthread
 	$(Q)./$(BUILD)/acquisition_test
 
 check-iq-ring: $(TESTS)/iq_ring_test.c $(TESTS)/check.h \
-		$(SRC)/iq_ring.c $(SRC)/iq_ring.h $(SRC)/device_profile.h
+		$(SRC)/core/iq_ring.c $(SRC)/core/iq_ring.h $(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -pthread -o $(BUILD)/iq_ring_test \
-		$(TESTS)/iq_ring_test.c $(SRC)/iq_ring.c -lm -pthread
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -pthread -o $(BUILD)/iq_ring_test \
+		$(TESTS)/iq_ring_test.c $(SRC)/core/iq_ring.c -lm -pthread
 	$(Q)./$(BUILD)/iq_ring_test
 
 # Which candidates the survey should warn about: the receiver's own reference
 # comb, and the DC offset at each step centre. The check is built from a real
 # sweep taken with the antenna disconnected.
 check-signal-findings: $(TESTS)/signal_findings_test.c $(TESTS)/check.h \
-		$(SRC)/signal_findings.h $(SRC)/signal_probe.h
+		$(SRC)/core/signal_findings.h $(SRC)/core/signal_probe.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_findings_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/signal_findings_test \
 		$(TESTS)/signal_findings_test.c -lm
 	$(Q)./$(BUILD)/signal_findings_test
 
 check-signal-analysis: $(TESTS)/signal_analysis_test.c $(TESTS)/check.h \
-		$(SRC)/signal_analysis.c $(SRC)/signal_analysis.h \
-		$(SRC)/signal_probe.c $(SRC)/signal_probe.h \
-		$(SRC)/signal_findings.h $(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(SRC)/device_profile.h
+		$(SRC)/runtime/signal_analysis.c $(SRC)/runtime/signal_analysis.h \
+		$(SRC)/core/signal_probe.c $(SRC)/core/signal_probe.h \
+		$(SRC)/core/signal_findings.h $(SRC)/tech/srd_dsp.c $(SRC)/tech/srd_dsp.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h $(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_analysis_test \
-		$(TESTS)/signal_analysis_test.c $(SRC)/signal_analysis.c \
-		$(SRC)/signal_probe.c $(SRC)/srd_dsp.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/signal_analysis_test \
+		$(TESTS)/signal_analysis_test.c $(SRC)/runtime/signal_analysis.c \
+		$(SRC)/core/signal_probe.c $(SRC)/tech/srd_dsp.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/signal_analysis_test
 
 # The 16-bit corpus, and the gate every later device-model ticket is measured
@@ -916,10 +933,10 @@ rescale-capture: $(BUILD)/rescale_capture
 	$(Q)./$(BUILD)/rescale_capture $(FILE_RESCALE) $(OUT_RESCALE)
 
 $(BUILD)/websocket_echo_server: scripts/websocket_echo_server.c \
-		$(SRC)/websocket.c $(SRC)/websocket.h
+		$(SRC)/server/websocket.c $(SRC)/server/websocket.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $@ scripts/websocket_echo_server.c \
-		$(SRC)/websocket.c
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $@ scripts/websocket_echo_server.c \
+		$(SRC)/server/websocket.c
 
 #: [Tools] a throwaway HTTP+WebSocket echo server for the manual browser proof ticket 04 asks for (PORT_WEBSOCKET=8765)
 websocket-echo-server: $(BUILD)/websocket_echo_server
@@ -951,72 +968,72 @@ check-make-help: scripts/make_help.py Makefile
 	$(Q)CHECK_TALLY=$(CHECK_TALLY) python3 scripts/make_help.py --self-test
 
 check-device-backend: $(TESTS)/device_backend_test.c $(TESTS)/check.h \
-		$(SRC)/device_backend.h $(SRC)/device_profile.h \
-		$(SRC)/capture_sidecar.h $(SRC)/backend_capture.c $(FORMAT16)
+		$(SRC)/runtime/device_backend.h $(SRC)/core/device_profile.h \
+		$(SRC)/core/capture_sidecar.h $(SRC)/runtime/backend_capture.c $(FORMAT16)
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/device_backend_test \
-		$(TESTS)/device_backend_test.c $(SRC)/backend_capture.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/device_backend_test \
+		$(TESTS)/device_backend_test.c $(SRC)/runtime/backend_capture.c -lm
 	$(Q)./$(BUILD)/device_backend_test
 
 check-capture-sidecar: $(TESTS)/capture_sidecar_test.c $(TESTS)/check.h \
-		$(SRC)/capture_sidecar.h $(SRC)/device_profile.h $(FORMAT16)
+		$(SRC)/core/capture_sidecar.h $(SRC)/core/device_profile.h $(FORMAT16)
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/capture_sidecar_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/capture_sidecar_test \
 		$(TESTS)/capture_sidecar_test.c -lm
 	$(Q)./$(BUILD)/capture_sidecar_test
 
 check-device-profile: $(TESTS)/device_profile_test.c $(TESTS)/check.h \
-		$(SRC)/device_profile.h $(SRC)/survey_bands.h \
-		$(SRC)/survey_sweep.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/band_plan.h \
-		$(SRC)/sdr_dsp.h
+		$(SRC)/core/device_profile.h $(SRC)/core/survey_bands.h \
+		$(SRC)/core/survey_sweep.h $(SRC)/core/survey_suspect.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/core/band_plan.h \
+		$(SRC)/core/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/device_profile_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/device_profile_test \
 		$(TESTS)/device_profile_test.c -lm
 	$(Q)./$(BUILD)/device_profile_test
 
 check-sample-format: $(TESTS)/sample_format_test.c $(TESTS)/check.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h $(FORMAT16) \
-		$(SRC)/device_profile.h
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h $(FORMAT16) \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/sample_format_test \
-		$(TESTS)/sample_format_test.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/sample_format_test \
+		$(TESTS)/sample_format_test.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/sample_format_test
 
 check-signal-probe: $(TESTS)/signal_probe_test.c $(TESTS)/check.h \
-		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+		$(SRC)/core/signal_probe.c $(SRC)/core/signal_probe.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_probe_test \
-		$(TESTS)/signal_probe_test.c $(SRC)/signal_probe.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/signal_probe_test \
+		$(TESTS)/signal_probe_test.c $(SRC)/core/signal_probe.c -lm
 	$(Q)./$(BUILD)/signal_probe_test
 
 check-lte-findings: $(TESTS)/lte_findings_test.c $(TESTS)/check.h \
-		$(SRC)/lte_findings.h $(SRC)/lte_stats.h
+		$(SRC)/tech/lte_findings.h $(SRC)/tech/lte_stats.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_findings_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_findings_test \
 		$(TESTS)/lte_findings_test.c -lm
 	$(Q)./$(BUILD)/lte_findings_test
 
 check-lte-stats: $(TESTS)/lte_stats_test.c $(TESTS)/check.h \
-		$(SRC)/lte_stats.h
+		$(SRC)/tech/lte_stats.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_stats_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_stats_test \
 		$(TESTS)/lte_stats_test.c -lm
 	$(Q)./$(BUILD)/lte_stats_test
 
 check-lte-confirm: $(TESTS)/lte_confirm_test.c $(TESTS)/check.h \
-		$(SRC)/lte_confirm.h
+		$(SRC)/tech/lte_confirm.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_confirm_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_confirm_test \
 		$(TESTS)/lte_confirm_test.c -lm
 	$(Q)./$(BUILD)/lte_confirm_test
 
 check-suspect: $(TESTS)/survey_suspect_test.c $(TESTS)/check.h \
-		$(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/survey_sweep.h $(SRC)/sdr_dsp.h \
-		$(SRC)/band_plan.c $(SRC)/band_plan.h \
-		$(SRC)/device_profile.h
+		$(SRC)/core/survey_suspect.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/core/survey_sweep.h $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/band_plan.c $(SRC)/core/band_plan.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_suspect_test \
-		$(TESTS)/survey_suspect_test.c $(SRC)/band_plan.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/survey_suspect_test \
+		$(TESTS)/survey_suspect_test.c $(SRC)/core/band_plan.c -lm
 	$(Q)./$(BUILD)/survey_suspect_test
 
 # The sweep itself: the step plan, the fold, and what measuring a candidate
@@ -1024,9 +1041,9 @@ check-suspect: $(TESTS)/survey_suspect_test.c $(TESTS)/check.h \
 # hides whatever transmits in it and the chart looks right -- so the arithmetic
 # is the only place it can be caught.
 check-survey-sweep: $(TESTS)/survey_sweep_test.c $(TESTS)/check.h \
-		$(SRC)/survey_sweep.h
+		$(SRC)/core/survey_sweep.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_sweep_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/survey_sweep_test \
 		$(TESTS)/survey_sweep_test.c -lm
 	$(Q)./$(BUILD)/survey_sweep_test
 
@@ -1037,15 +1054,15 @@ check-survey-sweep: $(TESTS)/survey_sweep_test.c $(TESTS)/check.h \
 # and not from the request, which is the fault no capture can reach -- nothing
 # in testfiles/ retunes (ADR-0012, ADR-0024).
 check-startup-session: $(TESTS)/startup_session_test.c $(TESTS)/check.h \
-		$(SRC)/startup_session.c $(SRC)/startup_session.h \
-		$(SRC)/scan_plan.h $(SRC)/lte_scan.h $(SRC)/calibration_gate.h \
-		$(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
-		$(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+		$(SRC)/runtime/startup_session.c $(SRC)/runtime/startup_session.h \
+		$(SRC)/runtime/scan_plan.h $(SRC)/tech/lte_scan.h $(SRC)/runtime/calibration_gate.h \
+		$(SRC)/tech/gsm_dsp.c $(SRC)/tech/gsm_dsp.h \
+		$(SRC)/tech/lte_dsp.c $(SRC)/tech/lte_dsp.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/startup_session_test \
-		$(TESTS)/startup_session_test.c $(SRC)/startup_session.c \
-		$(SRC)/gsm_dsp.c $(SRC)/lte_dsp.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/startup_session_test \
+		$(TESTS)/startup_session_test.c $(SRC)/runtime/startup_session.c \
+		$(SRC)/tech/gsm_dsp.c $(SRC)/tech/lte_dsp.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)$(BUILD)/startup_session_test $(TEE)
 
 # The survey's own state machine: which block is stale, when a step is over,
@@ -1053,17 +1070,17 @@ check-startup-session: $(TESTS)/startup_session_test.c $(TESTS)/check.h \
 # Every one of those used to be reachable only by running the program against
 # a dongle and clicking (ADR-0012).
 check-survey-session: $(TESTS)/survey_session_test.c $(TESTS)/check.h \
-		$(SRC)/survey_session.c $(SRC)/survey_session.h \
-		$(SRC)/survey_sweep.h $(SRC)/survey_carrier.h \
-		$(SRC)/survey_confirm.h $(SRC)/survey_suspect.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h \
-		$(SRC)/site_history.c $(SRC)/site_history.h \
-		$(SRC)/band_plan.c $(SRC)/band_plan.h \
-		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c
+		$(SRC)/runtime/survey_session.c $(SRC)/runtime/survey_session.h \
+		$(SRC)/core/survey_sweep.h $(SRC)/core/survey_carrier.h \
+		$(SRC)/core/survey_confirm.h $(SRC)/core/survey_suspect.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h \
+		$(SRC)/runtime/site_history.c $(SRC)/runtime/site_history.h \
+		$(SRC)/core/band_plan.c $(SRC)/core/band_plan.h \
+		$(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_session_test \
-		$(TESTS)/survey_session_test.c $(SRC)/survey_session.c \
-		$(SRC)/site_history.c $(SRC)/band_plan.c $(SRC)/signal_probe.c \
-		$(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/survey_session_test \
+		$(TESTS)/survey_session_test.c $(SRC)/runtime/survey_session.c \
+		$(SRC)/runtime/site_history.c $(SRC)/core/band_plan.c $(SRC)/core/signal_probe.c \
+		$(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_session_test
 
 # The band survey's window arithmetic: zoom, pan, and what Sweep would sweep.
@@ -1071,11 +1088,11 @@ check-survey-session: $(TESTS)/survey_session_test.c $(TESTS)/check.h \
 # decisions previously had to be checked by building an instrumented binary and
 # running it against the dongle, and two of them shipped wrong.
 check-freq-window: $(TESTS)/freq_window_test.c $(TESTS)/check.h \
-		$(SRC)/chart_window.c \
-		$(SRC)/freq_window.h
+		$(SRC)/runtime/chart_window.c \
+		$(SRC)/core/freq_window.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/freq_window_test \
-		$(TESTS)/freq_window_test.c $(SRC)/chart_window.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/freq_window_test \
+		$(TESTS)/freq_window_test.c $(SRC)/runtime/chart_window.c -lm
 	$(Q)./$(BUILD)/freq_window_test
 
 # One command that says whether the tree is sound, for agents and for people.
@@ -1091,9 +1108,9 @@ check-freq-window: $(TESTS)/freq_window_test.c $(TESTS)/check.h \
 # an out-of-order return was expressible and silent. Plain integers here, so
 # the ordering is reachable without a receiver or a window (ADR-0012).
 check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
-		$(SRC)/receiver_lease.h
+		$(SRC)/runtime/receiver_lease.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/receiver_lease_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/receiver_lease_test \
 		$(TESTS)/receiver_lease_test.c -lm
 	$(Q)./$(BUILD)/receiver_lease_test
 
@@ -1111,7 +1128,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-no-window-link check-no-raylib-headers check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-layers check-no-window-link check-no-raylib-headers check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \
@@ -1208,124 +1225,124 @@ RATE_FM_FILTER ?= 2048000
 # Rectangular against shaped biphase filter, over the same samples at a sweep
 # of added noise. Answers whether the theoretical decibel is worth having.
 #: RDS: which biphase filter, over the same samples (FILE_FM_FILTER=)
-probe-fm-filter: scripts/fm_filter_probe.c $(SRC)/fm_dsp.c $(SRC)/fm_dsp.h \
-		$(SRC)/rds.c $(SRC)/rds.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+probe-fm-filter: scripts/fm_filter_probe.c $(SRC)/tech/fm_dsp.c $(SRC)/tech/fm_dsp.h \
+		$(SRC)/tech/rds.c $(SRC)/tech/rds.h $(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fm_filter_probe \
-		scripts/fm_filter_probe.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
-		$(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/fm_filter_probe \
+		scripts/fm_filter_probe.c $(SRC)/tech/fm_dsp.c $(SRC)/tech/rds.c \
+		$(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/fm_filter_probe $(FILE_FM_FILTER) $(RATE_FM_FILTER)
 
 check-lte-turbo: $(TESTS)/lte_turbo_test.c $(TESTS)/check.h \
-		$(SRC)/lte_turbo.c $(SRC)/lte_turbo.h
+		$(SRC)/tech/lte_turbo.c $(SRC)/tech/lte_turbo.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_turbo_test \
-		$(TESTS)/lte_turbo_test.c $(SRC)/lte_turbo.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_turbo_test \
+		$(TESTS)/lte_turbo_test.c $(SRC)/tech/lte_turbo.c -lm
 	$(Q)./$(BUILD)/lte_turbo_test
 
 check-tetra-dsp: $(TESTS)/tetra_dsp_test.c $(TESTS)/check.h \
-		$(SRC)/tetra_dsp.c $(SRC)/tetra_dsp.h \
-		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+		$(SRC)/tech/tetra_dsp.c $(SRC)/tech/tetra_dsp.h \
+		$(SRC)/core/signal_probe.c $(SRC)/core/signal_probe.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/tetra_dsp_test \
-		$(TESTS)/tetra_dsp_test.c $(SRC)/tetra_dsp.c \
-		$(SRC)/signal_probe.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/tetra_dsp_test \
+		$(TESTS)/tetra_dsp_test.c $(SRC)/tech/tetra_dsp.c \
+		$(SRC)/core/signal_probe.c -lm
 	$(Q)./$(BUILD)/tetra_dsp_test
 
-check-srd-dsp: $(TESTS)/srd_dsp_test.c $(TESTS)/check.h $(SRC)/srd_frame.h \
-		$(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
-		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+check-srd-dsp: $(TESTS)/srd_dsp_test.c $(TESTS)/check.h $(SRC)/tech/srd_frame.h \
+		$(SRC)/tech/srd_dsp.c $(SRC)/tech/srd_dsp.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/signal_probe.c $(SRC)/core/signal_probe.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_dsp_test \
-		$(TESTS)/srd_dsp_test.c $(SRC)/srd_dsp.c \
-		$(SRC)/sdr_dsp.c $(SRC)/signal_probe.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/srd_dsp_test \
+		$(TESTS)/srd_dsp_test.c $(SRC)/tech/srd_dsp.c \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/signal_probe.c -lm
 	$(Q)./$(BUILD)/srd_dsp_test
 
 check-srd-frame: $(TESTS)/srd_frame_test.c $(TESTS)/check.h \
-		$(SRC)/srd_frame.c $(SRC)/srd_frame.h \
-		$(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
-		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+		$(SRC)/tech/srd_frame.c $(SRC)/tech/srd_frame.h \
+		$(SRC)/tech/srd_dsp.c $(SRC)/tech/srd_dsp.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/signal_probe.c $(SRC)/core/signal_probe.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_frame_test \
-		$(TESTS)/srd_frame_test.c $(SRC)/srd_frame.c \
-		$(SRC)/srd_dsp.c $(SRC)/sdr_dsp.c $(SRC)/signal_probe.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/srd_frame_test \
+		$(TESTS)/srd_frame_test.c $(SRC)/tech/srd_frame.c \
+		$(SRC)/tech/srd_dsp.c $(SRC)/core/sdr_dsp.c $(SRC)/core/signal_probe.c -lm
 	$(Q)./$(BUILD)/srd_frame_test
 
 check-srd-record: $(TESTS)/srd_record_test.c $(TESTS)/check.h \
-		$(SRC)/srd_record.h
+		$(SRC)/tech/srd_record.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_record_test \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/srd_record_test \
 		$(TESTS)/srd_record_test.c -lm
 	$(Q)./$(BUILD)/srd_record_test
 
 check-srd-session: $(TESTS)/srd_session_test.c $(TESTS)/check.h \
-		$(SRC)/srd_session.c $(SRC)/srd_session.h \
-		$(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
-		$(SRC)/srd_frame.c $(SRC)/srd_frame.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
-		$(SRC)/signal_probe.c $(SRC)/signal_probe.h
+		$(SRC)/tech/srd_session.c $(SRC)/tech/srd_session.h \
+		$(SRC)/tech/srd_dsp.c $(SRC)/tech/srd_dsp.h \
+		$(SRC)/tech/srd_frame.c $(SRC)/tech/srd_frame.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/signal_probe.c $(SRC)/core/signal_probe.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_session_test \
-		$(TESTS)/srd_session_test.c $(SRC)/srd_session.c \
-		$(SRC)/srd_dsp.c $(SRC)/srd_frame.c $(SRC)/sdr_dsp.c \
-		$(SRC)/signal_probe.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/srd_session_test \
+		$(TESTS)/srd_session_test.c $(SRC)/tech/srd_session.c \
+		$(SRC)/tech/srd_dsp.c $(SRC)/tech/srd_frame.c $(SRC)/core/sdr_dsp.c \
+		$(SRC)/core/signal_probe.c -lm
 	$(Q)./$(BUILD)/srd_session_test
 
 check-tetra-sync: $(TESTS)/tetra_sync_test.c $(TESTS)/check.h \
-		$(SRC)/tetra_sync.c $(SRC)/tetra_sync.h
+		$(SRC)/tech/tetra_sync.c $(SRC)/tech/tetra_sync.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/tetra_sync_test \
-		$(TESTS)/tetra_sync_test.c $(SRC)/tetra_sync.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/tetra_sync_test \
+		$(TESTS)/tetra_sync_test.c $(SRC)/tech/tetra_sync.c -lm
 	$(Q)./$(BUILD)/tetra_sync_test
 
 check-lte-transport: $(TESTS)/lte_transport_test.c $(TESTS)/check.h \
-		$(SRC)/lte_transport.c $(SRC)/lte_transport.h \
-		$(SRC)/lte_turbo.c $(SRC)/lte_turbo.h
+		$(SRC)/tech/lte_transport.c $(SRC)/tech/lte_transport.h \
+		$(SRC)/tech/lte_turbo.c $(SRC)/tech/lte_turbo.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_transport_test \
-		$(TESTS)/lte_transport_test.c $(SRC)/lte_transport.c \
-		$(SRC)/lte_turbo.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_transport_test \
+		$(TESTS)/lte_transport_test.c $(SRC)/tech/lte_transport.c \
+		$(SRC)/tech/lte_turbo.c -lm
 	$(Q)./$(BUILD)/lte_transport_test
 
 #: walk the GSM SCH chain, stage by stage (FILE=)
-probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+probe-gsm-chain: scripts/gsm_chain_probe.c $(SRC)/tech/gsm_dsp.c $(SRC)/tech/gsm_dsp.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/gsm_chain_probe \
-		scripts/gsm_chain_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/gsm_chain_probe \
+		scripts/gsm_chain_probe.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/gsm_chain_probe $(FILE)
 
 # White-box diagnostic walk through the ADS-B Mode S decode chain.
 FILE_ADSB ?= testfiles/adsb_modes1.bin
 #: walk the Mode S chain, stage by stage (FILE_ADSB=)
-probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/adsb_dsp.c $(SRC)/adsb_dsp.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+probe-adsb-chain: scripts/adsb_chain_probe.c $(SRC)/tech/adsb_dsp.c $(SRC)/tech/adsb_dsp.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/adsb_chain_probe \
-		scripts/adsb_chain_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/adsb_chain_probe \
+		scripts/adsb_chain_probe.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/adsb_chain_probe $(FILE_ADSB)
 
 # White-box diagnostic walk through the LTE cell search and broadcast channel.
 FILE_LTE ?= testfiles/lte_b20_pci28.bin
 FILE_NBIOT ?= captures/nbiot.bin
 #: is there NB-IoT here? (FILE_NBIOT=, or --self-test)
-probe-nbiot: scripts/nbiot_gate.c $(SRC)/lte_dsp.h
+probe-nbiot: scripts/nbiot_gate.c $(SRC)/tech/lte_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/nbiot_gate \
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/nbiot_gate \
 		scripts/nbiot_gate.c -lm
 	$(Q)./$(BUILD)/nbiot_gate $(FILE_NBIOT)
 
 #: walk the LTE chain over a capture, single-cell beside multi-cell (FILE_LTE=)
-probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
-		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h \
-		$(SRC)/lte_chain_analysis.c $(SRC)/lte_chain_analysis.h \
-		$(SRC)/lte_session.c $(SRC)/lte_session.h
+probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/tech/lte_dsp.c $(SRC)/tech/lte_dsp.h \
+		$(SRC)/tech/lte_mib.c $(SRC)/tech/lte_mib.h $(SRC)/tech/lte_gold.h \
+		$(SRC)/tech/lte_chain_analysis.c $(SRC)/tech/lte_chain_analysis.h \
+		$(SRC)/tech/lte_session.c $(SRC)/tech/lte_session.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/lte_chain_probe \
-		scripts/lte_chain_probe.c $(SRC)/lte_chain_analysis.c \
-		$(SRC)/lte_session.c $(SRC)/lte_mib.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/lte_chain_probe \
+		scripts/lte_chain_probe.c $(SRC)/tech/lte_chain_analysis.c \
+		$(SRC)/tech/lte_session.c $(SRC)/tech/lte_mib.c -lm
 	$(Q)./$(BUILD)/lte_chain_probe $(FILE_LTE)
 
 # Where the two-cell fixture stops separating two cells, and whether that is a
@@ -1340,13 +1357,13 @@ probe-lte-chain: scripts/lte_chain_probe.c $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
 MODE_TWO_CELL ?= --seeds
 #: the two-cell fixture over forty draws of its traffic (MODE_TWO_CELL=--fixture hashes it stage by stage)
 probe-two-cell: $(TESTS)/lte_dsp_test.c $(TESTS)/two_cell_sweep.inc \
-		$(TESTS)/check.h $(SRC)/lte_dsp.c $(SRC)/lte_dsp.h \
-		$(SRC)/lte_mib.c $(SRC)/lte_mib.h $(SRC)/lte_gold.h \
-		$(SRC)/device_profile.h
+		$(TESTS)/check.h $(SRC)/tech/lte_dsp.c $(SRC)/tech/lte_dsp.h \
+		$(SRC)/tech/lte_mib.c $(SRC)/tech/lte_mib.h $(SRC)/tech/lte_gold.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -Wno-unused-function -I$(SRC) -I$(TESTS) \
+	$(Q)$(CC) $(CFLAGS) -Wno-unused-function $(SRC_INC) -I$(TESTS) \
 		-DLTE_TWO_CELL_SWEEP -o $(BUILD)/two_cell_sweep \
-		$(TESTS)/lte_dsp_test.c $(SRC)/lte_mib.c -lm
+		$(TESTS)/lte_dsp_test.c $(SRC)/tech/lte_mib.c -lm
 	$(Q)./$(BUILD)/two_cell_sweep $(MODE_TWO_CELL) $(SEEDS_TWO_CELL)
 
 # What the DSP costs per sample block, against the 65.5 ms one block covers.
@@ -1362,11 +1379,11 @@ RATE_PERIODICITY?=1920000
 # transform and the real fold; a survey of nothing should report nothing.
 DRAWS ?= 6
 #: what a survey of nothing reports, at every fold depth (DRAWS=)
-probe-survey-threshold: scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c \
-		$(SRC)/sdr_dsp.h $(SRC)/survey_sweep.h
+probe-survey-threshold: scripts/survey_threshold_probe.c $(SRC)/core/sdr_dsp.c \
+		$(SRC)/core/sdr_dsp.h $(SRC)/core/survey_sweep.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/survey_threshold_probe \
-		scripts/survey_threshold_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/survey_threshold_probe \
+		scripts/survey_threshold_probe.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_threshold_probe $(DRAWS)
 
 # What signal_probe says about a capture, at a signal and at its controls.
@@ -1391,20 +1408,20 @@ PAIRS_SIGNAL?=0
 # the detector that knows the difference -- swept, with a narrow search at
 # each step, because the shipping one picks one winner over 50 kHz.
 #: every coherent tone in a GSM channel, and which is the FCCH (FILE_FCCH= RATE_FCCH= CARRIER_FCCH=)
-probe-fcch: scripts/fcch_probe.c $(SRC)/gsm_dsp.c $(SRC)/gsm_dsp.h
+probe-fcch: scripts/fcch_probe.c $(SRC)/tech/gsm_dsp.c $(SRC)/tech/gsm_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/fcch_probe \
-		scripts/fcch_probe.c $(SRC)/gsm_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/fcch_probe \
+		scripts/fcch_probe.c $(SRC)/tech/gsm_dsp.c -lm
 	$(Q)./$(BUILD)/fcch_probe $(FILE_FCCH) $(RATE_FCCH) $(CARRIER_FCCH) \
 		$(SPAN_FCCH) $(STEP_FCCH) $(HALF_FCCH)
 
 #: on air, or noise? a signal measured against its own controls (FILE_SIGNAL= AT_SIGNAL= CONTROLS_SIGNAL=)
-probe-signal: scripts/signal_report.c $(SRC)/signal_probe.c \
-		$(SRC)/signal_probe.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h \
-		$(SRC)/device_profile.h
+probe-signal: scripts/signal_report.c $(SRC)/core/signal_probe.c \
+		$(SRC)/core/signal_probe.h $(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h \
+		$(SRC)/core/device_profile.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/signal_report \
-		scripts/signal_report.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/signal_report \
+		scripts/signal_report.c $(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/signal_report $(FILE_SIGNAL) $(RATE_SIGNAL) \
 		$(AT_SIGNAL) $(CONTROLS_SIGNAL) $(CHANNEL_SIGNAL) \
 		$(SEARCH_SIGNAL) $(GUARD_SIGNAL) $(PAIRS_SIGNAL)
@@ -1430,11 +1447,11 @@ GUARD_OOK?=50000
 BUCKET_OOK?=10
 RUNS_OOK?=48
 #: where the transmissions are in a capture, and what modulation they carry (FILE_OOK=)
-probe-ook: scripts/ook_report.c $(SRC)/signal_probe.c $(SRC)/signal_probe.h \
-		$(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+probe-ook: scripts/ook_report.c $(SRC)/core/signal_probe.c $(SRC)/core/signal_probe.h \
+		$(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/ook_report \
-		scripts/ook_report.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/ook_report \
+		scripts/ook_report.c $(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/ook_report $(FILE_OOK) $(RATE_OOK) $(FLOOR_OOK) \
 		$(GAP_OOK) $(CHANNEL_OOK) $(GUARD_OOK) $(BUCKET_OOK) $(RUNS_OOK)
 
@@ -1446,13 +1463,13 @@ probe-ook: scripts/ook_report.c $(SRC)/signal_probe.c $(SRC)/signal_probe.h \
 FILE_SRD?=testfiles/srd_remote_control_fsk.bin
 RATE_SRD?=2000000
 #: and what they say: runs, chips, violations, frames (FILE_SRD=)
-probe-srd: scripts/srd_report.c $(SRC)/srd_dsp.c $(SRC)/srd_dsp.h \
-		$(SRC)/srd_frame.c $(SRC)/srd_frame.h $(SRC)/signal_probe.c \
-		$(SRC)/signal_probe.h $(SRC)/sdr_dsp.c $(SRC)/sdr_dsp.h
+probe-srd: scripts/srd_report.c $(SRC)/tech/srd_dsp.c $(SRC)/tech/srd_dsp.h \
+		$(SRC)/tech/srd_frame.c $(SRC)/tech/srd_frame.h $(SRC)/core/signal_probe.c \
+		$(SRC)/core/signal_probe.h $(SRC)/core/sdr_dsp.c $(SRC)/core/sdr_dsp.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/srd_report \
-		scripts/srd_report.c $(SRC)/srd_dsp.c $(SRC)/srd_frame.c \
-		$(SRC)/signal_probe.c $(SRC)/sdr_dsp.c -lm
+	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -o $(BUILD)/srd_report \
+		scripts/srd_report.c $(SRC)/tech/srd_dsp.c $(SRC)/tech/srd_frame.c \
+		$(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/srd_report $(FILE_SRD) $(RATE_SRD)
 
 # Is there a clock-coherent tone at this frequency, and whose clock is it?
@@ -1472,11 +1489,11 @@ probe-artifacts: scripts/artifact_sweep.sh sdrprobe
 		./scripts/artifact_sweep.sh
 
 #: LTE or 5G NR? which subcarrier spacing? (FILE_PERIODICITY=)
-probe-periodicity: scripts/signal_periodicity.c $(SRC)/signal_probe.c \
-		$(SRC)/signal_probe.h
+probe-periodicity: scripts/signal_periodicity.c $(SRC)/core/signal_probe.c \
+		$(SRC)/core/signal_probe.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -o $(BUILD)/signal_periodicity \
-		-I$(SRC) scripts/signal_periodicity.c $(SRC)/signal_probe.c -lm
+		$(SRC_INC) scripts/signal_periodicity.c $(SRC)/core/signal_probe.c -lm
 	$(Q)./$(BUILD)/signal_periodicity $(FILE_PERIODICITY) $(RATE_PERIODICITY)
 
 # Every screen the program has, rendered to look at. A change that draws is not
@@ -1501,7 +1518,7 @@ bench-serve: sdrprobe
 #: [Diagnostics] what the DSP costs against the 65.5 ms a block covers (BENCH_ARCH=-march=native)
 bench-dsp: scripts/dsp_bench.c $(DSP_SRC) $(DSP_HDR)
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) $(BENCH_ARCH) -I$(SRC) -o $(BUILD)/dsp_bench \
+	$(Q)$(CC) $(CFLAGS) $(BENCH_ARCH) $(SRC_INC) -o $(BUILD)/dsp_bench \
 		scripts/dsp_bench.c $(DSP_SRC) -lm
 	$(Q)./$(BUILD)/dsp_bench
 

@@ -6,7 +6,7 @@
 
 /*
  * HTTP/1.1 and RFC 6455, hand-written -- the sibling of
- * `src/capture_sidecar.h`, whose comment reads "This is not a JSON parser
+ * `src/core/capture_sidecar.h`, whose comment reads "This is not a JSON parser
  * and must not become one." This is not an HTTP server: it parses the one
  * request line and header block a WebSocket upgrade needs, and nothing a
  * body, a query string or chunked transfer would want.

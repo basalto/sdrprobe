@@ -82,11 +82,11 @@ int calibration_stop_measuring(struct app *app);
    are asked on every path, window or not. */
 
 /* The band survey with no window: sweep, then print the candidates to stdout,
-   one per line. src/survey_report.c. */
+   one per line. src/runtime/survey_report.c. */
 
 /* Read the broadcast block that follows this SCH burst, if this is the SCH a
    block follows. Returns 1 when a System Information message came out of it.
-   src/view_gsm.c. */
+   src/gui/view_gsm.c. */
 /* set_tab() and set_decode() are in runtime.h: they are application layer
    (app_runtime.c), and `viewer_session.c` -- which has no window -- switches
    screens with them. */

@@ -4,7 +4,7 @@
 // so `FmView` is the only name this file adds to the shared global scope
 // every concatenated file runs in.
 //
-// The arrangement mirrors `src/view_fm.c`'s own: a waterfall across the
+// The arrangement mirrors `src/gui/view_fm.c`'s own: a waterfall across the
 // received span, then Signal, Station and "Where the decode stopped" side
 // by side in that order, with the multiplex behind a toggle the way the
 // window puts it behind "Show charts". A reader who knows one screen
@@ -92,7 +92,7 @@ const FmView = (function () {
     fitCanvas(e.mpx, mpxBox.width, mpxBox.height);
   }
 
-  // The window's own panel palette, taken from `src/view_fm.c`'s file-scope
+  // The window's own panel palette, taken from `src/gui/view_fm.c`'s file-scope
   // Colors rather than eyeballed: `panel_edge`, `panel_caption`,
   // `row_label`, `row_value`, `row_good` and `row_weak`, each as the hex of
   // the exact RGB it is there. A panel that is nearly the window's colour
@@ -119,7 +119,7 @@ const FmView = (function () {
   // pilot, the stereo subcarrier at twice it, and the RDS band at three
   // times it. A station with the first two and not the third is an
   // ordinary station simply not sending any RDS, which is the question
-  // none of the panels below can answer (src/view_fm.c says the same).
+  // none of the panels below can answer (src/gui/view_fm.c says the same).
   const LANDMARKS = [
     { hz: 19000, label: 'pilot' },
     { hz: 38000, label: 'stereo' },
@@ -250,7 +250,7 @@ const FmView = (function () {
   }
 
   // One panel of the three-across row the window draws, with the window's
-  // own fill, 1px edge and caption -- `draw_panel()` in src/view_fm.c, whose
+  // own fill, 1px edge and caption -- `draw_panel()` in src/gui/view_fm.c, whose
   // caption sits 12 px in and 10 down and whose rows begin 36 from the top,
   // which is what the padding below reproduces. Laid out with inline styles
   // rather than rules in viewer.html for the same reason the tone colours

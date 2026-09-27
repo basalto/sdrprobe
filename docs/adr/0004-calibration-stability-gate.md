@@ -8,7 +8,7 @@ accepted
 
 GSM 900 calibration accumulates per-block PPM residuals and decides when the
 correction is trustworthy ("Stable lock"). Two non-obvious statistical decisions
-govern this (see `src/sdrprobe.c` `update_calibration_measurement`,
+govern this (see `src/app/sdrprobe.c` `update_calibration_measurement`,
 `robust_center_spread`, and `docs/cellular-frequency-correction.md`):
 
 1. **Gate on the standard error of a robust center, not on raw spread.** The

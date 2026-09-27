@@ -11,12 +11,12 @@ struct app;
 /*
  * `server`/`web`: drives ticket 02's advance step with no window,
  * builds ticket 03's view model each block, and publishes it over ticket
- * 04's WebSocket server (joined by src/viewer_link.c) instead of drawing
+ * 04's WebSocket server (joined by src/server/viewer_link.c) instead of drawing
  * it. Runs until Ctrl-C (`stop_requested()`) or, for file playback, until
  * the capture ends.
  *
  * Does not start or stop acquisition -- like `survey_report_run()`, that is
- * the caller's (`run_headless()`, src/sdrprobe.c) to do around this call,
+ * the caller's (`run_headless()`, src/app/sdrprobe.c) to do around this call,
  * so a failure here still gets a clean shutdown from the one place that
  * already knows how.
  */

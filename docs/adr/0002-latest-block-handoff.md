@@ -13,7 +13,7 @@ not a FIFO/ring buffer. If the renderer has not consumed the previous block,
 `publish_block` overwrites it and increments a dropped-block counter;
 `consume_latest` copies a block only when its generation differs from the last
 one it read (see `struct latest_block`, `publish_block`, `consume_latest` in
-`src/acquisition.c`).
+`src/runtime/acquisition.c`).
 
 ## Considered options
 

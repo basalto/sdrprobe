@@ -7,7 +7,7 @@
 /*
  * The one thing read from a Viewer besides a subscription (ticket 06):
  * a whitespace-delimited command line, parsed with sscanf on the same
- * principle `src/capture_sidecar.h` states outright -- this is not a
+ * principle `src/core/capture_sidecar.h` states outright -- this is not a
  * JSON parser and must not become one. `viewer_link.c` decides *that* a
  * line is a command rather than a subscription; parsing what the
  * command actually says lives here, decoupled from sockets and from

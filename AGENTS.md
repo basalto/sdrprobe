@@ -2,11 +2,12 @@
 
 `sdrprobe` is a raylib SDR visualizer and GSM 900 frequency-calibration probe
 for RTL-SDR receivers, modeled after dump1090's `modesInitRTLSDR()` acquisition.
-Its DSP is split into a generic core (`src/sdr_dsp.c`/`.h`) and per-technology
-modules (`src/gsm_dsp.c`/`.h` for GSM calibration, `src/lte_dsp.c`/`.h` for
-LTE cell search, `src/adsb_dsp.c`/`.h` for
+Its DSP is split into a generic core (`src/core/sdr_dsp.c`/`.h`) and per-technology
+modules (`src/tech/gsm_dsp.c`/`.h` for GSM calibration, `src/tech/lte_dsp.c`/`.h` for
+LTE cell search, `src/tech/adsb_dsp.c`/`.h` for
 Mode S / ADS-B message decoding), and its UI into an SDR component layer
-(`src/sdrgui.c`/`.h`) over vendored raygui widgets (see "Files" below). The
+(`src/gui/sdrgui.h` with `sdrgui_plot.c`, `sdrgui_scope.c`,
+`sdrgui_decode.c` and `sdrgui_widgets.c`) over vendored raygui widgets (see "Files" below). The
 window is organised into three top-level tabs — Survey, Scope (the four signal
 views, keys 1-4), and Decode (1 FM, 2 ADS-B, 3 GSM, 4 LTE, 5 TETRA, 6 SRD) —
 recorded
@@ -76,7 +77,7 @@ transmitted information lives in a second bounded context (see
   thing here to check exhaustively.
 - `make check-calibration` — the rule that decides whether a frequency
   correction may be applied, and the robust statistics behind it, from
-  `src/calibration_gate.h`. Each clause of the gate is refused on its own, and
+  `src/runtime/calibration_gate.h`. Each clause of the gate is refused on its own, and
   the mixed-source hazard ADR-0004 exists to prevent is demonstrated rather
   than described. Worth the attention: a correction accepted too early turns
   the lock green on a wrong answer, and every frequency reported afterwards is
@@ -91,7 +92,7 @@ transmitted information lives in a second bounded context (see
   reach those paths must act. Unit checks prove the pieces; this proves they
   are wired together, which by construction they cannot.
 - `make check-survey` — the band survey's window arithmetic: zoom, pan, clamp,
-  and what pressing Sweep would sweep. Pure doubles in `src/survey_window.h`,
+  and what pressing Sweep would sweep. Pure doubles in `src/runtime/survey_window.h`,
   so it links nothing and opens no window. It exists because those decisions
   could previously only be checked by building an instrumented binary and
   running it against a receiver -- synthetic clicks and keys do not reach the
@@ -155,7 +156,7 @@ transmitted information lives in a second bounded context (see
   ADR-0017 has the measurements and `.scratch/survey-extent/` is the way out. Selecting a candidate, by
   click or with Up/Down, retunes 300 kHz off it (never onto the DC spike) and
   measures occupied bandwidth, duty and frequency stability over two seconds,
-  then names the allocation from `src/band_plan.c` and offers to point a
+  then names the allocation from `src/core/band_plan.c` and offers to point a
   decoder at it. The band plan is a lookup and the UI says so: see
   `docs/adr/0015-band-plan-is-a-lookup.md`, which is the boundary this view
   exists next to. The band plan is also
@@ -301,8 +302,8 @@ once, in the Viewer link's Health panel (ticket 08): `send_queue_high_water`
 and the received-throughput figure were both computed with `/1024` and
 labelled "KB"/"KB/s", which is a KiB value wearing a decimal name. Fixed in
 `web/viewer.js` (`formatBytes()`/`formatBitsPerSecond()`, compiled into
-`src/viewer_link.c`'s served page by `scripts/embed_web.py` since ticket 13),
-`src/viewer_link.c` (`format_bytes_decimal()`, the stderr disconnect
+`src/server/viewer_link.c`'s served page by `scripts/embed_web.py` since ticket 13),
+`src/server/viewer_link.c` (`format_bytes_decimal()`, the stderr disconnect
 report) and `scripts/viewer_client.py` (`format_bytes()`/`format_bps()`).
 
 The one exception is a **structural constant that is genuinely a power of
@@ -317,17 +318,17 @@ and no amount of rounding makes it `256 KB` too.
 C sources and headers live in `src/`; hardware-free DSP test sources live in
 `tests/`. Built binaries are written to the repo root.
 
-- `src/calibration_gate.h` — when a frequency correction may be trusted:
+- `src/runtime/calibration_gate.h` — when a frequency correction may be trusted:
   median/MAD statistics, the standard error the gate reads, and every clause of
   the lock condition. Header-only plain doubles, deliberately outside
   `overlay_calibration.c` so it can be checked without raylib. Read ADR-0004
   before making any clause easier to pass.
-- `src/sdr_dsp.h` / `src/sdr_dsp.c` — generic, technology-independent SDR DSP
+- `src/core/sdr_dsp.h` / `src/core/sdr_dsp.c` — generic, technology-independent SDR DSP
   core: byte→float I/Q conversion, DC removal, magnitude peak binning, signal
   stats, Hann-windowed complex FFT / dBFS spectra, power-centroid carrier
   estimate, evenly-spaced channel-power reducer, and PPM correction. Prefix
   `sdr_dsp_`.
-- `src/gsm_dsp.h` / `src/gsm_dsp.c` — GSM 900 technology DSP module: ARFCN→frequency
+- `src/tech/gsm_dsp.h` / `src/tech/gsm_dsp.c` — GSM 900 technology DSP module: ARFCN→frequency
   map, the FCCH reference-tone detector, and the SCH (Synchronisation Channel)
   decoder — differential-GMSK demod, extended-training-sequence sync, rate-1/2
   Viterbi, parity, and BSIC (NCC/BCC) + reduced-frame-number parse. Reuses the
@@ -335,13 +336,13 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   (a generic core plus technology DSP modules) is recorded in
   `docs/adr/0001-technology-plugin-dsp-architecture.md` and revised by
   `docs/adr/0023-technology-dsp-modules-share-boundaries-not-an-interface.md`.
-- `src/adsb_dsp.h` / `src/adsb_dsp.c` — Mode S / ADS-B technology DSP module (the
+- `src/tech/adsb_dsp.h` / `src/tech/adsb_dsp.c` — Mode S / ADS-B technology DSP module (the
   Decoder context): magnitude-domain preamble detection, pulse-position bit
   demod, CRC-24 validation, DF17/18 field parsing (ICAO, callsign, altitude,
   velocity), and CPR global position decode with a minimal even/odd pairing
   cache. Prefix `adsb_`. It reuses only the core's per-pair magnitude, not the
   FFT/centroid primitives; recorded in `docs/adr/0009-mode-s-decode-plugin.md`.
-- `src/lte_dsp.h` / `src/lte_dsp.c` — LTE (E-UTRA) technology DSP module:
+- `src/tech/lte_dsp.h` / `src/tech/lte_dsp.c` — LTE (E-UTRA) technology DSP module:
   EARFCN→frequency map, primary-synchronisation-signal correlation against the
   three Zadoff-Chu roots, secondary-sequence detection over the 336 candidates,
   physical cell identity, cyclic-prefix length, frame boundary, and a frequency
@@ -376,18 +377,18 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
      the primary sequence is the obvious alternative, works perfectly on a
      synthesised frame, and scores 0.44 — indistinguishable from noise — on
      live captures that the differential method reads at 0.75.
-- `src/lte_scan.h` — the LTE band scan's order, header-only and checked by
+- `src/tech/lte_scan.h` — the LTE band scan's order, header-only and checked by
   `tests/lte_scan_test.c`. Every channel of a band named exactly once, whole
   megahertz first. It is a separate file because the constraint behind it is
   not obvious: LTE cannot be swept ten channels to a tuning the way GSM is,
   because the primary sequence is found by a time-domain correlation that a
   frequency error of more than a few kilohertz destroys.
-- `src/lte_mib.h` / `src/lte_mib.c` — the LTE Master Information Block, the
+- `src/tech/lte_mib.h` / `src/tech/lte_mib.c` — the LTE Master Information Block, the
   Decoder context's side of LTE and the analogue of `gsm_bcch.c`: 480 soft bits
   in, a message out. Descrambling against four candidate offsets (one
   transmission does not say which quarter of the 40 ms period it is), rate
   dematching, a tail-biting rate-1/3 K=7 Viterbi over all 64 closing states,
-  and a CRC-16 whose mask names the antenna-port count. `src/lte_gold.h` holds
+  and a CRC-16 whose mask names the antenna-port count. `src/tech/lte_gold.h` holds
   the length-31 Gold sequence both sides of the split need, as a header so
   neither has to depend on the other.
 - `src/lte_turbo.{c,h}` / `src/lte_transport.{c,h}` — the chain above the MIB,
@@ -415,7 +416,7 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   own state and knows nothing of `struct app`: the device handle, playback
   file and sample rate are handed to it by `acquisition_attach_source()`
   before a worker starts.
-- `src/app.h` — the shared application state (`struct app`) plus the constants
+- `src/runtime/app.h` — the shared application state (`struct app`) plus the constants
   and enums that go with it. Naming it here is what lets the views live in
   their own files; it is a shared record, not an interface (see its header
   comment).
@@ -423,12 +424,12 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   Touches no application state, and the settings and calibration panels reuse
   `parse_int` / `parse_frequency` so typed input is parsed the same way
   everywhere.
-- `src/view.h` — what the screens share with each other and with
+- `src/gui/view.h` — what the screens share with each other and with
   `sdrprobe.c`: a few widgets, the acquisition lifecycle, and each screen's
   entry points.
-- `src/view_scope.c` — the Scope tab's four signal views, plus the waterfall
+- `src/gui/view_scope.c` — the Scope tab's four signal views, plus the waterfall
   texture and scatter history they keep between frames.
-- `src/view_gsm.c`, `src/view_adsb.c`, `src/view_lte.c` — the Decode tab's
+- `src/gui/view_gsm.c`, `src/gui/view_adsb.c`, `src/gui/view_lte.c` — the Decode tab's
   three screens. The LTE one also owns the band scan, and is the only view
   that changes the sample rate — it borrows the receiver at 1.92 MS/s and
   gives the rate and the tuning back on the way out, the way the GSM view
@@ -436,14 +437,14 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   synchronisation signals found, and what the broadcast said. A cell identity
   with an empty panel beside it is a carrier that is present and too weak to
   read, which one panel alone could not tell from an empty band.
-- `src/overlay_calibration.c` — GSM 900 calibration and the periodic drift
+- `src/gui/overlay_calibration.c` — GSM 900 calibration and the periodic drift
   re-check, which is a calibration re-run.
-- `src/overlay_scan.c` — the band scan that picks a calibration reference. It
+- `src/gui/overlay_scan.c` — the band scan that picks a calibration reference. It
   shares no state with calibration; choosing a channel goes through
   `calibration_select_channel()`.
-- `src/overlay_settings.c` — the Settings panel and the two buttons that open
+- `src/gui/overlay_settings.c` — the Settings panel and the two buttons that open
   it and the calibration overlay.
-- `src/overlay_help.c` — the help overlay and the text in it. The prose lives
+- `src/gui/overlay_help.c` — the help overlay and the text in it. The prose lives
   in one table here rather than beside each view, because a reader arrives with
   a question about a chart and wants the neighbouring answers next to it. Every
   figure quoted in that text (window sizes, thresholds, decay rates) comes from
@@ -468,11 +469,11 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   `_restore()`), because that is measurements and not window state -- kept in
   the view the restore was written twice and broken twice. Links `-lm`;
   `check-survey-session` drives it.
-- `src/view_survey.c`, `src/survey_layout.h` — the band survey and its layout.
+- `src/gui/view_survey.c`, `src/gui/survey_layout.h` — the band survey and its layout.
   One of two adapters over `survey_session.h`: it draws the machine's state
   and turns input into intents, and it is where the receiver is borrowed
   through a lease and where the site's history reaches a file.
-- `src/survey_report.c` — the other adapter, printing the same machine for
+- `src/runtime/survey_report.c` — the other adapter, printing the same machine for
   `--survey`, `--survey-confirm`, `--survey-watch` and `--survey-save`. One
   `while` loop for the sweep, the pass and the measurement, because the
   session makes them one machine; the two shapes it replaced were the same
@@ -504,15 +505,15 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   adapter over it and no longer sees `struct app` -- its check used to
   allocate one to write a single file, which was the measurement that the
   interface asked its callers to know nearly everything.
-- `src/adsb_layout.h` — where the ADS-B decode view puts things, in the shape
+- `src/gui/adsb_layout.h` — where the ADS-B decode view puts things, in the shape
   of `gsm_layout.h` and for the same reason: the analysis mode packs three
   charts over a log and a square scatter, and both modes' log rectangles are
   derived here so the view only picks one. Covered by `tests/layout_test.c`.
-- `src/gsm_layout.h` — where the GSM decode view puts things: one struct of
+- `src/gui/gsm_layout.h` — where the GSM decode view puts things: one struct of
   rectangles derived from the window size by a pure function, so the panels
   that share a row cannot drift apart and the whole layout is testable without
   a window. Covered by `tests/layout_test.c`.
-- `src/sdrgui.h` and `sdrgui_plot.c` / `sdrgui_scope.c` / `sdrgui_decode.c` /
+- `src/gui/sdrgui.h` and `sdrgui_plot.c` / `sdrgui_scope.c` / `sdrgui_decode.c` /
   `sdrgui_widgets.c` — reusable SDR visual components (plots,
   waterfall, scan chart, health circle, decoded-message log, cursor readouts)
   taking plain data/geometry, not `struct app`. Prefix `sdrgui_`. Split by what
@@ -521,14 +522,14 @@ C sources and headers live in `src/`; hardware-free DSP test sources live in
   charts, `sdrgui_widgets.c` the two non-chart pieces. Every chart draws
   entirely inside the rectangle it is given. The presentation split is recorded
   in `docs/adr/0007-gui-presentation-layer.md`.
-- `vendor/raygui.h` + `src/raygui_impl.c` — the vendored raygui immediate-mode
+- `vendor/raygui.h` + `src/gui/raygui_impl.c` — the vendored raygui immediate-mode
   widget toolkit (pinned; compiled once in isolation, `-Ivendor`), GUI build
   only. The DSP checks never link the GUI, so their `-lm`-only contract is
   unaffected.
 - `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` / `tests/adsb_dsp_test.c` —
   the deterministic, hardware-free DSP checks (`make check-sdr-dsp` /
   `check-gsm-dsp` / `check-adsb-dsp`).
-- `src/gsm_bcch.h` / `src/gsm_bcch.c` — the BCCH: four normal bursts to a
+- `src/tech/gsm_bcch.h` / `src/tech/gsm_bcch.c` — the BCCH: four normal bursts to a
   System Information message. Interleaving, the (224,184) Fire code, the
   rate-1/2 convolutional code with a soft Viterbi, and what the message says --
   MCC, MNC, LAC, Cell Identity, neighbour ARFCNs. This is the Decoder context's
@@ -609,12 +610,12 @@ The order that avoids rework:
    `Rectangle`s. It reads nothing from the window and calls no raylib
    function; that is what lets a check pin the geometry without opening one.
 2. **`src/view_<tech>.c`** — draws from that struct and decides nothing.
-   Declare its entry points in `src/view.h` beside the LTE set: `draw_`,
+   Declare its entry points in `src/gui/view.h` beside the LTE set: `draw_`,
    `handle_<tech>_input`, `update_`, `view_<tech>_defaults`, and
    `enter_`/`leave_` if it borrows the receiver.
-3. **`struct <tech>_view` in `src/app.h`**, reached as `app-><tech>.*`. State
+3. **`struct <tech>_view` in `src/runtime/app.h`**, reached as `app-><tech>.*`. State
    belonging to one view lives with it rather than loose in `struct app`.
-4. **`enum decode_kind` in `src/app.h`** — extend it. An ad-hoc mode flag is
+4. **`enum decode_kind` in `src/runtime/app.h`** — extend it. An ad-hoc mode flag is
    the thing those enums replaced (ADR-0008).
 5. **`tests/layout_test.c`** — include the header and pin the geometry.
 6. **The Makefile** — add the header to `check-layout`'s prerequisites. This
@@ -628,7 +629,7 @@ The order that avoids rework:
 Then the rule that outranks the list: anything the view *decides* — a
 threshold, a range, a pointer mapped to an index, a state machine advanced —
 comes out into a named unit a check can reach (ADR-0012).
-`src/sdrgui_geometry.h` is where that lands for anything positional, and
+`src/gui/sdrgui_geometry.h` is where that lands for anything positional, and
 `sdrgui_bar_index_at()` is the worked example. It exists because a hit test
 written inside a draw function selected the bar one or two to the right of the
 pointer, the bars having been drawn inside a label gutter the hit test did not
@@ -798,13 +799,13 @@ of the Scope tab, not by a number. **Watch** repeats it, folding each sweep into
 the site's history and saying what changed; `--survey-watch <n>` is the scripted
 form. The history counts presence per hour of the day, which is what lets a
 signal that follows the clock be told from one that merely comes and goes. A sweep's maxima are grouped into signals
-first (`src/survey_carrier.h`), and
+first (`src/core/survey_carrier.h`), and
 everything above the measurement works on those: a station has several maxima
 and counting each is how one carrier becomes five things to remember. The
-survey view remembers what each site has heard (`src/site_history.c`) and
+survey view remembers what each site has heard (`src/runtime/site_history.c`) and
 marks the next sweep against it -- new signals, absent ones, and the history
 under the cursor. Those marks are claims from a tenth of a second each, so
-**Ask again** (`src/survey_confirm.h`, or `--survey-confirm` from a script)
+**Ask again** (`src/core/survey_confirm.h`, or `--survey-confirm` from a script)
 revisits every one with six blocks on the frequency, **each measured on its
 own**, and records what it finds rather than what the sweep guessed. Per block
 because the count is the answer: up in every look is a transmitter, up in none

@@ -17,7 +17,7 @@
  * By the time the sweep ends there are a few such claims rather than three
  * hundred steps, and each can afford a proper look: tune to it, sit there, and
  * see. That is cheap for the same reason the LTE band scan's confirmation pass
- * is cheap (`src/lte_scan.h`), and it is the same argument -- a wide search has
+ * is cheap (`src/tech/lte_scan.h`), and it is the same argument -- a wide search has
  * to be generous, so something narrower has to have the last word.
  *
  * Plain arithmetic, no receiver and no window, checked by

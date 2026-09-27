@@ -15,9 +15,9 @@ OpenWebRX does:
 
 1. **A server-side send-rate cap for the waterfall/spectrum stream**, shaped
    like `VIEWER_SESSION_STATE_INTERVAL_SECONDS`'s `viewer_update_due()` gate
-   (`src/viewer_session.h:69`, `src/viewer_session.c:340`) but for
+   (`src/server/viewer_session.h:69`, `src/server/viewer_session.c:340`) but for
    `viewer_link_publish_waterfall_row()`/`_publish_spectrum()`
-   (`src/viewer_session.c:311-312`). OpenWebRX's `FftChain._updateParameters()`
+   (`src/server/viewer_session.c:311-312`). OpenWebRX's `FftChain._updateParameters()`
    (`csdr/chain/fft.py:75-85`) reaches the same end differently — it sizes
    the FFT's input block from `sample_rate / fft_fps` so the *generation*
    rate is capped, not just the send — but the send-side version is the one
@@ -58,7 +58,7 @@ service holds it (`checkStatus()`), unless configured always-on. Named
 rate, gain) swapped as a whole — not simultaneous independent sub-bands —
 so changing profile retunes the device for everyone currently on it.
 
-sdrprobe's equivalent is `src/device_backend.h`'s vtable plus
+sdrprobe's equivalent is `src/runtime/device_backend.h`'s vtable plus
 `struct acquisition`: one process, one thread pair (`receiver_worker`/
 `file_worker`), no subprocess boundary. There is nothing to import here —
 introducing an external-process boundary would add IPC and lifecycle
@@ -82,7 +82,7 @@ connected Viewer receives the *same* spectrum, waterfall and receiver state
 — there is one DSP pass (`frame_advance()`) per block regardless of how many
 Viewers are attached, and a `tune` command from any Viewer retunes the one
 shared receiver for all of them (`viewer_session_handle_command()`,
-`src/viewer_session.c:61`). ADR-0027 states the reason explicitly: at
+`src/server/viewer_session.c:61`). ADR-0027 states the reason explicitly: at
 15.26 blocks/second, "each Viewer would then repeat the most expensive
 processing in the program" if it re-demodulated locally. OpenWebRX pays
 that cost on purpose because its product *is* per-listener independence;
@@ -139,14 +139,14 @@ concrete, adoptable ideas:
 - **Wire framing**: both use a one-byte message-type prefix over raw binary
   WebSocket frames with no JSON envelope (OpenWebRX's `bytes([0x01]) + data`
   in `owrx/connection.py`; sdrprobe's `VIEWER_MESSAGE_*` header in
-  `src/viewer_link.c`'s `publish_binary()`). No change indicated — this is
+  `src/server/viewer_link.c`'s `publish_binary()`). No change indicated — this is
   independent confirmation the current wire shape is a reasonable one, not
   a novelty to reconsider.
 - **Backpressure**: OpenWebRX buffers up to 100 pending messages per client
   in a `Queue`, and closes the connection outright when that fills
   (`owrx/connection.py`'s `mp_send()`). sdrprobe's per-stream single
   overwriteable slot (`slot_ready_for_new_message()`,
-  `src/viewer_link.c:961`) just drops the stale row and keeps the client
+  `src/server/viewer_link.c:961`) just drops the stale row and keeps the client
   connected. For a LAN diagnostic tool where a dropped Viewer means someone
   has to notice and reopen a browser tab, sdrprobe's more forgiving choice
   reads as correct as-is; OpenWebRX's harsher policy makes more sense for a
@@ -164,7 +164,7 @@ configured decode frequencies when nobody is watching.
 sdrprobe's `frame_advance()` gates its own decode dispatch on the *active
 tab*: `update_adsb()`, `update_gsm_sch()`, `update_tetra()` and
 `update_srd()` each run only `if have_new && app->tab == TAB_DECODE &&
-app->decode == DECODE_*` (`src/frame_advance.c:33-47`). Tuned to an ADS-B
+app->decode == DECODE_*` (`src/runtime/frame_advance.c:33-47`). Tuned to an ADS-B
 frequency but looking at the Scope tab, no Mode S message is parsed at all
 — the decode simply isn't running. Headless mode already covers the
 scripted case (`./sdrprobe headless --technology adsb --decode`), but the
@@ -181,7 +181,7 @@ tab dispatch grew.
   single-process loop (ADR-0002's drop-not-lag acquisition, testable with no
   hardware per ADR-0012) for IPC and process-lifecycle management bought to
   support a capability — swapping receivers/backends at runtime — sdrprobe
-  doesn't need; `src/device_backend.h`'s vtable already covers "more than
+  doesn't need; `src/runtime/device_backend.h`'s vtable already covers "more than
   one kind of receiver" without a subprocess boundary.
 - **Per-client demodulator chains / independent tuning.** Directly
   contradicts ADR-0027's decision and its stated cost argument. Reopening

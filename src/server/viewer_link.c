@@ -417,7 +417,7 @@ static int starts_with_word(const char *data, size_t len, const char *word) {
 
 /*
  * A small JSON string escaper, scoped to this file rather than reusing
- * `survey_json_escape()` (src/survey_store.c) -- that would pull in the
+ * `survey_json_escape()` (src/runtime/survey_store.c) -- that would pull in the
  * whole survey/installation header graph for one function, exactly the
  * coupling this module goes out of its way to avoid (no app.h, no
  * raylib). Truncates on overflow rather than refusing outright: a

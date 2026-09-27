@@ -4,8 +4,8 @@ Why a survey candidate might have been made by the receiver rather than
 received by it, and why one might be nothing at all. Every algorithm, every
 formula, every adjustable parameter, and a worked example of each.
 
-Source: `src/survey_suspect.h` (the frequency and width tests),
-`src/survey_confirm.h` (the emptiness test), `src/signal_probe.h` (the
+Source: `src/core/survey_suspect.h` (the frequency and width tests),
+`src/core/survey_confirm.h` (the emptiness test), `src/core/signal_probe.h` (the
 measurements behind it). Checked by `check-suspect`, `check-survey-confirm`
 and `check-signal-probe`, none of which needs a window or a receiver
 (ADR-0012).
@@ -28,7 +28,7 @@ has been removed`.
 
 ## The seven flags
 
-`enum survey_suspicion` in `src/survey_suspect.h`:
+`enum survey_suspicion` in `src/core/survey_suspect.h`:
 
 | flag | bit | means | set by |
 | --- | --- | --- | --- |
@@ -428,7 +428,7 @@ third of the way to the nearest signal.
 
 ### The carrier test
 
-`signal_carrier_verdict()` in `src/signal_probe.h`:
+`signal_carrier_verdict()` in `src/core/signal_probe.h`:
 
 ```
    SIGNAL_NOTHING    when carrier_over_noise_db < SIGNAL_CARRIER_PRESENT_DB
@@ -565,7 +565,7 @@ bin buys.
 
 ### The algorithm
 
-`src/reading_origin.h`, and it is pure arithmetic over three numbers.
+`src/core/reading_origin.h`, and it is pure arithmetic over three numbers.
 
 1. **Refuse unless separable.** The coherent answer sits at `nominal ±
    tolerance` and the external one at `nominal + displacement ± tolerance`.
@@ -692,7 +692,7 @@ with its own crystal reads the same way.
 
 ## 6. A clock family in octaves
 
-`src/clock_chain.h`. The reference comb is "a tone every reference/n", which a
+`src/core/clock_chain.h`. The reference comb is "a tone every reference/n", which a
 divider leaves across the band. This is a different shape: **f, 2f, 4f and
 never 3f**, which is what a doubler or divider chain produces and what harmonic
 distortion of one oscillator does not.

@@ -1,7 +1,7 @@
 /*
  * A throwaway server for one manual proof ticket 04 asks for: that a real
  * browser can open a page this program serves, upgrade to a WebSocket, and
- * round-trip a binary payload through src/websocket.c's frame codec. It is
+ * round-trip a binary payload through src/server/websocket.c's frame codec. It is
  * not part of sdrprobe and never will be -- wiring a Viewer link into the
  * real program is ticket 05's job, over this module.
  *

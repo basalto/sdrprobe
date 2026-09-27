@@ -6,7 +6,7 @@ accepted
 
 ## Context and decision
 
-The DSP in `src/sdr_dsp.c` — a 2048-point radix-2 float FFT with locally
+The DSP in `src/core/sdr_dsp.c` — a 2048-point radix-2 float FFT with locally
 generated Hann coefficients, coherent-gain dBFS normalization, and the
 calibration estimators — is **hand-written and self-contained**. We deliberately
 do **not** link an external DSP library (liquid-dsp or FFTW).

@@ -21,7 +21,7 @@ own — and to make room for future 4G/5G support — we split the DSP into a
   two things and reuses the generic core for everything else:
   1. a **channel → frequency map** (`gsm_downlink_hz`), and
   2. a **reference-tone / sync detector** (`gsm_fcch_detect`).
-  Prefix `gsm_` / `GSM_`. It depends on nothing from `src/sdr_dsp.h`.
+  Prefix `gsm_` / `GSM_`. It depends on nothing from `src/core/sdr_dsp.h`.
 
 Each layer has its own hardware-free test binary and make target
 (`check-sdr-dsp`, `check-gsm-dsp`, aggregated by `check-dsp`), so a technology's
@@ -48,7 +48,7 @@ decode stage behind the same per-technology boundary.
 ## Consequences
 
 - Only the DSP layer is split. The GSM *application* logic (calibration/scan
-  state and rendering) still lives in `src/sdrprobe.c`, tightly coupled to the
+  state and rendering) still lives in `src/app/sdrprobe.c`, tightly coupled to the
   raylib `struct app` and the retune path. Turning that into a runtime plugin
   is a separate, larger effort; this ADR covers the DSP seam only.
 - Adding a technology means adding `<tech>_dsp.{c,h}` + `<tech>_dsp_test.c` +

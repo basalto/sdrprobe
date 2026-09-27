@@ -10,7 +10,7 @@ The band survey (a Scope view when this was written; a top-level tab since)
 finds carriers and reports what can be measured
 about them: power, occupied bandwidth, prominence above the local floor,
 carrier offset, duty and frequency stability. Alongside those it prints the
-allocation the frequency falls in, from a static table in `src/band_plan.c`.
+allocation the frequency falls in, from a static table in `src/core/band_plan.c`.
 
 That table is the first thing in this program that attaches meaning to a
 frequency, and it sits directly against the Probe context's boundary:

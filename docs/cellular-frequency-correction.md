@@ -144,9 +144,9 @@ waterfall views. It does not open another receiver stream or invoke
 
 | File | Responsibility |
 | --- | --- |
-| `src/sdrprobe.c` | Calibration screen, channel-scan sweep and chart, application state, input handling, receiver stop/retune/restart, FCCH-vs-centroid selection, robust stability accumulation, waterfall markers, and PPM application |
-| `src/sdr_dsp.h` / `src/sdr_dsp.c` | Generic SDR primitives reused by calibration: byte→float I/Q, DC removal, signal stats, FFT/dBFS spectrum, two-stage carrier estimator, evenly-spaced channel-power reducer, and PPM correction |
-| `src/gsm_dsp.h` / `src/gsm_dsp.c` | GSM 900 technology DSP module: ARFCN→frequency map and the FCCH tone detector |
+| `src/app/sdrprobe.c` | Calibration screen, channel-scan sweep and chart, application state, input handling, receiver stop/retune/restart, FCCH-vs-centroid selection, robust stability accumulation, waterfall markers, and PPM application |
+| `src/core/sdr_dsp.h` / `src/core/sdr_dsp.c` | Generic SDR primitives reused by calibration: byte→float I/Q, DC removal, signal stats, FFT/dBFS spectrum, two-stage carrier estimator, evenly-spaced channel-power reducer, and PPM correction |
+| `src/tech/gsm_dsp.h` / `src/tech/gsm_dsp.c` | GSM 900 technology DSP module: ARFCN→frequency map and the FCCH tone detector |
 | `tests/sdr_dsp_test.c` / `tests/gsm_dsp_test.c` | Hardware-free checks — generic primitives, and GSM calibration (ARFCN conversion, carrier estimation, correction sign, FCCH detection/rejection) respectively |
 
 The generic-core / per-technology-module split is recorded in
@@ -155,7 +155,7 @@ module contract in [ADR-0023](./adr/0023-technology-dsp-modules-share-boundaries
 
 ## DSP Public Interface
 
-The testable seam is declared in `src/sdr_dsp.h` (generic) and `src/gsm_dsp.h` (GSM):
+The testable seam is declared in `src/core/sdr_dsp.h` (generic) and `src/tech/gsm_dsp.h` (GSM):
 
 ```c
 struct sdr_channel_estimate {
@@ -213,7 +213,7 @@ int sdr_dsp_channel_powers(
     float *powers_dbfs);
 ```
 
-Keeping these operations outside `src/sdrprobe.c` has two consequences:
+Keeping these operations outside `src/app/sdrprobe.c` has two consequences:
 
 - The channel and correction math can be tested without raylib or hardware.
 - GUI code consumes named measurements rather than reproducing FFT-bin or PPM
@@ -243,7 +243,7 @@ rather than weakening this validation.
 
 ## Receiver Tuning Strategy
 
-`start_calibration()` in `src/sdrprobe.c` validates the technology, band,
+`start_calibration()` in `src/app/sdrprobe.c` validates the technology, band,
 sample rate, and ARFCN. It then places the expected carrier 400 kHz above the
 receiver center:
 
@@ -281,7 +281,7 @@ is required.
 
 ## Spectrum Feeding Calibration
 
-`process_block()` in `src/sdrprobe.c` converts each raw sample block once. The
+`process_block()` in `src/app/sdrprobe.c` converts each raw sample block once. The
 raw centered I/Q remains available to magnitude and scatter views. When DC
 removal is enabled, only the spectrum copy is modified:
 

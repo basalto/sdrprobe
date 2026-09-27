@@ -8,7 +8,7 @@ Status: SUPERSEDED — the diagnosis in this document is wrong (2026-08-30)
 > to an impossible T1 — is real, but its cause is the layout, not the receiver:
 > the bits were recovered correctly and then sliced wrongly. Kept for the
 > measurements and for the record of how the wrong conclusion was reached.
-Scope: `src/gsm_dsp.c` SCH decode chain, its tests, and a diagnostic probe.
+Scope: `src/tech/gsm_dsp.c` SCH decode chain, its tests, and a diagnostic probe.
 Related: ADR `docs/adr/0011-sch-frame-number-joint-trellis.md`,
 tracker `.scratch/sch-frame-number/`, probe `scripts/gsm_chain_probe.c`.
 
@@ -61,7 +61,7 @@ Two facts pin the diagnosis:
 
 ## 3. Root-cause analysis
 
-The current chain (`src/gsm_dsp.c`) is **hard-decision end to end**:
+The current chain (`src/tech/gsm_dsp.c`) is **hard-decision end to end**:
 
 1. Downconvert at the FCCH-refined carrier.
 2. Search 8 fractional timing phases × all positions; per symbol produce a
@@ -323,7 +323,7 @@ receiver (e.g. print the channel estimate `h` and per-branch soft margins).
 
 ## 9. Deliverables checklist
 
-- [ ] Phase 1 front-end in `src/gsm_dsp.c`.
+- [ ] Phase 1 front-end in `src/tech/gsm_dsp.c`.
 - [ ] Phase 2 soft receiver (channel estimate + joint soft Viterbi) replacing the
       reconstruction + `sch_viterbi` path; parity/`sch_parse` unchanged.
 - [ ] Synthetic ISI+AWGN frame-number test in `tests/gsm_dsp_test.c`.

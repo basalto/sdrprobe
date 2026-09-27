@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Emulate a Viewer, from the command line -- for testing the Viewer link
-(ADR-0027, src/viewer_link.c) without a browser.
+(ADR-0027, src/server/viewer_link.c) without a browser.
 
-sdrprobe's own WebSocket handshake and frame codec (src/websocket.c) were
+sdrprobe's own WebSocket handshake and frame codec (src/server/websocket.c) were
 proved correct against a from-scratch client once already, in the ticket
 that built them; this is that same client made permanent and reusable
 rather than retyped into a heredoc every time the link needs exercising.
 It implements RFC 6455 itself -- nothing here imports a websocket library
-or shares code with src/websocket.c -- so it stays an independent check on
+or shares code with src/server/websocket.c -- so it stays an independent check on
 the wire format, not a client built from the same assumptions as the
 server.
 

@@ -345,7 +345,7 @@ number nobody can use as a baseline.
 minutes.
 
 **24-1766 MHz is one receiver's reach, not the program's.** It comes from
-`device_profile.tune_lower_hz` / `tune_upper_hz` (`src/device_profile.h`), and
+`device_profile.tune_lower_hz` / `tune_upper_hz` (`src/core/device_profile.h`), and
 `survey_bands.h` filters the band plan by it -- so the **Band...** picker
 offers 54 allocations on an R820T and 60 on a 70 MHz - 6 GHz part, and neither
 list contains the other. A wideband device opens 2.4 GHz ISM, 5G n78 and the
@@ -474,4 +474,4 @@ the same parameters for anything meant as a baseline.
 A 0.12 s dwell catches a bursty transmitter about as often as it misses it, so
 one sweep finding nothing at a frequency means little. Two sweeps agreeing
 means considerably more. This is the same rule the LTE band scan had to learn
-the hard way -- see `LTE_SCAN_MIN_LOOKS` in `src/lte_scan.h`.
+the hard way -- see `LTE_SCAN_MIN_LOOKS` in `src/tech/lte_scan.h`.

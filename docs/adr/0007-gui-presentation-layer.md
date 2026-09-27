@@ -15,7 +15,7 @@ presentation into two layers so screens compose from named pieces:
 
 - **`vendor/raygui.h`** (vendored, pinned) — the immediate-mode widget toolkit
   for the generic widgets (buttons, checkboxes, the 2G/4G/5G toggle group).
-  `RAYGUI_IMPLEMENTATION` lives in a dedicated `src/raygui_impl.c` compiled
+  `RAYGUI_IMPLEMENTATION` lives in a dedicated `src/gui/raygui_impl.c` compiled
   without the strict `-W` flags, so our own translation units stay `-Wall -W`.
 - **`src/sdrgui.{c,h}`** — reusable **SDR visual components** (`sdrgui_spectrum`,
   `sdrgui_waterfall` with an axis-mode flag and a markers array, `sdrgui_scan_chart`,
@@ -23,7 +23,7 @@ presentation into two layers so screens compose from named pieces:
   small `sdrgui_text_field`). Each takes a plain param struct (buffers +
   geometry + style), never `struct app`. It depends only on raylib, not raygui.
 
-`src/sdrprobe.c` keeps the application state, the calibration/scan/drift logic
+`src/app/sdrprobe.c` keeps the application state, the calibration/scan/drift logic
 and `retune_receiver`, and now only *composes* screens from sdrgui + raygui.
 
 ## Considered options

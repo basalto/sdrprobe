@@ -12,9 +12,9 @@
 
 /*
  * The Viewer link (ADR-0027): the Scope's view model, pushed to loopback
- * WebSocket clients as State updates. This is where `src/websocket.c`
+ * WebSocket clients as State updates. This is where `src/server/websocket.c`
  * (HTTP/1.1, RFC 6455 -- nothing here about sdrprobe) meets
- * `src/scope_view_model.h` (the Scope's measurements -- nothing there about
+ * `src/model/scope_view_model.h` (the Scope's measurements -- nothing there about
  * a network). Neither knows the other exists; this is what joins them.
  *
  * Two rules from ADR-0027 are load-bearing here and nowhere softened:
@@ -33,11 +33,11 @@
  * frames with a small fixed header (below); `receiver_state`,
  * `link_health` (ticket 08) and `command_result` (ticket 06) are JSON
  * text frames, because writing JSON is already solved
- * (`survey_json_escape()`, src/survey_store.c) and nothing here parses
+ * (`survey_json_escape()`, src/runtime/survey_store.c) and nothing here parses
  * it. The two things read from a client -- `subscribe <stream> ...` and
  * a command line (`tune <hz>`) -- are both whitespace-delimited lines,
- * on the same principle `src/capture_sidecar.h` states outright: this is
- * not a JSON parser and must not become one. `src/viewer_command.h` owns
+ * on the same principle `src/core/capture_sidecar.h` states outright: this is
+ * not a JSON parser and must not become one. `src/server/viewer_command.h` owns
  * what a command line actually says; this module only decides that a
  * line is one (anything that is not `subscribe ...`) and what happens to
  * its result.

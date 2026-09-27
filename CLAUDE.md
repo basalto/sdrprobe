@@ -109,7 +109,7 @@ build" only helps a reader who is told which one is right. `usage()` takes a
 `has_window` flag for the same reason: one text would lie to whichever binary
 it was not written for.
 
-`src/app_main.c` holds everything both do -- the flags, the environment, the
+`src/app/app_main.c` holds everything both do -- the flags, the environment, the
 installation, the receiver, the handlers, the shutdown -- and each binary's
 `main()` differs only in what it hands it: `sdrprobe.c` a
 `struct app_window` (the frame loop and the teardown), `sdrprobe_main.c`
@@ -127,7 +127,7 @@ failure explains itself rather than dumping ld:
 
 ```
   The server pulled in the window. What reached for it:
-      src/survey_runtime.c line 392 calls IsKeyPressed()
+      src/runtime/survey_runtime.c line 392 calls IsKeyPressed()
 ```
 
 `check-pipelines` then asserts the contract above: `./sdrprobe` decodes, a
@@ -244,7 +244,7 @@ displays a PNG. Look at the ones your change touched, and at their
 neighbours; bare `make screens` renders all twelve and takes a minute, which
 is the wrong tool for a change that moved one panel.
 
-`src/lte_findings.h` turns those numbers into sentences, in the broadcast
+`src/tech/lte_findings.h` turns those numbers into sentences, in the broadcast
 panel and as `lte-chain-finding` lines. One of them is a refusal and it is the point: a Doppler and a residual tuning
 error are one phase, so at 1.16 km/h per hertz the drift measures the crystal
 with any motion buried inside it, and indoor against outdoor is not measured
@@ -265,7 +265,7 @@ number is not a delay. All three cases are named on screen for what they are.
 
 The cell panel is a table of what each measurement The cell panel is a table of what each measurement *did*, not what it says
 this block: smallest, mean and largest since the identity last changed
-(`src/lte_stats.h`, and `lte-chain-stat` lines in the headless report). Every
+(`src/tech/lte_stats.h`, and `lte-chain-stat` lines in the headless report). Every
 one of those moves -- a correlation drops when somebody walks past the
 antenna, a reference power follows the fading -- and one reading cannot tell a
 marginal cell from a steady one. **The reset on a change of identity is
@@ -276,7 +276,7 @@ primary cell by reference power, an invented identity's power reads high often
 enough to take first place, and the primary flipped often enough to reset a
 run of 146 blocks to 3.
 
-Panel rows are part of that geometry, and `src/panel_rows.h` owns it for every
+Panel rows are part of that geometry, and `src/gui/panel_rows.h` owns it for every
 view that has a table of fields. It gives a panel's row positions, its label
 and value columns and how many rows it *holds*; a row past that capacity is
 not drawn at all, because off the bottom edge is worse than absent, so a
@@ -675,7 +675,7 @@ decision it forces: "the block stays dump1090's" does not say *dump1090's
 what*, its 262144 bytes or its 131072 pairs, and those were the same number
 only while there was one container.
 
-`src/device_profile.h` is the contract those tickets fill in: the facts that do
+`src/core/device_profile.h` is the contract those tickets fill in: the facts that do
 **not** transfer between receivers -- format and full scale, bytes per pair,
 tuning and rate reach, the gain model, whether ppm drifts, the reference clock,
 the retune settle. It is **data, not a vtable**; function pointers wait for a
@@ -925,7 +925,7 @@ the wrong thing: the four Scope views draw whatever the receiver is pointed at
 and this one walks the receiver across a band. Under Scope it also inherited
 Scope's numbered options — 1 magnitude, 2 spectrum — which name screens it has
 nothing to do with. `enum active_tab` is Survey, Scope, Decode.
-Its candidate list carries each maximum's width and shape (`src/survey_carrier.h`)
+Its candidate list carries each maximum's width and shape (`src/core/survey_carrier.h`)
 and what the site has heard of it -- new, steady, on/off, gone
 (`site_history_seen()`).
 
@@ -955,7 +955,7 @@ for two intervals to be disjoint rather than a threshold, and
 produces flags with no evidence rather than more flags.
 
 **Where a candidate reads is the second kind of evidence, and it contradicts
-the comb as often as it corroborates it** (`src/reading_origin.h`). An
+the comb as often as it corroborates it** (`src/core/reading_origin.h`). An
 uncalibrated receiver does not report a frequency vaguely, it reports it wrong
 by a known amount: with a crystal error `k` and a correction `c` in force, a
 tone at true frequency `f` comes back at `f/(1 + k - c)` -- the tuning cancels
@@ -1003,7 +1003,7 @@ and would not loosen this test but abolish it, wanting a carrier at 1.6 GHz
 before any verdict was available, with a green suite throughout.
 
 **Three grids are asked, and a service raster answers only half the
-question.** The two combs and the octave chain (`src/clock_chain.h`, f/2f/4f
+question.** The two combs and the octave chain (`src/core/clock_chain.h`, f/2f/4f
 and never 3f) may answer both hypotheses; a **channel raster** from the band
 plan may answer only *external*, because a channel grid says where a
 transmitter may sit and "a tone clocked by this receiver that happens to land
@@ -1059,7 +1059,7 @@ each. The antenna defaults to `telescopic`.
 than from memory: the allocations **this receiver** can reach, with the ones
 that have a decoder behind them picked out, and a dwell chosen to suit the
 width — half a second for anything under about fifty megahertz, down to the
-default for the whole tuner. `src/survey_bands.h` is the arithmetic and
+default for the whole tuner. `src/core/survey_bands.h` is the arithmetic and
 `check-survey-bands` asserts that nothing offered is out of the tuner's reach
 and nothing reachable is left off.
 
@@ -1078,7 +1078,7 @@ Under file playback the picker offers **one** allocation, the one the capture
 sits in, because a capture's tuning range is the single frequency it was taken
 at. That is deliberate — a sweep needs a live receiver and the view says so.
 
-A sweep's peaks are grouped into signals by `src/survey_carrier.h` before
+A sweep's peaks are grouped into signals by `src/core/survey_carrier.h` before
 anything reads them: two maxima are one carrier when the power between them
 never drops far below the lower of the two, and each carrier's extent runs to
 the trough on either side rather than to a fixed number of decibels down --
@@ -1087,7 +1087,7 @@ is the middle of that extent and identifies the signal; `power_centre_hz` says
 where the energy sits, and the two part company on a lopsided carrier.
 
 **The tuning correction is kept per receiver *and* site**, and the survey
-history per receiver, site *and* antenna — `src/installation.h`, ADR-0018 and
+history per receiver, site *and* antenna — `src/runtime/installation.h`, ADR-0018 and
 ADR-0022. A correction drifts and is measured against whatever reference a
 place offers, so arriving somewhere the receiver has been calibrated restores
 that calibration rather than the last one measured anywhere; and it
@@ -1135,7 +1135,7 @@ twenty-four broadcast stations. The site is a combo: type a new
 one, or pick one this receiver has been to before, from the list `config_remember_site()` keeps -- spelling one place two
 ways makes it two places and nothing downstream can tell. Saving also folds the
 sweep into `surveys/history-<receiver>-<site>-<antenna>.txt`
-(`src/site_history.c`), which is what
+(`src/runtime/site_history.c`), which is what
 lets the window tick the candidates this site has never heard, mark where
 something it knows has gone quiet, and say under the cursor how many sweeps
 ago. Matching uses the coarser of the two sweeps' bin widths; the reason is in
@@ -1341,7 +1341,7 @@ Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
   peak hold and the Scope drops the waterfall's rows, because those rows are
   not the frame's to clear. `process_block()` survives as the thirty lines of
   application policy that decide the size and act on that report.
-- `src/signal_findings.h` — one layer over that, and the same relation to it
+- `src/core/signal_findings.h` — one layer over that, and the same relation to it
   that `lte_findings.h` has to the LTE measurements: sentences with their
   numbers attached, and refusals where the measurement cannot reach. It is
   drawn on the survey's candidate panel **above the band plan**, and the
@@ -1445,7 +1445,7 @@ Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
   descramble (four offsets, since one transmission does not say which quarter
   of the 40 ms period it is) → rate dematch → tail-biting rate-1/3 Viterbi →
   CRC-16 masked by the antenna-port count → a Master Information Block.
-  `src/lte_gold.h` holds the length-31 Gold sequence both sides need.
+  `src/tech/lte_gold.h` holds the length-31 Gold sequence both sides need.
 - `src/lte_turbo.{c,h}` and `src/lte_transport.{c,h}` — experimental
   groundwork for the transport layer above the MIB, **with no consumer and
   outside the supported Decoder outcomes**. Built for System Information Block 1:
@@ -1532,7 +1532,7 @@ Tabs are presentation only, not the boundary (ADR-0010, ADR-0021).
   a coherent scrap at 19 kHz and reads 0.74; the pilot's size against the
   multiplex says whether it is there. Neither alone is right, and the size
   alone ranks stations backwards.
-- `src/fm_scan.h` — walking band II, in two passes and for an arithmetic
+- `src/tech/fm_scan.h` — walking band II, in two passes and for an arithmetic
   reason: 205 channels on a 100 kHz raster, and deciding whether one carries
   RDS means demodulating it for a quarter of a second, so visiting all of them
   is a minute to find the fifteen that exist. A receiver at 2 MS/s sees
@@ -1612,13 +1612,13 @@ Two hard constraints on this layer:
 
 ### Presentation: sdrgui components over vendored raygui
 
-- `src/sdrgui.h` with `sdrgui_plot.c`, `sdrgui_scope.c`, `sdrgui_decode.c`,
+- `src/gui/sdrgui.h` with `sdrgui_plot.c`, `sdrgui_scope.c`, `sdrgui_decode.c`,
   `sdrgui_widgets.c` (`sdrgui_`) — reusable visual components. They take plain
   data and geometry and **never see `struct app`** (ADR-0007), and depend only
   on raylib. Every chart draws inside the rect it is handed, reserving its own
   caption strip and label gutter via `sdrgui_chart_area()` — a caller cannot
   compute that clearance, because label width depends on the values.
-- `vendor/raygui.h` + `src/raygui_impl.c` — pinned immediate-mode widgets,
+- `vendor/raygui.h` + `src/gui/raygui_impl.c` — pinned immediate-mode widgets,
   expanded in one isolated TU compiled with `-w` because the header is not
   `-Wall -W` clean. Keep it that way.
 - The rendering seam carries **raw centred complex I/Q**, not a pre-reduced
@@ -1627,7 +1627,7 @@ Two hard constraints on this layer:
 
 ### Application
 
-`src/app.h` names what is genuinely shared, and `src/options.c` parses the
+`src/runtime/app.h` names what is genuinely shared, and `src/runtime/options.c` parses the
 command line. State that belongs to one area lives with it: `struct
 acquisition` in `acquisition.h`, and `struct scope_view`, `struct gsm_view`,
 `struct calibration`, `struct settings_panel` and `struct adsb_view` in
@@ -1662,7 +1662,7 @@ lease token. Each screen has a file — `view_scope.c` (the four Scope views),
 `view_gsm.c`, `view_adsb.c`, `view_lte.c`, `view_tetra.c`,
 `overlay_calibration.c`,
 `overlay_settings.c` —
-with `src/view.h` declaring what they share. `src/sdrprobe.c` is down to
+with `src/gui/view.h` declaring what they share. `src/app/sdrprobe.c` is down to
 acquisition, the tab/header chrome, the frame loop and `main`.
 
 Be clear on what that split is and isn't: every view still reads one big
@@ -1712,7 +1712,7 @@ Its shape:
   halves report there now, and the one path that returned -1 with no message
   at all -- `acquisition_attach_source()` -- is why the headless line had an
   `"unknown"` fallback.
-- **The receiver is behind a seam.** `src/device_backend.h` is a vtable --
+- **The receiver is behind a seam.** `src/runtime/device_backend.h` is a vtable --
   open, close, tune, rate, ppm, gain, flush, stream, stop -- and
   `<rtl-sdr.h>` is included by **exactly one file**, `backend_rtlsdr.c`.
   `struct app` carries a `struct device_session`, not an `rtlsdr_dev_t *`.
@@ -1726,7 +1726,7 @@ Its shape:
   retune-then-flush path. **UHD is optional** -- `HAVE_UHD` defaults to 0
   because the adapter is unwritten, and `device_backend_uhd()` returns NULL in
   a build without it, so callers ask rather than testing a macro.
-- **Threading** lives in `src/acquisition.c`, which owns `struct acquisition`
+- **Threading** lives in `src/runtime/acquisition.c`, which owns `struct acquisition`
   and does not include `app.h`. A worker (`receiver_worker` for the librtlsdr
   async callback, `file_worker` for the paced file pacer) hands 256 KiB blocks
   to the render thread through a **single mutex-guarded, overwriteable slot** —
@@ -1769,7 +1769,7 @@ also mistakes sidelobes for cells, and it makes the same mistake every block,
 so a false identity repeats as faithfully as a true one. On that carrier PCI
 410 was reported 59 times in 364 blocks and never decoded anything, while
 PCI 190 was reported 104 times and read 16 messages. Any threshold on
-sightings would have confirmed the wrong one. `src/lte_confirm.h` asks instead
+sightings would have confirmed the wrong one. `src/tech/lte_confirm.h` asks instead
 whether the identity's *own* broadcast channel decoded -- scrambled with the
 identity, checked by a CRC, and so not something repetition can manufacture --
 and reports `confirmed`, `unread` or `spurious`. Three verdicts, because "seen
@@ -1994,7 +1994,7 @@ logging only the request -- the outcome is logged now, quoting
 
 ## Versioning
 
-`src/version.h` holds three numbers; the window's corner and `--version` are
+`src/runtime/version.h` holds three numbers; the window's corner and `--version` are
 both built from them, so they cannot disagree. **Semantic Versioning 2.0.0,
 read against the command line, the headless reports and the file formats --
 not against the screens** (ADR-0016). A moved panel is MINOR; a decode
@@ -2025,9 +2025,17 @@ fault is older than the four below and not confined to one session. The audit
 is one line and worth re-running after adding a header:
 
 ```sh
-for h in $(ls src/*.h | xargs -n1 basename); do \
-    grep -q "SRC)/$h" Makefile || echo "MISSING: $h"; done
+for h in $(ls src/*/*.h | xargs -n1 basename); do \
+    grep -qE "SRC\)/[a-z]+/$h" Makefile || echo "MISSING: $h"; done
 ```
+
+**That audit broke silently when `src/` grew folders**, and it is the exact
+fault it exists to catch. It grepped `$(SRC)/<file>`; the paths became
+`$(SRC)/<layer>/<file>`, so it matched nothing and reported **104 of 104
+headers missing** -- loudly, as it happens, but a pattern that matched
+*everything* instead would have reported none and been believed.
+`check-layers` is the gated version of the same idea and needs no pattern:
+it reads the folders.
 
 The four added in one afternoon were:
 `panel_rows.h`, `lte_stats.h`, `lte_confirm.h` and `lte_findings.h` were each

@@ -1,7 +1,7 @@
 # GSM Burst Analysis Visualizations
 
 Status: plan (not yet implemented)
-Scope: `src/gsm_dsp.h`, `src/gsm_dsp.c`, `src/sdrgui.h`, `src/sdrgui.c`, `src/sdrprobe.c`.
+Scope: `src/tech/gsm_dsp.h`, `src/tech/gsm_dsp.c`, `src/gui/sdrgui.h`, `src/sdrgui.c`, `src/app/sdrprobe.c`.
 Related: tracker `.scratch/gsm-burst-analysis/`
 
 ---
@@ -46,18 +46,18 @@ This layout choice ensures we don't squash the UI vertically, while pairing the 
 ## 4. Implementation Plan
 
 ### Phase 1: Expand the Plugin API
-Expand `struct gsm_sch_symbols` in `src/gsm_dsp.h` to carry the new visualization data. We are passing this struct anyway; adding ~300 floats is trivial and avoids recalculation.
+Expand `struct gsm_sch_symbols` in `src/tech/gsm_dsp.h` to carry the new visualization data. We are passing this struct anyway; adding ~300 floats is trivial and avoids recalculation.
 - Add `float corr[GSM_SCH_BURST_BITS]` (we only need the correlation scores *around* the found peak to show the landscape).
 - Add `float soft_mag[GSM_SCH_BURST_BITS]`
 - Add `float phase[GSM_SCH_BURST_BITS]`
 
-Update `gsm_sch_decode()` in `src/gsm_dsp.c` to populate these arrays when `symbols != NULL` and a valid burst is found.
+Update `gsm_sch_decode()` in `src/tech/gsm_dsp.c` to populate these arrays when `symbols != NULL` and a valid burst is found.
 
 ### Phase 2: Create the GUI Component
 Create a new reusable `sdrgui_burst_chart` component in `src/sdrgui.c`. It should be capable of drawing both a line chart (for Phase/Correlation) and a bar chart (for Soft Magnitudes), with zero-lines and appropriate axis scaling.
 
 ### Phase 3: Wire into the Application
-In `src/sdrprobe.c`:
+In `src/app/sdrprobe.c`:
 - Add a new state variable `int gsm_analysis_mode;` (0=Correlation, 1=Soft Bits, 2=Phase).
 - Update `draw_gsm()`: If `app->scan_selected_arfcn > 0`, do *not* draw `sdrgui_scan_chart`. Instead, draw the toggle buttons for the analysis modes and call `sdrgui_burst_chart` using the data from `app->gsm_sch_symbols`.
 - Add a "Back to Scan" button that clears `app->scan_selected_arfcn` and calls `leave_gsm()`.

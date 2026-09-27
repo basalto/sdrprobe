@@ -63,7 +63,7 @@ a different and much vaguer condition.
 
 ## Consequences
 
-`src/version.h` holds the three numbers and builds the strings from them, so
+`src/runtime/version.h` holds the three numbers and builds the strings from them, so
 the window's corner and `--version` cannot disagree about which build this is.
 `check-layout` parses the version rather than comparing it to a literal --
 the shape is the invariant, not the value, so bumping it does not mean editing

@@ -98,7 +98,7 @@ them, so recovering them shows up as a change rather than as luck.
 
 What would recover them is a different measurement, not a different threshold:
 walking to the *trough* rather than to a fixed number of decibels down.
-`survey_carrier_edge()` in `src/survey_carrier.h` already does exactly that for
+`survey_carrier_edge()` in `src/core/survey_carrier.h` already does exactly that for
 the carrier grouping, and it separates the two cases by construction -- a
 ripple's trough is the notch beside it, inside the multiplex, while an isolated
 tone's is the noise. `.scratch/survey-extent/` is that work.

@@ -22,7 +22,7 @@
  * hardware, and no reason to fake what a socket does when the thing being
  * checked *is* what happens on a socket. Every client here is a from-scratch
  * WebSocket client written for this file, sharing no code with
- * src/websocket.c beyond the RFC both implement, the same principle behind
+ * src/server/websocket.c beyond the RFC both implement, the same principle behind
  * scripts/viewer_client.py's own independence.
  *
  * `struct viewer_link` is close to 12 MB (VIEWER_LINK_MAX_CLIENTS clients,

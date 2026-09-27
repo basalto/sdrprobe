@@ -54,7 +54,7 @@ and the Health panel are all live there. `Ctrl-C` stops it.
 ## 3. Drive it from the CLI, no browser needed
 
 `scripts/viewer_client.py` is a from-scratch RFC 6455 client kept specifically
-for this -- it shares no code with `src/websocket.c`, so it is an independent
+for this -- it shares no code with `src/server/websocket.c`, so it is an independent
 check on the wire format, not a client built from the same assumptions as the
 server.
 
@@ -153,7 +153,7 @@ viewer link: client fd 6 disconnecting, send queue high-water 16.4 KB
 Off by default, free when off (one pointer check). Turned on, it logs a
 client connecting, a subscription changing, and a stream stalling or
 clearing -- not a per-message trace, which would flood the log for nothing;
-see `src/debug_log.h`'s own comment on why.
+see `src/runtime/debug_log.h`'s own comment on why.
 
 ```sh
 ./sdrprobe web --no-browser --serve-port 8765 --file testfiles/gsm_arfcn_69.bin \

@@ -39,7 +39,7 @@ static int cmp(const void *a, const void *b) {
 }
 
 /*
- * Both measurements moved into src/signal_probe.c, which is why this file no
+ * Both measurements moved into src/core/signal_probe.c, which is why this file no
  * longer carries them: they were static in a `main()`, so nothing in the
  * program could call either, and folding at a period is general enough that
  * band 28 was identified as 5G NR with it. What is left here is the walk and

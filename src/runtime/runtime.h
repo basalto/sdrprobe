@@ -203,7 +203,7 @@ int scope_requested_fft_size(const struct app *app);
 /* The one global the program has, read through a function so it stays one. */
 int stop_requested(void);
 /* The band survey with no window: sweep, then print the candidates to
-   stdout, one per line. src/survey_report.c. */
+   stdout, one per line. src/runtime/survey_report.c. */
 int survey_report_run(struct app *app);
 /*
  * The window, to whichever binary has one.
@@ -221,7 +221,7 @@ struct app_window {
 
 int sdrprobe_main(int argc, char **argv, const struct app_window *window);
 
-/* Every run with no window -- `headless` and `server` both. src/headless_run.c. */
+/* Every run with no window -- `headless` and `server` both. src/app/headless_run.c. */
 int run_headless(struct app *app);
 /* The receivers this machine has, as the backend enumerates them. */
 int list_devices(void);

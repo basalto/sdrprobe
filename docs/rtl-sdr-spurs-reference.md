@@ -352,7 +352,7 @@ because it must be: one crystal.
 It also **explains the shape** -- octave ladders with a stop at each end --
 without needing a rule invented to fit. A clock tree has a top (480 MHz) and a
 bottom (30 MHz), and divides by two in between. That is exactly what
-`src/clock_chain.h` models, and this is the first external reason to think the
+`src/core/clock_chain.h` models, and this is the first external reason to think the
 shape is right rather than merely fitted.
 
 **And it earns one absence rather than merely surviving it.** The ladder's
