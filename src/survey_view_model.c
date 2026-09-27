@@ -98,6 +98,7 @@ void survey_view_model_build(const struct app *app,
         }
         c->flags = survey_view_model_suspect(app, hz) |
                    survey_session_confirmed_flags_at(ss, asked_hz);
+        c->mark = survey_mark_of(c->flags);
         c->seen = ss->history_loaded
                       ? site_history_seen(
                             &ss->history,

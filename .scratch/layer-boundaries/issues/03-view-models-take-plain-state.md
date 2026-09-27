@@ -1,7 +1,9 @@
 # 03 - The data contracts stop taking `struct app`
 
-Status: needs-triage
-Blocked by: 01
+Status: needs-info -- item 2 done (2026-09-27): the peak mark is out of
+`sdrgui.h` and `check-viewer-link` builds with no raylib at all. Items 1, 3
+and 4 remain.
+Blocked by: 01 (done)
 
 ## The problem
 
@@ -85,3 +87,30 @@ suite that allocated a whole `struct app` to write one file, which is how
   converting six is six.
 - **`survey_tuning_from()`** already exists and is exactly the "narrow
   input" pattern for the survey. Reuse it rather than inventing a second.
+
+
+## Item 2 done, 2026-09-27 -- the mark leaves the components header
+
+`src/survey_mark.h`: `enum survey_peak_mark`, the four suspicion flags, the
+precedence that turns a flag word into one of the four (`survey_mark_of()`)
+and its name (`survey_mark_name()`). Out of `sdrgui.h`, which is the
+components header ADR-0007 says takes plain data and decides nothing -- and
+this is a decision, the precedence in which "a closer look found nothing"
+beats "on the receiver's own comb", because as `CLAUDE.md` puts it, "there
+is nothing here" is what a reader acts on.
+
+`struct survey_candidate_view` carries `mark` now, decided by
+`survey_view_model_build()`. Both readers take it: the chart draws the mark
+it is handed, and `survey_state` sends its name. That is what
+`web-visualization/15` was about -- two readers deriving a mark from one flag
+word disagreed for months.
+
+**`viewer_link.c` includes no GUI header any more, and `check-viewer-link`
+builds with no raylib**, proven by building the whole suite with a `#error`
+raylib.h ahead of the real one rather than by dropping the flag and seeing
+it pass.
+
+One check had to change rather than the code: the suite's fixture set
+`candidates[0].flags` by hand, and the publisher now reads `mark`. It derives
+the mark through `survey_mark_of()` instead of naming one, so the fixture
+still exercises the precedence rather than asserting around it.

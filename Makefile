@@ -300,11 +300,11 @@ check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
 		$(SRC)/viewer_link.c $(SRC)/viewer_link.h $(BUILD)/viewer_page.h \
 		$(SRC)/websocket.c $(SRC)/websocket.h \
 		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h \
-		$(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/sdrgui.h \
+		$(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/survey_mark.h \
 		$(SRC)/debug_log.c $(SRC)/debug_log.h \
 		$(SRC)/viewer_command.c $(SRC)/viewer_command.h
 	@mkdir -p $(BUILD)
-	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(WEB_CFLAGS) $(shell pkg-config --cflags raylib) \
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(WEB_CFLAGS) \
 		-o $(BUILD)/viewer_link_test \
 		$(TESTS)/viewer_link_test.c $(SRC)/viewer_link.c $(SRC)/websocket.c \
 		$(SRC)/scope_view_model.c $(SRC)/debug_log.c $(SRC)/viewer_command.c -lm

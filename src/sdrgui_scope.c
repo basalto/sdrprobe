@@ -869,19 +869,19 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
         else if (i == params->hover)
             color = (Color){ 235, 242, 246, 255 };
         DrawLine((int)x, (int)y - 12, (int)x, (int)y - 2, color);
-        switch (sdrgui_survey_peak_mark(params->peak_flags
+        switch (survey_mark_of(params->peak_flags
                                             ? params->peak_flags[i] : 0u)) {
-        case SDRGUI_PEAK_RECEIVER:
+        case SURVEY_MARK_RECEIVER:
             /* A cross: this is the instrument, not the band. */
             DrawLine((int)x - 4, (int)y - 18, (int)x + 4, (int)y - 10, color);
             DrawLine((int)x - 4, (int)y - 10, (int)x + 4, (int)y - 18, color);
             break;
-        case SDRGUI_PEAK_EMPTY:
+        case SURVEY_MARK_EMPTY:
             /* A hollow dot: a closer look found a prominence and nothing
                else. Hollow because there is nothing in it. */
             DrawCircleLines((int)x, (int)y - 14, 4.0f, color);
             break;
-        case SDRGUI_PEAK_CONTESTED:
+        case SURVEY_MARK_CONTESTED:
             /* The cross, with a dot in it: on the comb, and yet something
                real is here. Both facts in one shape, because the chart has
                one mark per peak to say them with. */
@@ -959,10 +959,10 @@ void sdrgui_survey_chart(const struct sdrgui_survey_params *params) {
         int i;
         for (i = 0; i < params->peak_count; i++) {
             unsigned f = params->peak_flags ? params->peak_flags[i] : 0u;
-            switch (sdrgui_survey_peak_mark(f)) {
-            case SDRGUI_PEAK_RECEIVER:  crossed++; break;
-            case SDRGUI_PEAK_EMPTY:     hollow++; break;
-            case SDRGUI_PEAK_CONTESTED: contested++; break;
+            switch (survey_mark_of(f)) {
+            case SURVEY_MARK_RECEIVER:  crossed++; break;
+            case SURVEY_MARK_EMPTY:     hollow++; break;
+            case SURVEY_MARK_CONTESTED: contested++; break;
             default: break;
             }
         }

@@ -2,6 +2,7 @@
 #define SURVEY_VIEW_MODEL_H
 
 #include "reading_origin.h"
+#include "survey_mark.h"
 #include "site_history.h"
 #include "survey_carrier.h"
 #include "survey_sweep.h"
@@ -49,6 +50,15 @@ struct survey_candidate_view {
     /* What this site has heard of it before, SITE_SEEN_UNKNOWN with no
        history loaded. */
     enum site_seen seen;
+
+    /*
+     * Which of the four marks this candidate wears, decided here from the
+     * flags above rather than by each reader. The chart and the wire both
+     * take it: two readers deriving a mark from one flag word is two
+     * chances to disagree, and the browser did disagree for months
+     * (`web-visualization/15`).
+     */
+    enum survey_peak_mark mark;
 };
 
 /*

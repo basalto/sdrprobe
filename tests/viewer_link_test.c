@@ -1,10 +1,10 @@
 #include "check.h"
 
 #include "scope_view_model.h"
-#include "sdrgui.h"   /* SDRGUI_PEAK_* and the mark's own name function; the
-                         same header viewer_link.c uses to decide a mark, so
-                         this check already links with its raylib cflags.
-                         layer-boundaries/03 moves both out of sdrgui. */
+#include "survey_mark.h"  /* SURVEY_MARK_* and the mark's own name function --
+                         the model layer now, not sdrgui.h, which is what lets
+                         this suite build with no raylib at all
+                         (layer-boundaries ticket 03). */
 #include "survey_view_model.h"
 #include "viewer_link.h"
 #include "websocket.h"
@@ -466,17 +466,23 @@ static void test_survey_marks_travel_by_name(void) {
     size_t len;
 
     /* Two candidates: receiver-like by frequency, and empty by a
-       confirmation pass. SDRGUI_PEAK_FLAG_RECEIVER (0x1) and
-       SDRGUI_PEAK_FLAG_EMPTY (0x8), from sdrgui.h. */
+       confirmation pass. SURVEY_MARK_FLAG_RECEIVER (0x1) and
+       SURVEY_MARK_FLAG_EMPTY (0x8), from sdrgui.h. */
     svm.candidate_count = 2;
     svm.candidates[0].hz = 100000000.0;
     svm.candidates[0].power_dbfs = -20.0f;
     svm.candidates[0].has_carrier = 0;
-    svm.candidates[0].flags = SDRGUI_PEAK_FLAG_RECEIVER;
+    svm.candidates[0].flags = SURVEY_MARK_FLAG_RECEIVER;
+    /* Through the same precedence `survey_view_model_build()` applies, not
+       by naming a mark directly: the point of the candidate carrying its
+       mark is that one function decides it, so a fixture that set the field
+       by hand would stop exercising that function. */
+    svm.candidates[0].mark = survey_mark_of(svm.candidates[0].flags);
     svm.candidates[1].hz = 101000000.0;
     svm.candidates[1].power_dbfs = -30.0f;
     svm.candidates[1].has_carrier = 0;
-    svm.candidates[1].flags = SDRGUI_PEAK_FLAG_EMPTY;
+    svm.candidates[1].flags = SURVEY_MARK_FLAG_EMPTY;
+    svm.candidates[1].mark = survey_mark_of(svm.candidates[1].flags);
 
     client_connect(&tc, port);
     client_pump(&tc, 10);
@@ -503,9 +509,9 @@ static void test_survey_marks_travel_by_name(void) {
     /* And confirm the two names are what sdrgui.h itself would say, so this
        cannot pass against a name function that has drifted from the enum. */
     check_str("receiver is the name sdrgui gives its mark",
-             sdrgui_survey_peak_mark_name(SDRGUI_PEAK_RECEIVER), "receiver");
+             survey_mark_name(SURVEY_MARK_RECEIVER), "receiver");
     check_str("empty is the name sdrgui gives its mark",
-             sdrgui_survey_peak_mark_name(SDRGUI_PEAK_EMPTY), "empty");
+             survey_mark_name(SURVEY_MARK_EMPTY), "empty");
 
     client_close_conn(&tc);
     viewer_link_close(&vlink);

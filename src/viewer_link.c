@@ -16,7 +16,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "sdrgui.h"
 #include "viewer_page.h"
 
 static int set_nonblocking(int fd) {
@@ -1108,7 +1107,7 @@ void viewer_link_publish_fm_spectrum(struct viewer_link *link,
  * Ticket 07's sweep status, alongside the chart above: what the window's
  * own status line would say, whether a sweep is walking the range, and the
  * candidate list -- each candidate's mark named the way `sdrgui.h` already
- * names the four the chart draws (`sdrgui_survey_peak_mark()`), so a
+ * names the four the chart draws (`survey_mark_of()`), so a
  * browser reads the same verdict the window's marks encode rather than
  * reinterpreting the flag word itself.
  *
@@ -1160,8 +1159,7 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
                                 cnd->has_carrier
                                     ? survey_shape_name(cnd->shape) : "-",
                                 (int)cnd->seen,
-                                sdrgui_survey_peak_mark_name(
-                                    sdrgui_survey_peak_mark(cnd->flags)));
+                                survey_mark_name(cnd->mark));
     }
     if (len < sizeof(json) - 2) {
         json[len++] = ']';

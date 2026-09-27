@@ -5,6 +5,8 @@
 
 #include <raylib.h>
 
+#include "survey_mark.h"
+
 #include "sdr_dsp.h"
 
 /*
@@ -302,7 +304,7 @@ struct sdrgui_survey_params {
      * One flag word per peak, or NULL for none known. Passed in rather than
      * looked up, because this component never sees `struct app` (ADR-0007) --
      * and the survey's suspicion words are the caller's vocabulary, so what
-     * arrives here is only ever read through sdrgui_survey_peak_mark().
+     * arrives here is only ever read through survey_mark_of().
      *
      * **Last on purpose.** Every caller builds this struct with positional
      * initialisers, so a field added in the middle shifts every one after it.
@@ -326,24 +328,6 @@ struct sdrgui_survey_params {
  * selection and hover, and a reader looking for "which of these is real" is
  * scanning shapes at three pixels rather than comparing hues.
  */
-enum sdrgui_peak_mark {
-    SDRGUI_PEAK_SIGNAL = 0,  /* a filled dot: nothing is known against it */
-    SDRGUI_PEAK_RECEIVER,    /* a cross: on the receiver's own comb */
-    SDRGUI_PEAK_EMPTY,       /* a hollow dot: a closer look found nothing */
-    /*
-     * A cross with a dot in it: receiver-like by frequency, and yet it reads
-     * displaced by this receiver's own error, which a tone clocked here could
-     * not. Something real is on a comb multiple.
-     *
-     * A **fourth shape** rather than resolving to one of the three, because
-     * both of the obvious resolutions are wrong. A plain cross tells a reader
-     * to stop looking at the one candidate they should look at; a plain dot
-     * silently discards the comb mark, which
-     * `.scratch/reading-origin/issues/01-*` decided against. The chart draws
-     * one mark per peak, so "beside" has to mean a shape that carries both.
-     */
-    SDRGUI_PEAK_CONTESTED
-};
 
 /*
  * `flags` is the survey's suspicion word. The bits are the caller's and this
@@ -356,43 +340,6 @@ enum sdrgui_peak_mark {
  * The candidate list resolves it the same way, and the two must agree or the
  * chart and the list disagree about the same peak.
  */
-#define SDRGUI_PEAK_FLAG_RECEIVER 0x1u   /* SURVEY_SUSPECT_REFERENCE */
-#define SDRGUI_PEAK_FLAG_STEP 0x2u       /* SURVEY_SUSPECT_STEP_CENTRE */
-#define SDRGUI_PEAK_FLAG_EMPTY 0x8u      /* SURVEY_SUSPECT_NO_CARRIER */
-#define SDRGUI_PEAK_FLAG_DISPLACED 0x40u /* SURVEY_SUSPECT_DISPLACED */
-
-static inline enum sdrgui_peak_mark sdrgui_survey_peak_mark(unsigned flags) {
-    if (flags & SDRGUI_PEAK_FLAG_EMPTY)
-        return SDRGUI_PEAK_EMPTY;
-    if (flags & (SDRGUI_PEAK_FLAG_RECEIVER | SDRGUI_PEAK_FLAG_STEP)) {
-        /* Receiver-like by frequency and contradicted by where it reads. The
-           contradiction is the more useful half to a reader, so it shows --
-           without discarding the cross that earned the suspicion. */
-        if (flags & SDRGUI_PEAK_FLAG_DISPLACED)
-            return SDRGUI_PEAK_CONTESTED;
-        return SDRGUI_PEAK_RECEIVER;
-    }
-    return SDRGUI_PEAK_SIGNAL;
-}
-
-/*
- * The mark's name, for a reader that is not the raylib chart -- the Viewer
- * wire, today. It travels by name rather than as the enum's integer because
- * a second reader that re-declares the enum's order gets it wrong silently:
- * `web/views/survey.js` did exactly that and drew receiver-like and empty
- * candidates swapped, green throughout, until `web-visualization/15`. A name
- * cannot be mis-ordered, and one the browser does not know is visible rather
- * than becoming a different mark. Same shape as `survey_shape_name()`.
- */
-static inline const char *sdrgui_survey_peak_mark_name(enum sdrgui_peak_mark m) {
-    switch (m) {
-    case SDRGUI_PEAK_SIGNAL:    return "signal";
-    case SDRGUI_PEAK_RECEIVER:  return "receiver";
-    case SDRGUI_PEAK_EMPTY:     return "empty";
-    case SDRGUI_PEAK_CONTESTED: return "contested";
-    }
-    return "signal";
-}
 
 /* Power against absolute frequency across a swept range, with candidates
    ticked above the trace. The tick matters: at 1.7 GHz across a 1000 px panel
