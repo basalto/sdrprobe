@@ -137,25 +137,42 @@ VIEW_SRC=$(SRC)/gui/view_scope.c $(SRC)/gui/view_gsm.c \
 	$(SRC)/gui/overlay_calibration.c $(SRC)/gui/overlay_startup.c $(SRC)/gui/overlay_scan.c \
 	$(SRC)/gui/overlay_settings.c $(SRC)/gui/overlay_help.c $(SRC)/gui/overlay_signal_report.c
 APP_SRC=$(CORE_SRC) $(VIEW_SRC)
-APP_HDR=$(SRC)/runtime/options.h $(SRC)/runtime/config.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/tech/lte_chain_analysis.h $(SRC)/gui/calibration_layout.h $(SRC)/core/survey_carrier.h $(SRC)/core/survey_confirm.h $(SRC)/runtime/site_history.h $(SRC)/runtime/survey_store.h $(SRC)/runtime/survey_record.h $(SRC)/core/signal_frame.h $(SRC)/runtime/receiver_runtime.h $(SRC)/runtime/frame_advance.h $(SRC)/model/receiver_view_model.h $(SRC)/model/scope_view_model.h $(SRC)/model/survey_view_model.h $(SRC)/model/site_seen.h $(SRC)/model/survey_tuning.h $(SRC)/model/fm_view_model.h $(SRC)/gui/gui_state.h $(SRC)/runtime/runtime.h $(SRC)/server/websocket.h $(SRC)/server/viewer_link.h $(SRC)/server/viewer_session.h $(SRC)/server/process_cpu.h $(SRC)/server/viewer_command.h $(SRC)/gui/gsm_layout.h $(SRC)/gui/adsb_layout.h $(SRC)/gui/tetra_layout.h \
-	$(SRC)/gui/lte_layout.h $(SRC)/gui/fm_layout.h $(SRC)/gui/srd_layout.h $(SRC)/tech/srd_session.h $(SRC)/server/browser.h \
-	$(SRC)/runtime/survey_window.h $(SRC)/gui/survey_layout.h $(SRC)/core/freq_window.h $(SRC)/core/survey_sweep.h \
-	$(SRC)/runtime/survey_session.h $(SRC)/runtime/startup_session.h \
-	$(SRC)/gui/startup_layout.h \
-	$(SRC)/core/survey_suspect.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/gui/chrome_layout.h \
-	$(SRC)/core/band_plan.h $(SRC)/runtime/calibration_gate.h $(SRC)/runtime/scan_plan.h \
-	$(SRC)/tech/adsb_analysis.h $(SRC)/tech/gsm_continuity.h $(SRC)/runtime/input_route.h \
-	$(SRC)/runtime/view_input.h $(SRC)/tech/srd_log.h $(SRC)/runtime/debug_log.h \
-	$(SRC)/runtime/receiver_lease.h $(SRC)/core/device_profile.h $(SRC)/gui/overlay_signal_report.h \
-	$(SRC)/runtime/signal_analysis.h \
-	$(SRC)/runtime/installation.h \
-	$(SRC)/core/capture_sidecar.h $(SRC)/runtime/device_backend.h \
-	$(SRC)/runtime/app.h $(SRC)/gui/view.h \
-	$(SRC)/runtime/version.h \
-	$(SRC)/gui/panel_rows.h $(SRC)/tech/lte_stats.h $(SRC)/tech/lte_confirm.h \
-	$(SRC)/tech/lte_findings.h \
-	$(SRC)/runtime/chart_window.h $(SRC)/gui/help_layout.h $(SRC)/gui/scan_layout.h \
-	$(SRC)/gui/scope_layout.h $(SRC)/gui/settings_layout.h
+# The headers, split by whether the no-window build can possibly see them.
+#
+# `CORE_HDR` is every header at or below `server/`; `GUI_HDR_APP` is the
+# `gui/` ones. `./sdrprobe` depends on the first list only, and that is not a
+# guess: `check-layers` refuses an include from `CORE_SRC` up into `gui/`
+# (ADR-0028), so a gui header provably cannot reach it.
+#
+# It was one flat list, so editing any of the 23 `gui/` headers rebuilt the
+# no-window binary too -- **28.6 s of compiling, measured, for a file it
+# cannot include**.
+CORE_HDR=$(SRC)/runtime/options.h $(SRC)/runtime/config.h $(SRC)/core/reading_origin.h \
+	$(SRC)/core/clock_chain.h $(SRC)/tech/lte_chain_analysis.h $(SRC)/core/survey_carrier.h \
+	$(SRC)/core/survey_confirm.h $(SRC)/runtime/site_history.h $(SRC)/runtime/survey_store.h \
+	$(SRC)/runtime/survey_record.h $(SRC)/core/signal_frame.h $(SRC)/runtime/receiver_runtime.h \
+	$(SRC)/runtime/frame_advance.h $(SRC)/model/receiver_view_model.h $(SRC)/model/scope_view_model.h \
+	$(SRC)/model/survey_view_model.h $(SRC)/model/site_seen.h $(SRC)/model/survey_tuning.h \
+	$(SRC)/model/fm_view_model.h $(SRC)/runtime/runtime.h $(SRC)/server/websocket.h \
+	$(SRC)/server/viewer_link.h $(SRC)/server/viewer_session.h $(SRC)/server/process_cpu.h \
+	$(SRC)/server/viewer_command.h $(SRC)/tech/srd_session.h $(SRC)/server/browser.h \
+	$(SRC)/runtime/survey_window.h $(SRC)/core/freq_window.h $(SRC)/core/survey_sweep.h \
+	$(SRC)/runtime/survey_session.h $(SRC)/runtime/startup_session.h $(SRC)/core/survey_suspect.h \
+	$(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/core/band_plan.h \
+	$(SRC)/runtime/calibration_gate.h $(SRC)/runtime/scan_plan.h $(SRC)/tech/adsb_analysis.h \
+	$(SRC)/tech/gsm_continuity.h $(SRC)/runtime/input_route.h $(SRC)/runtime/view_input.h \
+	$(SRC)/tech/srd_log.h $(SRC)/runtime/debug_log.h $(SRC)/runtime/receiver_lease.h \
+	$(SRC)/core/device_profile.h $(SRC)/runtime/signal_analysis.h $(SRC)/runtime/installation.h \
+	$(SRC)/core/capture_sidecar.h $(SRC)/runtime/device_backend.h $(SRC)/runtime/app.h \
+	$(SRC)/runtime/version.h $(SRC)/tech/lte_stats.h $(SRC)/tech/lte_confirm.h \
+	$(SRC)/tech/lte_findings.h $(SRC)/runtime/chart_window.h
+GUI_HDR_APP=$(SRC)/gui/calibration_layout.h $(SRC)/gui/gui_state.h $(SRC)/gui/gsm_layout.h \
+	$(SRC)/gui/adsb_layout.h $(SRC)/gui/tetra_layout.h $(SRC)/gui/lte_layout.h \
+	$(SRC)/gui/fm_layout.h $(SRC)/gui/srd_layout.h $(SRC)/gui/survey_layout.h \
+	$(SRC)/gui/startup_layout.h $(SRC)/gui/chrome_layout.h $(SRC)/gui/overlay_signal_report.h \
+	$(SRC)/gui/view.h $(SRC)/gui/panel_rows.h $(SRC)/gui/help_layout.h \
+	$(SRC)/gui/scan_layout.h $(SRC)/gui/scope_layout.h $(SRC)/gui/settings_layout.h
+APP_HDR=$(CORE_HDR) $(GUI_HDR_APP)
 DSP_HDR=$(SRC)/tech/gsm_session.h $(SRC)/tech/tetra_session.h $(SRC)/tech/lte_session.h $(SRC)/tech/adsb_session.h $(SRC)/tech/fm_session.h $(SRC)/core/device_profile.h $(SRC)/core/signal_probe.h $(SRC)/core/signal_findings.h $(SRC)/core/sdr_dsp.h $(SRC)/tech/gsm_dsp.h $(SRC)/tech/gsm_bcch.h $(SRC)/tech/adsb_dsp.h \
 	$(SRC)/tech/lte_dsp.h $(SRC)/tech/lte_mib.h $(SRC)/tech/lte_gold.h $(SRC)/tech/lte_scan.h \
 	$(SRC)/tech/fm_dsp.h $(SRC)/tech/rds.h $(SRC)/tech/tetra_dsp.h $(SRC)/tech/tetra_sync.h \
@@ -218,7 +235,7 @@ sdrprobe-gui: $(SRC)/app/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) 
 # reads its own ld output back and says which file called what, before
 # printing the raw text underneath for anyone who wants it.
 #: [Build] build ./sdrprobe: headless and web, with no raylib (needs librtlsdr only)
-sdrprobe: $(SRC)/app/sdrprobe_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
+sdrprobe: $(SRC)/app/sdrprobe_main.c $(CORE_SRC) $(CORE_HDR) $(DSP_SRC) $(DSP_HDR) \
 		$(BUILD)/viewer_page.h
 	@mkdir -p $(BUILD)
 	$(Q)printf '  cc  %s\n' $@

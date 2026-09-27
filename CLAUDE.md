@@ -14,7 +14,7 @@ make                  # every target and what it is for; the default goal
 make all              # build both binaries (needs librtlsdr + raylib, pkg-config)
 make sdrprobe         # just the no-window one: headless and web, no raylib
 make sdrprobe-gui     # just the window
-make check            # everything below, ~57 s, no window and no receiver
+make check            # everything below, ~150 s warm, no window and no receiver
 make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
 make check-sdr-dsp    # one check in isolation — generic core
@@ -153,8 +153,40 @@ mouse and the arrow keys; those are `chart_window_input.c` and the deciding
 half took a check from 79 assertions to 99. When something has to move, it
 goes into the area's `*_runtime.c`.
 
-**Where that time goes, and what took it from 242 s to 57.** Four things,
-each measured, none of them a guess:
+**~150 s warm and ~220 s cold, measured 2026-09-27.** This said **57 s** for
+a while and that number is from a 55-suite gate; there are 83 suites now,
+22 325 checks, two binaries to build instead of one, and a check that drives
+a real browser. The four reductions below still happened and their reasoning
+still holds -- what changed is the size of what they are applied to. Serial
+the gate is 307 s, so `-j4` buys 2.0x, not 4: these suites saturate memory
+bandwidth, which is the same finding as before.
+
+**Two of those four no longer reproduce, re-measured on the 83-suite gate**,
+and neither is worth acting on:
+
+- **`CHECK_JOBS` past 4 makes no measurable difference.** Two passes, one in
+  each direction: -j4 read 148.1 and 150.6, -j8 read 136.5 and 145.7. The
+  6% gap between them is smaller than the 15% spread *within* -j6 (136.7 and
+  158.9). Only -j2 is clearly worse. `nproc/2` stays, not because it wins but
+  because nothing beats it by more than the noise.
+- **Ordering `CHECK_UNITS` longest-first no longer helps.** It had decayed --
+  `check-lte-chain-analysis`, the third-longest suite at 13.6 s, had been
+  appended at position 80 of 83 -- so it looked like an easy win. Sorted by
+  measured time the gate read 158, 165 and 207 s against a 148-151 s
+  baseline: no better, and possibly worse. The pole (`check-signal-probe`) is
+  already first, and with 83 jobs in 4 lanes `make -j` fills the tail by
+  itself.
+
+**Where the time is now, if anyone wants to spend a day on it:**
+`check-signal-probe` is **39 s of running** and 2.8 s of compiling -- a
+quarter of the whole gate in one process, and the only real pole.
+`check-pipelines` is 50 s and is the floor under every `src/` change, because
+any of them can break the built program. Together those two are 60% of the
+serial total; 40 of the 84 suites are under a second each. Nothing else is
+worth measuring until one of those two is split.
+
+**What took it from 242 s to 57 on the gate of the day.** Four things, each
+measured, none of them a guess:
 
 1. **The units run in parallel** -- `-j$(CHECK_JOBS)` with
    `--output-sync=target`, which buffers each suite's output so the report
