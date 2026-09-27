@@ -111,7 +111,11 @@ const LteView = (function () {
     ]));
     // Both sentences arrive chosen: which of four reasons the table is
     // empty, and how far along a running pass is.
-    e.scanNote.textContent = s.scan_note || s.scan_progress;
+    // Three sentences, all chosen by the server: why the table is empty,
+    // how far along a running pass is, and -- while one could be started --
+    // what pressing Scan would cost.
+    e.scanNote.textContent = s.scan_progress
+      || [s.scan_note, s.scan_cost].filter((t) => t).join('   ');
     e.scanNote.style.color = s.scanning ? WARNING : ROW_MUTED;
 
     // --- what PSS and SSS found ------------------------------------------

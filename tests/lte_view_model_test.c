@@ -246,7 +246,111 @@ static void test_an_empty_table_says_why(void) {
               "confirming 6 of 9   3 dropped");
 }
 
+/*
+ * The band the *tuning* is in, and the band the picker is showing.
+ *
+ * Two different facts, and the header printed the second under a caption
+ * promising the first for long enough to be worth a comment in the view:
+ * `--earfcn 3475` tunes 927.5 MHz in band 8 and it read "band 20", because
+ * the buttons default to band 20 and the frequency beside it was right, so
+ * nothing on screen contradicted it.
+ */
+static void test_the_tuned_band_is_not_the_picked_band(void) {
+    struct lte_view_model m;
+
+    blank();
+    ctx.band_number = 20;       /* whichever button is lit */
+    ctx.tuned_band = 8;         /* where the receiver actually is */
+    ctx.tuned_band_name = "900 MHz";
+    lte.earfcn = 3475;
+
+    m = build(927500000u);
+    check_int("the picker's band", m.band, 20);
+    check_int("and the tuning's, which is a different fact", m.tuned_band, 8);
+    check_str("spoken of as the band plan spells it", m.tuned_band_name,
+              "900 MHz");
+
+    /* A tuning in no band at all is named rather than left blank, because a
+       header reading "band 0 ()" is worse than one saying it does not
+       know. */
+    ctx.tuned_band = 0;
+    ctx.tuned_band_name = NULL;
+    m = build(927500000u);
+    check_str("and a tuning in no band says so", m.tuned_band_name,
+              "unknown");
+}
+
+/*
+ * A cell is being found and none of its broadcasts is confirmed.
+ *
+ * The one reading of the funnel a reader acts on, and the state two empty
+ * panels cannot express. It reads `cells_found` rather than `blocks_seen`
+ * because a block is only an opportunity: the fault worth colouring is a
+ * cell that is there and will not give up a message.
+ */
+static void test_a_cell_that_will_not_speak_is_its_own_answer(void) {
+    struct lte_view_model m;
+
+    blank();
+    lte.session.blocks_seen = 400;
+    m = build(796000000u);
+    check_int("blocks with nothing in them are not a fault", m.funnel_warn, 0);
+
+    lte.session.cells_found = 300;
+    m = build(796000000u);
+    check_int("a cell that never confirms is", m.funnel_warn, 1);
+
+    lte.session.mibs_confirmed = 1;
+    m = build(796000000u);
+    check_int("and one confirmation clears it", m.funnel_warn, 0);
+}
+
+/* A marker is a claim that something is there. There is one exactly when
+   there is a cell, and it names it. */
+static void test_the_marker_claims_only_what_was_found(void) {
+    struct lte_view_model m;
+
+    blank();
+    lte.session.cell.pci = 28;
+    m = build(796000000u);
+    check_str("no cell, no claim", m.marker_label, "");
+
+    lte.session.cell_valid = 1;
+    m = build(796000000u);
+    check_str("and with one, its identity", m.marker_label, "PCI 28");
+}
+
+/*
+ * What pressing Scan would cost. Three hundred tunings is not a thing to
+ * start without being told, and the sentence goes quiet during a scan
+ * because the progress line is saying where it is.
+ */
+static void test_the_scan_says_what_it_would_cost(void) {
+    struct lte_view_model m;
+
+    blank();
+    m = build(796000000u);
+    check_str("no band picked, nothing to cost", m.scan_cost, "");
+
+    ctx.band_number = 20;
+    ctx.scan_channels = 300;
+    ctx.scan_first_pass_seconds = 40.0;
+    ctx.scan_all_seconds = 170.0;
+    m = build(796000000u);
+    check_str("and with one, what it would take", m.scan_cost,
+              "300 channels; about 40 s for the first pass, 170 s for all "
+              "of them");
+
+    lte.scan.running = 1;
+    m = build(796000000u);
+    check_str("silent while one is running", m.scan_cost, "");
+}
+
 int main(void) {
+    test_the_tuned_band_is_not_the_picked_band();
+    test_a_cell_that_will_not_speak_is_its_own_answer();
+    test_the_marker_claims_only_what_was_found();
+    test_the_scan_says_what_it_would_cost();
     test_no_cell_carries_no_cell();
     test_the_crystal_error_is_the_receivers();
     test_statistics_travel_only_when_they_belong_to_a_cell();

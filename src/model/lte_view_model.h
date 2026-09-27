@@ -50,7 +50,21 @@
 struct lte_view_context {
     uint32_t centre_hz;
     int band_number;            /* the picker's, 0 when none */
+    /*
+     * And the band the **tuning** is in, which is a different fact. The
+     * header printed the picker's under a caption promising this one:
+     * `--earfcn 3475` tunes 927.5 MHz in band 8 and it read "band 20",
+     * because the buttons default to band 20 and nothing on screen
+     * contradicted it -- the frequency beside it was right.
+     */
+    int tuned_band;
+    const char *tuned_band_name;
     uint32_t scan_candidate_hz; /* where the sweep is now, 0 when idle */
+    /* What a scan of the picker's band would cost, already worked out:
+       how many channels, the first pass, and all of it. */
+    int scan_channels;
+    double scan_first_pass_seconds;
+    double scan_all_seconds;
     int on_grid;                /* the receiver is at LTE's 1.92 MS/s */
     int receiver_mode;          /* a live receiver, not a capture */
     double now;                 /* the session clock, for the two ages */
@@ -75,8 +89,19 @@ struct lte_view_model {
        with the pass before it, which is what repetition cannot fake. */
     unsigned long long blocks_seen, cells_found;
     unsigned long long mibs_decoded, mibs_confirmed;
+    /*
+     * And the one reading of that funnel a reader acts on: a cell is being
+     * found and **none** of its broadcasts is confirmed, which is a
+     * different fault from a channel with nothing on it. Two empty panels
+     * look the same either way.
+     */
+    int funnel_warn;
     /* Why the last block produced nothing, when it produced nothing. */
     char status[160];
+    /* The band the tuning is in, and how it is spoken of -- not the band
+       the picker is showing. */
+    int tuned_band;
+    char tuned_band_name[40];
 
     /* The cell, from the primary and secondary sequences. */
     int cell_valid;
@@ -109,6 +134,11 @@ struct lte_view_model {
        what it has found so far. */
     int scanning;
     int confirming;
+    /* Whether a scan could be started at all -- a live receiver, since a
+       capture holds one tuning. The panel's three-line hint about what the
+       first pass tries is only worth drawing where somebody could press the
+       button. */
+    int receiver_scan_possible;
     int found_count;
     struct lte_found_cell found[LTE_VIEW_MODEL_FOUND];
     /* The two sentences the scan panel shows, chosen here: how far along the
@@ -118,6 +148,17 @@ struct lte_view_model {
        sees an empty table without them cannot tell them apart. */
     char scan_progress[96];
     char scan_note[128];
+    /*
+     * What pressing Scan would cost, worded once. Three hundred tunings is
+     * not a thing to start without being told, and it is empty while a scan
+     * is running or no band is picked.
+     */
+    char scan_cost[128];
+
+    /* What the waterfall marker over this cell says, and whether there is
+       one: empty until an identity has been found, because a marker is a
+       claim that something is there. */
+    char marker_label[24];
 };
 
 struct lte_view;

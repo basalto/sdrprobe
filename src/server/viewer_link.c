@@ -1583,6 +1583,7 @@ void viewer_link_publish_lte_state(struct viewer_link *link,
     char status[320];
     char progress[192];
     char note[256];
+    char cost[256];
     int json_len, used, i;
 
     json_escape_into(status, sizeof(status), lvm->status,
@@ -1591,9 +1592,12 @@ void viewer_link_publish_lte_state(struct viewer_link *link,
                      strlen(lvm->scan_progress));
     json_escape_into(note, sizeof(note), lvm->scan_note,
                      strlen(lvm->scan_note));
+    json_escape_into(cost, sizeof(cost), lvm->scan_cost,
+                     strlen(lvm->scan_cost));
     used = snprintf(json, sizeof(json),
                     "{\"type\":\"lte_state\",\"timestamp_ms\":%llu,"
                     "\"earfcn\":%d,\"centre_hz\":%.0f,\"band\":%d,"
+                    "\"tuned_band\":%d,\"tuned_band_name\":\"%s\","
                     "\"blocks_seen\":%llu,\"cells_found\":%llu,"
                     "\"mibs_decoded\":%llu,\"mibs_confirmed\":%llu,"
                     "\"status\":\"%s\","
@@ -1607,11 +1611,13 @@ void viewer_link_publish_lte_state(struct viewer_link *link,
                     "\"frame_number\":%d,"
                     "\"quarter\":%d,\"antenna_ports\":%d,"
                     "\"mib_age_seconds\":%.1f,"
-                    "\"on_grid\":%s,\"scanning\":%s,"
+                    "\"on_grid\":%s,\"funnel_warn\":%s,"
+                    "\"marker\":\"%s\",\"scanning\":%s,"
                     "\"confirming\":%s,\"scan_progress\":\"%s\","
-                    "\"scan_note\":\"%s\",",
+                    "\"scan_note\":\"%s\",\"scan_cost\":\"%s\",",
                     (unsigned long long)now_ms,
                     lvm->earfcn, lvm->centre_hz, lvm->band,
+                    lvm->tuned_band, lvm->tuned_band_name,
                     (unsigned long long)lvm->blocks_seen,
                     (unsigned long long)lvm->cells_found,
                     (unsigned long long)lvm->mibs_decoded,
@@ -1629,9 +1635,11 @@ void viewer_link_publish_lte_state(struct viewer_link *link,
                     lvm->frame_number, lvm->quarter, lvm->antenna_ports,
                     lvm->mib_age_seconds,
                     lvm->on_grid ? "true" : "false",
+                    lvm->funnel_warn ? "true" : "false",
+                    lvm->marker_label,
                     lvm->scanning ? "true" : "false",
                     lvm->confirming ? "true" : "false",
-                    progress, note);
+                    progress, note, cost);
     if (used <= 0 || (size_t)used >= sizeof(json))
         return;
 

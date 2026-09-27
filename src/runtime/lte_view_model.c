@@ -28,6 +28,9 @@ void lte_view_model_build(const struct lte_view *lte,
     out->earfcn = lte->earfcn;
     out->centre_hz = (double)centre_hz;
     out->band = ctx->band_number;
+    out->tuned_band = ctx->tuned_band;
+    snprintf(out->tuned_band_name, sizeof(out->tuned_band_name), "%s",
+             ctx->tuned_band_name ? ctx->tuned_band_name : "unknown");
     out->on_grid = ctx->on_grid;
 
     out->blocks_seen = s->blocks_seen;
@@ -35,6 +38,14 @@ void lte_view_model_build(const struct lte_view *lte,
     out->mibs_decoded = s->mibs_decoded;
     out->mibs_confirmed = s->mibs_confirmed;
     snprintf(out->status, sizeof(out->status), "%s", s->status);
+    /*
+     * A cell is being found and none of its broadcasts confirmed. It reads
+     * `cells_found` rather than `blocks_seen` because a block is only an
+     * opportunity: the fault worth colouring is a cell that is there and
+     * will not give up a message, not a channel nobody has heard anything
+     * on.
+     */
+    out->funnel_warn = s->cells_found > 0 && s->mibs_confirmed == 0;
 
     /*
      * The identity, and nothing under it unless there is one. A cell's
@@ -61,6 +72,8 @@ void lte_view_model_build(const struct lte_view *lte,
             ? c->frequency_offset_hz * 1e6 / (double)centre_hz : 0.0;
         out->crystal_subcarriers = c->integer_offset;
         out->cell_age_seconds = ctx->now - s->cell_time;
+        snprintf(out->marker_label, sizeof(out->marker_label), "PCI %d",
+                 c->pci);
     }
 
     out->stats_valid = s->stats.valid;
@@ -105,6 +118,7 @@ void lte_view_model_build(const struct lte_view *lte,
 
     out->scanning = scan->running;
     out->confirming = scan->confirming;
+    out->receiver_scan_possible = ctx->receiver_mode;
     out->found_count = scan->found_count;
     if (out->found_count > LTE_VIEW_MODEL_FOUND)
         out->found_count = LTE_VIEW_MODEL_FOUND;
@@ -131,6 +145,14 @@ void lte_view_model_build(const struct lte_view *lte,
                  scan->total,
                  scan->total > 0 ? 100.0 * scan->candidate / scan->total
                                  : 0.0);
+
+    /* What a scan would cost, while one could be started. Silent during a
+       scan, because the progress line is saying where it is. */
+    if (ctx->band_number && !scan->running && ctx->scan_channels > 0)
+        snprintf(out->scan_cost, sizeof(out->scan_cost),
+                 "%d channels; about %.0f s for the first pass, %.0f s for "
+                 "all of them", ctx->scan_channels,
+                 ctx->scan_first_pass_seconds, ctx->scan_all_seconds);
 
     /* And why the table is empty, when it is. Four reasons, and they are not
        the same answer. */

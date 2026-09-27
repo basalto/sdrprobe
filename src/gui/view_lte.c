@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "gui/view.h"
+#include "model/lte_view_model.h"
 #include "gui/lte_layout.h"
 #include "tech/lte_findings.h"
 #include "gui/sdrgui.h"
@@ -193,52 +194,25 @@ static Rectangle found_rect(const struct app *app,
                         l->constellation.height };
 }
 
-static void draw_found_panel(const struct app *app, Rectangle rect) {
-    const struct lte_band_scan *scan = &app->lte.scan;
-    const struct lte_band *band = selected_band(app);
+static void draw_found_panel(const struct lte_view_model *m, int selected,
+                             Rectangle rect) {
     int y = draw_panel(rect, "Scan -- MHz, cell, PSS/margin");
-    int hovered = found_row_at(rect, scan->found_count, GetMousePosition());
+    int hovered = found_row_at(rect, m->found_count, GetMousePosition());
     char text[160];
     int i;
 
-    if (scan->running && scan->confirming) {
-        /* The sweep's own progress line would sit at 100% and stop moving,
-           which reads as a scan that has hung rather than one spending its
-           most useful four seconds. */
-        snprintf(text, sizeof(text), "confirming %d of %d   %d dropped",
-                 scan->confirm_index + scan->confirm_dropped + 1,
-                 scan->confirm_total, scan->confirm_dropped);
-        sdrgui_text_fit(text, (int)rect.x + 12,
+    /* Both sentences are the model's: which of four reasons the table is
+       empty, and how far along a pass is -- the confirmation pass writes
+       its own because the sweep's would sit at 100% and read as a hang. */
+    if (m->scan_progress[0])
+        sdrgui_text_fit(m->scan_progress, (int)rect.x + 12,
                         (int)(rect.y + rect.height) - 22, 15,
                         rect.width - 24.0f, warning);
-    } else if (scan->running && band) {
-        double done = scan->total > 0
-                          ? 100.0 * scan->candidate / scan->total : 0.0;
-        uint32_t hz = 0;
-        lte_earfcn_downlink_hz(lte_scan_candidate(band, scan->candidate), &hz);
-        snprintf(text, sizeof(text), "%.1f MHz   %d of %d   %.0f%%",
-                 hz / 1e6, scan->candidate + 1, scan->total, done);
-        sdrgui_text_fit(text, (int)rect.x + 12,
-                        (int)(rect.y + rect.height) - 22, 15,
-                        rect.width - 24.0f, warning);
-    }
 
-    if (scan->found_count == 0) {
-        const char *note;
-        if (scan->running)
-            note = "Looking...";
-        else if (scan->confirm_dropped > 0)
-            /* Otherwise this is indistinguishable from a band nobody has
-               looked at, when in fact it was looked at and everything it
-               offered was withdrawn. */
-            note = "Nothing held up: every candidate failed its second look.";
-        else if (!app->receiver_mode)
-            note = "A scan needs a live receiver; a capture holds one tuning.";
-        else
-            note = "Press Scan band.";
-        sdrgui_text_fit(note, (int)rect.x + 12, y, 15, rect.width - 24.0f,
-                        row_muted);
-        if (!scan->running && app->receiver_mode) {
+    if (m->found_count == 0) {
+        sdrgui_text_fit(m->scan_note, (int)rect.x + 12, y, 15,
+                        rect.width - 24.0f, row_muted);
+        if (!m->scanning && m->receiver_scan_possible) {
             /* Two short lines rather than one long one: the column is narrow
                and sdrgui_text_fit truncates rather than wrapping. */
             sdrgui_text_fit("The first pass tries", (int)rect.x + 12, y + 20,
@@ -251,13 +225,13 @@ static void draw_found_panel(const struct app *app, Rectangle rect) {
         return;
     }
 
-    for (i = 0; i < scan->found_count; i++) {
-        const struct lte_found_cell *found = &scan->found[i];
+    for (i = 0; i < m->found_count; i++) {
+        const struct lte_found_cell *found = &m->found[i];
         int row_y = y + i * LTE_FOUND_ROW_HEIGHT;
         Color colour = row_value;
         if ((float)(row_y + LTE_FOUND_ROW_HEIGHT) > rect.y + rect.height - 26.0f)
             break;
-        if (i == scan->selected) {
+        if (i == selected) {
             DrawRectangle((int)rect.x + 4, row_y - 3, (int)rect.width - 8,
                           LTE_FOUND_ROW_HEIGHT, (Color){ 30, 48, 66, 255 });
             colour = row_pick;
@@ -273,22 +247,54 @@ static void draw_found_panel(const struct app *app, Rectangle rect) {
     }
 }
 
-static void draw_cell_panel(const struct app *app, Rectangle rect,
-                            double now) {
-    const struct lte_cell *cell = &app->lte.session.cell;
-    const struct lte_cell_stats *st = &app->lte.session.stats;
+/*
+ * The screen's data, gathered once wherever it is needed.
+ *
+ * Everything this view *decides* -- the crystal error in ppm, the PHICH's
+ * wording, which of four notes an empty scan table gets, what a scan would
+ * cost, which band the *tuning* is in, whether the funnel is a fault, what
+ * the findings say -- is `lte_view_model_build()`'s, so this drawing and the
+ * browser's cannot come to different answers (`web-visualization/16`).
+ */
+static void lte_model_of(const struct app *app, double now,
+                         struct lte_view_model *m) {
+    const struct lte_band *picked = selected_band(app);
+    const struct lte_band *tuned = lte_band_for_earfcn(app->lte.earfcn);
+    struct lte_view_context ctx;
+
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.centre_hz = app->applied.frequency_hz;
+    ctx.band_number = picked ? picked->band : 0;
+    ctx.tuned_band = tuned ? tuned->band : 0;
+    ctx.tuned_band_name = tuned ? tuned->name : NULL;
+    if (picked) {
+        ctx.scan_channels = lte_scan_count(picked);
+        ctx.scan_first_pass_seconds = lte_scan_first_pass_seconds(picked);
+        ctx.scan_all_seconds = lte_scan_seconds(picked);
+        if (app->lte.scan.running)
+            lte_earfcn_downlink_hz(lte_scan_candidate(picked,
+                                                      app->lte.scan.candidate),
+                                   &ctx.scan_candidate_hz);
+    }
+    ctx.on_grid = lte_on_grid(app);
+    ctx.receiver_mode = app->receiver_mode;
+    ctx.now = now;
+    lte_view_model_build(&app->lte, &ctx, m);
+}
+
+static void draw_cell_panel(const struct lte_view_model *m, Rectangle rect) {
+    const struct lte_cell_stats *st = &m->stats;
     struct lte_panel_rows rows = lte_panel_rows_for(rect);
     char text[160];
     int r = 0;
 
     draw_panel(rect, "Cell search -- what PSS and SSS found");
 
-    if (!app->lte.session.cell_valid) {
-        sdrgui_text_fit(app->lte.session.status[0] ? app->lte.session.status
-                                           : "Waiting for samples...",
+    if (!m->cell_valid) {
+        sdrgui_text_fit(m->status[0] ? m->status : "Waiting for samples...",
                         (int)rows.row.label_x, (int)rows.row.first_y,
                         LTE_PANEL_ROW_FONT, rect.width - 24.0f,
-                        lte_on_grid(app) ? row_muted : warning);
+                        m->on_grid ? row_muted : warning);
         return;
     }
 
@@ -298,14 +304,14 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
      * and a panel with room for six should spend them on which cell this is
      * rather than on how clean its channel was.
      */
-    snprintf(text, sizeof(text), "%d", cell->pci);
+    snprintf(text, sizeof(text), "%d", m->pci);
     draw_row_at(&rows, r++, "Cell identity", text, row_value);
-    snprintf(text, sizeof(text), "%d and %d", cell->n_id_1, cell->n_id_2);
+    snprintf(text, sizeof(text), "%d and %d", m->n_id_1, m->n_id_2);
     draw_row_at(&rows, r++, "N_ID_1 / N_ID_2", text, row_value);
     draw_row_at(&rows, r++, "Cyclic prefix",
-                cell->extended_cp ? "extended" : "normal", row_value);
-    snprintf(text, sizeof(text), "sample %zu, %s half",
-             cell->subframe0_start, cell->half_frame ? "second" : "first");
+                m->extended_cp ? "extended" : "normal", row_value);
+    snprintf(text, sizeof(text), "sample %d, %s half",
+             m->subframe_sample, m->second_half ? "second" : "first");
     draw_row_at(&rows, r++, "Subframe 0 at", text, row_value);
     /* The offset in parts per million is the figure that transfers: it is a
        property of the receiver's crystal rather than of this carrier, so it
@@ -319,12 +325,8 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
      * and not of this carrier, so it compares with what the GSM calibration
      * measured on a different band.
      */
-    snprintf(text, sizeof(text), "%+.1f ppm  (%+d sc)",
-             app->applied.frequency_hz > 0
-                 ? cell->frequency_offset_hz * 1e6 /
-                       (double)app->applied.frequency_hz
-                 : 0.0,
-             cell->integer_offset);
+    snprintf(text, sizeof(text), "%+.1f ppm  (%+d sc)", m->crystal_ppm,
+             m->crystal_subcarriers);
     draw_row_at(&rows, r++, "Crystal error", text, row_value);
     /*
      * From here down the panel is a table: smallest, mean and largest since
@@ -357,22 +359,21 @@ static void draw_cell_panel(const struct app *app, Rectangle rect,
     draw_stat_row(&rows, r++, "Antenna ports", &st->ports, "%.0f");
 
     snprintf(text, sizeof(text), "%lu blocks, last seen %.1f s ago",
-             st->rsrp_dbfs.count, now - app->lte.session.cell_time);
+             st->rsrp_dbfs.count, m->cell_age_seconds);
     sdrgui_text_fit(text, (int)rows.row.label_x,
                     (int)panel_footer_after(&rows.row, r), 14,
                     rect.width - 24.0f, row_muted);
 
 }
 
-static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
-    const struct lte_mib *mib = &app->lte.session.mib;
+static void draw_mib_panel(const struct lte_view_model *m, Rectangle rect) {
     struct lte_panel_rows rows = lte_panel_rows_for(rect);
     char text[200];
     int y = draw_panel(rect, "Broadcast -- what the cell says about itself");
 
-    if (!app->lte.session.mib_valid) {
+    if (!m->mib_valid) {
         const char *note =
-            app->lte.session.cell_valid
+            m->cell_valid
                 ? "A cell is there; its broadcast has not survived its "
                   "parity yet."
                 : "Nothing to read until a cell is found.";
@@ -381,21 +382,20 @@ static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
         y = (int)rows.row.first_y + 28;
     } else {
         int r = 0;
-        snprintf(text, sizeof(text), "%d blocks, %.2f MHz",
-                 mib->bandwidth_prb,
-                 lte_mib_occupied_hz(mib->bandwidth_prb) / 1e6);
+        snprintf(text, sizeof(text), "%d blocks, %.2f MHz", m->bandwidth_rb,
+                 m->bandwidth_mhz);
         draw_row_at(&rows, r++, "Bandwidth", text, row_value);
-        snprintf(text, sizeof(text), "%s, %s",
-                 mib->phich_extended ? "extended" : "normal",
-                 lte_phich_resource_name(mib->phich_resource_sixths));
-        draw_row_at(&rows, r++, "PHICH", text, row_value);
-        snprintf(text, sizeof(text), "%d  (quarter %d)",
-                 mib->system_frame_number, mib->quarter);
+        /* One wording, the model's -- and guarded there against the NULL
+           `lte_phich_resource_name()` returns outside the four values its
+           two-bit field can encode, which this passed straight to `%s`. */
+        draw_row_at(&rows, r++, "PHICH", m->phich, row_value);
+        snprintf(text, sizeof(text), "%d  (quarter %d)", m->frame_number,
+                 m->quarter);
         draw_row_at(&rows, r++, "Frame number", text, row_value);
-        snprintf(text, sizeof(text), "%d", mib->antenna_ports);
+        snprintf(text, sizeof(text), "%d", m->antenna_ports);
         draw_row_at(&rows, r++, "Antenna ports", text, row_value);
         snprintf(text, sizeof(text), "last read %.1f s ago",
-                 now - app->lte.session.mib_time);
+                 m->mib_age_seconds);
         sdrgui_text_fit(text, (int)rows.row.label_x,
                         (int)panel_footer_after(&rows.row, r), 14,
                         rect.width - 24.0f, row_muted);
@@ -430,25 +430,27 @@ static void draw_mib_panel(const struct app *app, Rectangle rect, double now) {
      * which half is missing.
      */
     {
-        struct lte_findings findings;
         float top = y + 44.0f;
         float bottom = rect.y + rect.height - 8.0f;
         int i;
 
-        if (!lte_findings_from(&app->lte.session.stats,
-                               (double)app->applied.frequency_hz, &findings))
+        /* The sentences are the model's, chosen once by
+           `lte_findings_from()` -- this used to call it again with its own
+           idea of the carrier frequency, which is two callers of one
+           decision and one of them reading `struct app`. */
+        if (!m->findings.count)
             return;
         sdrgui_text_fit("What that adds up to", (int)rect.x + 12, (int)top, 15,
                         rect.width - 24.0f, panel_caption);
         top += 22.0f;
-        for (i = 0; i < findings.count; i++) {
+        for (i = 0; i < m->findings.count; i++) {
             Rectangle box = { rect.x + 12.0f, top, rect.width - 24.0f,
                               bottom - top };
-            float used = sdrgui_text_block(box, findings.line[i], 14, 2,
+            float used = sdrgui_text_block(box, m->findings.line[i], 14, 2,
                                            row_muted, 0);
             if (top + used > bottom)
                 break;
-            sdrgui_text_block(box, findings.line[i], 14, 2, row_muted, 1);
+            sdrgui_text_block(box, m->findings.line[i], 14, 2, row_muted, 1);
             top += used + 8.0f;
         }
     }
@@ -551,8 +553,8 @@ static void draw_charts(const struct app *app, const struct lte_layout *l) {
 
 void draw_lte(struct app *app) {
     struct lte_layout l = lte_layout_now(app);
-    const struct lte_band *band = selected_band(app);
     double now = GetTime();
+    struct lte_view_model m;
     uint64_t record_bytes = 0;
     char record_path[ACQUISITION_PATH_MAX];
     int recording = acquisition_recording_status(&app->acq, &record_bytes,
@@ -561,6 +563,8 @@ void draw_lte(struct app *app) {
     char text[400];
     int header_x = (int)l.header_left;
     int i;
+
+    lte_model_of(app, now, &m);
 
     draw_button(l.record_button, recording ? "Recording..." : "Record 2s",
                 recording);
@@ -580,27 +584,26 @@ void draw_lte(struct app *app) {
     draw_button(l.scan_button, app->lte.scan.running ? "Stop" : "Scan band",
                 app->lte.scan.running);
 
-    if (app->lte.earfcn) {
+    if (m.earfcn) {
         /*
-         * The band an EARFCN is in, not the one the picker is showing. These
-         * are different facts and the header was printing the second under a
-         * caption promising the first: `--earfcn 3475` tunes 927.5 MHz in
+         * The band the EARFCN is in, not the one the picker is showing.
+         * These are different facts and the header printed the second under
+         * a caption promising the first: `--earfcn 3475` tunes 927.5 MHz in
          * band 8 and the header read "band 20 (800 MHz)", because
-         * selected_band() reports which button is lit and the buttons default
-         * to band 20. Nothing on screen contradicted it -- the frequency
-         * beside it was right.
+         * `selected_band()` reports which button is lit and the buttons
+         * default to band 20. Nothing on screen contradicted it -- the
+         * frequency beside it was right. Both facts are the model's now, so
+         * the browser cannot repeat the mistake.
          */
-        const struct lte_band *tuned = lte_band_for_earfcn(app->lte.earfcn);
         snprintf(text, sizeof(text),
                  "LTE downlink   EARFCN %d   %.3f MHz   band %d (%s)",
-                 app->lte.earfcn, app->applied.frequency_hz / 1e6,
-                 tuned ? tuned->band : 0, tuned ? tuned->name : "unknown");
+                 m.earfcn, m.centre_hz / 1e6, m.tuned_band,
+                 m.tuned_band_name);
     }
     else
         snprintf(text, sizeof(text),
                  "LTE downlink   %.3f MHz   outside band %d -- pick a band, "
-                 "or scan one", app->applied.frequency_hz / 1e6,
-                 band ? band->band : 0);
+                 "or scan one", m.centre_hz / 1e6, m.band);
     sdrgui_text_fit(text, header_x, 88, 17, l.header_right - l.header_left,
                     panel_caption);
 
@@ -609,27 +612,20 @@ void draw_lte(struct app *app) {
     snprintf(text, sizeof(text),
              "funnel   blocks %llu -> cells %llu -> decoded %llu -> "
              "confirmed %llu%s",
-             (unsigned long long)app->lte.session.blocks_seen,
-             (unsigned long long)app->lte.session.cells_found,
-             (unsigned long long)app->lte.session.mibs_decoded,
-             (unsigned long long)app->lte.session.mibs_confirmed,
-             lte_on_grid(app) ? "" : "   [wrong sample rate]");
+             m.blocks_seen, m.cells_found, m.mibs_decoded, m.mibs_confirmed,
+             m.on_grid ? "" : "   [wrong sample rate]");
+    /* Amber when a cell is being found and none of its broadcasts is
+       confirmed, which is the model's `funnel_warn`. */
     sdrgui_text_fit(text, header_x, 110, 16, l.header_right - l.header_left,
-                    (app->lte.session.cells_found > 0 &&
-                     app->lte.session.mibs_confirmed == 0)
-                        ? warning
-                        : (Color){ 151, 174, 188, 255 });
+                    m.funnel_warn ? warning
+                                  : (Color){ 151, 174, 188, 255 });
 
     /* Beside the scan button, what pressing it costs. Three hundred tunings
        is not a thing to start without being told. */
-    if (band && !app->lte.scan.running) {
+    if (m.scan_cost[0]) {
         float from = l.scan_button.x + l.scan_button.width + 14.0f;
-        snprintf(text, sizeof(text),
-                 "%d channels; about %.0f s for the first pass, %.0f s for "
-                 "all of them",
-                 lte_scan_count(band), lte_scan_first_pass_seconds(band),
-                 lte_scan_seconds(band));
-        sdrgui_text_fit(text, (int)from, (int)l.scan_button.y + 6, 15,
+
+        sdrgui_text_fit(m.scan_cost, (int)from, (int)l.scan_button.y + 6, 15,
                         (float)GetScreenWidth() - from - 22.0f, row_muted);
     }
 
@@ -645,26 +641,26 @@ void draw_lte(struct app *app) {
     } else {
         struct sdrgui_waterfall_marker lte_marker;
         int m_cnt = 0;
-        char lte_lbl[32];
-        if (app->lte.session.cell_valid) {
+        /* A marker is a claim that something is there, so there is one
+           exactly when the model has a label for it. */
+        if (m.marker_label[0]) {
             lte_marker.frequency_hz = (double)app->applied.frequency_hz +
                                      app->lte.session.cell.frequency_offset_hz;
             lte_marker.bandwidth_hz = 1400000.0; /* 6 PRB minimum */
-            lte_marker.age_seconds = now - app->lte.session.cell_time;
+            lte_marker.age_seconds = m.cell_age_seconds;
             lte_marker.duration_seconds = 0.010; /* 10 ms frame */
             lte_marker.id = 0;
             lte_marker.highlighted = 1;
             lte_marker.color = (Color){ 80, 220, 240, 220 };
-            snprintf(lte_lbl, sizeof(lte_lbl), "PCI %d", app->lte.session.cell.pci);
-            lte_marker.label = lte_lbl;
+            lte_marker.label = m.marker_label;
             m_cnt = 1;
         }
         draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->lte.window,
                                          m_cnt ? &lte_marker : NULL, m_cnt, NULL);
-        draw_cell_panel(app, l.cell_panel, now);
-        draw_mib_panel(app, l.mib_panel, now);
+        draw_cell_panel(&m, l.cell_panel);
+        draw_mib_panel(&m, l.mib_panel);
     }
-    draw_found_panel(app, found_rect(app, &l));
+    draw_found_panel(&m, app->lte.scan.selected, found_rect(app, &l));
 }
 
 Rectangle lte_waterfall_rect(const struct app *app) {

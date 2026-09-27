@@ -445,8 +445,19 @@ int viewer_session_run(struct app *app) {
                 struct lte_view_context lte_ctx;
 
                 memset(&lte_ctx, 0, sizeof(lte_ctx));
+                const struct lte_band *tuned =
+                    lte_band_for_earfcn(app->lte.earfcn);
+
                 lte_ctx.centre_hz = app->applied.frequency_hz;
                 lte_ctx.band_number = lte_band ? lte_band->band : 0;
+                lte_ctx.tuned_band = tuned ? tuned->band : 0;
+                lte_ctx.tuned_band_name = tuned ? tuned->name : NULL;
+                if (lte_band) {
+                    lte_ctx.scan_channels = lte_scan_count(lte_band);
+                    lte_ctx.scan_first_pass_seconds =
+                        lte_scan_first_pass_seconds(lte_band);
+                    lte_ctx.scan_all_seconds = lte_scan_seconds(lte_band);
+                }
                 if (lte_band && app->lte.scan.running)
                     lte_earfcn_downlink_hz(
                         lte_scan_candidate(lte_band,
