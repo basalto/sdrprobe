@@ -31,7 +31,7 @@
 // Usage:
 //   node scripts/web_layout.mjs [--sizes WxH,WxH] [--png FILE] [--keep]
 //
-// Starts its own `./sdrprobe server` over a capture and its own headless
+// Starts its own `./sdrprobe web --no-browser` over a capture and its own headless
 // Chromium, and stops both. Nothing here needs a receiver.
 
 import { spawn } from 'node:child_process';
@@ -182,7 +182,7 @@ async function run() {
                     + `Kill it, or pass --debug-port.`);
 
   serve = spawn('./sdrprobe', [
-    'server', '--file', CAPTURE, '--sample-rate', '2048000',
+    'web', '--no-browser', '--file', CAPTURE, '--sample-rate', '2048000',
     '--frequency', '89.5M', '--serve-port', String(SERVE_PORT),
     '--duration', String(20 + SIZES.length * 25),
   ], { stdio: 'ignore' });

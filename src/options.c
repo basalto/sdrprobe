@@ -20,19 +20,23 @@
 void usage(const char *program) {
     fprintf(stderr,
             /*
-             * The command names the frontend -- window, headless with
-             * nothing further, the Viewer link alone, or the Viewer
-             * link plus a browser -- and nothing else; everything below
-             * this block is a flag, unchanged by which of the four is
-             * running. `server` and `web` differ only in the browser,
-             * and both open the Viewer link `headless` alone does not.
+             * The command names who is looking -- this window, nobody, or
+             * a browser -- and nothing else; everything below this block
+             * is a flag, unchanged by which is running.
+             *
+             * There were four, and two of them were one command: `server`
+             * was `web --no-browser`, which `browser_wanted()` already
+             * said in a comment. `server` still parses as exactly that,
+             * and is listed so nobody reading this has to find out by
+             * trying it.
              */
             "Commands:\n"
             "  %s [flags]           the window (default)\n"
-            "  %s headless [flags]  no window; pair with --decode,\n"
-            "                       --survey, --record-seconds, etc.\n"
-            "  %s web [flags]       headless, the Viewer link, plus a browser\n"
-            "  %s server [flags]    headless, the Viewer link alone, no browser\n"
+            "  %s headless [flags]  no window and no link; prints to stdout\n"
+            "                               -- pair with --decode, --survey, etc.\n"
+            "  %s web [flags]       no window; serves the browser Viewer and\n"
+            "                               opens one at it (--no-browser to not)\n"
+            "  %s server [flags]    the older spelling of `web --no-browser`\n"
             "\n"
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
@@ -105,7 +109,7 @@ void usage(const char *program) {
             "  --screenshot      write the last frame to a PNG before quitting,\n"
             "                    so a view can be looked at without a person;\n"
             "                    pair with --duration\n"
-            "  --serve-port      the `server`/`web` Viewer link's port;\n"
+            "  --serve-port      the `web` Viewer link's port;\n"
             "                    defaults to 8765 (ADR-0027)\n"
             "  --serve-bind      any|ADDRESS -- bind beyond loopback (every\n"
             "                    interface, or one), reaching a LAN; requires\n"
@@ -119,10 +123,10 @@ void usage(const char *program) {
             "                    all: reachable with no authentication\n"
             "                    whatsoever by anything that can reach the port\n"
             "  --serve-retune-after  SECONDS:HZ -- a scripted one-shot retune\n"
-            "                    during `server`/`web`, for testing the tuning\n"
+            "                    during `web`, for testing the tuning\n"
             "                    generation; not a Viewer command\n"
-            "  --no-browser      web: keep the link, skip its browser --\n"
-            "                    the same thing server already is\n"
+            "  --no-browser      web: serve the Viewer, open no browser at\n"
+            "                    it -- which is what `server` spells\n"
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
             program, program, program, program, program);
@@ -366,11 +370,27 @@ int parse_options(int argc, char **argv, struct options *options) {
         if (strcmp(argv[1], "headless") == 0) {
             options->command = COMMAND_HEADLESS;
             first_flag = 2;
-        } else if (strcmp(argv[1], "server") == 0) {
-            options->command = COMMAND_SERVER;
-            first_flag = 2;
         } else if (strcmp(argv[1], "web") == 0) {
             options->command = COMMAND_WEB;
+            first_flag = 2;
+        } else if (strcmp(argv[1], "server") == 0) {
+            /*
+             * The older spelling, and it is *defined* as what it always
+             * meant rather than kept as a second command: `server` IS
+             * `web --no-browser`, which `browser_wanted()`'s comment
+             * asserted while two enum values pretended otherwise. Setting
+             * the flag here rather than testing the word later is what
+             * stops the two drifting -- there is one serving command from
+             * this line on, and nothing downstream can tell which word
+             * asked for it.
+             *
+             * Still accepted, and not deprecated in the usual sense: a
+             * script that wants the link without a browser is spelling
+             * that intention correctly, it is just spelling it as a word
+             * where the other way is a flag.
+             */
+            options->command = COMMAND_WEB;
+            options->no_browser = 1;
             first_flag = 2;
         } else {
             /* Not a flag and not a known command -- refused by name rather
@@ -805,10 +825,9 @@ int parse_options(int argc, char **argv, struct options *options) {
      * `argv[1]`.
      */
     if (options->command == COMMAND_HEADLESS ||
-        options->command == COMMAND_SERVER ||
         options->command == COMMAND_WEB)
         options->headless = 1;
-    if (options->command == COMMAND_SERVER || options->command == COMMAND_WEB)
+    if (options->command == COMMAND_WEB)
         options->serve = 1;
 
     /*
@@ -1157,9 +1176,10 @@ int browser_wanted(const struct options *options,
 
     if (!options || !lookup)
         return 0;
-    /* `server` never wants one. `server` IS `web --no-browser` (ticket
-       02's own check asserts it), and this is the one place that has to be
-       true rather than merely documented. */
+    /* Only the serving command opens one at all -- the window has itself
+       and `headless` has stdout. `server` reaches here as COMMAND_WEB with
+       `no_browser` already set, which is what that word has always meant
+       and is now the whole of its implementation. */
     if (options->command != COMMAND_WEB)
         return 0;
     if (options->no_browser)

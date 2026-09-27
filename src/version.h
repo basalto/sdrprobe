@@ -24,6 +24,15 @@
  * field it previously got wrong: PATCH, even though the numbers change,
  * because the format did not.
  *
+ * Merging `server` into `web` was **PATCH**, and the reasoning is worth
+ * keeping because the instinct says otherwise. A command word disappearing
+ * sounds MAJOR. But `server` still parses, and parses to the same thing it
+ * always meant -- `web --no-browser` -- so every invocation that worked
+ * yesterday produces a byte-identical `struct options` today, which
+ * `check-options` asserts with a `memcmp` rather than field by field.
+ * Nothing broke, so not MAJOR; nothing was gained, so not MINOR. What
+ * changed is the help text and one enum value, and neither is a contract.
+ *
  * A second *binary* is MINOR by the same reading. `sdrprobe-server` gains
  * nothing and breaks nothing: same flags, same subcommands, same headless
  * output, same files -- it is the same program built without a window, for a
@@ -41,7 +50,7 @@
 
 #define SDRPROBE_VERSION_MAJOR 0
 #define SDRPROBE_VERSION_MINOR 63
-#define SDRPROBE_VERSION_PATCH 0
+#define SDRPROBE_VERSION_PATCH 1
 
 #define SDRPROBE_STRINGIFY_(x) #x
 #define SDRPROBE_STRINGIFY(x) SDRPROBE_STRINGIFY_(x)

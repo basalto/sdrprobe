@@ -223,7 +223,7 @@ byte-for-byte; crop to the panels, or compare structurally.
 Whatever you build, drive it against a real server over a capture:
 
 ```sh
-./sdrprobe server --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
+./sdrprobe web --no-browser --file testfiles/fm_rds_tsf.bin --sample-rate 2048000 \
     --frequency 89.5M --serve-port 8790 --duration 60
 python3 scripts/viewer_client.py --port 8790 --subscribe fm_state \
     --send 'view fm' --count 40

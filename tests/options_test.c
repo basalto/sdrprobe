@@ -898,7 +898,8 @@ static void test_the_environment_answers_the_same_questions(void) {
 }
 
 /*
- * The command word: `sdrprobe`, `sdrprobe server`, `sdrprobe web`.
+ * The command word: `sdrprobe`, `sdrprobe web`, and `server` for the
+ * spelling that word replaced.
  *
  * A command names the frontend and nothing else -- window, browser, socket
  * -- so this checks that it sets exactly the flags a caller could have set
@@ -930,9 +931,9 @@ static void test_the_browser(void) {
     check_int("Wayland alone is also somewhere to draw",
               browser_wanted(&options, fake_env), 1);
 
-    /* The default: neither the window nor server ever wants one, whatever
-       the display says -- server has no browser to open at all, and the
-       plain window is not a serving command in the first place. */
+    /* The default: neither the window nor `server` ever wants one, whatever
+       the display says -- the plain window is not a serving command at all,
+       and `server` is the spelling that asks for no browser. */
     clear_env();
     g_env_display = ":0";
     parse_line("", &options);
@@ -941,6 +942,25 @@ static void test_the_browser(void) {
     parse_line("server", &options);
     check_int("and neither does server", browser_wanted(&options, fake_env),
               0);
+
+    /*
+     * And the claim the merge actually rests on: `server` is not *like*
+     * `web --no-browser`, it **is** it. Two parses of the whole struct,
+     * compared byte for byte -- which is the only form of this check that
+     * would notice the two spellings picking up a difference in some field
+     * nobody thought to assert.
+     */
+    {
+        struct options as_word, as_flag;
+
+        clear_env();
+        g_env_display = ":0";
+        check_int("server parses", parse_line("server", &as_word), 0);
+        check_int("web --no-browser parses",
+                  parse_line("web --no-browser", &as_flag), 0);
+        check_true("server is web --no-browser, field for field",
+                   memcmp(&as_word, &as_flag, sizeof(as_word)) == 0);
+    }
 
     /* No display, either variable: skipped, not attempted. */
     clear_env();
@@ -1040,16 +1060,28 @@ static void test_the_command_word(void) {
               parse_options(3, (char **)window_flag, &options), 0);
     check_int("still the window", options.command, COMMAND_WINDOW);
 
-    check_int("server parses", parse_options(2, (char **)server, &options),
-              0);
-    check_int("as COMMAND_SERVER", options.command, COMMAND_SERVER);
-    check_int("headless follows", options.headless, 1);
-    check_int("and serve follows", options.serve, 1);
-
     check_int("web parses", parse_options(2, (char **)web, &options), 0);
     check_int("as COMMAND_WEB", options.command, COMMAND_WEB);
     check_int("headless follows", options.headless, 1);
     check_int("and serve follows", options.serve, 1);
+    check_int("and it wants a browser", options.no_browser, 0);
+
+    /*
+     * `server` and `web` were two commands for one command and a flag, and
+     * `browser_wanted()` said so in a comment while the enum pretended
+     * otherwise. There is one serving command now, and `server` *is* its
+     * flag: the word sets `no_browser` at the point it is read, so nothing
+     * downstream can tell which spelling asked. That is what these assert
+     * -- not that `server` is accepted, which a lookup table would give,
+     * but that it lands on the same command with the flag already set.
+     */
+    check_int("server parses", parse_options(2, (char **)server, &options),
+              0);
+    check_int("as COMMAND_WEB, the one serving command", options.command,
+              COMMAND_WEB);
+    check_int("headless follows", options.headless, 1);
+    check_int("and serve follows", options.serve, 1);
+    check_int("and it is web --no-browser", options.no_browser, 1);
 
     /*
      * `headless` is the third command word, and the one that draws the

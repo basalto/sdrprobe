@@ -36,16 +36,16 @@ make check-pipelines           # the built binary over testfiles/, byte-identity
 
 ```sh
 # Against a capture -- deterministic, repeatable, no hardware:
-./sdrprobe server --serve-port 8765 --file testfiles/gsm_arfcn_69.bin
+./sdrprobe web --no-browser --serve-port 8765 --file testfiles/gsm_arfcn_69.bin
 
 # Higher resolution (also raises bytes/sec -- see section 5):
-./sdrprobe server --serve-port 8765 --fft 16384 --file testfiles/gsm_arfcn_69.bin
+./sdrprobe web --no-browser --serve-port 8765 --fft 16384 --file testfiles/gsm_arfcn_69.bin
 
 # Against a live receiver, if one is attached:
-./sdrprobe server --serve-port 8765 --frequency 100.3M
+./sdrprobe web --no-browser --serve-port 8765 --frequency 100.3M
 
 # With the link's own debug-log tracing on (see section 6):
-./sdrprobe server --serve-port 8765 --file testfiles/gsm_arfcn_69.bin --debug-log -
+./sdrprobe web --no-browser --serve-port 8765 --file testfiles/gsm_arfcn_69.bin --debug-log -
 ```
 
 Then open `http://127.0.0.1:8765/` in a real browser -- spectrum, waterfall,
@@ -97,7 +97,7 @@ refuses to move it (`"Tuning requires a live receiver: a capture holds one
 frequency"`).
 
 ```sh
-./sdrprobe server --serve-port 8765 \
+./sdrprobe web --no-browser --serve-port 8765 \
     --frequency 100300000 --serve-retune-after 3:98000000
 
 python3 scripts/viewer_client.py --port 8765 --subscribe receiver_state --count 200
@@ -156,7 +156,7 @@ clearing -- not a per-message trace, which would flood the log for nothing;
 see `src/debug_log.h`'s own comment on why.
 
 ```sh
-./sdrprobe server --serve-port 8765 --file testfiles/gsm_arfcn_69.bin \
+./sdrprobe web --no-browser --serve-port 8765 --file testfiles/gsm_arfcn_69.bin \
     --debug-log /tmp/viewer.log
 tail -f /tmp/viewer.log
 ```

@@ -13,7 +13,7 @@ server.
 
 Usage:
 
-    ./sdrprobe server --file testfiles/gsm_arfcn_69.bin &
+    ./sdrprobe web --no-browser --file testfiles/gsm_arfcn_69.bin &
 
     # Print messages as they arrive, forever:
     python3 scripts/viewer_client.py

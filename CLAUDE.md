@@ -75,11 +75,11 @@ under a second and the full set is **about three minutes**, so `make check`
 after every edit turns a fast loop into a slow one.
 
 **There are two binaries, and they are one NULL apart.** `./sdrprobe` is the
-whole program -- the window, `headless` and `server` -- and nothing a script
+whole program -- the window, `headless` and `web` -- and nothing a script
 runs today changes. `./sdrprobe-server` is the same sources **minus the
 drawing**, linked with no raylib at all, for a box beside an antenna with no
 graphics stack: 2.56 MB against 3.94, and **8 shared libraries against 13**,
-none of the eight graphical. It offers `headless` and `server` with the same
+none of the eight graphical. It offers `headless` and `web` with the same
 flags and the same messages -- there is deliberately no second set of command
 words -- and refuses a windowed mode by naming the build. The split is
 *window / no window* rather than gui / server, because a scripted decode
@@ -88,7 +88,7 @@ needs raylib for nothing either.
 ```sh
 make sdrprobe-server
 ./sdrprobe-server headless --file testfiles/gsm_arfcn_69.bin --arfcn 69 --decode --once
-./sdrprobe-server server --serve-port 8790
+./sdrprobe-server web --no-browser --serve-port 8790
 ```
 
 `src/app_main.c` holds everything both do -- the flags, the environment, the

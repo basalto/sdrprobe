@@ -148,18 +148,19 @@ make all             # builds ./sdrprobe
 ./sdrprobe           # live receiver; Survey opens after installation startup
 ./sdrprobe --file testfiles/adsb_modes1.bin   # hardware-free paced playback
 
-./sdrprobe web       # the Viewer link (ADR-0027), plus a browser pointed at it
-./sdrprobe server    # the Viewer link alone -- no window, no browser
-./sdrprobe headless  # no window, nothing further -- pair with --decode,
-                     # --survey, --record-seconds, etc.
+./sdrprobe web       # the browser Viewer (ADR-0027): serves it, and opens
+                     # a browser at it unless --no-browser says not to
+./sdrprobe headless  # no window and no link; prints to stdout -- pair with
+                     # --decode, --survey, --record-seconds, etc.
 ```
 
-The command names the frontend and nothing else -- window, headless with
-nothing further, the Viewer link alone, or the Viewer link plus a browser.
-Every flag below works the same under all four. `web --no-browser` is
-`server`, exactly -- so `--no-browser` (or `SDRPROBE_NO_BROWSER` for a
-launcher that cannot reach the command line) is how to keep the link
-without a browser opening on its own.
+The command names who is looking -- this window, nobody, or a browser --
+and nothing else. Every flag below works the same under all three.
+
+There were four commands and two of them were one: `server` meant "the link
+with no browser", which is `web --no-browser`. It still parses, as exactly
+that spelling, so nothing that used it breaks -- and `SDRPROBE_NO_BROWSER`
+says the same thing for a launcher that cannot reach the command line.
 
 ```
 ./sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]

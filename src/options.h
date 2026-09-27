@@ -80,9 +80,22 @@ enum start_view {
 enum start_command {
     COMMAND_WINDOW = 0,
     COMMAND_HEADLESS,         /* no window; nothing further implied */
-    COMMAND_SERVER,           /* headless, plus the Viewer link */
-    COMMAND_WEB               /* headless, the Viewer link, and a browser
-                                  pointed at it */
+    /*
+     * No window, the Viewer link, and a browser pointed at it unless
+     * `--no-browser` says otherwise.
+     *
+     * There were two of these -- `server` (the link alone) and `web` (the
+     * link plus a browser) -- and `browser_wanted()`'s own comment said
+     * what that really was: **`server` IS `web --no-browser`**. Two command
+     * words for one command and a flag is a reader having to learn which of
+     * them takes the flag, so there is one now, and the browser is the
+     * default because somebody typing `web` on a machine with a display is
+     * asking to look at something.
+     *
+     * `server` still parses, as exactly that spelling -- it sets
+     * `no_browser` and nothing else -- so no script breaks.
+     */
+    COMMAND_WEB
 };
 
 enum gain_request_kind {
@@ -179,9 +192,9 @@ struct options {
     int survey_report;
     /* headless: serve the Scope's view model to a loopback Viewer link
        (ADR-0027) instead of drawing it. 0 = off, set only by `command`
-       being COMMAND_SERVER or COMMAND_WEB -- there is no `--serve` flag
-       of its own any more; `server`/`web` are the only way to ask for
-       this, the same command-word shape they already had.
+       being COMMAND_WEB -- there is no `--serve` flag of its own any
+       more; `web` (or its older spelling `server`) is the only way to ask
+       for this, the same command-word shape it already had.
        `serve_port` is the listening port, 0 meaning the link's own
        default. */
     int serve;
