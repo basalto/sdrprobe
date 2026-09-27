@@ -12,6 +12,7 @@ need the detail.
 ```sh
 make                  # every target and what it is for; the default goal
 make all              # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
+make sdrprobe-server  # the same program with no window and no raylib
 make check            # everything below, ~57 s, no window and no receiver
 make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
@@ -72,6 +73,58 @@ audits further down exist: the failure is invisible from a green run.
 **Run the suite that covers the change, not all of them.** Most suites are
 under a second and the full set is **about three minutes**, so `make check`
 after every edit turns a fast loop into a slow one.
+
+**There are two binaries, and they are one NULL apart.** `./sdrprobe` is the
+whole program -- the window, `headless` and `server` -- and nothing a script
+runs today changes. `./sdrprobe-server` is the same sources **minus the
+drawing**, linked with no raylib at all, for a box beside an antenna with no
+graphics stack: 2.56 MB against 3.94, and **8 shared libraries against 13**,
+none of the eight graphical. It offers `headless` and `server` with the same
+flags and the same messages -- there is deliberately no second set of command
+words -- and refuses a windowed mode by naming the build. The split is
+*window / no window* rather than gui / server, because a scripted decode
+needs raylib for nothing either.
+
+```sh
+make sdrprobe-server
+./sdrprobe-server headless --file testfiles/gsm_arfcn_69.bin --arfcn 69 --decode --once
+./sdrprobe-server server --serve-port 8790
+```
+
+`src/app_main.c` holds everything both do -- the flags, the environment, the
+installation, the receiver, the handlers, the shutdown -- and each binary's
+`main()` differs only in what it hands it: `sdrprobe.c` a
+`struct app_window` (the frame loop and the teardown), `server_main.c` NULL.
+The Makefile has **one** source list split in two, `CORE_SRC` (no drawing)
+and `VIEW_SRC`, with `APP_SRC = CORE_SRC + VIEW_SRC`, because two lists
+drift.
+
+**What holds the boundary is the linker, not a review.**
+`check-server-link` is in `CHECK_UNITS`, builds the *shipped* binary rather
+than a contrivance -- a check that built something nobody runs would rot the
+way `check-signal-probe` did -- and then asserts `ldd` names nothing
+graphical, because linking is not the same claim as not depending. Its
+failure explains itself rather than dumping ld:
+
+```
+  The server pulled in the window. What reached for it:
+      src/survey_runtime.c line 392 calls IsKeyPressed()
+```
+
+And `check-pipelines` runs a GSM decode, an FM decode and a capture survey
+through **both** binaries and requires the output **byte-identical**.
+Linking is the boundary; answering the same is the claim somebody on a
+headless box actually relies on, and no weaker comparison would find a
+decode the two disagree about.
+
+**The rule for where a function goes follows from that**: a file in
+`CORE_SRC` may not reach a view, an overlay, raygui or raylib. So a function
+that *decides* does not live beside one that *draws* -- which is ADR-0012
+again, now enforced at link time. `chart_window.c` was the last file outside
+the GUI set that called raylib, and it called it for six readings of the
+mouse and the arrow keys; those are `chart_window_input.c` and the deciding
+half took a check from 79 assertions to 99. When something has to move, it
+goes into the area's `*_runtime.c`.
 
 **Where that time goes, and what took it from 242 s to 57.** Four things,
 each measured, none of them a guess:

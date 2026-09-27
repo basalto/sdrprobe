@@ -24,6 +24,13 @@
  * field it previously got wrong: PATCH, even though the numbers change,
  * because the format did not.
  *
+ * A second *binary* is MINOR by the same reading. `sdrprobe-server` gains
+ * nothing and breaks nothing: same flags, same subcommands, same headless
+ * output, same files -- it is the same program built without a window, for a
+ * machine that has no graphics stack to open one with. What is backwards
+ * compatible is that `./sdrprobe` still does `headless` and `server` itself
+ * and nothing a script runs today has to change.
+ *
  * Still 0.x deliberately. Under SemVer the leading zero says the public
  * surface may still move without a MAJOR bump, and it does: the tabs were
  * reorganised this month, the survey stopped being a Scope view, the centre
@@ -33,7 +40,7 @@
  */
 
 #define SDRPROBE_VERSION_MAJOR 0
-#define SDRPROBE_VERSION_MINOR 62
+#define SDRPROBE_VERSION_MINOR 63
 #define SDRPROBE_VERSION_PATCH 0
 
 #define SDRPROBE_STRINGIFY_(x) #x
