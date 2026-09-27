@@ -2,8 +2,6 @@
 
 #include <math.h>
 
-#include "view.h"
-
 /*
  * The gestures, once, for every chart with a frequency axis.
  *
@@ -49,26 +47,26 @@ void chart_window_sync(struct chart_window *w, uint32_t centre_hz,
         freq_window_reset(&w->freq);
 }
 
-double chart_window_input(struct chart_window *w, Rectangle plot,
-                          enum chart_key key, double min_span) {
-    Vector2 mouse = GetMousePosition();
+double chart_window_gesture(struct chart_window *w, double plot_x,
+                            double plot_width,
+                            const struct chart_gesture_input *in,
+                            int reset_zoom, double min_span) {
     double want = 0.0;
 
-    if (!w)
+    if (!w || !in)
         return 0.0;
 
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
-        CheckCollisionPointRec(mouse, plot)) {
+    if (in->press && in->pointer_over) {
         w->dragging = 1;
-        w->drag_from_x = mouse.x;
-        w->drag_to_x = mouse.x;
-    } else if (w->dragging && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-        w->drag_to_x = mouse.x;
+        w->drag_from_x = (float)in->pointer_x;
+        w->drag_to_x = (float)in->pointer_x;
+    } else if (w->dragging && in->held) {
+        w->drag_to_x = (float)in->pointer_x;
     } else if (w->dragging) {
         double lower = 0.0, upper = 0.0;
 
         w->dragging = 0;
-        if (freq_window_drag(&w->freq, plot.x, plot.width, w->drag_from_x,
+        if (freq_window_drag(&w->freq, plot_x, plot_width, w->drag_from_x,
                              w->drag_to_x, min_span, &lower, &upper)) {
             w->freq.view_lower_hz = lower;
             w->freq.view_upper_hz = upper;
@@ -80,30 +78,24 @@ double chart_window_input(struct chart_window *w, Rectangle plot,
         /* Zoom about the pointer when it is over the chart, so the feature
            under the cursor stays under it -- and about the middle otherwise,
            which is what a reader using only the keyboard expects. */
-        int over = CheckCollisionPointRec(mouse, plot);
-        double anchor = freq_window_hz_at(&w->freq, plot.x, plot.width,
-                                          mouse.x);
-        int in = IsKeyPressed(KEY_UP) || IsKeyPressedRepeat(KEY_UP);
-        int out = IsKeyPressed(KEY_DOWN) || IsKeyPressedRepeat(KEY_DOWN);
+        double anchor = freq_window_hz_at(&w->freq, plot_x, plot_width,
+                                          in->pointer_x);
 
-        if (in)
-            freq_window_zoom(&w->freq, 1.0 / CHART_ZOOM_STEP, anchor, over,
-                             min_span);
-        else if (out)
-            freq_window_zoom(&w->freq, CHART_ZOOM_STEP, anchor, over,
-                             min_span);
-        else if (key == CHART_KEY_RESET_ZOOM)
+        if (in->zoom_in)
+            freq_window_zoom(&w->freq, 1.0 / CHART_ZOOM_STEP, anchor,
+                             in->pointer_over, min_span);
+        else if (in->zoom_out)
+            freq_window_zoom(&w->freq, CHART_ZOOM_STEP, anchor,
+                             in->pointer_over, min_span);
+        else if (reset_zoom)
             freq_window_reset(&w->freq);
     }
 
-    if (IsKeyPressed(KEY_LEFT) || IsKeyPressedRepeat(KEY_LEFT) ||
-        IsKeyPressed(KEY_RIGHT) || IsKeyPressedRepeat(KEY_RIGHT)) {
-        double direction = (IsKeyPressed(KEY_RIGHT) ||
-                            IsKeyPressedRepeat(KEY_RIGHT)) ? 1.0 : -1.0;
+    if (in->pan != 0)
         want = freq_window_pan_overflow(&w->freq,
-                                        direction * CHART_PAN_FRACTION,
+                                        (in->pan > 0 ? 1.0 : -1.0) *
+                                            CHART_PAN_FRACTION,
                                         min_span);
-    }
     return want;
 }
 
@@ -145,12 +137,13 @@ void chart_window_zoom_of(const struct chart_window *w, double *centre_hz,
 }
 
 /* The band being dragged out, in hertz, for the chart to draw. */
-int chart_window_drag_of(const struct chart_window *w, Rectangle plot,
-                         double *lower_hz, double *upper_hz) {
+int chart_window_drag_of(const struct chart_window *w, double plot_x,
+                         double plot_width, double *lower_hz,
+                         double *upper_hz) {
     if (!w || !w->dragging)
         return 0;
-    *lower_hz = freq_window_hz_at(&w->freq, plot.x, plot.width,
+    *lower_hz = freq_window_hz_at(&w->freq, plot_x, plot_width,
                                   w->drag_from_x);
-    *upper_hz = freq_window_hz_at(&w->freq, plot.x, plot.width, w->drag_to_x);
+    *upper_hz = freq_window_hz_at(&w->freq, plot_x, plot_width, w->drag_to_x);
     return 1;
 }

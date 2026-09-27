@@ -128,7 +128,7 @@ DSP_HDR=$(SRC)/gsm_session.h $(SRC)/tetra_session.h $(SRC)/lte_session.h $(SRC)/
 	$(SRC)/fm_dsp.h $(SRC)/rds.h $(SRC)/tetra_dsp.h $(SRC)/tetra_sync.h \
 	$(SRC)/srd_dsp.h $(SRC)/srd_frame.h $(SRC)/srd_record.h
 GUI_SRC=$(SRC)/sdrgui_plot.c $(SRC)/sdrgui_scope.c \
-	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c
+	$(SRC)/sdrgui_decode.c $(SRC)/sdrgui_widgets.c $(SRC)/chart_window_input.c
 GUI_HDR=$(SRC)/sdrgui.h $(SRC)/sdrgui_geometry.h
 RAYGUI_FLAGS=-I$(VENDOR) $(shell pkg-config --cflags raylib)
 
@@ -956,10 +956,11 @@ check-survey-session: $(TESTS)/survey_session_test.c $(TESTS)/check.h \
 # decisions previously had to be checked by building an instrumented binary and
 # running it against the dongle, and two of them shipped wrong.
 check-freq-window: $(TESTS)/freq_window_test.c $(TESTS)/check.h \
+		$(SRC)/chart_window.c \
 		$(SRC)/freq_window.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -o $(BUILD)/freq_window_test \
-		$(TESTS)/freq_window_test.c -lm
+		$(TESTS)/freq_window_test.c $(SRC)/chart_window.c -lm
 	$(Q)./$(BUILD)/freq_window_test
 
 # One command that says whether the tree is sound, for agents and for people.

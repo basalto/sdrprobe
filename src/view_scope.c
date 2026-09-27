@@ -232,7 +232,8 @@ void draw_waterfall_rect_with_markers(const struct app *app, int calibration_mod
 
     chart_window_zoom_of(win, &params.zoom_center_hz,
                          &params.zoom_half_width_hz);
-    params.drag_active = chart_window_drag_of(win, plot, &params.drag_lower_hz,
+    params.drag_active = chart_window_drag_of(win, plot.x, plot.width,
+                                              &params.drag_lower_hz,
                                               &params.drag_upper_hz);
     sdrgui_waterfall(&params);
 }

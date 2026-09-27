@@ -13,11 +13,17 @@
 struct sdrgui_waterfall_marker;
 
 /*
- * The two chart-window entry points that take a rectangle, and so raylib.
+ * The one chart-window entry point that takes a rectangle, and so raylib.
  * `chart_window.h` holds the state and the arithmetic and is included by
- * `app.h`, which no longer compiles against raylib; these two live here,
+ * `app.h`, which no longer compiles against raylib; this one lives here,
  * where a rectangle is already at home (ticket 01 of layer-boundaries).
- * Defined in chart_window.c, which includes this header.
+ *
+ * Defined in `chart_window_input.c`, which is the six raylib readings and
+ * nothing else -- `chart_window.c` was the only file outside the GUI set
+ * that called raylib, and ticket 04 took the calls out rather than the
+ * arithmetic. `chart_window_drag_of()` went the other way for the same
+ * reason: it never called raylib, it only named a `Rectangle` to read two
+ * of its fields, and it takes them as doubles now.
  */
 enum chart_key;
 
@@ -26,8 +32,6 @@ enum chart_key;
    or 0. Retuning is the caller's, because whether it is allowed differs. */
 double chart_window_input(struct chart_window *w, Rectangle plot,
                           enum chart_key key, double min_span);
-int chart_window_drag_of(const struct chart_window *w, Rectangle plot,
-                         double *lower_hz, double *upper_hz);
 
 
 /*

@@ -450,6 +450,197 @@ static void test_channel_axis_floor(void) {
     }
 }
 
+/*
+ * The chart gesture, which had no check at all until ticket 04 of
+ * `.scratch/layer-boundaries/`.
+ *
+ * It was `chart_window_input()`, reading the mouse and the arrow keys from
+ * raylib in the same function that decided what they meant -- so the drag's
+ * three states, the zoom's anchor and the pan's overflow were reachable only
+ * by a person with a window open, which is exactly what ADR-0012 refuses.
+ * Splitting the six readings out (`chart_window_input.c`) left the deciding
+ * half taking plain numbers, and this is it.
+ */
+
+static struct chart_window a_window(void) {
+    struct chart_window w;
+
+    memset(&w, 0, sizeof(w));
+    chart_window_sync(&w, 948000000u, 2000000u, CHART_MIN_SPAN_HZ);
+    return w;
+}
+
+static struct chart_gesture_input no_input(void) {
+    struct chart_gesture_input in;
+
+    memset(&in, 0, sizeof(in));
+    return in;
+}
+
+/*
+ * The drag is three frames and not one, which is why `press` and `held` are
+ * both carried: the edge starts it, the level continues it, and neither ends
+ * it. Collapsing the two would make a drag that never starts or never ends,
+ * and nothing before this could have said so.
+ */
+static void test_a_drag_takes_three_frames(void) {
+    struct chart_window w = a_window();
+    struct chart_gesture_input in = no_input();
+    double before = w.freq.view_upper_hz - w.freq.view_lower_hz;
+    double lower = 0.0, upper = 0.0;
+
+    in.pointer_x = 200.0;
+    in.pointer_over = 1;
+    in.press = 1;
+    in.held = 1;
+    chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    check_int("the press starts a drag", w.dragging, 1);
+    check_true("the window has not moved yet",
+              w.freq.view_upper_hz - w.freq.view_lower_hz == before);
+    check_true("the band being dragged is reportable",
+              chart_window_drag_of(&w, 100.0, 800.0, &lower, &upper) == 1);
+
+    in.press = 0;
+    in.pointer_x = 500.0;
+    chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    check_int("holding continues it", w.dragging, 1);
+    check_true("and still has not moved the window",
+              w.freq.view_upper_hz - w.freq.view_lower_hz == before);
+
+    in.held = 0;
+    chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    check_int("letting go ends it", w.dragging, 0);
+    check_true("and the window is narrower than it was",
+              w.freq.view_upper_hz - w.freq.view_lower_hz < before);
+    check_int("nothing is being dragged now",
+             chart_window_drag_of(&w, 100.0, 800.0, &lower, &upper), 0);
+}
+
+/* A press outside the plot is somebody else's click -- the tab bar, a
+   button, another chart -- and must not start a drag in this one. */
+static void test_a_press_outside_the_plot_starts_nothing(void) {
+    struct chart_window w = a_window();
+    struct chart_gesture_input in = no_input();
+
+    in.pointer_x = 20.0;
+    in.pointer_over = 0;
+    in.press = 1;
+    in.held = 1;
+    chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    check_int("no drag started", w.dragging, 0);
+}
+
+/*
+ * Zoom is anchored on the pointer only while it is over the chart. Both
+ * cases matter and they are different frequencies: a reader using the
+ * keyboard alone has the pointer wherever it was last left, and zooming
+ * about that would walk the window somewhere nobody asked for.
+ */
+static void test_zoom_anchors_on_the_pointer_only_when_over(void) {
+    struct chart_window over = a_window();
+    struct chart_window away = a_window();
+    struct chart_gesture_input in = no_input();
+    double middle_before = (over.freq.view_lower_hz +
+                            over.freq.view_upper_hz) / 2.0;
+
+    in.pointer_x = 700.0;   /* right of centre, over an 800-wide plot */
+    in.zoom_in = 1;
+
+    in.pointer_over = 1;
+    chart_window_gesture(&over, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    in.pointer_over = 0;
+    chart_window_gesture(&away, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+
+    check_true("both zoomed in by the same step",
+              fabs((over.freq.view_upper_hz - over.freq.view_lower_hz) -
+                   (away.freq.view_upper_hz - away.freq.view_lower_hz)) < 1.0);
+    check_true("the pointer-anchored one moved toward the pointer",
+              (over.freq.view_lower_hz + over.freq.view_upper_hz) / 2.0 >
+                  middle_before);
+    check_true("the other stayed on the middle",
+              fabs((away.freq.view_lower_hz + away.freq.view_upper_hz) / 2.0 -
+                   middle_before) < 1.0);
+}
+
+/* Up and Down are exclusive, and reset loses to both: a frame holding Up
+   with 0 also pressed zooms rather than resetting, which is the order the
+   `else if` chain has always had. */
+static void test_zoom_beats_reset(void) {
+    struct chart_window w = a_window();
+    struct chart_gesture_input in = no_input();
+    double full = w.freq.data_upper_hz - w.freq.data_lower_hz;
+
+    in.zoom_in = 1;
+    chart_window_gesture(&w, 100.0, 800.0, &in, 1, CHART_MIN_SPAN_HZ);
+    check_true("it zoomed rather than resetting",
+              w.freq.view_upper_hz - w.freq.view_lower_hz < full - 1.0);
+
+    in.zoom_in = 0;
+    chart_window_gesture(&w, 100.0, 800.0, &in, 1, CHART_MIN_SPAN_HZ);
+    check_true("and resets once the key is released",
+              fabs((w.freq.view_upper_hz - w.freq.view_lower_hz) - full) < 1.0);
+}
+
+/*
+ * A pan inside the delivered span moves the window and asks for nothing; a
+ * pan off the end returns the hertz the receiver would have to move. The
+ * return is the whole reason this function is not allowed to retune -- the
+ * Scope may, the LTE view may move its centre but not its rate, and a
+ * capture may not at all.
+ */
+static void test_pan_reports_what_it_could_not_do(void) {
+    struct chart_window w = a_window();
+    struct chart_gesture_input in = no_input();
+    double want;
+
+    /* Narrow first, so there is room to pan inside the span. */
+    in.zoom_in = 1;
+    chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    in.zoom_in = 0;
+
+    /* A millihertz, not an epsilon, and the difference is the point: one
+       zoom step of a 2 MHz span puts this pan exactly on the delivered
+       edge, and the overflow comes back as 2.4e-8 Hz of floating-point
+       residue rather than 0. A tolerance in *hertz* is what the number
+       means -- nothing a receiver could be asked to do. */
+    in.pan = 1;
+    want = chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    check_close("a pan with room asks for no retune worth making", want,
+                0.0, 1e-3);
+
+    /* And at the top of the delivered span there is nowhere left to go. */
+    w.freq.view_lower_hz = w.freq.data_upper_hz - CHART_MIN_SPAN_HZ;
+    w.freq.view_upper_hz = w.freq.data_upper_hz;
+    want = chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    check_true("a pan off the end asks the receiver to move up", want > 0.0);
+
+    in.pan = -1;
+    w.freq.view_lower_hz = w.freq.data_lower_hz;
+    w.freq.view_upper_hz = w.freq.data_lower_hz + CHART_MIN_SPAN_HZ;
+    want = chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    check_true("and off the bottom, to move down", want < 0.0);
+}
+
+/* A frame with nothing pressed changes nothing at all. */
+static void test_an_idle_frame_is_idle(void) {
+    struct chart_window w = a_window();
+    struct chart_gesture_input in = no_input();
+    double lower, upper;
+
+    in.zoom_in = 1;
+    chart_window_gesture(&w, 100.0, 800.0, &in, 0, CHART_MIN_SPAN_HZ);
+    in.zoom_in = 0;
+    lower = w.freq.view_lower_hz;
+    upper = w.freq.view_upper_hz;
+
+    check_close("an idle frame asks for no retune",
+                chart_window_gesture(&w, 100.0, 800.0, &in, 0,
+                                     CHART_MIN_SPAN_HZ), 0.0, 1e-3);
+    check_close("and leaves the lower edge", w.freq.view_lower_hz, lower,
+                1e-3);
+    check_close("and the upper", w.freq.view_upper_hz, upper, 1e-3);
+}
+
 int main(void) {
     test_window_before_any_sweep();
     test_zoom_in_and_out();
@@ -465,6 +656,13 @@ int main(void) {
 
     test_zoomed();
     test_channel_axis_floor();
+
+    test_a_drag_takes_three_frames();
+    test_a_press_outside_the_plot_starts_nothing();
+    test_zoom_anchors_on_the_pointer_only_when_over();
+    test_zoom_beats_reset();
+    test_pan_reports_what_it_could_not_do();
+    test_an_idle_frame_is_idle();
 
     return check_report("the frequency window");
 }

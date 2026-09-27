@@ -115,3 +115,76 @@ an antenna is the use this binary exists for, and it needs raylib today for
 nothing.
 
 `./sdrprobe` is unchanged: same one binary, same modes, raylib as now.
+
+## Phase A done, 2026-09-27 -- the one file that called raylib
+
+`chart_window.c` read the mouse and the arrow keys in the same function that
+decided what they meant, which is this repository's own rule broken
+(ADR-0012: a function that reads input may not also decide) and the whole of
+why it could not be in a raylib-free build.
+
+`chart_window_input.c` is the six readings -- `GetMousePosition`,
+`IsMouseButtonPressed`, `IsMouseButtonDown`, `CheckCollisionPointRec`,
+`IsKeyPressed`, `IsKeyPressedRepeat` -- into a `struct chart_gesture_input`,
+and nothing else; it is in `GUI_SRC`. `chart_window_gesture()` is the
+deciding half and takes plain numbers. `chart_window_drag_of()` went the
+same way for a smaller reason: it never called raylib, it only named a
+`Rectangle` to read `.x` and `.width`, and it takes them as doubles now.
+
+`chart_window.o` compiles with no raylib cflags and has no raylib symbol in
+it, measured with `nm -u`.
+
+**The gesture had no check at all**, which is what the split buys.
+`check-freq-window` links `chart_window.c` now and goes from 79 checks to
+99: the drag's three frames (a press outside the plot starts nothing, and
+`press` and `held` are both needed or a drag never starts or never ends),
+zoom anchored on the pointer only while it is over the chart, zoom beating
+reset, and a pan reporting the hertz it could not travel.
+
+**One claim in those checks was wrong on its first run**, in the ordinary
+shape: `a pan with room asks for no retune` at a tolerance of 1e-9. One zoom
+step of a 2 MHz span puts that pan exactly on the delivered edge and the
+overflow comes back as **2.4e-8 Hz** of floating-point residue. The
+arithmetic was right and the tolerance was absurd -- 1e-9 *hertz* -- so it
+is a millihertz now, which is what the number means.
+
+### And three browser bugs the gate turned up on the way
+
+`make check` failed on `check-web-layout` -- about one run in five, which had
+been true for a while and read as flakiness. It was three faults, and the
+first two are user-visible:
+
+1. **The FM canvases were `flex:1 1 auto`.** A canvas's content size *is*
+   its backing store, so fitting the store to the box changed the box, which
+   changed the store: 365 against 364, then 330, then 325, converging a pixel
+   at a time and never settling. The survey's canvas has always been
+   `flex:1 1 0` and was stable throughout. Both FM canvases are `1 1 0` now
+   and read 324 == 324 exactly.
+2. **Nothing re-fitted a canvas when a *sibling* changed height.** The only
+   triggers were a view switch and `window`'s own resize event; the health
+   footer grows once a second the first time a stream drops (it gains a
+   "(x% lost)" span, which wraps the line), taking a row off `#panels`. A
+   `ResizeObserver` on `#panels` now does, and the suite asserts it
+   deterministically -- forcing the footer taller and requiring the stores to
+   follow, which fails without the observer every time where waiting for a
+   real drop failed one time in five.
+3. **A tab click flipped back to the previous view.** `selectView()` shows
+   the panel at once and sends `view <name>`; a `receiver_state` already in
+   flight still named the old screen, and `handleState()` switched straight
+   back to it. `pendingScreen` now makes a state's `screen` field -- and only
+   that field -- ignored while a request is outstanding, cleared when a state
+   names the view, when `command_result` refuses it, or on reconnect.
+
+The server was verified innocent before any of that was changed: over a
+capture, `view survey` returns `ok=True` and **every** subsequent
+`receiver_state` says `screen=survey`.
+
+And the suite had a fault of its own that the third bug hid behind: it
+measured whichever panel was up and labelled it with the tab it had asked
+for, so `exactly one view panel is laid out` passed **on the wrong panel**
+and the Scope's canvases were asserted under a heading saying "survey". It
+polls for the panel it clicked and asserts it, the same fix the TSF wait
+already had. 25 checks to 35, and the count is now the same every run --
+which it was not before, and that variance was the tell.
+
+`make check`: 80 suites, 22046 checks, green.

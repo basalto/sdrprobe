@@ -16,6 +16,25 @@ const health = document.getElementById('health');
 const VIEWS = [ScopeView, SurveyView, FmView];
 
 let activeView = null;
+// The view this page has asked the server for and not yet been told it has.
+//
+// A click shows the panel at once -- a browser waiting a round trip to
+// redraw a button press reads as broken -- and sends `view <name>`. A
+// `receiver_state` already in flight still names the *old* screen, so
+// `handleState()` switched straight back to it and the next state a
+// quarter-second later switched forward again: a visible flip on every tab
+// click, and about one run in four of `check-web-layout` measured the
+// wrong panel while every message said otherwise.
+//
+// So a state's `screen` is *ignored* while a request is outstanding, and
+// only that field -- the tuning in the same message is still read, because
+// it was never in question. Cleared when a state finally names the view, or
+// when `command_result` says the command failed, so a refusal cannot wedge
+// the page on a screen the server is not on. If an acknowledgement were
+// somehow lost the page would sit on the view the reader clicked, which is
+// the harmless direction -- and `check-viewer-link` pins that a command
+// result is never dropped.
+let pendingScreen = null;
 let latestGeneration = 0; // the newest tuning_generation receiver_state has named
 let sent = 0, dropped = 0; // this Viewer's own count of what it drew vs discarded
 let ws = null; // module-scope so the tab buttons can send on it
@@ -35,6 +54,13 @@ let ws = null; // module-scope so the tab buttons can send on it
 // not up, would not be.
 function viewForState(state) {
   return VIEWS.find((v) => v.id === state.screen) || VIEWS[0];
+}
+
+// Whether this message's `screen` may move the page. See `pendingScreen`.
+function screenIsSettled(state) {
+  if (pendingScreen === null) return true;
+  if (state.screen === pendingScreen) { pendingScreen = null; return true; }
+  return false;
 }
 
 // Builds the tab bar and every view's panel from the registry, once, at
@@ -67,7 +93,10 @@ function selectView(view, sendCommand) {
     document.getElementById('panel-' + v.id).hidden = (v !== view);
     document.getElementById('tab-' + v.id).classList.toggle('active', v === view);
   });
-  if (sendCommand && ws) ws.send('view ' + view.id);
+  if (sendCommand && ws) {
+    pendingScreen = view.id;
+    ws.send('view ' + view.id);
+  }
   if (changed) subscribeToActiveView();
   // After the panel is shown, not before: a hidden element has no layout,
   // so a view measured while it was hidden would size its canvases to
@@ -88,6 +117,26 @@ function resizeActiveView() {
   if (activeView && activeView.resize) activeView.resize();
 }
 window.addEventListener('resize', resizeActiveView);
+
+// And a sibling changing height is a resize too, which `window`'s event is
+// not. `#panels` is a flex child, so anything that makes the footer taller
+// makes it shorter -- and the footer *does* grow: `renderHealth()` runs
+// once a second and gains a "(x% lost)" span the first time a stream drops,
+// which wraps the line. Nothing re-fitted the canvases after that, so their
+// backing stores kept a height the layout no longer had.
+//
+// It showed up as `check-web-layout` failing about one run in five, 312
+// against 303 on the survey chart -- an intermittent check, which is worse
+// than none because it teaches a reader to run it again. The page bug is
+// the same one, on any viewport where a drop happens while a chart is up.
+//
+// Observing `#panels` rather than each canvas: a canvas's box is set by
+// flex, so re-fitting it cannot change its own box and this cannot
+// oscillate -- and `fitCanvas()` returns early when the geometry already
+// matches, so a spurious notification costs a comparison.
+if (typeof ResizeObserver === 'function') {
+  new ResizeObserver(resizeActiveView).observe(document.getElementById('panels'));
+}
 
 // receiver_state and link_health are the shell's own concern, not a
 // view's -- both always asked for regardless of which view shows;
@@ -124,6 +173,10 @@ function connect() {
   ws = new WebSocket('ws://' + location.host + '/viewer' + location.search);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => {
+    // A fresh socket has no outstanding request on it, and the first
+    // `receiver_state` over it is authoritative. Left set, this page would
+    // ignore the server's screen until it happened to agree.
+    pendingScreen = null;
     subscribeToActiveView();
     hud.textContent = 'connected, awaiting receiver state...';
   };
@@ -156,11 +209,17 @@ function handleState(state) {
   // the panel, and spending less time here is less time not reading
   // the socket, which is less backpressure this page itself causes.
   if (state.type === 'link_health') { lastHealth = state; return; }
+  if (state.type === 'command_result') {
+    // A refused `view` is the one thing that could leave a request
+    // outstanding for ever, so it is the one thing this has to notice.
+    if (!state.ok && /^view /.test(state.command || '')) pendingScreen = null;
+    return;
+  }
   if (state.type === 'receiver_state') {
     latestGeneration = state.tuning_generation;
-    selectView(viewForState(state), false); // corrects a click sent before the
-                                            // server answered, and reflects
-                                            // another Viewer's own switch
+    if (screenIsSettled(state))
+      selectView(viewForState(state), false); // reflects another Viewer's own
+                                              // switch, and the window's
     hud.innerHTML = 'center ' + (state.center_hz / 1e6).toFixed(6) + ' MHz &nbsp; '
       + 'rate ' + (state.sample_rate_hz / 1e6).toFixed(3) + ' MS/s &nbsp; '
       + 'ppm ' + state.ppm + ' &nbsp; '

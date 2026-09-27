@@ -297,7 +297,7 @@ const FmView = (function () {
       + 'cursor:pointer">Show charts</button></div>' +
       '<div id="fm-waterfall-wrap" style="flex:1 1 auto;min-height:140px;'
       + 'display:flex;flex-direction:column">' +
-        '<canvas id="fm-waterfall" style="flex:1 1 auto;min-height:0;'
+        '<canvas id="fm-waterfall" style="flex:1 1 0;min-height:0;'
         + 'width:100%"></canvas>' +
         '<div class="label" id="fm-axis">awaiting receiver_state...</div>' +
       '</div>' +
@@ -306,7 +306,7 @@ const FmView = (function () {
         '<div class="label">multiplex (the pilot at 19 kHz, stereo at 38,'
         + ' RDS at 57 -- a station with the first two and not the third'
         + ' sends no RDS)</div>' +
-        '<canvas id="fm-mpx" style="flex:1 1 auto;min-height:0;'
+        '<canvas id="fm-mpx" style="flex:1 1 0;min-height:0;'
         + 'width:100%"></canvas>' +
       '</div>' +
       '<div style="display:flex;gap:16px;margin-top:10px;flex:0 1 auto;'

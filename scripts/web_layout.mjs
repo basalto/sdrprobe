@@ -219,7 +219,35 @@ async function run() {
 
     for (const tab of ['scope', 'survey', 'fm']) {
       await evaluate(`document.getElementById('tab-${tab}').click(); true`);
-      await sleep(1200);
+      /*
+       * Wait for the panel to actually be the one showing, rather than
+       * sleeping and hoping -- the same fix, for the same reason, as the
+       * TSF wait below.
+       *
+       * A click shows the panel at once and sends `view <name>`; a
+       * `receiver_state` already in flight still names the *old* screen,
+       * and `handleState()` switches back to it before the next state
+       * corrects it. A flat 1200 ms wait rode through that about one run
+       * in four, and the assertions then measured the Scope's canvases
+       * while every message said "survey" -- including
+       * `exactly one view panel is laid out`, which was true of the wrong
+       * panel. A check that measures the wrong screen and passes is worse
+       * than one that fails.
+       */
+      {
+        const deadline = Date.now() + 8000;
+        for (;;) {
+          const shown = await evaluate(
+            `(document.querySelector('#panels > div:not([hidden])')||{}).id || ''`);
+          if (shown === `panel-${tab}` || Date.now() > deadline) break;
+          await sleep(100);
+        }
+      }
+      await sleep(900);
+      ok(`${size.w}x${size.h} ${tab}: the panel that is up is the one asked for`,
+         (await evaluate(
+            `(document.querySelector('#panels > div:not([hidden])')||{}).id || ''`))
+             === `panel-${tab}`);
       /*
        * On FM, wait for the decode to actually name the station rather than
        * sleeping a fixed span and hoping. A programme service name is four
@@ -278,6 +306,41 @@ async function run() {
            JSON.stringify(m.text.axis));
         ok(`${at}: the health footer rendered`, /sent\/dropped/.test(m.text.health));
       }
+
+      /*
+       * And the same charts after a *sibling* grows, which `window`'s
+       * resize event does not cover.
+       *
+       * This is a deterministic stand-in for something the page really
+       * does: `renderHealth()` runs once a second and the footer gains a
+       * "(x% lost)" span the first time a stream drops, which wraps the
+       * line and takes a row off `#panels`. Nothing re-fitted the canvases
+       * after that, so their backing stores kept a height the layout no
+       * longer had -- and it surfaced as this suite failing about one run
+       * in five (312 against 303 on the survey chart), which in a gated
+       * check is worse than the fault it was looking for.
+       *
+       * A `ResizeObserver` on `#panels` is the fix, and this is what says
+       * so: forcing the footer taller and asserting the stores followed
+       * fails without it every single time, where waiting for a real drop
+       * fails one time in five.
+       */
+      await evaluate(
+        `document.getElementById('health').style.paddingBottom = '40px'; true`);
+      await sleep(300);
+      {
+        const grown = await evaluate(MEASURE);
+        for (const c of grown.canvases)
+          ok(`${at}: ${c.id} store follows a taller footer`,
+             c.storeW === c.boxW && c.storeH === c.boxH,
+             `${c.storeW}x${c.storeH} vs ${c.boxW}x${c.boxH}`);
+        ok(`${at}: still does not scroll with a taller footer`,
+           grown.scrollHeight <= grown.clientHeight,
+           `scrollHeight ${grown.scrollHeight} > clientHeight ${grown.clientHeight}`);
+      }
+      await evaluate(
+        `document.getElementById('health').style.paddingBottom = ''; true`);
+      await sleep(200);
     }
   }
 
