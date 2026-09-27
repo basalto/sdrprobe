@@ -9,8 +9,8 @@ description: Build or change a view in the browser Viewer (web/). Use when addin
 ADR-0027 keeps the window primary, which makes it the thing a web view is a
 view *of* — not a separate product with its own opinions.
 
-Five views are still to come (GSM, ADS-B, TETRA, LTE, SRD — ticket 07), so
-everything below is about to be done five more times.
+Four views are still to come (ADS-B, TETRA, LTE, SRD — ticket 07); GSM
+landed 2026-09-27, so everything below has now been done twice past FM.
 
 ## Ask before deciding
 
@@ -51,8 +51,6 @@ const GsmView = (function () {
   return {
     id: 'gsm',          // the `view <id>` command, and the DOM id suffix
     label: 'GSM',       // the tab button's text
-    tab: 2,             // enum active_tab (input_route.h)
-    decode: 2,          // enum decode_kind (app.h) -- decode views only
     streams: ['gsm_state'],   // beyond receiver_state/link_health
     markup: '...',            // the panel's HTML, mounted by the shell
     render(msg) { /* draw from what wire.js decoded */ },
@@ -142,14 +140,25 @@ the failure these exist for.
   *then* a `set_tab()`, in that order — switching the tab first enters
   whichever decode kind is already recorded and leaves it again on the way
   past, retuning twice. Add the name to `viewer_screens[]` in
-  `viewer_command.c`.
-- `receiver_state` carries `tab` **and** `decode`; `viewForState()` in
-  `viewer.js` matches on both.
+  `viewer_command.c` and to `enum viewer_screen`.
+- `receiver_state` carries one **`screen` name**, which is the view's own
+  `id`; `viewForState()` matches on it. It used to carry `tab` and `decode`
+  as integers, which is what drew the survey's marks swapped
+  (`layer-boundaries/03`).
+- **`check-viewer-link` keeps its own list of stream names, twice**, and it
+  is not duplication — it is the second statement that makes the first a
+  check. Adding a stream means adding the name in three places; the suite
+  fails by name until you do, which is how GSM's was caught.
 
-**Known gap:** `link_health` names three streams (`spectrum`, `waterfall`,
-`receiver_state`) and there are nine. A view's own drop counts are not
-visible in the footer. Not yet fixed; say so rather than implying the
-footer is complete.
+`link_health` names **every** stream, walked from `stream_names[]`, and the
+footer shows whichever the page is subscribed to plus any that has dropped.
+
+**Do not read a fresh stream's counts off a screenshot.** `link_health`
+arrives about once a second and the counts are per connection, so a tab
+selected two seconds before the capture shows the new stream at `0/0` while
+its data is plainly rendering above. That looked exactly like a broken
+publisher for a while; the server's own disconnect tally (115 sent) against
+the client's received count (119) is what settled it.
 
 ## Traps that have actually bitten
 
@@ -179,6 +188,11 @@ Each of these cost real time in this repository.
 - **The subscribe parser and the screen names are tables.** Ticket 07 found
   the hand-written version two names short: a client subscribed to
   `survey_spectrum` received nothing, silently, with no refusal.
+- **A view that yields nothing overflows.** GSM's first layout gave the
+  channel-power canvas a fixed `flex:0 0 120px` beside a waterfall and two
+  readout lines, and the panel scrolled by 121px at 1400x900. Both charts
+  are `flex:1 1 0` now, the waterfall weighted `2`. Anything that cannot
+  shrink has to be small enough that everything else can.
 - **Never index a table by an enum's integer.** The survey's mark crossed the
   wire as `enum sdrgui_peak_mark`'s ordinal and `views/survey.js` re-declared
   the order wrong, so the browser drew receiver-like and empty candidates
@@ -214,11 +228,25 @@ Fast, no browser. **Structurally blind to layout.** Still a scratch harness;
 ticket 11's (a) is to commit it.
 
 **The window, for comparison.** `make screens NAMES="<view>"` renders the
-raylib screen the web view mirrors. Two cautions: a screenshot comparison
-across a build is a comparison at two machine *loads* unless both sides are
-rendered warm — a cold run right after a full compile processes fewer blocks
-and reads as a regression. And a waterfall makes the PNG non-reproducible
-byte-for-byte; crop to the panels, or compare structurally.
+raylib screen the web view mirrors. Three cautions, the third measured on
+GSM: a comparison across a build is a comparison at two machine *loads*
+unless both sides are rendered warm — a cold run right after a full compile
+processes fewer blocks and reads as a regression. A waterfall makes the PNG
+non-reproducible byte-for-byte. And **check that before concluding
+anything**: two renders from the *same* binary differ on any screen with a
+waterfall, so a byte comparison there proves nothing in either direction.
+What does settle it is `git status` — if no file under `src/gui/` changed,
+the window's screen cannot have — plus reading the PNG and checking the
+values.
+
+**Drive it over the right capture.** `scripts/web_layout.mjs` takes
+`--file`, `--rate`, `--freq` and `--extra` ("--arfcn 69"); played at the
+wrong rate a capture decodes nothing and the page shows a correct layout
+full of "awaiting", which is a picture that proves the layout and nothing
+else. Its server duration allows for the FM tab's 30-second wait for the
+station name — over a capture that is not the FM one, that wait is spent in
+full every run, and a budget that ignored it had the server exiting before
+the last tab was reached.
 
 Whatever you build, drive it against a real server over a capture:
 

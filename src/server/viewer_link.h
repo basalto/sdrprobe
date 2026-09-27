@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "model/fm_view_model.h"
+#include "model/gsm_view_model.h"
 #include "model/scope_view_model.h"
 #include "model/survey_view_model.h"
 #include "server/viewer_command.h"
@@ -158,6 +159,7 @@ enum viewer_stream {
        spectrum binary, the three panels' fields JSON. */
     VIEWER_STREAM_FM_SPECTRUM,
     VIEWER_STREAM_FM_STATE,
+    VIEWER_STREAM_GSM_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -320,6 +322,20 @@ void viewer_link_publish_waterfall_row(struct viewer_link *link,
 void viewer_link_publish_receiver_state(struct viewer_link *link,
                                         const struct receiver_view_model *rvm,
                                         uint64_t now_ms);
+
+/*
+ * The GSM screen, as JSON: the two readouts, the header's statistics and the
+ * 124-channel power scan.
+ *
+ * No binary stream of its own. The waterfall the window draws over the ARFCN
+ * axis is the *same* spectrum `waterfall` already carries -- only the axis
+ * differs, and which ARFCN a frequency is is a decision, so it travels in
+ * this object rather than being recomputed browser-side
+ * (`web-visualization/07`).
+ */
+void viewer_link_publish_gsm_state(struct viewer_link *link,
+                                   const struct gsm_view_model *gvm,
+                                   uint64_t now_ms);
 
 /*
  * Ticket 07's Survey tab, mirroring the pair above: the swept spectrum as a

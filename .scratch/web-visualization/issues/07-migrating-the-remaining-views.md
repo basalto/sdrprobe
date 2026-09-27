@@ -1,6 +1,6 @@
 # 07 - Migrating the remaining views
 
-Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); GSM, ADS-B, TETRA, LTE and SRD remain, then the two overlays.
+Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); **GSM is done** (2026-09-27); ADS-B, TETRA, LTE and SRD remain, then the two overlays.
 
 ## Goal
 
@@ -239,3 +239,83 @@ from the state it reads rather than `const struct app *` (that spec's ticket
 send every enum by name: the survey's mark crossed as an ordinal, the browser
 re-declared the order wrong, and receiver-like and empty candidates have been
 drawn swapped since this ticket's Survey work (`15-*`).
+
+## Done, 2026-09-27 -- GSM
+
+Three files, as the skill predicts: `web/views/gsm.js`, one `VIEWS` entry in
+`web/viewer.js`, one `JS_ORDER` entry in `scripts/embed_web.py`. Plus the C
+side -- `src/model/gsm_view_model.h` with its builder in
+`src/runtime/gsm_view_model.c` (ADR-0028: a contract may not reach up, so the
+builder lives where it can read `struct app`), `check-gsm-view-model` at 41
+checks linking `-lm` alone, and a `gsm_state` JSON stream.
+
+**What travels, decided by the operator rather than picked**: the two
+readouts, the header's statistics, the 124-channel power scan, and the
+waterfall. No new binary stream -- the waterfall the GSM screen draws is the
+*same* rows `waterfall` already carries; only the axis differs, and which
+ARFCN a frequency is is a decision, so it travels in the JSON. The SCH
+constellation was declined as the piece least useful from elsewhere.
+
+### The decision this view was really about
+
+`view_gsm.c` chose **four possible SCH sentences and three possible BCCH
+ones** inside `DrawText` calls, each with a different set of fields attached.
+That is the shape ADR-0012 asks for a name, and the browser would have had to
+decide it again. Both are `enum`s with names now -- `idle`/`searching`/
+`recording`/`decoded` and `none`/`waiting`/`missed`/`read` -- and **the window
+reads the same model**, so there is one decision rather than two that agree
+today.
+
+The distinction worth keeping is `missed` against `waiting`: the broadcast
+channel occupies frames 2 to 5 of the 51-multiframe, so only the SCH at frame
+1 is followed by one. Four decodes in five have nothing due and nothing
+wrong; the fifth is a block that should have survived. Collapsed into one
+sentence, a reader could not tell a weak signal from an ordinary position in
+the multiframe.
+
+### Against the acceptance criteria
+
+- [x] **A view model checkable with `-lm` alone** -- 41 checks, two plain
+      structs in, no `struct app`.
+- [x] **`make check` and `tests/pipelines.sh` unchanged** -- 22383 checks,
+      84 suites.
+- [x] **The view model carries no raylib type.**
+- [~] **`make screens NAMES="gsm"` unchanged.** Not established by bytes,
+      and the reason is measured rather than assumed: **two renders from the
+      same binary differ**, because the screen has a waterfall whose content
+      depends on how many blocks the fixed duration caught. A byte comparison
+      there proves nothing in either direction. What does: no file under
+      `src/gui/` changed at all in the first commit, and after the window was
+      pointed at the model the rendered screen was read and carries the same
+      SCH line, the same BCCH line and the same sixteen neighbours.
+
+### Three things GSM turned up
+
+**The gate caught the omission this class of bug is named for.**
+`check-viewer-link` keeps its own list of stream names -- *twice*, in two
+tests -- which is not duplication but the second statement that makes the
+first a check. Adding `gsm_state` to the enum and to `stream_names[]` left
+both failing by name until the lists were updated. Ticket 07's own history
+records the same shape slipping through twice when there was no such check.
+
+**A fixed-height chart overflowed the viewport.** The channel-power canvas
+started as `flex:0 0 120px` beside a waterfall and two readout lines, and the
+panel scrolled by 121px at 1400x900 -- caught by `check-web-layout`, which is
+the only thing that can see it. Both charts yield now, the waterfall weighted
+twice.
+
+**A stream reading `0/0` in the footer was a screenshot artefact, not a
+publisher.** `link_health` arrives about once a second and its counts are per
+connection, so a tab selected two seconds before the capture shows its new
+stream at zero while the data renders above it. The server's own disconnect
+tally -- `gsm_state sent 115` against 119 received by a client -- is what
+settled it. Recorded in the skill so the next view does not spend the same
+hour.
+
+And one thing about the tooling: `scripts/web_layout.mjs` takes `--file`,
+`--rate`, `--freq` and `--extra` now, because looking at a GSM view over an
+FM capture shows a correct layout full of "awaiting" -- a picture that proves
+the layout and nothing else. Its server duration also had to allow for the FM
+tab's 30-second wait for the station name, which over any other capture is
+spent in full every run; the old budget had the server exiting before the
+last tab was reached.

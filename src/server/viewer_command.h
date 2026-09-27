@@ -36,7 +36,8 @@ enum viewer_command_type {
 enum viewer_screen {
     VIEWER_SCREEN_SCOPE = 0,
     VIEWER_SCREEN_SURVEY,
-    VIEWER_SCREEN_FM
+    VIEWER_SCREEN_FM,
+    VIEWER_SCREEN_GSM
 };
 
 struct viewer_command {

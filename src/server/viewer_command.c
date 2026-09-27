@@ -30,7 +30,8 @@ static const struct {
 } viewer_screens[] = {
     { "scope",  VIEWER_SCREEN_SCOPE },
     { "survey", VIEWER_SCREEN_SURVEY },
-    { "fm",     VIEWER_SCREEN_FM }
+    { "fm",     VIEWER_SCREEN_FM },
+    { "gsm",    VIEWER_SCREEN_GSM }
 };
 
 int viewer_command_parse(const char *line, size_t len, struct viewer_command *out,

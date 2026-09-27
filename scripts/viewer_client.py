@@ -93,7 +93,7 @@ RANGE_HEADER_TYPES = (3, 4)
 # VIEWER_MESSAGE_SURVEY_SPECTRUM is what they are transcribed from).
 ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
                "survey_spectrum", "survey_state", "fm_spectrum",
-               "fm_state")
+               "fm_state", "gsm_state")
 
 
 class ViewerClient:
@@ -319,6 +319,16 @@ def run_print(client, count):
                      f"{'locked' if state['pilot_locked'] else 'no lock'} "
                      f"pi={state['pi']:#06x} ps={state['ps']!r} "
                      f"reading={state['reading']!r} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            elif state.get("type") == "gsm_state":
+                # Both readouts arrive already decided (gsm_view_model.h) and
+                # as names, so this prints the verdict rather than inferring
+                # one from the fields under it.
+                print(f"gsm_state       arfcn={state['arfcn']} "
+                     f"sch={state['sch']} bsic={state['bsic']} "
+                     f"bcch={state['bcch']} "
+                     f"mcc={state['mcc']} mnc={state['mnc']} "
+                     f"lac={state['lac']} cell={state['cell_id']} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             elif state.get("type") == "receiver_state":
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "

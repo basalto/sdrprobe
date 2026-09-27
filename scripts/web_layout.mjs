@@ -51,6 +51,16 @@ const PNG = opt('--png', null);
 const SERVE_PORT = Number(opt('--serve-port', 8930));
 const DEBUG_PORT = Number(opt('--debug-port', 9331));
 const CAPTURE = opt('--file', 'testfiles/fm_rds_tsf.bin');
+// The capture's own tuning. Defaulted to the FM one the gate drives, and
+// overridable together with --file so another technology's capture can be
+// looked at: played at the wrong rate a capture decodes nothing, and the
+// page then shows a correct layout full of "awaiting" -- which is a
+// screenshot that proves the layout and nothing else.
+const RATE = opt('--rate', '2048000');
+const FREQ = opt('--freq', '89.5M');
+// Extra flags for the served run, space-separated -- `--arfcn 69` and the
+// like, which some captures need before their view has anything to say.
+const EXTRA = opt('--extra', '').split(' ').filter((a) => a.length > 0);
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -182,9 +192,16 @@ async function run() {
                     + `Kill it, or pass --debug-port.`);
 
   serve = spawn('./sdrprobe', [
-    'web', '--no-browser', '--file', CAPTURE, '--sample-rate', '2048000',
-    '--frequency', '89.5M', '--serve-port', String(SERVE_PORT),
-    '--duration', String(20 + SIZES.length * 25),
+    'web', '--no-browser', '--file', CAPTURE, '--sample-rate', RATE,
+    ...(EXTRA.length ? [] : ['--frequency', FREQ]), ...EXTRA,
+    '--serve-port', String(SERVE_PORT),
+    // Long enough for the worst case, which is not the obvious one: the FM
+    // tab polls up to 30 s for the station's name, and over a capture that
+    // is not the FM one it waits that out every time. At 20 + 25 per size
+    // the server exited *before* the last tab was reached, and the page then
+    // showed a correct layout with every field "awaiting" -- which looks
+    // exactly like a view that does not work.
+    '--duration', String(60 + SIZES.length * 35),
   ], { stdio: 'ignore' });
   await sleep(1500);
 
@@ -217,7 +234,10 @@ async function run() {
                    { width: size.w, height: size.h, deviceScaleFactor: 1, mobile: false });
     await sleep(600);
 
-    for (const tab of ['scope', 'survey', 'fm']) {
+    // GSM is visited over an FM capture, so its readouts say "idle" and
+    // "none" -- which is the point: a view has to lay out correctly before
+    // it has anything to show, and that is the state a reader meets first.
+    for (const tab of ['scope', 'survey', 'fm', 'gsm']) {
       await evaluate(`document.getElementById('tab-${tab}').click(); true`);
       /*
        * Wait for the panel to actually be the one showing, rather than

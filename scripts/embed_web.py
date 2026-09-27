@@ -57,6 +57,7 @@ JS_ORDER = [
     "views/scope.js",
     "views/survey.js",
     "views/fm.js",
+    "views/gsm.js",
     "viewer.js",
 ]
 

@@ -9,6 +9,7 @@
 
 #include "server/browser.h"
 #include "model/fm_view_model.h"
+#include "model/gsm_view_model.h"
 #include "runtime/frame_advance.h"
 #include "server/process_cpu.h"
 #include "model/scope_view_model.h"
@@ -100,6 +101,10 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
                 break;
             case VIEWER_SCREEN_FM:
                 set_decode(app, DECODE_FM, now);
+                set_tab(app, TAB_DECODE, now);
+                break;
+            case VIEWER_SCREEN_GSM:
+                set_decode(app, DECODE_GSM, now);
                 set_tab(app, TAB_DECODE, now);
                 break;
             case VIEWER_SCREEN_SCOPE:
@@ -311,6 +316,7 @@ int viewer_session_run(struct app *app) {
         struct scope_view_model svm;
         struct survey_view_model survey_svm;
         struct fm_view_model fm_svm;
+        struct gsm_view_model gsm_svm;
         const struct receiver_view_model *rvm;
         uint64_t now_ms;
 
@@ -385,6 +391,14 @@ int viewer_session_run(struct app *app) {
             viewer_link_publish_fm_spectrum(&link, &fm_svm,
                                             rvm->tuning_generation, now_ms);
             viewer_link_publish_fm_state(&link, &fm_svm, now_ms);
+            /* And GSM, on the same gate and for the same reason. */
+            gsm_view_model_build(&app->gsm, &app->bandscan,
+                                 &app->frame.signal_stats,
+                                 app->frame.signal_stats_ready,
+                                 acquisition_recording_status(&app->acq, NULL,
+                                                              NULL, 0),
+                                 app->receiver_mode, &gsm_svm);
+            viewer_link_publish_gsm_state(&link, &gsm_svm, now_ms);
         }
         /*
          * Not gated on spectrum_updated -- the tuning can change (the retune

@@ -88,7 +88,8 @@ int viewer_link_open(struct viewer_link *link, uint16_t port,
  */
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
-    "survey_spectrum", "survey_state", "fm_spectrum", "fm_state"
+    "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
+    "gsm_state"
 };
 
 /*
@@ -1274,6 +1275,114 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
             !c->subscribed[VIEWER_STREAM_FM_STATE])
             continue;
         slot = &c->slot[VIEWER_STREAM_FM_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
+/*
+ * The GSM screen. One object, fanned out, like every other JSON stream.
+ *
+ * Both readouts travel as a **name** plus the fields that sentence carries:
+ * `sch` is one of idle/searching/recording/decoded and `bcch` one of
+ * none/waiting/missed/read, decided in `gsm_view_model.c` where a check can
+ * reach it. Never as the enum's integer -- that is what drew the survey's
+ * marks swapped for months (`web-visualization/15`).
+ *
+ * The 124-channel scan is the long part: 125 powers and 125 confidences at
+ * up to seven characters each, so the buffer is sized for that rather than
+ * for the readouts.
+ */
+void viewer_link_publish_gsm_state(struct viewer_link *link,
+                                   const struct gsm_view_model *gvm,
+                                   uint64_t now_ms) {
+    char json[6144];
+    int json_len, used, i;
+
+    used = snprintf(json, sizeof(json),
+                    "{\"type\":\"gsm_state\",\"timestamp_ms\":%llu,"
+                    "\"arfcn\":%d,\"carrier_hz\":%.0f,"
+                    "\"sch\":\"%s\",\"bsic\":%d,\"ncc\":%d,\"bcc\":%d,"
+                    "\"frame_number\":%d,\"t1\":%d,\"t2\":%d,\"t3\":%d,"
+                    "\"confidence\":%.2f,\"implausible\":%s,"
+                    "\"bcch\":\"%s\",\"blocks\":%d,"
+                    "\"have_lai\":%s,\"mcc\":%d,\"mnc\":%d,"
+                    "\"mnc_digits\":%d,\"lac\":%d,"
+                    "\"have_cell_id\":%s,\"cell_id\":%d,"
+                    "\"stats_ready\":%s,\"noise\":%.2f,\"signal\":%.2f,"
+                    "\"snr_db\":%.1f,\"clipping_percent\":%.4f,"
+                    "\"headroom_db\":%.1f,"
+                    "\"scanning\":%s,\"step\":%d,\"step_count\":%d,"
+                    "\"have_scan\":%s",
+                    (unsigned long long)now_ms,
+                    gvm->selected_arfcn, gvm->selected_hz,
+                    gsm_sch_reading_name(gvm->sch),
+                    gvm->bsic, gvm->ncc, gvm->bcc, gvm->frame_number,
+                    gvm->t1, gvm->t2, gvm->t3, (double)gvm->confidence,
+                    gvm->implausible ? "true" : "false",
+                    gsm_bcch_reading_name(gvm->bcch), gvm->blocks,
+                    gvm->have_lai ? "true" : "false",
+                    gvm->mcc, gvm->mnc, gvm->mnc_digits, gvm->lac,
+                    gvm->have_cell_id ? "true" : "false", gvm->cell_id,
+                    gvm->signal_stats_ready ? "true" : "false",
+                    (double)gvm->signal_stats.noise_magnitude,
+                    (double)gvm->signal_stats.signal_magnitude,
+                    (double)gvm->signal_stats.snr_db,
+                    (double)gvm->signal_stats.clipping_percent,
+                    (double)gvm->signal_stats.headroom_db,
+                    gvm->scanning ? "true" : "false",
+                    gvm->step, gvm->step_count,
+                    gvm->have_scan ? "true" : "false");
+    if (used <= 0 || (size_t)used >= sizeof(json))
+        return;
+
+    used += snprintf(json + used, sizeof(json) - (size_t)used,
+                     ",\"neighbours\":[");
+    for (i = 0; i < gvm->neighbour_count && used < (int)sizeof(json) - 8; i++)
+        used += snprintf(json + used, sizeof(json) - (size_t)used, "%s%d",
+                         i ? "," : "", gvm->neighbours[i]);
+    used += snprintf(json + used, sizeof(json) - (size_t)used, "]");
+
+    /*
+     * The band. Both arrays are sent whole rather than as the visited
+     * subset: which channels were *not* looked at is the distinction
+     * `have_scan` exists for, and a sparse object would make the browser
+     * re-derive it.
+     */
+    used += snprintf(json + used, sizeof(json) - (size_t)used, ",\"power\":[");
+    for (i = 0; i < GSM_VIEW_MODEL_CHANNELS && used < (int)sizeof(json) - 16;
+         i++)
+        used += snprintf(json + used, sizeof(json) - (size_t)used, "%s%.1f",
+                         i ? "," : "", (double)gvm->power[i]);
+    used += snprintf(json + used, sizeof(json) - (size_t)used,
+                     "],\"bcch_confidence\":[");
+    for (i = 0; i < GSM_VIEW_MODEL_CHANNELS && used < (int)sizeof(json) - 16;
+         i++)
+        used += snprintf(json + used, sizeof(json) - (size_t)used, "%s%.2f",
+                         i ? "," : "", (double)gvm->bcch_confidence[i]);
+    used += snprintf(json + used, sizeof(json) - (size_t)used, "]}");
+
+    json_len = used;
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_GSM_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_GSM_STATE];
         if (!slot_ready_for_new_message(slot))
             continue;
         frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,

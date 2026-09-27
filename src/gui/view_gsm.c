@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include "gui/view.h"
+#include "model/gsm_view_model.h"
 #include "runtime/debug_log.h"
 #include "gui/gsm_layout.h"
 #include "gui/sdrgui.h"
@@ -159,15 +160,26 @@ void draw_gsm(struct app *app) {
 
     if (app->gsm.selected_arfcn > 0 && !app->bandscan.running) {
         Rectangle wf = gsm_burst_rect();
+        /*
+         * Which sentence each readout is, and the fields under it, come from
+         * the view model rather than from a chain of `if`s here -- so the
+         * browser's GSM view and this one cannot come to disagree about when
+         * a broadcast block was *missed* and when there was simply none due
+         * (`web-visualization/07`). The drawing picks a colour and spells the
+         * words; it decides nothing.
+         */
+        struct gsm_view_model m;
 
-        /* SCH decode readout, printed above the bottom chart area. */
-        if (app->gsm.session.sch_valid) {
-            const struct gsm_sch_result *sch = &app->gsm.session.sch;
+        gsm_view_model_build(&app->gsm, &app->bandscan,
+                             &app->frame.signal_stats,
+                             app->frame.signal_stats_ready, rec_active,
+                             app->receiver_mode, &m);
+
+        if (m.sch == GSM_SCH_DECODED) {
             snprintf(text, sizeof(text),
                      "SCH   BSIC %d  (NCC %d, BCC %d)   frame %d  (T1/T2/T3 %d/%d/%d)   match %.2f%s",
-                     sch->bsic, sch->ncc, sch->bcc, sch->frame_number, sch->t1,
-                     sch->t2, sch->t3, (double)sch->confidence,
-                     app->gsm.session.continuity.implausible ? "  [T1 JUMPED]" : "");
+                     m.bsic, m.ncc, m.bcc, m.frame_number, m.t1, m.t2, m.t3,
+                     (double)m.confidence, m.implausible ? "  [T1 JUMPED]" : "");
             DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64,
                      18, (Color){ 120, 230, 255, 255 });
 
@@ -177,26 +189,24 @@ void draw_gsm(struct app *app) {
              * one is the cell talking, so it is worded as such and coloured
              * apart.
              */
-            const struct gsm_cell *cell = &app->gsm.session.cell;
-
-            if (cell->blocks > 0) {
+            if (m.bcch == GSM_BCCH_READ) {
                 int used = snprintf(text, sizeof(text), "BCCH  ");
 
-                if (cell->have_lai)
+                if (m.have_lai)
                     used += snprintf(text + used, sizeof(text) - (size_t)used,
-                                     "MCC %d  MNC %0*d  LAC %d   ", cell->mcc,
-                                     cell->mnc_digits, cell->mnc, cell->lac);
-                if (cell->have_cell_id)
+                                     "MCC %d  MNC %0*d  LAC %d   ", m.mcc,
+                                     m.mnc_digits, m.mnc, m.lac);
+                if (m.have_cell_id)
                     used += snprintf(text + used, sizeof(text) - (size_t)used,
-                                     "cell %d   ", cell->cell_id);
-                if (cell->neighbour_count > 0) {
+                                     "cell %d   ", m.cell_id);
+                if (m.neighbour_count > 0) {
                     used += snprintf(text + used, sizeof(text) - (size_t)used,
                                      "neighbours");
-                    for (int i = 0; i < cell->neighbour_count &&
+                    for (int i = 0; i < m.neighbour_count &&
                                     used < (int)sizeof(text) - 8; i++)
                         used += snprintf(text + used,
                                          sizeof(text) - (size_t)used, " %d",
-                                         cell->neighbours[i]);
+                                         m.neighbours[i]);
                 }
                 sdrgui_text_fit(text, (int)gsm_scan_rect().x,
                                 (int)gsm_scan_rect().y - 42, 17,
@@ -204,7 +214,7 @@ void draw_gsm(struct app *app) {
                                     gsm_constellation_rect().width -
                                     gsm_scan_rect().x,
                                 (Color){ 153, 235, 178, 255 });
-            } else if (app->gsm.session.sch.frame_number % 51 == 1) {
+            } else if (m.bcch == GSM_BCCH_MISSED) {
                 DrawText("BCCH  a broadcast block is due here, and did not "
                          "survive",
                          (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42,
@@ -214,12 +224,14 @@ void draw_gsm(struct app *app) {
                          (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 42,
                          17, (Color){ 126, 151, 166, 255 });
             }
-        } else if (rec_active) {
+        } else if (m.sch == GSM_SCH_RECORDING) {
+            /* The path and the size are the acquisition layer's and stay
+               here: the model decides *which* sentence, not what is in it. */
             snprintf(text, sizeof(text), "Recording raw I/Q to %s  (%.1f MB)",
                      rec_path, rec_bytes / 1e6);
             DrawText(text, (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64,
                      18, (Color){ 255, 202, 105, 255 });
-        } else if (app->gsm.selected_arfcn > 0 && app->receiver_mode) {
+        } else if (m.sch == GSM_SCH_SEARCHING) {
             DrawText("SCH   searching for a synchronisation burst...",
                      (int)gsm_scan_rect().x, (int)gsm_scan_rect().y - 64, 18,
                      (Color){ 151, 174, 188, 255 });
