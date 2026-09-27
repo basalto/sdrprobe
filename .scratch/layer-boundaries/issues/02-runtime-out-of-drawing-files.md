@@ -1,10 +1,18 @@
 # 02 - Take the runtime out of the drawing files
 
-Status: ready-for-agent -- 01 is done (2026-09-26) and left this two
-measurements: `check-survey-view-model` and `check-frame-advance` still reach
-raylib **only** through `view.h`, and `recompute_magnitude_bins()` is the
-shared step reaching into the window for a plot width (item 2 below), found
-by a segfault rather than by reading.
+Status: **resolved, 2026-09-27** -- superseded by ticket 05 (ADR-0028), which
+moved the runtime into `src/runtime/` wholesale rather than function by
+function. The table below is kept as a record of what was moved and is **no
+longer a description of the tree**: of the sixteen runtime functions it lists
+as living in files that draw, **one does** -- `update_fm_audio()`, and only
+because it feeds raylib's audio device. `frame_advance()` is in
+`src/runtime/frame_advance.c`, every `update_*` it calls is in that layer's
+`*_runtime.c`, `check-frame-advance` runs FM's **real** callees rather than
+stubs, and `check-no-window-link` holds the boundary at link time.
+`recompute_magnitude_bins()` (item 2) is still in `view_scope.c` and is
+called from `sdrprobe.c`; it draws nothing and takes a plot width, so it is
+the one piece of this ticket left, and it is small enough to fold into
+whatever next touches the Scope rather than to keep a ticket open for.
 Blocked by: 01 (done)
 
 ## The problem

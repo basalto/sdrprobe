@@ -1,9 +1,17 @@
 # 04 - A server built without the window, and a real per-block check
 
-Status: ready-for-agent -- **(B) done, 2026-09-27**: `sdrprobe-server` ships,
-`check-server-link` gates it and `check-pipelines` proves both binaries
-answer the same. Items 2 and 3 remain; see the last section.
-Blocked by: 02, 03 (03 done)
+Status: **resolved, 2026-09-27**. All three items done, and two names in the
+line this replaces were already stale: the binary is **`sdrprobe`**, not
+`sdrprobe-server` (`cli-subcommands/04` renamed it the same day -- the
+windowless build took the plain name because that is where the usage is),
+and the gate is **`check-no-window-link`**, not `check-server-link`. Item 2
+is done: `check-frame-advance` runs FM's real callees rather than stubs.
+Item 3 is done: `check-no-raylib-headers` compiles all 65 no-window sources
+with a `#error` raylib.h **earlier on the include path** than the real one,
+which is what catches an include that is never used -- a linker cannot see
+one, and two `CORE_SRC` files were reaching for `view.h` with every symbol
+resolving.
+Blocked by: 02, 03 (both done)
 
 ## Why
 

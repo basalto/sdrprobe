@@ -14,7 +14,7 @@ make                  # every target and what it is for; the default goal
 make all              # build both binaries (needs librtlsdr + raylib, pkg-config)
 make sdrprobe         # just the no-window one: headless and web, no raylib
 make sdrprobe-gui     # just the window
-make check            # everything below, ~150 s warm, no window and no receiver
+make check            # everything below, ~220 s warm, no window and no receiver
 make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
 make check-sdr-dsp    # one check in isolation — generic core
@@ -72,7 +72,7 @@ when it runs. A target added with neither is listed as undocumented and
 audits further down exist: the failure is invisible from a green run.
 
 **Run the suite that covers the change, not all of them.** Most suites are
-under a second and the full set is **about three minutes**, so `make check`
+under a second and the full set is **about four minutes**, so `make check`
 after every edit turns a fast loop into a slow one.
 
 **There are two binaries and they do one job each.**
@@ -153,13 +153,20 @@ mouse and the arrow keys; those are `chart_window_input.c` and the deciding
 half took a check from 79 assertions to 99. When something has to move, it
 goes into the area's `*_runtime.c`.
 
-**~150 s warm and ~220 s cold, measured 2026-09-27.** This said **57 s** for
-a while and that number is from a 55-suite gate; there are 83 suites now,
-22 325 checks, two binaries to build instead of one, and a check that drives
-a real browser. The four reductions below still happened and their reasoning
-still holds -- what changed is the size of what they are applied to. Serial
-the gate is 307 s, so `-j4` buys 2.0x, not 4: these suites saturate memory
-bandwidth, which is the same finding as before.
+**~220 s warm, measured 2026-09-27 on 88 suites and 22 847 checks.** This
+number has now been wrong twice in one day, which is itself the finding: it
+said **57 s** (a 55-suite gate), then **~150 s warm** (83 suites), and a warm
+run hours later reads 220. The checks grew 2% between the last two figures
+and the time grew 47%, so it is not the count. The four reductions below
+still happened and their reasoning still holds -- what changed is the size of
+what they are applied to. `-j4` buys about 2x rather than 4: these suites
+saturate memory bandwidth before they run out of cores, which is the same
+finding as before.
+
+**A gate time written down is a caption that stops agreeing with its
+picture.** Re-measure before quoting it, with `time make check` on a warm
+tree; the `#:` line above each rule is generated for exactly this reason and
+this paragraph is not.
 
 **Two of those four no longer reproduce, re-measured on the 83-suite gate**,
 and neither is worth acting on:
@@ -177,13 +184,31 @@ and neither is worth acting on:
   already first, and with 83 jobs in 4 lanes `make -j` fills the tail by
   itself.
 
-**Where the time is now, if anyone wants to spend a day on it:**
-`check-signal-probe` is **39 s of running** and 2.8 s of compiling -- a
-quarter of the whole gate in one process, and the only real pole.
-`check-pipelines` is 50 s and is the floor under every `src/` change, because
-any of them can break the built program. Together those two are 60% of the
-serial total; 40 of the 84 suites are under a second each. Nothing else is
-worth measuring until one of those two is split.
+**Where the time is now, re-measured 2026-09-27 against a 220 s warm gate:**
+
+| suite | wall | of which running |
+|---|---|---|
+| `check-pipelines` | 66.2 s | the built program over every capture |
+| `check-signal-probe` | 61.3 s | **58.1 s** |
+| `check-web-layout` | 36.4 s | a real browser over the DevTools protocol |
+
+Three poles now, not two: `check-web-layout` was not in this list at all and
+is the third largest. `check-signal-probe` has gone from 39 s of running to
+**58**, which is the one worth understanding before anything is split --
+the suite got slower, and nobody measured why at the time.
+
+**That measurement also settles `.scratch/gate-time/` ticket 02 again, and
+more firmly.** It is **wontfix** because the cost is *execution*, not
+compilation: `check-signal-probe` is 58.1 s of running against 3.2 s of
+compiling, so caching the compilation nothing caches would buy three seconds
+of sixty-one. The earlier wontfix rested on four seconds of fifty-seven and
+the same conclusion survives the gate tripling.
+
+Splitting the pole is still the precondition for anything else, and the
+arithmetic is worth doing first: at `-j4` the floor is the *longest single
+suite*, so splitting `check-signal-probe` into four makes `check-pipelines`
+at 66 s the new floor and buys packing rather than the whole 58 s. Expect
+20-30 s, not 58. 40 of the 88 suites are under a second each.
 
 **What took it from 242 s to 57 on the gate of the day.** Four things, each
 measured, none of them a guess:

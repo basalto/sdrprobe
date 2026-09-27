@@ -1,8 +1,11 @@
 # 14 - Restructuring the web view, before it becomes what ADR-0007 already fixed once
 
-Status: needs-info -- Phases 1, 2 and 3 done (2026-09-17); **Phase 4 is
-under way (2026-09-26): FM has landed, in three commits**, and GSM, ADS-B,
-TETRA, LTE, SRD and the two overlays remain. See Comments.
+Status: needs-info -- Phases 1, 2 and 3 done (2026-09-17). **Phase 4 is
+complete for every view (2026-09-27)**: FM, then GSM, ADS-B, TETRA, SRD and
+LTE, each its own commit, and `web-visualization/16` then made the *window*
+read the same models. **The two overlays are all that remain** -- Settings
+and Calibration, which are typed input rather than a panel and a table, and
+which is the half ticket 07 calls unsolved. See Comments.
 
 ## Why now
 
