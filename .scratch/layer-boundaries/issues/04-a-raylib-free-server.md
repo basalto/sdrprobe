@@ -228,3 +228,53 @@ remainder, now the only thing between here and the binary. Phase C is
 splitting `sdrprobe.c`.
 
 `make check`: 80 suites, 22046 checks, green.
+
+## Phase C, step 1 done, 2026-09-27 -- `sdrprobe.c`'s application layer
+
+`src/app_runtime.c`: the clock, the receiver's lifecycle, the retune
+transaction, the lease, the tabs, the per-block step and the input-state
+read. It was the first eight hundred lines of `sdrprobe.c`, sitting beside
+`run_gui()` and `InitWindow()`, and that is the whole of why a server could
+not be built without a window. `-Wall -W` clean with no raylib cflags.
+
+Three things came with it that the 14-symbol list did not predict, and each
+is the same shape -- something that *decides* was living where something
+*draws*:
+
+- **`view_survey_enter()` and `view_survey_leave()`.** `set_tab()` calls
+  both, so they cannot be beside the drawing, and neither draws: one loads
+  the installation, borrows the receiver and starts a sweep the command line
+  asked for; the other stops the sweep and returns the lease inside out.
+  They are in `survey_runtime.c` with the four statics they stand on
+  (`survey_start`, `survey_clear`, `survey_reset_view`,
+  `survey_load_installation`), which are named in `runtime.h` now because the
+  view's own Sweep button still calls them -- clicking Sweep and arriving
+  with `--survey-range` are the same act.
+- **`input_state_now()` and `view_input_now()`**, which
+  `scope_requested_fft_size()` asks every block on every path, window or not.
+- **The waterfall menu's two flags.** `input_state_now()` read
+  `app->gui->wf_menu.menu_open` and `.popup_open`, and `gui_state.h` is
+  behind `<raylib.h>`. They are `app->sv.waterfall_menu_open` and
+  `.waterfall_report_open` now, because **they route input** --
+  `input_route.h` reads them to decide who gets a key -- and routing must be
+  decidable with no window (ADR-0012). The rest of
+  `struct waterfall_signal_context` is the pointer position, the report's
+  numbers and the notice: that is drawing, and it stays.
+
+And five `signal_stop_requested` reads in `sdrprobe.c` became
+`stop_requested()`, which is the accessor that variable's own comment says
+exists so there is one global rather than several.
+
+**The link, re-measured**: every `src/*.c` outside `sdrprobe.c` and the GUI
+files compiles with no raylib cflags and links against a stub `main` with
+librtlsdr, libm and pthread -- **zero undefined symbols**. What is left is
+`run_headless()` and `main()`, which is step 2.
+
+**Verified against the previous binary, not just against the gate.** This
+moved `set_tab`, the survey's enter/leave and the input routing, and
+`make check` passing is not the same as being right -- the survey machine
+came out of its view with 55 suites green and the settle disabled. So the
+binary before this commit and the binary after it were both run over the
+same three: a capture survey (`--survey --once`), a GSM decode and an FM
+decode. **All three byte-identical.** Plus `make check`: 80 suites, 22046
+checks.

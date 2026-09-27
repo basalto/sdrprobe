@@ -46,15 +46,15 @@ void waterfall_context_menu_open(struct app *app, Vector2 mouse,
     app->gui->wf_menu.clicked_age_seconds = age_seconds;
     snprintf(app->gui->wf_menu.technology, sizeof(app->gui->wf_menu.technology), "%s",
              technology ? technology : "raw");
-    app->gui->wf_menu.menu_open = 1;
-    app->gui->wf_menu.popup_open = 0;
+    app->sv.waterfall_menu_open = 1;
+    app->sv.waterfall_report_open = 0;
 }
 
 void waterfall_context_close(struct app *app) {
     if (!app)
         return;
-    app->gui->wf_menu.menu_open = 0;
-    app->gui->wf_menu.popup_open = 0;
+    app->sv.waterfall_menu_open = 0;
+    app->sv.waterfall_report_open = 0;
 }
 
 static void run_signal_report(struct app *app) {
@@ -107,7 +107,7 @@ static void run_signal_report(struct app *app) {
     free(mag);
     iq_snapshot_free(snap);
 
-    ctx->popup_open = 1;
+    app->sv.waterfall_report_open = 1;
 }
 
 int handle_waterfall_context_input(struct app *app) {
@@ -117,7 +117,7 @@ int handle_waterfall_context_input(struct app *app) {
     struct waterfall_signal_context *ctx = &app->gui->wf_menu;
     Vector2 mouse = GetMousePosition();
 
-    if (ctx->menu_open) {
+    if (app->sv.waterfall_menu_open) {
         Rectangle r_menu = { ctx->mouse_pos.x, ctx->mouse_pos.y, 200.0f, 95.0f };
         Rectangle r_save = { ctx->mouse_pos.x + 8.0f, ctx->mouse_pos.y + 32.0f,
                              184.0f, 26.0f };
@@ -143,12 +143,12 @@ int handle_waterfall_context_input(struct app *app) {
                          "Failed to save slice from ring buffer");
             }
             ctx->notice_time = GetTime();
-            ctx->menu_open = 0;
+            app->sv.waterfall_menu_open = 0;
             return 1;
         }
 
         if (button_clicked(r_report)) {
-            ctx->menu_open = 0;
+            app->sv.waterfall_menu_open = 0;
             run_signal_report(app);
             return 1;
         }
@@ -156,14 +156,14 @@ int handle_waterfall_context_input(struct app *app) {
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) ||
             IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
             if (!point_in_rec(mouse, r_menu)) {
-                ctx->menu_open = 0;
+                app->sv.waterfall_menu_open = 0;
                 return 1;
             }
         }
         return 1;
     }
 
-    if (ctx->popup_open) {
+    if (app->sv.waterfall_report_open) {
         float w = 460.0f;
         float h = 320.0f;
         float x = ((float)GetScreenWidth() - w) / 2.0f;
@@ -173,7 +173,7 @@ int handle_waterfall_context_input(struct app *app) {
         Rectangle r_close = { x + w - 100.0f, y + h - 38.0f, 80.0f, 26.0f };
 
         if (button_clicked(r_close) || IsKeyPressed(KEY_ESCAPE)) {
-            ctx->popup_open = 0;
+            app->sv.waterfall_report_open = 0;
             return 1;
         }
 
@@ -198,7 +198,7 @@ int handle_waterfall_context_input(struct app *app) {
         }
 
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !point_in_rec(mouse, r_box)) {
-            ctx->popup_open = 0;
+            app->sv.waterfall_report_open = 0;
             return 1;
         }
         return 1;
@@ -224,7 +224,7 @@ void draw_waterfall_context(struct app *app) {
     }
 
     /* Context menu */
-    if (ctx->menu_open) {
+    if (app->sv.waterfall_menu_open) {
         Rectangle r_menu = { ctx->mouse_pos.x, ctx->mouse_pos.y, 200.0f, 95.0f };
         Rectangle r_save = { ctx->mouse_pos.x + 8.0f, ctx->mouse_pos.y + 32.0f,
                              184.0f, 26.0f };
@@ -244,7 +244,7 @@ void draw_waterfall_context(struct app *app) {
     }
 
     /* Report popup modal */
-    if (ctx->popup_open) {
+    if (app->sv.waterfall_report_open) {
         DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(),
                       (Color){ 0, 0, 0, 150 });
 

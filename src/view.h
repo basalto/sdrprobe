@@ -269,10 +269,10 @@ void adjust_active_scale(struct app *app, int zoom_in);
 /* Band survey (its own tab): sweep a range, find what stands above the local
    floor, and measure whichever candidate is selected. */
 void view_survey_defaults(struct app *app);
-void view_survey_enter(struct app *app, double now);
 /* Point the range fields at the nth offerable band, 1-based. */
 int survey_choose_band(struct app *app, int nth);
-void view_survey_leave(struct app *app);
+/* view_survey_enter() and view_survey_leave() are in runtime.h: `set_tab()`
+   calls them and neither draws. */
 /*
  * Every frame, with `spectrum_updated` saying whether a block came with it.
  *

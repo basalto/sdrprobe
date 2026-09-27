@@ -42,23 +42,12 @@
  * touches.
  */
 
-static int survey_start(struct app *app, double now);
 static void survey_keep_current(struct survey_view *s);
 static void survey_sweep_span(struct app *app, double from, double to);
 static int survey_sweep_target(const struct survey_view *s, double *from,
                                double *to);
 void survey_history_refresh(struct app *app);
 
-/* Back into the spelling the field takes, so a range given on the command
-   line reads the way someone would have typed it. */
-void survey_format_hz(char *text, size_t size, uint32_t hz) {
-    if (hz % 1000000U == 0)
-        snprintf(text, size, "%uM", hz / 1000000U);
-    else if (hz % 1000U == 0)
-        snprintf(text, size, "%uK", hz / 1000U);
-    else
-        snprintf(text, size, "%u", hz);
-}
 
 static struct survey_layout survey_layout_now(void) {
     return survey_layout_for((float)GetScreenWidth(), (float)GetScreenHeight());
@@ -149,12 +138,6 @@ static double survey_data_upper(const struct survey_view *s) {
 }
 
 
-static void survey_reset_view(struct survey_view *s) {
-    struct freq_window w = survey_freq_window_of(s);
-
-    freq_window_reset(&w);
-    survey_freq_window_put(s, &w);
-}
 
 /*
  * Which field a focus index names, and what it will accept.
@@ -312,14 +295,6 @@ static void survey_history_line(const struct site_history *history,
                  (double)entry->dbfs);
 }
 
-/* The fields start from whatever the last session left. */
-static void survey_load_installation(struct app *app) {
-    struct survey_view *s = &app->survey;
-    snprintf(s->site, sizeof(s->site), "%s", app->config.site);
-    s->site_length = (int)strlen(s->site);
-    snprintf(s->antenna, sizeof(s->antenna), "%s", app->config.antenna);
-    s->antenna_length = (int)strlen(s->antenna);
-}
 
 /*
  * And an edit goes straight back to the file.
@@ -498,104 +473,9 @@ void view_survey_defaults(struct app *app) {
              " a band takes seconds.");
 }
 
-/* Remember the tuning to come back to: a sweep walks the receiver away from
-   wherever the operator had it, and leaving the view should not strand them
-   at 1766 MHz. */
-void view_survey_enter(struct app *app, double now) {
-    struct survey_view *s = &app->survey;
 
-    survey_load_installation(app);
-    survey_history_refresh(app);
 
-    /* Re-entering a view that never gave the receiver back keeps the claim it
-       already has: where the operator had it has not changed. */
-    if (!receiver_lease_token_active(&s->lease_token))
-        receiver_borrow(app, &s->lease_token);
-    /* A range given on the command line arrives here, and sweeps without
-       being asked twice: someone who typed it has already asked. */
-    if (app->options.survey_seen && !survey_session_sweeping(&s->session)) {
-        survey_format_hz(s->from, sizeof(s->from), app->options.survey_from_hz);
-        s->from_length = (int)strlen(s->from);
-        survey_format_hz(s->to, sizeof(s->to), app->options.survey_to_hz);
-        s->to_length = (int)strlen(s->to);
-        if (app->options.survey_dwell_seconds > 0.0) {
-            snprintf(s->dwell, sizeof(s->dwell), "%.2f",
-                     app->options.survey_dwell_seconds);
-            s->dwell_length = (int)strlen(s->dwell);
-        }
-        app->options.survey_seen = 0;   /* only the first entry */
-        survey_start(app, now);
-    }
-}
 
-void view_survey_leave(struct app *app) {
-    struct survey_view *s = &app->survey;
-
-    survey_session_stop(&s->session, NULL);
-    /* Inside out: a confirmation pass borrows from this view, and the lease
-       refuses to let this view return while the pass still holds it. */
-    receiver_return(app, &s->confirm_lease_token);
-    receiver_return(app, &s->lease_token);
-}
-
-/* What the drawing forgets when the measurements under it are replaced. */
-static void survey_clear(struct survey_view *s) {
-    survey_session_clear(&s->session);
-    s->list_scroll = 0;
-    s->selected = -1;
-    s->hover = -1;
-}
-
-static int survey_start(struct app *app, double now) {
-    struct survey_view *s = &app->survey;
-    struct survey_session *ss = &s->session;
-    struct survey_session_event event;
-    uint32_t from_hz;
-    uint32_t to_hz;
-    double dwell;
-
-    if (!app->receiver_mode) {
-        snprintf(ss->status, sizeof(ss->status),
-                 "A sweep needs a live receiver: a capture holds one tuning.");
-        return -1;
-    }
-    if (parse_frequency(s->from, &from_hz) < 0 ||
-        parse_frequency(s->to, &to_hz) < 0) {
-        snprintf(ss->status, sizeof(ss->status),
-                 "Use Hz or a K/M/G value, for example 88M");
-        return -1;
-    }
-    if (parse_seconds(s->dwell, &dwell) < 0) {
-        snprintf(ss->status, sizeof(ss->status),
-                 "Dwell must be between %.2f and %.0f seconds.",
-                 SURVEY_DWELL_MIN, SURVEY_DWELL_MAX);
-        return -1;
-    }
-
-    if (survey_session_sweep(ss, (double)from_hz, (double)to_hz,
-                             (double)app->applied.sample_rate_hz, dwell,
-                             now, &event) != SURVEY_PLAN_OK)
-        return -1;
-    /*
-     * A watch asked for on the command line arms itself, which is the only
-     * way it is reachable without somebody to click it (ADR-0012). Armed
-     * before the sweep runs rather than after: the sweep's last block is what
-     * folds it into the history, and it only does that while watching.
-     */
-    if (app->options.survey_watch > 0 && ss->watch_sweeps == 0 &&
-        app->config.site[0]) {
-        struct survey_session_event armed;
-
-        survey_session_watch(ss, 1, app->options.survey_watch, now,
-                             &armed);
-    }
-    /* The drawing follows the range that is about to be swept. */
-    survey_clear(s);
-    survey_reset_view(s);
-    view_survey_enter(app, now);
-    survey_obey(app, &event, now);
-    return survey_session_sweeping(ss) ? 0 : -1;
-}
 
 
 /*

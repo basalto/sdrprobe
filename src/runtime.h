@@ -271,6 +271,30 @@ void survey_history_refresh(struct app *app);
 int survey_peak_visible(const struct survey_view *s, int index);
 double survey_bin_hz(const struct survey_view *s, int bin);
 void survey_clamp_view(struct survey_view *s);
+/* The receiver's own lifecycle, called by `main()` in either binary: open
+   and configure the device or the capture, and install the handlers that
+   stop a long run. They were `static` beside `run_gui()`. */
+struct view_input;
+struct input_state;
+struct view_input view_input_now(const struct app *app);
+struct input_state input_state_now(const struct app *app);
+/* Whether the receiver's worker is still inside a read, and whether it has
+   finished -- what a shutdown waits on. */
+int worker_is_reading(struct app *app, int *done);
+int configure_receiver(struct app *app);
+int open_capture(struct app *app);
+int install_signal_handlers(struct app *app);
+
+/* Arriving on the survey tab and leaving it. Called by `set_tab()`, which is
+   application layer, so neither may live beside the drawing -- and neither
+   draws. The four below were `static` in `view_survey.c` and are named here
+   because its own buttons still call them. */
+void view_survey_enter(struct app *app, double now);
+void view_survey_leave(struct app *app);
+int survey_start(struct app *app, double now);
+void survey_clear(struct survey_view *s);
+void survey_reset_view(struct survey_view *s);
+void survey_load_installation(struct app *app);
 struct survey_block survey_block_of(struct app *app);
 void survey_obey(struct app *app, const struct survey_session_event *event,
                  double now);

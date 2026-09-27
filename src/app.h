@@ -785,6 +785,24 @@ struct gsm_view {
  */
 struct scope_view {
     /*
+     * Whether the waterfall's right-click menu, or the signal report it
+     * opens, is up.
+     *
+     * Two ints here rather than in `struct waterfall_signal_context` with
+     * the rest of that menu's state, and the reason is the rule this
+     * program keeps: these two *route input* -- `input_route.h` reads them
+     * through `input_state_now()` to decide who gets a key -- and routing
+     * must be decidable with no window (ADR-0012). The context they came
+     * from is in `gui_state.h`, behind `<raylib.h>`, which made
+     * `input_state_now()` a function no raylib-free build could compile
+     * (`.scratch/layer-boundaries/issues/04-*`). The rest of that struct --
+     * the pointer position, the report's numbers, the notice -- is drawing,
+     * and stays where it is.
+     */
+    int waterfall_menu_open;
+    int waterfall_report_open;
+
+    /*
      * What part of the received span the two frequency charts are showing.
      *
      * One window for the spectrum and the waterfall together: they are two

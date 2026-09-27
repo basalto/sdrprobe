@@ -36,8 +36,9 @@
  * readers draw, and half a struct in each header is a worse seam than none.
  */
 struct waterfall_signal_context {
-    int menu_open;
-    int popup_open;
+    /* `menu_open` and `popup_open` were here and are `app->sv`'s now: they
+       route input, and routing has to be decidable without a window. See
+       `struct scope_view` in app.h. */
     Vector2 mouse_pos;
     double clicked_freq_hz;
     double clicked_age_seconds;
