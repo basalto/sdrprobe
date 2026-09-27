@@ -1,8 +1,29 @@
 # 03 - The data contracts stop taking `struct app`
 
-Status: ready-for-human -- all four items done (2026-09-27). No builder takes
-`struct app`, five checks are genuinely raylib-free, no enum crosses the wire
-as an integer, and the shell's state is a type of its own.
+Status: **resolved, 2026-09-28**. All four items were done on 2026-09-27 and
+the property has held through six more view models since, which is the
+stronger claim: it was not a one-off clean-up but a rule new work follows.
+
+Re-measured on closing -- **eleven** view models, not the five this ticket
+was written about:
+
+    adsb  calibration  fm  gsm  lte  receiver
+    scope  settings  srd  survey  tetra
+
+- **No builder takes `struct app`.** `grep -rn "_view_model_build(const
+  struct app" src/` returns nothing.
+- **All eleven checks link `-lm` alone.** The ticket asked for five to be
+  genuinely raylib-free; every one of them is, including the six added
+  afterwards (`web-visualization/07`, `/17`).
+- **No enum crosses the wire as an integer.** `web-visualization/15` is the
+  reason -- the survey's marks drew swapped for months -- and every enum
+  added since travels by name with a `*_name()` beside it:
+  `gsm_sch_reading`, `srd_frame_kind`, `srd_modulation`, `srd_readiness`,
+  `adsb_readiness`, `calibration_source_name()`, `calibration_health_name()`.
+- **The shell's state is a type of its own**, and it grew correctly rather
+  than being worked around: `struct scope_view_model_in` took two more
+  fields for the overlays (`settings_open`, `calibration_open`) when an
+  overlay became a screen.
 Blocked by: 01 (done)
 
 ## The problem
