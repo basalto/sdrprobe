@@ -97,6 +97,13 @@ If you are editing `viewer.html`, stop and ask whether it belongs in the
 view's own markup instead; FM keeps its colours and its flex layout inline
 for exactly this reason.
 
+**The prediction held for GSM**: exactly those three, no `wire.js`, no
+`viewer.html`. What it does *not* cover, and did not claim to, is the C side
+(four more files: the model, its builder, its check and the wire) or the
+tooling -- GSM also taught `scripts/viewer_client.py` to print `gsm_state`
+and `scripts/web_layout.mjs` to drive a non-FM capture. Count the page's
+files against the three; those others are their own thing.
+
 ## The C side is where a decision belongs
 
 **A web view must not compute anything the window decides.** If a view
@@ -105,17 +112,26 @@ where `check-*` can reach it (ADR-0012) — never to the JavaScript.
 
 The pattern, as FM did it:
 
-- `src/<tech>_view_model.{c,h}` — plain fields, no raylib type, no I/O.
-  `check-<tech>-view-model` links `-lm` alone. **Build it from the state it
-  reads, not from `const struct app *`** — FM's still takes `struct app`,
-  which is why its check needs raylib's headers; `.scratch/layer-boundaries/`
-  ticket 03 converts the existing three, and a new one should not need
-  converting.
+- **The contract and the builder live in different layers** (ADR-0028):
+  `src/model/<tech>_view_model.h` is plain fields, no raylib type, no I/O;
+  `src/runtime/<tech>_view_model.c` is the builder, where reading
+  `struct app` is allowed and expected. `check-<tech>-view-model` links
+  `-lm` alone with no raylib flags -- all five do now, FM included.
+- **Build it from the state it reads, not from `const struct app *`.** The
+  builder takes the two or three structs it is about; the suite then sets
+  those rather than filling nine megabytes.
+- **`check-layers` will refuse a model that reaches up.** GSM's header
+  wanted `SCAN_ARFCN_LAST` from `runtime/scan_plan.h` and could not have
+  it. The idiom for that is `input_route.h`'s: mirror the constant in the
+  model, and have the builder -- which sees both -- assert at compile time
+  that they still agree, so a band that grew is a build error rather than a
+  truncated chart.
 - **Anything the drawing *chose*** — which of several sentences, which
   emphasis, which mark — moves into the model as a value.
   `fm_view_model_reading()` picks one of five sentences and a
   `enum fm_reading_tone`; the drawing only picks a colour for a verdict it
-  was handed. `sdrgui_survey_peak_mark()` is the same idea for the survey.
+  was handed. `survey_mark_of()` (`src/model/survey_mark.h`) is the same idea for the
+  survey, and `gsm_sch_reading_name()` the same again.
 - The window's own drawing then reads the model too, so there is one
   decision rather than two that agree today.
 
@@ -160,6 +176,42 @@ its data is plainly rendering above. That looked exactly like a broken
 publisher for a while; the server's own disconnect tally (115 sent) against
 the client's received count (119) is what settled it.
 
+## How a view divides its height
+
+**The charts are what a reader is here for.** The page's chrome is 12px and
+the information tables 11px, and that was measured rather than chosen:
+before it, **224 of 900 pixels** went to the title, the tab bar, the hud and
+the health footer, and GSM's waterfall came out at 195 of a 676-pixel panel
+-- 29%.
+
+A view's own split is then weights on the flex children, and the chart takes
+more than half:
+
+| view | the split | chart at 1400x900 |
+|---|---|---|
+| scope | spectrum and waterfall, even | 342 each |
+| survey | chart `2`, candidate table `1` | 463 |
+| fm | waterfall, then the three panels | 481 |
+| gsm | waterfall `3`, channel scan `1` | 372 |
+
+Two of those were even splits and should not have been: the survey's table
+is **empty** on a capture and scrolls when it is not, and GSM's channel scan
+says only "needs a live receiver" unless a receiver is attached. A panel
+that is usually blank is not owed half the screen.
+
+**Both floors are gated**, and measured across four viewports rather than
+picked: the panel is at least 65% of the viewport, and the biggest chart at
+least 25% of the panel -- rising to 40% wherever the panel is 500px or more,
+which is where there is actually room to divide. GSM at 1024x600 is the
+bottom of that range at 33%, and inherently: its two readout lines and two
+information panels cost about 200 fixed pixels of a 434-pixel panel whatever
+the chart does.
+
+**65% and not 70 for the first floor**, because the health footer is one
+line or two depending on whether any stream has dropped yet, and at 1024x600
+that is the difference between 420 and 418 pixels. A threshold a dropped
+message can cross is measuring the footer.
+
 ## Traps that have actually bitten
 
 Each of these cost real time in this repository.
@@ -182,7 +234,7 @@ Each of these cost real time in this repository.
   the geometry changed. Do **not** redraw the whole history per arriving
   row: that was measured at 95%+ of this page's JS busy time.
 - **Colours belong to the window.** Take them from the view's own `Color`
-  constants in `src/view_*.c` — `panel_edge`, `panel_caption`, `row_label`,
+  constants in `src/gui/view_*.c` — `panel_edge`, `panel_caption`, `row_label`,
   `row_value`, `row_good`, `row_weak` — as the hex of the exact RGB. A panel
   that is nearly the window's colour is one a reader looks at twice.
 - **The subscribe parser and the screen names are tables.** Ticket 07 found
@@ -200,28 +252,27 @@ Each of these cost real time in this repository.
 - **A view that yields nothing overflows.** GSM's first layout gave the
   channel-power canvas a fixed `flex:0 0 120px` beside a waterfall and two
   readout lines, and the panel scrolled by 121px at 1400x900. Both charts
-  are `flex:1 1 0` now, the waterfall weighted `2`. Anything that cannot
+  are `flex:1 1 0` now, the waterfall weighted `3`. Anything that cannot
   shrink has to be small enough that everything else can.
+  **And check the weight landed**: the edit that was supposed to set it the
+  first time silently did not -- its replace target had a trailing space --
+  so a commit claimed a weighting the page did not have and the waterfall
+  stayed small for another day. Read the markup back, or measure the box.
 - **Never index a table by an enum's integer.** The survey's mark crossed the
   wire as `enum sdrgui_peak_mark`'s ordinal and `views/survey.js` re-declared
   the order wrong, so the browser drew receiver-like and empty candidates
   swapped -- the pair `CLAUDE.md` says a reader acts on -- and every check
   stayed green, because nothing checks how the browser reads a number
-  (`web-visualization/15`). Send enums **by name**, as `shape` already is,
-  and key the browser's tables by name. `reading_tone`, `seen`, `tab` and
-  `decode` still travel as integers; do not copy that shape into a new view.
+  (`web-visualization/15`). Send enums **by name**, and key the browser's
+  tables by name. **Every enum on the wire does now** -- `shape`, `mark`,
+  `seen`, `reading_tone`, and GSM's `sch` and `bcch` -- and `tab`/`decode`
+  do not travel at all, having been replaced by one `screen` name. There is
+  no remaining example of the bad shape to copy, which is why it is written
+  down here instead.
 
 ## Verifying: which tool answers which question
 
 Three, and they are not interchangeable.
-
-**The chrome is 12px and the tables 11px, and that was measured.** Before
-it, 224 of 900 pixels went to the title, tab bar, hud and health footer
-before any view drew anything, and GSM's waterfall came out at 29% of its
-panel. The gate asserts both halves now: the panel is at least 65% of the
-viewport, and the biggest chart at least 25% of the panel -- 40% wherever
-the panel is 500px or more, which is where there is room to divide. Both
-floors are measured across four viewports and recorded beside them.
 
 **`make check-web-layout`** — a real browser over the DevTools protocol.
 The only thing that can answer *does this page scroll, do these panels line

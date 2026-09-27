@@ -3,8 +3,8 @@
 // `SurveyView` is the only name this file adds to the shared global
 // scope (see views/scope.js's comment for why). `lastCandidates` is
 // whichever `survey_state` arrived last -- a candidate's mark is decided
-// once, server-side (sdrgui_survey_peak_mark()), and this file only
-// draws it, never recomputing anything the server already decided.
+// once, server-side (survey_mark_of(), src/model/survey_mark.h), and
+// this file only draws it, never recomputing what the server decided.
 const SurveyView = (function () {
   let els = null;
   function elements() {
@@ -20,7 +20,7 @@ const SurveyView = (function () {
     return els;
   }
 
-  // `mark` arrives as sdrgui_survey_peak_mark_name()'s own string, keyed
+  // `mark` arrives as survey_mark_name()'s own string, keyed
   // here by name and not by ordinal. It was indexed by the enum's integer
   // in an order this file re-declared wrong -- receiver-like and empty
   // swapped, the pair CLAUDE.md says a reader acts on, green throughout
