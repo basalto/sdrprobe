@@ -61,6 +61,10 @@ const FREQ = opt('--freq', '89.5M');
 // Extra flags for the served run, space-separated -- `--arfcn 69` and the
 // like, which some captures need before their view has anything to say.
 const EXTRA = opt('--extra', '').split(' ').filter((a) => a.length > 0);
+// Which tab to leave showing for --png. The run visits them all either way;
+// without this the picture is whichever came last, which is rarely the one
+// being looked at.
+const PNG_TAB = opt('--tab', '');
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -141,6 +145,8 @@ const MEASURE = `(() => {
     return { w: Math.round(r.width), h: Math.round(r.height),
              top: Math.round(r.top), bottom: Math.round(r.bottom) };
   };
+  const panel = document.querySelector('#panels > div:not([hidden])');
+  const panelH = panel ? Math.round(panel.getBoundingClientRect().height) : 0;
   const canvases = [...document.querySelectorAll('#panels > div:not([hidden]) canvas')]
     .filter((c) => c.getBoundingClientRect().width > 0)
     .map((c) => ({ id: c.id, storeW: c.width, storeH: c.height,
@@ -152,6 +158,7 @@ const MEASURE = `(() => {
   const row = signalRows ? signalRows.closest('div[style*="display:flex"]') : null;
   return {
     scrollHeight: d.scrollHeight, clientHeight: d.clientHeight,
+    panelH,
     scrollbar: window.innerWidth - d.clientWidth,
     shownPanels: shown.length,
     canvases,
@@ -284,6 +291,19 @@ async function run() {
           if (named || Date.now() > deadline) break;
           await sleep(500);
         }
+        /*
+         * And let the page settle before measuring it.
+         *
+         * The poll breaks the instant the name appears, which is the same
+         * instant the Station panel gains rows -- so the panels row grows,
+         * the waterfall above it loses four pixels, and a measurement taken
+         * in that tick catches the canvas before its `ResizeObserver` has
+         * re-fitted. That read as `store 177 vs box 181` about two runs in
+         * five and looked exactly like a layout bug. A frame of stretched
+         * canvas after a DOM change is what every page does; demanding it be
+         * correct within the same tick is measuring the harness.
+         */
+        await sleep(400);
       }
       const m = await evaluate(MEASURE);
       const at = `${size.w}x${size.h} ${tab}`;
@@ -296,6 +316,54 @@ async function run() {
       ok(`${at}: exactly one view panel is laid out`, m.shownPanels === 1,
          String(m.shownPanels));
       ok(`${at}: has a canvas`, m.canvases.length > 0);
+      /*
+       * The charts are what a reader is here for, and the text around them
+       * had been taking the room. Measured at 1400x900 before this was
+       * gated: 224 of the 900 pixels went to the title, the tab bar, the
+       * hud and the health footer, and GSM's waterfall came out at 195 of a
+       * 676px panel -- 29%. Tightening the chrome to 12px and weighting
+       * that waterfall 3 to 1 puts it at 359 of 734.
+       *
+       * A floor with margin rather than a target: the four views now read
+       * 47%, 47%, 49% and 65%, so 40% fails on a real regression and not on
+       * a font that rendered a pixel taller.
+       */
+      /*
+       * 65% and not 70: the health footer is one line or two depending on
+       * whether any stream has dropped yet, and at 1024x600 that is the
+       * difference between 420 and 418 pixels of panel. A threshold that a
+       * dropped message can cross is measuring the footer, not the layout.
+       * Before the chrome was tightened this read 75% at 1400x900; it is
+       * 82% now, so 65 has room and still catches a real regression.
+       */
+      ok(`${at}: the page is mostly the view`, m.panelH >= m.clientHeight * 0.65,
+         `panel ${m.panelH} of viewport ${m.clientHeight}`);
+      /*
+       * Two floors, because the room a view has is not the same at every
+       * size and one threshold would have to be the smaller. Measured
+       * across four viewports and all four views, tallest canvas over
+       * panel height:
+       *
+       *   1024x600  scope 44  survey 61  fm 42  gsm 33
+       *   1280x720  scope 45  survey 62  fm 54  gsm 43
+       *   1400x900  scope 47  survey 63  fm 66  gsm 51
+       *   1920x1080 scope 47  survey 64  fm 72  gsm 55
+       *
+       * GSM at 1024x600 is the floor of that, and inherently: its two
+       * readout lines and two information panels cost about 200 fixed
+       * pixels of a 434-pixel panel whatever the chart does. So 25%
+       * everywhere -- which the pre-fix 195-of-676 (29%) would have passed,
+       * so it is not the regression detector -- and 40% wherever there is
+       * actually room to divide, which is what catches it.
+       */
+      const tallest = Math.max(0, ...m.canvases.map((c) => c.boxH));
+      ok(`${at}: its biggest chart is not a sliver`,
+         tallest >= m.panelH * 0.25,
+         `tallest canvas ${tallest} of panel ${m.panelH}`);
+      if (m.panelH >= 500)
+        ok(`${at}: and with room to divide, it dominates`,
+           tallest >= m.panelH * 0.4,
+           `tallest canvas ${tallest} of panel ${m.panelH}`);
       for (const c of m.canvases)
         ok(`${at}: ${c.id} store matches its box`,
            c.storeW === c.boxW && c.storeH === c.boxH,
@@ -365,6 +433,10 @@ async function run() {
   }
 
   if (PNG) {
+    if (PNG_TAB) {
+      await evaluate(`document.getElementById('tab-${PNG_TAB}').click(); true`);
+      await sleep(2500);
+    }
     const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });
     writeFileSync(PNG, Buffer.from(shot.result.data, 'base64'));
     console.log(`    wrote ${PNG}`);

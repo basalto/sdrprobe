@@ -188,6 +188,15 @@ Each of these cost real time in this repository.
 - **The subscribe parser and the screen names are tables.** Ticket 07 found
   the hand-written version two names short: a client subscribed to
   `survey_spectrum` received nothing, silently, with no refusal.
+- **A wrapper needs `flex:1 1 0` as much as the canvas inside it does.**
+  The zero basis was put on the canvases and left `auto` on the divs around
+  them, which is the same feedback one level up and converges only where
+  there is slack. Every chart wrapper is `1 1 0` now.
+- **`ResizeObserver` on the container misses a change inside it.** An axis
+  label wrapping to two lines at a narrower viewport moves a chart's box
+  without moving `#panels`', so the observer never fires. Observe the
+  canvases too -- safe, because with a zero basis a backing store does not
+  feed its own layout.
 - **A view that yields nothing overflows.** GSM's first layout gave the
   channel-power canvas a fixed `flex:0 0 120px` beside a waterfall and two
   readout lines, and the panel scrolled by 121px at 1400x900. Both charts
@@ -206,6 +215,14 @@ Each of these cost real time in this repository.
 
 Three, and they are not interchangeable.
 
+**The chrome is 12px and the tables 11px, and that was measured.** Before
+it, 224 of 900 pixels went to the title, tab bar, hud and health footer
+before any view drew anything, and GSM's waterfall came out at 29% of its
+panel. The gate asserts both halves now: the panel is at least 65% of the
+viewport, and the biggest chart at least 25% of the panel -- 40% wherever
+the panel is 500px or more, which is where there is room to divide. Both
+floors are measured across four viewports and recorded beside them.
+
 **`make check-web-layout`** — a real browser over the DevTools protocol.
 The only thing that can answer *does this page scroll, do these panels line
 up, did the text render*. Scrolling and stacking are properties of a layout
@@ -215,6 +232,8 @@ engine.
 make check-web-layout                                   # the gate's one size
 make check-web-layout WEB_SIZES=1920x1080,1280x720,1024x600
 node scripts/web_layout.mjs --png /tmp/page.png         # and a PNG to look at
+node scripts/web_layout.mjs --tab gsm --file testfiles/gsm_arfcn_69.bin \
+    --rate 2000000 --extra "--arfcn 69" --png /tmp/gsm.png
 ```
 
 A PNG from it is worth trusting *because the same run already asserted the

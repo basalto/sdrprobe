@@ -114,7 +114,22 @@ function selectView(view, sendCommand) {
 //
 // A view with no `resize` simply does not have canvases to size.
 function resizeActiveView() {
-  if (activeView && activeView.resize) activeView.resize();
+  if (!activeView || !activeView.resize) return;
+  activeView.resize();
+  // And once more on the next frame.
+  //
+  // Fitting a canvas can itself move the layout, and a `ResizeObserver`
+  // that fires during its own callback has its second notification
+  // deferred -- so a box that settles four pixels later leaves the backing
+  // store four pixels short, which is a stretched picture. Seen at
+  // 1024x600, where the health footer gains a line when a stream first
+  // drops and hands the panel those pixels back.
+  //
+  // Costs one comparison when nothing moved: `fitCanvas()` returns early
+  // if the geometry already matches, so a settled layout does no work.
+  requestAnimationFrame(() => {
+    if (activeView && activeView.resize) activeView.resize();
+  });
 }
 window.addEventListener('resize', resizeActiveView);
 
@@ -135,7 +150,21 @@ window.addEventListener('resize', resizeActiveView);
 // oscillate -- and `fitCanvas()` returns early when the geometry already
 // matches, so a spurious notification costs a comparison.
 if (typeof ResizeObserver === 'function') {
-  new ResizeObserver(resizeActiveView).observe(document.getElementById('panels'));
+  const watch = new ResizeObserver(resizeActiveView);
+  watch.observe(document.getElementById('panels'));
+  // And every canvas, which `#panels` alone does not cover.
+  //
+  // A change *inside* a panel -- an axis label wrapping to two lines at a
+  // narrower viewport, a caption growing -- moves a chart's box without
+  // moving the container's, so an observer on the container never fires.
+  // That left `fm-waterfall`'s backing store four pixels short of its box
+  // at 1024x600, about two runs in five: a stretched picture, and the kind
+  // of intermittent that reads as flakiness rather than as a bug.
+  //
+  // Watching a canvas cannot oscillate here: every one of them is
+  // `flex:1 1 0`, so its backing store does not feed its own layout -- the
+  // `auto` basis that *did* is the fault this page has already fixed twice.
+  document.querySelectorAll('#panels canvas').forEach((c) => watch.observe(c));
 }
 
 // receiver_state and link_health are the shell's own concern, not a

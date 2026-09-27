@@ -97,12 +97,16 @@ const SurveyView = (function () {
 
       fitCanvas(chart, box.width, box.height);
     },
-    // The chart takes about half the room and the candidate list the
+    // The chart takes two thirds of the room and the candidate list the
     // rest, scrolling inside itself -- a sweep can find three signals or
     // three hundred, and the page must be the viewport either way.
+    //
+    // It was an even split, which spent half the panel on a table that is
+    // *empty* on a capture (a sweep needs a live receiver) and has a
+    // scrollbar when it is not. The chart is the thing being watched.
     markup:
       '<div class="label" id="survey-status">no sweep yet</div>' +
-      '<canvas id="survey-chart" style="flex:1 1 0;min-height:120px;width:100%">'
+      '<canvas id="survey-chart" style="flex:2 1 0;min-height:120px;width:100%">'
       + '</canvas>' +
       '<div class="label">candidates (<span id="survey-count">0</span>)</div>' +
       '<div style="flex:1 1 0;min-height:0;overflow:auto">' +

@@ -295,13 +295,13 @@ const FmView = (function () {
       + '<button id="fm-charts" style="background:#16202c;color:#8291a0;'
       + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
       + 'cursor:pointer">Show charts</button></div>' +
-      '<div id="fm-waterfall-wrap" style="flex:1 1 auto;min-height:140px;'
+      '<div id="fm-waterfall-wrap" style="flex:1 1 0;min-height:140px;'
       + 'display:flex;flex-direction:column">' +
         '<canvas id="fm-waterfall" style="flex:1 1 0;min-height:0;'
         + 'width:100%"></canvas>' +
         '<div class="label" id="fm-axis">awaiting receiver_state...</div>' +
       '</div>' +
-      '<div id="fm-mpx-wrap" hidden style="flex:1 1 auto;min-height:140px;'
+      '<div id="fm-mpx-wrap" hidden style="flex:1 1 0;min-height:140px;'
       + 'display:none;flex-direction:column">' +
         '<div class="label">multiplex (the pilot at 19 kHz, stereo at 38,'
         + ' RDS at 57 -- a station with the first two and not the third'

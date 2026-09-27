@@ -9,11 +9,17 @@
      table, a candidate list -- scrolls inside its own panel, so the page
      stays put while the panel does not lose rows. */
   html, body { height:100%; }
-  body { background:#0c131c; color:#c7d3dc; font:14px monospace; margin:0;
-         padding:16px; box-sizing:border-box; overflow:hidden;
+  /* 12px, not 14, and the chrome is tight around it.
+     Measured at 1400x900 before this: 224 of the 900 pixels went to the
+     title, the tab bar, the hud, the health footer and the body padding --
+     a quarter of the window, spent before any view drew anything. The
+     charts are what a reader is here for, so the text around them gives
+     way first. */
+  body { background:#0c131c; color:#c7d3dc; font:12px monospace; margin:0;
+         padding:10px 12px; box-sizing:border-box; overflow:hidden;
          display:flex; flex-direction:column; }
-  h1 { font-size:16px; color:#e8edf0; margin:0 0 10px; flex:0 0 auto; }
-  #hud { margin-bottom:10px; color:#5adca4; flex:0 0 auto; }
+  h1 { font-size:13px; color:#e8edf0; margin:0 0 6px; flex:0 0 auto; }
+  #hud { margin-bottom:6px; color:#5adca4; flex:0 0 auto; }
   #hud .stale { color:#ff6864; }
   /* min-height:0 is what lets a flex child be *smaller* than its content;
      without it a canvas or a long table pushes the column past the
@@ -27,16 +33,19 @@
      sets `hidden`, and this is what makes that mean anything. */
   #panels > div[hidden] { display:none; }
   canvas { display:block; background:#0a0f16; }
-  .label { color:#8291a0; margin:4px 0; flex:0 0 auto; }
-  #health { margin:10px 0 0; color:#8291a0; border-top:1px solid #232f3b;
-            padding-top:8px; flex:0 0 auto; }
+  .label { color:#8291a0; margin:2px 0; flex:0 0 auto; }
+  #health { margin:6px 0 0; color:#8291a0; border-top:1px solid #232f3b;
+            padding-top:5px; flex:0 0 auto; }
   #health span { color:#c7d3dc; }
-  #health .row { margin:2px 0; }
-  #tabs { margin-bottom:14px; flex:0 0 auto; }
-  #tabs button { background:#16202c; color:#8291a0; border:1px solid #232f3b; font:14px monospace; padding:6px 16px; cursor:pointer; }
+  #health .row { margin:1px 0; }
+  #tabs { margin-bottom:8px; flex:0 0 auto; }
+  #tabs button { background:#16202c; color:#8291a0; border:1px solid #232f3b; font:12px monospace; padding:4px 12px; cursor:pointer; }
   #tabs button.active { background:#1d3b3a; color:#5adca4; border-color:#2e5a58; }
   table { border-collapse:collapse; width:100%; }
-  th, td { text-align:left; padding:3px 10px 3px 0; font:13px monospace; }
+  /* The information panels are a reference a reader glances at, not the
+     thing they are watching -- 11px here is what gives the charts above
+     them their height back. */
+  th, td { text-align:left; padding:2px 8px 2px 0; font:11px monospace; }
   th { color:#8291a0; border-bottom:1px solid #232f3b; }
   td { color:#c7d3dc; }
   .mark-signal { color:#5adcc8; }

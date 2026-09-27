@@ -237,7 +237,11 @@ const GsmView = (function () {
       if (fitCanvas(e.scan, scanBox.width, scanBox.height)) drawScan(lastState);
     },
     markup:
-      '<div id="gsm-waterfall-wrap" style="flex:1 1 auto;min-height:120px;'
+      // The waterfall is what a reader watches; the channel scan is a
+      // reference beside it, and on a capture it says only "needs a live
+      // receiver". Weighted 3 to 1 -- measured at 1400x900, that is 381px
+      // against 134 where an even split gave them 243 each.
+      '<div id="gsm-waterfall-wrap" style="flex:3 1 0;min-height:100px;'
       + 'display:flex;flex-direction:column">'
       + '<canvas id="gsm-waterfall" style="flex:1 1 0;min-height:0;'
       + 'width:100%"></canvas>'
