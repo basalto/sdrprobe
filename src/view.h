@@ -87,8 +87,9 @@ int calibration_stop_measuring(struct app *app);
 /* Read the broadcast block that follows this SCH burst, if this is the SCH a
    block follows. Returns 1 when a System Information message came out of it.
    src/view_gsm.c. */
-void set_tab(struct app *app, int new_tab, double now);
-void set_decode(struct app *app, int kind, double now);
+/* set_tab() and set_decode() are in runtime.h: they are application layer
+   (app_runtime.c), and `viewer_session.c` -- which has no window -- switches
+   screens with them. */
 void adjust_waterfall_scale(struct app *app, int zoom_in);
 int scan_strongest_arfcn(const struct app *app);
 int scan_strongest_bcch(const struct app *app);

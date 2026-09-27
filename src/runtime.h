@@ -321,6 +321,12 @@ struct input_state input_state_now(const struct app *app);
 /* Whether the receiver's worker is still inside a read, and whether it has
    finished -- what a shutdown waits on. */
 int worker_is_reading(struct app *app, int *done);
+/* Switching screens. Both retune -- leaving the GSM view restores the tuning
+   it borrowed, entering the survey borrows the receiver -- so they are
+   application layer, not drawing, and `web` reaches them from a Viewer
+   command with no window anywhere. */
+void set_tab(struct app *app, int new_tab, double now);
+void set_decode(struct app *app, int kind, double now);
 int configure_receiver(struct app *app);
 int start_acquisition(struct app *app);
 int stop_acquisition(struct app *app);

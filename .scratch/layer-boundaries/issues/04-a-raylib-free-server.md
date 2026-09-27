@@ -348,9 +348,66 @@ and its failure would be invisible. Gone, with the reasoning in its place.
 `make check`: **81 suites, 22056 checks**, green. Both Makefile audits clean,
 `check-make-help` clean.
 
-### Still open in this ticket
+## Items 2 and 3 done, 2026-09-27
 
-Item 2: `check-frame-advance` still drives 19 stubs rather than FM's real
-runtime. Item 3: the gated include audit -- `check-server-link` covers the
-same ground by linking, which is stronger than grepping for an include, so
-what remains is to decide whether a grep adds anything the linker does not.
+### Item 2 -- FM's real runtime in `check-frame-advance`
+
+`update_fm()` and `update_fm_scan()` are no longer fakes there: the real
+`fm_runtime.c` is linked in with `fm_session`, `fm_dsp`, `rds`, `sdr_dsp` and
+`debug_log`, all of which link `-lm`, and three receiver entry points stay
+faked because they belong to `app_runtime.c`, which would pull in the whole
+program to check a dispatcher.
+
+The suite feeds a **synthetic 19 kHz pilot** -- an FM carrier phase-modulated
+at 0.355 radians, which is a real pilot's 6.75 kHz deviation over 19 kHz --
+and asserts what the step *did*: the pilot locked, baseband came out of it
+(which `fm_rds_front_feed()` emits only after the lock, so it is a second,
+independent statement of the same thing), and the loop settled within 5 Hz of
+19 kHz. A fake can record that `update_fm()` was called; only the real one
+can show it was called **with a frame it could use**.
+
+**Writing it found three wrong claims of mine and no bug**, which is the
+shape `CLAUDE.md` warns about:
+
+1. `blocks_seen` is not a count of blocks fed. `fm_session_feed()` increments
+   it only once baseband comes out, which needs the pilot locked -- so the
+   first assertion read zero on a perfectly good run. The check uses
+   `spectrum_bins` where it means "the block arrived" and the pilot itself
+   where it means "the chain worked".
+2. "A running scan means no block reaches the chain" is the opposite of the
+   truth. `frame_advance()`'s own comment says the scan *owns the receiver
+   and feeds the chain itself*; the check caught the reader, not the code. It
+   is kept, asserting that the pilot still locks -- a scan that stopped
+   feeding would fail it.
+3. The phase was keyed off `blocks_seen`, which does not advance until lock,
+   so every block regenerated the same samples from t = 0 and the loop never
+   converged. Measured directly against `fm_rds_front_feed()`: fed
+   continuously it locks on **block 8** of 65536 samples.
+
+### Item 3 -- the include audit, and it was not redundant
+
+It was written down here as probably unnecessary, on the reasoning that
+`check-no-window-link` covers the same ground by linking and linking is
+stronger than grepping. **That was wrong, and the audit found it on its first
+run.**
+
+`viewer_session.c` and `survey_report.c` -- both in `CORE_SRC` -- included
+`view.h`, which includes `<raylib.h>`. They *called* nothing from it, so
+every symbol resolved and the link check passed, while **`make sdrprobe`
+would have failed outright on a machine with no raylib dev headers
+installed** -- which is the entire reason the plain name was given to that
+build (`.scratch/cli-subcommands/issues/04-*`). A linker cannot see an
+include that is never used.
+
+`check-no-raylib-headers` compiles all **65** no-window sources with a
+`#error` raylib.h placed *earlier on the include path* than the real one.
+Dropping `pkg-config --cflags raylib` would prove nothing: the system header
+is in `/usr/include` and is found anyway.
+
+Mutation-tested -- adding `#include "view.h"` back to `survey_report.c` fails
+it, naming the file, the include chain and what to do about it. Fixing it
+took two declarations: `set_tab()` and `set_decode()` moved from `view.h` to
+`runtime.h`, where they belong -- both retune, so they are application layer,
+and `web` reaches them from a Viewer command with no window anywhere.
+
+`make check`: **82 suites, 22127 checks**, green.

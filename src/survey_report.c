@@ -7,7 +7,7 @@
 
 #include "app.h"
 #include "debug_log.h"
-#include "view.h"
+#include "runtime.h"
 #include "survey_session.h"
 #include "survey_sweep.h"
 #include "survey_suspect.h"

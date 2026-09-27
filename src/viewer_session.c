@@ -13,7 +13,7 @@
 #include "process_cpu.h"
 #include "scope_view_model.h"
 #include "survey_view_model.h"
-#include "view.h"
+#include "runtime.h"
 #include "viewer_link.h"
 
 /* How often the link is serviced between blocks. Short enough that a

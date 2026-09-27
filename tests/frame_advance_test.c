@@ -3,6 +3,7 @@
 #include "app.h"
 #include "frame_advance.h"
 
+#include <math.h>
 #include <string.h>
 
 /*
@@ -48,8 +49,6 @@ static struct {
     int update_lte_scan_have_block;
     int update_lte_calls;
 
-    int update_fm_scan_calls;
-    int update_fm_calls;
     int update_fm_audio_calls;
 
     int update_drift_calls;
@@ -151,22 +150,33 @@ void update_lte(struct app *app, double now) {
     fake.update_lte_calls++;
 }
 
-void update_fm_scan(struct app *app, double now, int have_block) {
-    (void)app;
-    (void)now;
-    (void)have_block;
-    fake.update_fm_scan_calls++;
-}
-
-void update_fm(struct app *app, double now) {
-    (void)app;
-    (void)now;
-    fake.update_fm_calls++;
-}
-
 void update_fm_audio(struct app *app) {
     (void)app;
     fake.update_fm_audio_calls++;
+}
+
+/*
+ * The three `fm_runtime.c` reaches for. They are `app_runtime.c`'s, and that
+ * file pulls in acquisition, the backends, the config and the installation --
+ * the whole program, to check a dispatcher. `update_fm()` itself touches none
+ * of them (only `fm_tune()` and the scan's steps do), so a fake that records
+ * nothing is honest here: if the FM path ever starts retuning per block, this
+ * suite stops linking rather than quietly growing a receiver.
+ */
+int receiver_borrow_at(struct app *app, struct receiver_lease_token *token,
+                       uint32_t frequency_hz) {
+    (void)app; (void)token; (void)frequency_hz;
+    return 0;
+}
+
+int receiver_return(struct app *app, struct receiver_lease_token *token) {
+    (void)app; (void)token;
+    return 0;
+}
+
+int retune_receiver(struct app *app, uint32_t frequency, int ppm) {
+    (void)app; (void)frequency; (void)ppm;
+    return 0;
 }
 
 void update_drift_check(struct app *app, int have_block) {
@@ -189,6 +199,52 @@ void advance_scatter_history(struct app *app, double now, int insert) {
  */
 static void zero_app(struct app *app) {
     memset(app, 0, sizeof(*app));
+}
+
+/*
+ * A carrier with a 19 kHz pilot on it, straight into the frame's I/Q.
+ *
+ * `process_block()` is a fake here, so nothing fills these arrays for us --
+ * which is what makes this a check of the *dispatch composed with a real
+ * callee* rather than of the DSP: the samples are handed in, and the only
+ * question is whether `frame_advance()` gets them to `update_fm()`.
+ *
+ * FM is phase modulation, so a tone at 19 kHz is
+ * `phase(t) = beta * sin(2*pi*19000*t)`; the discriminator differentiates it
+ * back into that tone. `beta` is the deviation over the modulating frequency,
+ * and a real pilot runs at about 9% of 75 kHz deviation -- 6.75 kHz, so 0.355
+ * at 19 kHz. Being roughly right matters: far too small and the pilot is
+ * under the quantisation, far too large and the discriminator wraps.
+ */
+#define PILOT_TEST_RATE 2048000u
+
+/*
+ * `pilot_t` is the sample clock and it has to be one: the pilot is a loop
+ * tracking a continuous tone, so each block must carry on where the last
+ * left off. The first version of this took its phase from
+ * `session.blocks_seen`, which does not advance until the pilot has locked
+ * -- so every block regenerated the same samples from t = 0, the phase reset
+ * twelve times, and the loop never converged. Measured directly against
+ * `fm_rds_front_feed()`: fed continuously this locks on **block 8** of
+ * 65536 samples and emits 113 baseband samples, at 19000.05 Hz.
+ */
+static long pilot_t;
+
+static void fill_pilot_carrier(struct app *app, size_t pairs) {
+    const double rate = (double)PILOT_TEST_RATE;
+    const double beta = 6750.0 / 19000.0;
+    size_t i;
+
+    if (pairs > SAMPLE_BLOCK_PAIRS)
+        pairs = SAMPLE_BLOCK_PAIRS;
+    for (i = 0; i < pairs; i++, pilot_t++) {
+        double phase = beta * sin(2.0 * M_PI * 19000.0 * (double)pilot_t / rate);
+
+        app->frame.i_samples[i] = (float)cos(phase);
+        app->frame.q_samples[i] = (float)sin(phase);
+    }
+    app->frame.pair_count = pairs;
+    app->frame.have_samples = 1;
 }
 
 /* A block with no new sample data: process_block never runs, nothing gated
@@ -359,15 +415,34 @@ static void test_fm_dispatch_ignores_calibration(void) {
     struct slot_snapshot snapshot;
 
     fake_reset();
+    pilot_t = 0;
     app.tab = TAB_DECODE;
     app.decode = DECODE_FM;
+    app.applied.sample_rate_hz = PILOT_TEST_RATE;
     app.cal.open = 1;
+    fill_pilot_carrier(&app, 65536);
     frame_advance(&app, &snapshot, 5.0, 2048);
 
-    check_int("FM: scan still runs with calibration open",
-              fake.update_fm_scan_calls, 1);
-    check_int("FM: cell decode still runs with calibration open",
-              fake.update_fm_calls, 1);
+    /*
+     * The real `update_fm_scan()` and `update_fm()` run here, not fakes --
+     * so what this asserts is what the step *did*, which is the whole
+     * difference between checking a dispatch table and checking that the
+     * dispatch reached something that works
+     * (`.scratch/layer-boundaries/issues/04-*`, item 2).
+     *
+     * The multiplex spectrum is the cheapest thing to observe that only a
+     * real run can produce: `update_fm_flush()` fills it from the
+     * discriminator's output, so a dispatcher that called `update_fm()`
+     * with a frame it had not filled, or with the wrong `pair_count`, would
+     * leave it at zero while a call counter read 1.
+     *
+     * Not `blocks_seen`, which is **not** a count of blocks fed --
+     * `fm_session_feed()` increments it only once baseband comes out, which
+     * needs the pilot locked. That is what the next test is for, and
+     * learning it here cost a wrong claim.
+     */
+    check_true("FM: the block reached the real decode with calibration open",
+               app.fm.spectrum_bins > 0);
     /*
      * And the sound is *not* pumped from here at all any more. It feeds a
      * raylib `AudioStream`, only a window has one, and this step is what
@@ -377,6 +452,76 @@ static void test_fm_dispatch_ignores_calibration(void) {
      */
     check_int("FM: the sound card is not pumped by the shared step",
               fake.update_fm_audio_calls, 0);
+}
+
+/*
+ * The pilot locks, over as many blocks as it takes -- and that is the
+ * assertion a fake could never make.
+ *
+ * `fm_rds_front_feed()` emits **nothing** before the pilot locks: without it
+ * there is no carrier to mix by and no clock to emit on, so `bb_count > 0` is
+ * the lock, reached through the whole path `frame_advance()` is responsible
+ * for. `fm_pilot_locked()` says the same thing directly and both are checked,
+ * because they could disagree only if the front end started inventing
+ * baseband, which is exactly the fault worth catching.
+ *
+ * And the gate that stops it: while the band scan is running it owns the
+ * receiver and feeds the chain itself, so `frame_advance()` must *not* also
+ * feed it. A call count showed that as a zero; this shows it as a pilot that
+ * never locks on a signal that plainly carries one.
+ */
+static void test_fm_pilot_locks_through_the_dispatch(void) {
+    static struct app app;
+    struct slot_snapshot snapshot;
+    int block;
+
+    zero_app(&app);
+    fake_reset();
+    pilot_t = 0;
+    app.tab = TAB_DECODE;
+    app.decode = DECODE_FM;
+    app.applied.sample_rate_hz = PILOT_TEST_RATE;
+
+    for (block = 0; block < 16; block++) {
+        fill_pilot_carrier(&app, 65536);
+        frame_advance(&app, &snapshot, 1.0 + block, 2048);
+    }
+
+    check_true("FM: the pilot locked",
+               fm_pilot_locked(&app.fm.session.front.pilot));
+    check_true("FM: and baseband came out of it, which needs the lock",
+               app.fm.session.bb_count > 0);
+    check_true("FM: the loop settled on 19 kHz, not on something nearby",
+               fabs(fm_pilot_hz(&app.fm.session.front.pilot) - 19000.0) < 5.0);
+
+    /*
+     * And with the band scan running, `frame_advance()` does not call
+     * `update_fm()` at all -- the scan owns the receiver and feeds the chain
+     * itself, on its own schedule, which is why the pilot still locks here.
+     *
+     * That was the opposite of the first claim written for this, which
+     * asserted nothing reached the chain. `frame_advance()`'s own comment
+     * says otherwise in as many words, and the check caught the reader
+     * rather than the code. It is kept because it is a real guard: a scan
+     * that stopped feeding would leave this unlocked, and a
+     * `frame_advance()` that fed it *as well* would be a double feed nobody
+     * else is looking for.
+     */
+    zero_app(&app);
+    fake_reset();
+    pilot_t = 0;
+    app.tab = TAB_DECODE;
+    app.decode = DECODE_FM;
+    app.applied.sample_rate_hz = PILOT_TEST_RATE;
+    app.fm.scan.running = 1;
+
+    for (block = 0; block < 16; block++) {
+        fill_pilot_carrier(&app, 65536);
+        frame_advance(&app, &snapshot, 1.0 + block, 2048);
+    }
+
+    check_true("FM: a running scan feeds the chain itself",
+               fm_pilot_locked(&app.fm.session.front.pilot));
 }
 
 /* The survey only ticks on its own tab, and not while calibration or the
@@ -465,8 +610,9 @@ int main(void) {
     test_decode_dispatch_by_tab_and_kind();
     test_lte_dispatch();
     test_fm_dispatch_ignores_calibration();
+    test_fm_pilot_locks_through_the_dispatch();
     test_survey_dispatch();
     test_scatter_insert_condition();
     test_now_and_size_pass_through();
-    return check_report("the per-block dispatch, with every callee faked");
+    return check_report("the per-block dispatch, and FM through its real runtime");
 }

@@ -239,6 +239,44 @@ sdrprobe: $(SRC)/sdrprobe_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 # It is the whole `./sdrprobe` binary and not a contrivance: the same
 # rule ships it. A check that built something nobody runs would rot exactly
 # the way `check-signal-probe` did while it was green and ungated.
+# The linker cannot catch this and did not. Two CORE_SRC files included
+# `view.h`, which includes `<raylib.h>` -- they called nothing from it, so
+# `check-no-window-link` passed and the trial link resolved every symbol,
+# while `make sdrprobe` would have **failed outright on a machine with no
+# raylib dev headers installed**. Which is the whole reason the plain name
+# went to that build.
+#
+# The test is a `#error` raylib.h placed *earlier on the include path* than
+# the real one. Dropping `pkg-config --cflags raylib` proves nothing here:
+# the system header is in /usr/include and is found anyway.
+#: [Checks] no CORE_SRC file even *compiles* against raylib (poisoned header)
+check-no-raylib-headers: $(CORE_SRC) $(DSP_SRC) $(APP_HDR) $(DSP_HDR) \
+		$(BUILD)/viewer_page.h
+	@mkdir -p $(BUILD)/poison
+	$(Q)printf '#error "a CORE_SRC file must not compile against raylib"\n' \
+		> $(BUILD)/poison/raylib.h
+	$(Q)printf '#error "a CORE_SRC file must not compile against raygui"\n' \
+		> $(BUILD)/poison/raygui.h
+	$(Q)n=0; bad=0; \
+	for f in $(CORE_SRC) $(DSP_SRC); do \
+		n=$$((n + 1)); \
+		$(CC) -fsyntax-only $(CFLAGS) -I$(BUILD)/poison -I$(SRC) \
+			$(WEB_CFLAGS) $$f 2>$(BUILD)/poison/err || { \
+			echo "  FAIL  $$f compiles against the window:"; \
+			sed -n '1,4p' $(BUILD)/poison/err | sed 's/^/        /'; \
+			bad=$$((bad + 1)); \
+		}; \
+	done; \
+	if [ $$bad -ne 0 ]; then \
+		echo "  $$bad of $$n files in the no-window build reach for raylib."; \
+		echo "  A header they include does: view.h, gui_state.h or"; \
+		echo "  sdrgui.h. Move what they need into runtime.h."; \
+		exit 1; \
+	fi; \
+	printf '  %-56s %5d checks   ok\n' \
+		"no no-window source compiles against raylib" $$n; \
+	if [ -n "$$CHECK_TALLY" ]; then echo "$$n 0" >> "$$CHECK_TALLY"; fi
+
 #: [Checks] ./sdrprobe links no window: no raylib header, no raylib library
 check-no-window-link: sdrprobe
 	$(Q)./sdrprobe --version > /dev/null
@@ -279,11 +317,15 @@ check-viewer-session: $(TESTS)/viewer_session_test.c $(TESTS)/check.h \
 # `--cflags raylib` alone (no `--libs`) is the point: app.h needs raylib's
 # types, and frame_advance.c must not need its library.
 check-frame-advance: $(TESTS)/frame_advance_test.c $(TESTS)/check.h \
+		$(SRC)/fm_runtime.c $(SRC)/fm_session.c $(SRC)/fm_dsp.c \
+		$(SRC)/rds.c $(SRC)/sdr_dsp.c $(SRC)/debug_log.c \
 		$(SRC)/frame_advance.c $(SRC)/frame_advance.h $(SRC)/app.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
 		-o $(BUILD)/frame_advance_test \
-		$(TESTS)/frame_advance_test.c $(SRC)/frame_advance.c -lm
+		$(TESTS)/frame_advance_test.c $(SRC)/frame_advance.c \
+		$(SRC)/fm_runtime.c $(SRC)/fm_session.c $(SRC)/fm_dsp.c \
+		$(SRC)/rds.c $(SRC)/sdr_dsp.c $(SRC)/debug_log.c -lm
 	$(Q)./$(BUILD)/frame_advance_test
 
 # The Scope's view model, built from known inputs -- see the file comment
@@ -1069,7 +1111,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-no-window-link check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-no-window-link check-no-raylib-headers check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \

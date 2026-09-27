@@ -87,10 +87,18 @@ after every edit turns a fast loop into a slow one.
 against `sdrprobe-gui`'s 13, none of the eight graphical -- so it installs
 and runs on a box with no graphics stack. It is the plain name because it is
 where the usage is: of the invocations in this repository's own docs, three
-times as many are `headless` or `web` as are windowed. `make sdrprobe` needs
-**librtlsdr and nothing else**; the default build used to fail outright on a
-machine without raylib dev headers, on a machine that was never going to open
-a window.
+times as many are `headless` or `web` as are windowed.
+
+**`make sdrprobe` needs librtlsdr and nothing else, and that took a second
+check to become true.** Two of the 46 `CORE_SRC` files included `view.h`,
+which includes `<raylib.h>`. They *called* nothing from it, so
+`check-no-window-link` passed and every symbol resolved -- while the build
+would have failed outright on a machine with no raylib dev headers, which is
+the whole reason the plain name went to that build. A linker cannot see an
+include that is never used. `check-no-raylib-headers` compiles all 65
+no-window sources with a `#error` raylib.h **earlier on the include path**
+than the real one; dropping the `pkg-config` flag proves nothing, because
+the system header is in `/usr/include` and is found anyway.
 
 **Each refuses the other's modes, and the two refusals are not the same
 kind.** `./sdrprobe` has no window because raylib is not in it -- a fact
