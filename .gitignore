@@ -1,7 +1,7 @@
 # Built binary and build artifacts (produced by `make`; `make clean` removes
 # them). Nothing built belongs in version control.
 /sdrprobe
-/sdrprobe-server
+/sdrprobe-gui
 /build/
 
 # Object files and other compiler output.

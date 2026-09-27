@@ -1110,7 +1110,7 @@ static int run_gui(struct app *app) {
 /*
  * The window's `main`, and the whole of what makes this binary the windowed
  * one: it hands `run_gui` to the shared setup in `app_main.c`.
- * `sdrprobe-server` passes NULL there and is otherwise the same program
+ * `sdrprobe` passes NULL there and is otherwise the same program
  * (`.scratch/layer-boundaries/issues/04-*`).
  */
 static void release_window(struct app *app) {

@@ -144,9 +144,10 @@ On Arch‑based systems: `pacman -S rtl-sdr raylib pkgconf`.
 
 ```sh
 make                 # lists every target and what it is for
-make all             # builds ./sdrprobe
-./sdrprobe           # live receiver; Survey opens after installation startup
-./sdrprobe --file testfiles/adsb_modes1.bin   # hardware-free paced playback
+make all             # builds both: ./sdrprobe and ./sdrprobe-gui
+make sdrprobe        # just the no-window one -- no raylib needed
+./sdrprobe-gui       # live receiver; Survey opens after installation startup
+./sdrprobe-gui --file testfiles/adsb_modes1.bin   # hardware-free paced playback
 
 ./sdrprobe web       # the browser Viewer (ADR-0027): serves it, and opens
                      # a browser at it unless --no-browser says not to
@@ -163,7 +164,7 @@ that spelling, so nothing that used it breaks -- and `SDRPROBE_NO_BROWSER`
 says the same thing for a launcher that cannot reach the command line.
 
 ```
-./sdrprobe [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
+./sdrprobe-gui [--frequency Hz|K|M|G] [--sample-rate samples_per_second]
            [--gain max|auto|dB] [--ppm signed_integer] [--file capture.bin]
            [--device index]
            [--view magnitude|spectrum|scatter|waterfall|survey|fm|adsb|gsm|lte|tetra|srd]
@@ -174,18 +175,18 @@ says the same thing for a launcher that cannot reach the command line.
            [--duration n] [--once] [--decode]
 ```
 
-`./sdrprobe --help` is the built-in option reference. Scripted calibration,
+`./sdrprobe-gui --help` is the built-in option reference. Scripted calibration,
 LTE chain analysis, screenshots, debug logging, analysis mode, Scope FFT size,
 and survey selection controls are catalogued in [`AGENTS.md`](AGENTS.md).
 
 Scripted use, no window and no clicking:
 
 ```sh
-./sdrprobe --list-devices                       # what is attached, and is it free
+./sdrprobe-gui --list-devices                       # what is attached, and is it free
 ./sdrprobe headless --record-seconds 3 \
            --technology adsb                    # capture 3 s + sidecar, print the path
-./sdrprobe --view adsb --duration 20            # open on a screen, quit by itself
-./sdrprobe --survey-range 88M:108M              # sweep a band and show what is on it
+./sdrprobe-gui --view adsb --duration 20            # open on a screen, quit by itself
+./sdrprobe-gui --survey-range 88M:108M              # sweep a band and show what is on it
 ./sdrprobe headless --arfcn 73 --record-seconds 2   # a GSM channel, sidecar and all
 
 # Decode a capture with no window and no clicking:

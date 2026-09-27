@@ -574,61 +574,65 @@ has halved again"
 printf '  A wider container\n'
 check_wide_container
 
-# --- The same program without a window -------------------------------------
+# --- Two binaries, one job each --------------------------------------------
 #
-# `sdrprobe-server` is the same sources minus the drawing, linked with no
-# raylib at all (`.scratch/layer-boundaries/issues/04-*`). `check-server-link`
-# says it links; this says it *answers the same*, which is the claim a person
-# on a box with no graphics stack is actually relying on.
+# `./sdrprobe` has no raylib in it and no window to open; `./sdrprobe-gui`
+# has the window and declines everything else, so that a script cannot land
+# on the wrong build and quietly work
+# (`.scratch/cli-subcommands/issues/04-*`).
 #
-# Byte-identical rather than "decodes something", and over two technologies:
-# a decode the two binaries disagree about is the whole failure this split
-# could cause, and no weaker comparison would find it.
-printf '  The same program without a window\n'
-check_server_binary() {
-    server=./sdrprobe-server
-    tmp=build/server-compare
+# **This replaced a stronger check and the trade is worth recording.** While
+# the GUI build still accepted `headless`, this group ran a GSM decode, an FM
+# decode and a capture survey through *both* binaries and required the output
+# byte-identical -- which it was. That check is impossible once the GUI build
+# refuses to decode, and it was worth having: it is what proved that dropping
+# VIEW_SRC changed no answer. What makes losing it acceptable is that it was
+# a *migration* check. Both binaries are built from the same CORE_SRC objects
+# now, so a divergence would need the same source to compile two ways.
+printf '  Two binaries, one job each\n'
+check_two_binaries() {
+    gui=./sdrprobe-gui
 
-    mkdir -p "$tmp"
+    checked
+    if $probe headless --file testfiles/gsm_arfcn_69.bin --arfcn 69 \
+            --decode --once 2>&1 | grep -q "BSIC 59"; then
+        report "sdrprobe headless" "decodes"
+    else
+        fail "./sdrprobe headless did not decode"
+    fi
 
-    if [ ! -x "$server" ]; then
-        skip "sdrprobe-server is not built (make sdrprobe-server)"
+    checked
+    if $probe 2>&1 | grep -q "has no window"; then
+        report "sdrprobe, bare" "says it has no window"
+    else
+        fail "./sdrprobe did not say it has no window"
+    fi
+
+    if [ ! -x "$gui" ]; then
+        skip "sdrprobe-gui is not built (make sdrprobe-gui)"
         return 0
     fi
 
-    for case in \
-        "gsm testfiles/gsm_arfcn_69.bin --arfcn 69 --decode --once" \
-        "fm testfiles/fm_rds_tsf.bin --sample-rate 2048000 --frequency 89.5M --technology fm --decode --once" \
-        "survey testfiles/gsm_arfcn_69.bin --frequency 948.4M --survey --once"
-    do
-        name=${case%% *}
-        rest=${case#* }
-        capture=${rest%% *}
-        args=${rest#* }
-
+    for mode in headless web; do
         checked
-        # shellcheck disable=SC2086
-        $probe headless --file "$capture" $args > "$tmp/win.$name" 2>&1
-        # shellcheck disable=SC2086
-        $server headless --file "$capture" $args > "$tmp/srv.$name" 2>&1
-        if cmp -s "$tmp/win.$name" "$tmp/srv.$name"; then
-            report "$name" "identical with and without a window"
+        if $gui $mode 2>&1 | grep -q "only opens the window"; then
+            report "sdrprobe-gui $mode" "refused, and names sdrprobe"
         else
-            fail "sdrprobe-server disagrees with sdrprobe on $name"
-            diff "$tmp/win.$name" "$tmp/srv.$name" | head -6 >&2
+            fail "./sdrprobe-gui accepted \`$mode\`"
         fi
     done
 
-    # And a windowed mode names the build rather than failing obscurely.
+    # And the word that used to mean `web --no-browser` is gone rather than
+    # silently meaning something else -- the one most likely to be typed
+    # from memory.
     checked
-    if $server --view fm --duration 1 2>&1 |
-            grep -q "is built without a window"; then
-        report "a windowed mode" "refused by name"
+    if $probe server 2>&1 | grep -q 'unknown command "server"'; then
+        report "server" "refused by name"
     else
-        fail "sdrprobe-server did not say it has no window"
+        fail "./sdrprobe server was not refused by name"
     fi
 }
-check_server_binary
+check_two_binaries
 
 # --- An SRD remote control at 434 MHz --------------------------------------
 #

@@ -1,7 +1,7 @@
 #include "runtime.h"
 
 /*
- * `sdrprobe-server`: the same program, built without a window.
+ * `sdrprobe`: the program without a window, and the one most runs want.
  *
  * It exists for the machine this one is not -- a box beside an antenna with
  * no graphics stack installed. `./sdrprobe server` never opens a window and

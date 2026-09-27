@@ -17,27 +17,42 @@
    arguments. lte_dsp.h derives it from 128 subcarriers of 15 kHz. */
 #define LTE_SAMPLE_RATE_HZ_U32 1920000U
 
-void usage(const char *program) {
+void usage(const char *program, int has_window) {
+    /*
+     * The two builds have different command surfaces, so the usage text
+     * has to as well -- a `sdrprobe --help` that advertises a window this
+     * binary cannot open is worse than terse. `has_window` is the same
+     * fact `sdrprobe_main()` refuses on, passed rather than re-derived
+     * from argv[0], which a rename or a symlink would make a lie.
+     */
+    /*
+     * The description goes under its command rather than beside it. It
+     * used to be a column, aligned by counting the characters in
+     * "./sdrprobe" -- so `sdrprobe-gui` (four longer) pushed every
+     * continuation line out of true, and so would any rename, symlink or
+     * install path. A line nobody has to count is a line nobody breaks.
+     */
+    if (has_window)
+        fprintf(stderr,
+                "Commands:\n"
+                "  %s [flags]\n"
+                "      the window, and nothing else. `sdrprobe` is the\n"
+                "      build that does headless and web.\n"
+                "\n", program);
+    else
+        fprintf(stderr,
+                "Commands:\n"
+                "  %s headless [flags]\n"
+                "      no window and no link; prints to stdout -- pair\n"
+                "      with --decode, --survey, --record-seconds, etc.\n"
+                "  %s web [flags]\n"
+                "      serves the browser Viewer and opens one at it\n"
+                "      (--no-browser to not)\n"
+                "\n"
+                "  sdrprobe-gui [flags]\n"
+                "      the window, in the build that has one\n"
+                "\n", program, program);
     fprintf(stderr,
-            /*
-             * The command names who is looking -- this window, nobody, or
-             * a browser -- and nothing else; everything below this block
-             * is a flag, unchanged by which is running.
-             *
-             * There were four, and two of them were one command: `server`
-             * was `web --no-browser`, which `browser_wanted()` already
-             * said in a comment. `server` still parses as exactly that,
-             * and is listed so nobody reading this has to find out by
-             * trying it.
-             */
-            "Commands:\n"
-            "  %s [flags]           the window (default)\n"
-            "  %s headless [flags]  no window and no link; prints to stdout\n"
-            "                               -- pair with --decode, --survey, etc.\n"
-            "  %s web [flags]       no window; serves the browser Viewer and\n"
-            "                               opens one at it (--no-browser to not)\n"
-            "  %s server [flags]    the older spelling of `web --no-browser`\n"
-            "\n"
             "Usage: %s [--frequency Hz|K|M|G] [--sample-rate samples_per_second]\n"
             "          [--gain max|auto|dB] [--ppm signed_integer]\n"
             "          [--file capture.bin] [--device index]\n"
@@ -129,7 +144,7 @@ void usage(const char *program) {
             "                    it -- which is what `server` spells\n"
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
-            program, program, program, program, program);
+            program);
     printf("\nThe environment answers the same questions the command line\n"
            "does, for a launcher or a unit file that cannot reach it. A flag\n"
            "beats a variable beats the config file, and a refusal beats a\n"
@@ -372,25 +387,6 @@ int parse_options(int argc, char **argv, struct options *options) {
             first_flag = 2;
         } else if (strcmp(argv[1], "web") == 0) {
             options->command = COMMAND_WEB;
-            first_flag = 2;
-        } else if (strcmp(argv[1], "server") == 0) {
-            /*
-             * The older spelling, and it is *defined* as what it always
-             * meant rather than kept as a second command: `server` IS
-             * `web --no-browser`, which `browser_wanted()`'s comment
-             * asserted while two enum values pretended otherwise. Setting
-             * the flag here rather than testing the word later is what
-             * stops the two drifting -- there is one serving command from
-             * this line on, and nothing downstream can tell which word
-             * asked for it.
-             *
-             * Still accepted, and not deprecated in the usual sense: a
-             * script that wants the link without a browser is spelling
-             * that intention correctly, it is just spelling it as a word
-             * where the other way is a flag.
-             */
-            options->command = COMMAND_WEB;
-            options->no_browser = 1;
             first_flag = 2;
         } else {
             /* Not a flag and not a known command -- refused by name rather

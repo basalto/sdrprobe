@@ -12,7 +12,7 @@
  * reach it (ADR-0012, `.scratch/layer-boundaries/issues/04-*`).
  *
  * So this file is the six calls, a struct, and a call. It is in `GUI_SRC`;
- * `chart_window.c` links into `sdrprobe-server` with no raylib at all.
+ * `chart_window.c` links into `./sdrprobe` with no raylib at all.
  */
 
 double chart_window_input(struct chart_window *w, Rectangle plot,

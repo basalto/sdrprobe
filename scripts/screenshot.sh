@@ -24,7 +24,7 @@ esac
 # Repository root, so the recipes' relative capture paths resolve.
 cd "$(dirname "$0")/.." || exit 1
 
-./sdrprobe --screenshot "$out" "$@" &
+./sdrprobe-gui --screenshot "$out" "$@" &
 app=$!
 
 if command -v hyprctl >/dev/null 2>&1; then

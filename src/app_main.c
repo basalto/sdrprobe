@@ -27,7 +27,7 @@
  * the capture, install the signal handlers, and shut the worker down.
  *
  * `run_window` is the only difference between them. `sdrprobe` passes
- * `run_gui`; `sdrprobe-server` passes NULL and is built with no raylib at
+ * `run_gui`; `sdrprobe` passes NULL and is built with no raylib at
  * all (`.scratch/layer-boundaries/issues/04-*`). Same flags, same
  * subcommands, same messages -- so there is no second set of command words
  * to learn, which was the objection to shipping a second binary.
@@ -68,7 +68,7 @@ int sdrprobe_main(int argc, char **argv,
                     options.unknown_command);
         else if (options.serve_bind_error[0])
             fprintf(stderr, "%s: %s\n\n", argv[0], options.serve_bind_error);
-        usage(argv[0]);
+        usage(argv[0], window != NULL);
         return 1;
     }
     /*
@@ -84,6 +84,38 @@ int sdrprobe_main(int argc, char **argv,
     }
     if (options.list_devices)
         return list_devices();
+
+    /*
+     * Which binary this is, and what it can do -- asked here, before
+     * anything opens a receiver or a file, so a refusal costs nothing and
+     * touches nothing.
+     *
+     * The two builds have *different command surfaces*, which is unusual
+     * enough to say why. `sdrprobe` has no window to open: raylib is not
+     * linked into it at all, so the refusal is a fact about the build
+     * rather than a policy. `sdrprobe-gui` could run `headless` -- it
+     * links the same `CORE_SRC` -- and declines anyway, so that each
+     * binary does one job and a script cannot land on the wrong one and
+     * quietly work. The pair of messages each name the *other* binary,
+     * because "wrong build" is only useful to a reader who is told which
+     * one is right.
+     */
+    if (!window && options.command == COMMAND_WINDOW) {
+        fprintf(stderr,
+                "%s has no window: it is built without raylib.\n"
+                "Use `%s headless` or `%s web`, or sdrprobe-gui for the "
+                "window.\n\n", argv[0], argv[0], argv[0]);
+        usage(argv[0], 0);
+        return 1;
+    }
+    if (window && options.command != COMMAND_WINDOW) {
+        fprintf(stderr,
+                "%s only opens the window. Use `sdrprobe %s` instead.\n",
+                argv[0], options.command == COMMAND_HEADLESS ? "headless"
+                                                             : "web");
+        return 1;
+    }
+
     /*
      * The installation: antenna and site. Loaded before anything measures,
      * and written back when a flag changes one, so the next run starts where
@@ -362,11 +394,8 @@ int sdrprobe_main(int argc, char **argv,
     }
     /*
      * The one place the two binaries differ. `sdrprobe` hands its `run_gui`
-     * in; `sdrprobe-server` hands NULL, because it is built without raylib
-     * and has no window to open. The refusal names the build rather than
-     * the mode: a reader who typed `sdrprobe-server --view fm` asked for
-     * something reasonable, and "no window in this build" is the answer,
-     * where "unknown option" would not be.
+     * in; `sdrprobe` hands NULL, because it is built without raylib and
+     * has no window to open.
      */
     if (!window) {
         fprintf(stderr,
@@ -436,7 +465,7 @@ cleanup:
     }
     /* The window's own teardown -- textures, the audio device, the window
        itself -- and then the rows every run allocates whether or not one was
-       ever drawn. NULL here is `sdrprobe-server`, which has neither. */
+       ever drawn. NULL here is `sdrprobe`, which has neither. */
     if (window && window->release)
         window->release(app);
     scope_release_history(app);

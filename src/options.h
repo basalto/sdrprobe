@@ -92,8 +92,11 @@ enum start_command {
      * default because somebody typing `web` on a machine with a display is
      * asking to look at something.
      *
-     * `server` still parses, as exactly that spelling -- it sets
-     * `no_browser` and nothing else -- so no script breaks.
+     * `server` was a second word for this with `no_browser` set, and is
+     * gone: one command and a flag, rather than two words where only one
+     * of them took the flag. Removed rather than kept as a synonym
+     * because the binary rename in the same release breaks the spelling
+     * anyway, and one break is cheaper to learn than two.
      */
     COMMAND_WEB
 };
@@ -193,8 +196,8 @@ struct options {
     /* headless: serve the Scope's view model to a loopback Viewer link
        (ADR-0027) instead of drawing it. 0 = off, set only by `command`
        being COMMAND_WEB -- there is no `--serve` flag of its own any
-       more; `web` (or its older spelling `server`) is the only way to ask
-       for this, the same command-word shape it already had.
+       more; `web` is the only way to ask for this, the same command-word
+       shape it already had.
        `serve_port` is the listening port, 0 meaning the link's own
        default. */
     int serve;
@@ -365,7 +368,10 @@ struct options {
    byte count a duration implies stays inside what the arithmetic can hold. */
 #define MAX_RUN_SECONDS 3600.0
 
-void usage(const char *program);
+/* The option reference. `has_window` picks which command surface to
+   describe: the two builds have different ones, so one text would lie to
+   whichever binary it was not written for. */
+void usage(const char *program, int has_window);
 
 /* Each returns 0 and writes *value on success, negative on malformed input. */
 int parse_int(const char *text, int *value);

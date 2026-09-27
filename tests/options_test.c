@@ -932,35 +932,18 @@ static void test_the_browser(void) {
               browser_wanted(&options, fake_env), 1);
 
     /* The default: neither the window nor `server` ever wants one, whatever
-       the display says -- the plain window is not a serving command at all,
-       and `server` is the spelling that asks for no browser. */
+       the display says -- the plain window is not a serving command. */
     clear_env();
     g_env_display = ":0";
     parse_line("", &options);
     check_int("the window never wants one",
               browser_wanted(&options, fake_env), 0);
-    parse_line("server", &options);
-    check_int("and neither does server", browser_wanted(&options, fake_env),
-              0);
 
-    /*
-     * And the claim the merge actually rests on: `server` is not *like*
-     * `web --no-browser`, it **is** it. Two parses of the whole struct,
-     * compared byte for byte -- which is the only form of this check that
-     * would notice the two spellings picking up a difference in some field
-     * nobody thought to assert.
-     */
-    {
-        struct options as_word, as_flag;
-
-        clear_env();
-        g_env_display = ":0";
-        check_int("server parses", parse_line("server", &as_word), 0);
-        check_int("web --no-browser parses",
-                  parse_line("web --no-browser", &as_flag), 0);
-        check_true("server is web --no-browser, field for field",
-                   memcmp(&as_word, &as_flag, sizeof(as_word)) == 0);
-    }
+    /* And `server`, which was the word for exactly this, is not a command
+       any more -- it is the flag. A word that silently became something
+       else would be worse than one that refuses. */
+    check_true("server is no longer a command",
+               parse_line("server", &options) < 0);
 
     /* No display, either variable: skipped, not attempted. */
     clear_env();
@@ -997,25 +980,24 @@ static void test_the_browser(void) {
               browser_wanted(&options, fake_env), 1);
 
     /*
-     * The equivalence the whole flag exists for: two spellings of one
-     * behaviour that must not be free to drift apart. Same environment,
-     * same display, so the only thing that can account for a difference is
-     * the command word itself.
+     * What the flag has to keep doing now that it is the only spelling:
+     * suppress the browser without touching anything else about `web`.
+     * `server` used to be the other half of this pair and is gone.
      */
     clear_env();
     g_env_display = ":0";
     {
-        struct options web_suppressed, plain_server;
+        struct options plain, suppressed;
 
-        parse_line("web --no-browser", &web_suppressed);
-        parse_line("server", &plain_server);
-        check_int("web --no-browser wants no browser",
-                  browser_wanted(&web_suppressed, fake_env), 0);
-        check_int("neither does server",
-                  browser_wanted(&plain_server, fake_env), 0);
-        check_int("and they agree on headless too", web_suppressed.headless,
-                  plain_server.headless);
-        check_int("and on serve", web_suppressed.serve, plain_server.serve);
+        parse_line("web", &plain);
+        parse_line("web --no-browser", &suppressed);
+        check_int("web wants a browser", browser_wanted(&plain, fake_env), 1);
+        check_int("with the flag it does not",
+                  browser_wanted(&suppressed, fake_env), 0);
+        check_int("and the flag changes nothing else about headless",
+                  plain.headless, suppressed.headless);
+        check_int("nor about serve", plain.serve, suppressed.serve);
+        check_int("nor the port", plain.serve_port, suppressed.serve_port);
     }
 }
 
@@ -1023,30 +1005,29 @@ static void test_the_command_word(void) {
     struct options options;
     const char *window[] = { "sdrprobe" };
     const char *window_flag[] = { "sdrprobe", "--frequency", "100M" };
-    const char *server[] = { "sdrprobe", "server" };
     const char *web[] = { "sdrprobe", "web" };
     const char *headless[] = { "sdrprobe", "headless" };
     const char *bad[] = { "sdrprobe", "serv" };
     const char *second[] = { "sdrprobe", "--duration", "1", "web" };
-    const char *with_port[] = { "sdrprobe", "server", "--serve-port", "9000" };
-    const char *serve_view[] = { "sdrprobe", "server", "--view", "lte" };
-    const char *serve_shot[] = { "sdrprobe", "server", "--screenshot",
+    const char *with_port[] = { "sdrprobe", "web", "--serve-port", "9000" };
+    const char *serve_view[] = { "sdrprobe", "web", "--view", "lte" };
+    const char *serve_shot[] = { "sdrprobe", "web", "--screenshot",
                                  "x.png", "--duration", "1" };
-    const char *serve_analysis[] = { "sdrprobe", "server", "--analysis" };
-    const char *serve_calibrate[] = { "sdrprobe", "server", "--calibrate",
+    const char *serve_analysis[] = { "sdrprobe", "web", "--analysis" };
+    const char *serve_calibrate[] = { "sdrprobe", "web", "--calibrate",
                                       "gsm", "--arfcn", "113" };
-    const char *serve_survey[] = { "sdrprobe", "server", "--survey" };
-    const char *serve_decode[] = { "sdrprobe", "server", "--decode",
+    const char *serve_survey[] = { "sdrprobe", "web", "--survey" };
+    const char *serve_decode[] = { "sdrprobe", "web", "--decode",
                                    "--technology", "gsm" };
-    const char *serve_lte_scan[] = { "sdrprobe", "server", "--lte-scan",
+    const char *serve_lte_scan[] = { "sdrprobe", "web", "--lte-scan",
                                      "20" };
-    const char *serve_lte_chain[] = { "sdrprobe", "server", "--lte-chain",
+    const char *serve_lte_chain[] = { "sdrprobe", "web", "--lte-chain",
                                       "--earfcn", "6200" };
     /* Ticket 07: a range no longer refuses alongside a serving command --
        it seeds the Survey tab's own sweep the moment `view survey` selects
        it, through the same view_survey_enter() every windowed launch
        already goes through. */
-    const char *serve_survey_range[] = { "sdrprobe", "server",
+    const char *serve_survey_range[] = { "sdrprobe", "web",
                                          "--survey-range", "88M:108M" };
 
     check_int("no command reaches the window",
@@ -1075,13 +1056,19 @@ static void test_the_command_word(void) {
      * -- not that `server` is accepted, which a lookup table would give,
      * but that it lands on the same command with the flag already set.
      */
-    check_int("server parses", parse_options(2, (char **)server, &options),
-              0);
-    check_int("as COMMAND_WEB, the one serving command", options.command,
-              COMMAND_WEB);
-    check_int("headless follows", options.headless, 1);
-    check_int("and serve follows", options.serve, 1);
-    check_int("and it is web --no-browser", options.no_browser, 1);
+    /*
+     * `server` was a second word for `web --no-browser` and is gone --
+     * refused by name, like any other unknown word, rather than quietly
+     * meaning something new. That refusal is the check: a word this
+     * program used to accept is the one most likely to be typed from
+     * memory, so what it does now is worth pinning.
+     */
+    options.unknown_command = NULL;
+    check_true("server is no longer a command",
+               parse_options(2, (char **)(const char *[]){ "sdrprobe",
+                                                           "server" },
+                             &options) < 0);
+    check_str("and it says so by name", options.unknown_command, "server");
 
     /*
      * `headless` is the third command word, and the one that draws the
@@ -1152,36 +1139,36 @@ static void test_the_command_word(void) {
  */
 static void test_serve_bind_and_token(void) {
     struct options options;
-    const char *bind_any_no_token[] = { "sdrprobe", "server", "--serve-bind",
+    const char *bind_any_no_token[] = { "sdrprobe", "web", "--serve-bind",
                                         "any" };
-    const char *bind_address_no_token[] = { "sdrprobe", "server",
+    const char *bind_address_no_token[] = { "sdrprobe", "web",
                                             "--serve-bind", "192.168.1.5" };
-    const char *bind_any_with_token[] = { "sdrprobe", "server", "--serve-bind",
+    const char *bind_any_with_token[] = { "sdrprobe", "web", "--serve-bind",
                                           "any", "--serve-token",
                                           "eight1234" };
-    const char *bind_address_with_token[] = { "sdrprobe", "server",
+    const char *bind_address_with_token[] = { "sdrprobe", "web",
                                               "--serve-bind", "192.168.1.5",
                                               "--serve-token", "eight1234" };
-    const char *bind_not_an_address[] = { "sdrprobe", "server", "--serve-bind",
+    const char *bind_not_an_address[] = { "sdrprobe", "web", "--serve-bind",
                                           "not-an-address", "--serve-token",
                                           "eight1234" };
-    const char *token_too_short[] = { "sdrprobe", "server", "--serve-bind",
+    const char *token_too_short[] = { "sdrprobe", "web", "--serve-bind",
                                       "any", "--serve-token", "seven12" };
     /* 129 characters -- one past the 128-character cap. Built with
        memset() rather than a hand-typed literal: a 124-character literal
        here once, meant to be "over 128", silently tested nothing past
        124 -- counting to 129 by eye is exactly how that happened. */
     char long_token[130];
-    const char *token_too_long[] = { "sdrprobe", "server", "--serve-bind",
+    const char *token_too_long[] = { "sdrprobe", "web", "--serve-bind",
                                      "any", "--serve-token", long_token };
-    const char *token_bad_char[] = { "sdrprobe", "server", "--serve-bind",
+    const char *token_bad_char[] = { "sdrprobe", "web", "--serve-bind",
                                      "any", "--serve-token", "has a space" };
-    const char *token_alone[] = { "sdrprobe", "server", "--serve-token",
+    const char *token_alone[] = { "sdrprobe", "web", "--serve-token",
                                   "eight1234" };
-    const char *bind_twice[] = { "sdrprobe", "server", "--serve-bind", "any",
+    const char *bind_twice[] = { "sdrprobe", "web", "--serve-bind", "any",
                                 "--serve-bind", "any", "--serve-token",
                                 "eight1234" };
-    const char *token_twice[] = { "sdrprobe", "server", "--serve-bind", "any",
+    const char *token_twice[] = { "sdrprobe", "web", "--serve-bind", "any",
                                  "--serve-token", "eight1234", "--serve-token",
                                  "eight1234" };
     struct in_addr expected;
@@ -1252,19 +1239,19 @@ static void test_serve_bind_and_token(void) {
  */
 static void test_no_token(void) {
     struct options options;
-    const char *bind_any_no_token[] = { "sdrprobe", "server", "--serve-bind",
+    const char *bind_any_no_token[] = { "sdrprobe", "web", "--serve-bind",
                                          "any", "--no-token" };
-    const char *bind_address_no_token[] = { "sdrprobe", "server",
+    const char *bind_address_no_token[] = { "sdrprobe", "web",
                                              "--serve-bind", "192.168.1.5",
                                              "--no-token" };
-    const char *both[] = { "sdrprobe", "server", "--serve-bind", "any",
+    const char *both[] = { "sdrprobe", "web", "--serve-bind", "any",
                           "--serve-token", "eight1234", "--no-token" };
-    const char *both_reversed[] = { "sdrprobe", "server", "--serve-bind",
+    const char *both_reversed[] = { "sdrprobe", "web", "--serve-bind",
                                    "any", "--no-token", "--serve-token",
                                    "eight1234" };
-    const char *twice[] = { "sdrprobe", "server", "--serve-bind", "any",
+    const char *twice[] = { "sdrprobe", "web", "--serve-bind", "any",
                            "--no-token", "--no-token" };
-    const char *alone[] = { "sdrprobe", "server", "--no-token" };
+    const char *alone[] = { "sdrprobe", "web", "--no-token" };
 
     check_int("--serve-bind any --no-token parses",
              parse_options(5, (char **)bind_any_no_token, &options), 0);

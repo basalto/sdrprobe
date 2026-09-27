@@ -11,8 +11,9 @@ need the detail.
 
 ```sh
 make                  # every target and what it is for; the default goal
-make all              # build ./sdrprobe (needs librtlsdr + raylib dev headers, pkg-config)
-make sdrprobe-server  # the same program with no window and no raylib
+make all              # build both binaries (needs librtlsdr + raylib, pkg-config)
+make sdrprobe         # just the no-window one: headless and web, no raylib
+make sdrprobe-gui     # just the window
 make check            # everything below, ~57 s, no window and no receiver
 make check-touched    # only the suites covering what git says changed
 make check-dsp        # the four DSP checks below
@@ -74,33 +75,43 @@ audits further down exist: the failure is invisible from a green run.
 under a second and the full set is **about three minutes**, so `make check`
 after every edit turns a fast loop into a slow one.
 
-**There are two binaries, and they are one NULL apart.** `./sdrprobe` is the
-whole program -- the window, `headless` and `web` -- and nothing a script
-runs today changes. `./sdrprobe-server` is the same sources **minus the
-drawing**, linked with no raylib at all, for a box beside an antenna with no
-graphics stack: 2.56 MB against 3.94, and **8 shared libraries against 13**,
-none of the eight graphical. It offers `headless` and `web` with the same
-flags and the same messages -- there is deliberately no second set of command
-words -- and refuses a windowed mode by naming the build. The split is
-*window / no window* rather than gui / server, because a scripted decode
-needs raylib for nothing either.
+**There are two binaries and they do one job each.**
 
 ```sh
-make sdrprobe-server
-./sdrprobe-server headless --file testfiles/gsm_arfcn_69.bin --arfcn 69 --decode --once
-./sdrprobe-server web --no-browser --serve-port 8790
+./sdrprobe headless [flags]   # no window, no link: prints to stdout
+./sdrprobe web [flags]        # serves the browser Viewer, opens one at it
+./sdrprobe-gui [flags]        # the window, and nothing else
 ```
+
+`./sdrprobe` is linked with **no raylib at all** -- 8 shared libraries
+against `sdrprobe-gui`'s 13, none of the eight graphical -- so it installs
+and runs on a box with no graphics stack. It is the plain name because it is
+where the usage is: of the invocations in this repository's own docs, three
+times as many are `headless` or `web` as are windowed. `make sdrprobe` needs
+**librtlsdr and nothing else**; the default build used to fail outright on a
+machine without raylib dev headers, on a machine that was never going to open
+a window.
+
+**Each refuses the other's modes, and the two refusals are not the same
+kind.** `./sdrprobe` has no window because raylib is not in it -- a fact
+about the build. `./sdrprobe-gui` *could* run `headless`, since it links the
+same `CORE_SRC`, and declines anyway, so a script cannot land on the wrong
+binary and quietly work. Both messages name the other binary, because "wrong
+build" only helps a reader who is told which one is right. `usage()` takes a
+`has_window` flag for the same reason: one text would lie to whichever binary
+it was not written for.
 
 `src/app_main.c` holds everything both do -- the flags, the environment, the
 installation, the receiver, the handlers, the shutdown -- and each binary's
 `main()` differs only in what it hands it: `sdrprobe.c` a
-`struct app_window` (the frame loop and the teardown), `server_main.c` NULL.
+`struct app_window` (the frame loop and the teardown), `sdrprobe_main.c`
+NULL.
 The Makefile has **one** source list split in two, `CORE_SRC` (no drawing)
 and `VIEW_SRC`, with `APP_SRC = CORE_SRC + VIEW_SRC`, because two lists
 drift.
 
 **What holds the boundary is the linker, not a review.**
-`check-server-link` is in `CHECK_UNITS`, builds the *shipped* binary rather
+`check-no-window-link` is in `CHECK_UNITS`, builds the *shipped* binary rather
 than a contrivance -- a check that built something nobody runs would rot the
 way `check-signal-probe` did -- and then asserts `ldd` names nothing
 graphical, because linking is not the same claim as not depending. Its
@@ -111,11 +122,19 @@ failure explains itself rather than dumping ld:
       src/survey_runtime.c line 392 calls IsKeyPressed()
 ```
 
-And `check-pipelines` runs a GSM decode, an FM decode and a capture survey
-through **both** binaries and requires the output **byte-identical**.
-Linking is the boundary; answering the same is the claim somebody on a
-headless box actually relies on, and no weaker comparison would find a
-decode the two disagree about.
+`check-pipelines` then asserts the contract above: `./sdrprobe` decodes, a
+bare `./sdrprobe` says it has no window, `./sdrprobe-gui` refuses both
+`headless` and `web` naming the other binary, and `server` -- the word that
+used to mean `web --no-browser` -- is refused *by name* rather than quietly
+meaning something else.
+
+**That group used to be a stronger check and the trade is worth knowing.**
+While the GUI build still accepted `headless`, it ran three decodes through
+*both* binaries and required the output byte-identical, which is what proved
+that dropping `VIEW_SRC` changed no answer. Refusing `headless` there makes
+that impossible. What makes it acceptable is that it was a **migration**
+check: both binaries are built from the same `CORE_SRC` objects, so a
+divergence would need the same source to compile two ways.
 
 **The rule for where a function goes follows from that**: a file in
 `CORE_SRC` may not reach a view, an overlay, raygui or raylib. So a function
@@ -186,7 +205,7 @@ its coordinates, every retune, and the screen whenever it changes. Off by
 default and free when off.
 
 ```sh
-./sdrprobe --view fm --duration 20 --debug-log /tmp/run.log
+./sdrprobe-gui --view fm --duration 20 --debug-log /tmp/run.log
 ```
 
 It answers the question a report of "the key did nothing" cannot: whether the
@@ -817,7 +836,7 @@ last frame to a PNG the Read tool displays. The `screenshot` skill in
 settle:
 
 ```sh
-./sdrprobe --file testfiles/lte_b20_pci28.bin --view lte --earfcn 6200 \
+./sdrprobe-gui --file testfiles/lte_b20_pci28.bin --view lte --earfcn 6200 \
     --duration 6 --screenshot /tmp/shot.png
 ```
 
@@ -827,8 +846,8 @@ headless paths below are exact and do not truncate.
 Running the app without hardware — always prefer this over asking for a dongle:
 
 ```sh
-./sdrprobe --file testfiles/adsb_modes1.bin   # paced, looping playback
-./sdrprobe --view adsb --duration 20          # open on a screen, quit by itself
+./sdrprobe-gui --file testfiles/adsb_modes1.bin   # paced, looping playback
+./sdrprobe-gui --view adsb --duration 20          # open on a screen, quit by itself
 ```
 
 Checking a capture decodes, with no window and nothing to click — the fastest

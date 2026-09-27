@@ -40,7 +40,7 @@
  * stack had to compile the window to reach the decode
  * (`.scratch/layer-boundaries/issues/04-*`). Nothing here draws, and the
  * split is *window / no window* rather than gui / server: a headless decode
- * on a box beside an antenna is the use `sdrprobe-server` exists for, and it
+ * on a box beside an antenna is the use `./sdrprobe` exists for, and it
  * needed raylib for nothing.
  *
  * `run_headless()` is the one entry point; `main()` is in `app_main.c`,
@@ -369,7 +369,7 @@ static const char *int_text(int value) {
  *
  * The comment beside it said "nothing should reach raylib on this path", and
  * that is now **enforced rather than hoped for**: this file compiles with no
- * raylib header and links into `sdrprobe-server` with no raylib at all
+ * raylib header and links into `./sdrprobe` with no raylib at all
  * (ticket 04). A defence against a call that cannot exist is a defence whose
  * failure nobody would notice, so it is gone and this is why.
  */

@@ -24,21 +24,22 @@
  * field it previously got wrong: PATCH, even though the numbers change,
  * because the format did not.
  *
- * Merging `server` into `web` was **PATCH**, and the reasoning is worth
- * keeping because the instinct says otherwise. A command word disappearing
- * sounds MAJOR. But `server` still parses, and parses to the same thing it
- * always meant -- `web --no-browser` -- so every invocation that worked
- * yesterday produces a byte-identical `struct options` today, which
- * `check-options` asserts with a `memcmp` rather than field by field.
- * Nothing broke, so not MAJOR; nothing was gained, so not MINOR. What
- * changed is the help text and one enum value, and neither is a contract.
+ * **0.64.0 broke the command line on purpose, and 0.x is what permits it.**
+ * `sdrprobe` is now the build with no window -- `headless` and `web` -- and
+ * `sdrprobe-gui` is the window, which refuses both. `server` is not a
+ * command any more; it was `web --no-browser`, so it is the flag. Three
+ * things a script could be doing therefore stop working: `sdrprobe` with
+ * no command, `sdrprobe server`, and any windowed `sdrprobe --view ...`.
  *
- * A second *binary* is MINOR by the same reading. `sdrprobe-server` gains
- * nothing and breaks nothing: same flags, same subcommands, same headless
- * output, same files -- it is the same program built without a window, for a
- * machine that has no graphics stack to open one with. What is backwards
- * compatible is that `./sdrprobe` still does `headless` and `server` itself
- * and nothing a script runs today has to change.
+ * Each fails **loudly and by name** rather than changing meaning, which is
+ * the property that made the break acceptable: a bare `sdrprobe` says it has
+ * no window and points at `sdrprobe-gui`, `server` is refused as an unknown
+ * command naming itself, and a windowed flag on the wrong build says which
+ * build to use. The failure this was weighed against is the silent one --
+ * `sdrprobe --view fm` quietly decoding nothing on a box with no display.
+ *
+ * MINOR and not MAJOR only because of the leading zero below, which says
+ * exactly this may happen. At 1.0.0 it would be MAJOR.
  *
  * Still 0.x deliberately. Under SemVer the leading zero says the public
  * surface may still move without a MAJOR bump, and it does: the tabs were
@@ -49,8 +50,8 @@
  */
 
 #define SDRPROBE_VERSION_MAJOR 0
-#define SDRPROBE_VERSION_MINOR 63
-#define SDRPROBE_VERSION_PATCH 1
+#define SDRPROBE_VERSION_MINOR 64
+#define SDRPROBE_VERSION_PATCH 0
 
 #define SDRPROBE_STRINGIFY_(x) #x
 #define SDRPROBE_STRINGIFY(x) SDRPROBE_STRINGIFY_(x)

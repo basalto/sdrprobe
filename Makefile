@@ -69,7 +69,7 @@ BUILD=build
 # `make` with no target prints the list of targets rather than building.
 #
 # Ninety-five targets, and the one that used to be first is not the one most
-# often wanted: a bare `make` built ./sdrprobe, which is what `make all` and
+# often wanted: a bare `make` built a binary, which is what `make all` and
 # `make sdrprobe` still do, while what a newcomer to this repository needs is
 # the name of the suite that covers their change. So the default goal is the
 # list.
@@ -85,8 +85,13 @@ BUILD=build
 help:
 	$(Q)python3 scripts/make_help.py $(firstword $(MAKEFILE_LIST))
 
-#: [Build] build ./sdrprobe
-all: sdrprobe
+# Both, because a machine with raylib should get both and a machine
+# without should still get the one that matters: `make sdrprobe` alone
+# needs librtlsdr and nothing else. That is the inversion this release
+# made -- the default build used to *fail* without raylib dev headers, on
+# a box that was never going to open a window.
+#: [Build] build both binaries: ./sdrprobe and ./sdrprobe-gui
+all: sdrprobe sdrprobe-gui
 
 DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/adsb_session.c $(SRC)/fm_session.c $(SRC)/srd_session.c $(SRC)/signal_probe.c $(SRC)/sdr_dsp.c $(SRC)/gsm_dsp.c $(SRC)/gsm_bcch.c $(SRC)/adsb_dsp.c \
 	$(SRC)/lte_dsp.c $(SRC)/lte_mib.c $(SRC)/fm_dsp.c $(SRC)/rds.c \
@@ -94,7 +99,7 @@ DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/
 #
 # CORE_SRC is every application source that does **not** draw: it compiles
 # with no raylib header and links with no raylib library, which is what
-# `sdrprobe-server` is built from and what `check-server-link` asserts
+# `./sdrprobe` is built from and what `check-no-window-link` asserts
 # (`.scratch/layer-boundaries/issues/04-*`). VIEW_SRC is the window's half.
 # APP_SRC is both, and is what `./sdrprobe` is built from -- so there is one
 # list, split, rather than two lists to keep in step.
@@ -188,8 +193,8 @@ $(BUILD)/raygui_impl.o: $(SRC)/raygui_impl.c $(VENDOR)/raygui.h
 	$(Q)printf '  cc  %s\n' $@
 	$(Q)$(CC) -O2 $(RAYGUI_FLAGS) -w -c $(SRC)/raygui_impl.c -o $@
 
-#: [Build] build ./sdrprobe (needs librtlsdr and raylib dev headers)
-sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
+#: [Build] build ./sdrprobe-gui, the window (needs raylib dev headers)
+sdrprobe-gui: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 		$(GUI_SRC) $(GUI_HDR) $(BUILD)/raygui_impl.o $(BUILD)/viewer_page.h
 	$(Q)printf '  cc  %s\n' $@
 	$(Q)$(CC) $(CFLAGS) $(RAYGUI_FLAGS) $(WEB_CFLAGS) -pthread \
@@ -203,13 +208,13 @@ sdrprobe: $(SRC)/sdrprobe.c $(APP_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 # something in the server's half reached into the window's. So the recipe
 # reads its own ld output back and says which file called what, before
 # printing the raw text underneath for anyone who wants it.
-#: [Build] build ./sdrprobe-server, the same program with no window and no raylib
-sdrprobe-server: $(SRC)/server_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
+#: [Build] build ./sdrprobe: headless and web, with no raylib (needs librtlsdr only)
+sdrprobe: $(SRC)/sdrprobe_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HDR) \
 		$(BUILD)/viewer_page.h
 	@mkdir -p $(BUILD)
 	$(Q)printf '  cc  %s\n' $@
 	$(Q)$(CC) $(CFLAGS) $(WEB_CFLAGS) -pthread \
-		-o $@ $(SRC)/server_main.c $(CORE_SRC) $(DSP_SRC) \
+		-o $@ $(SRC)/sdrprobe_main.c $(CORE_SRC) $(DSP_SRC) \
 		$(LDFLAGS) $(LDLIBS) -pthread 2> $(BUILD)/server_link.err || { \
 		echo ""; \
 		echo "  The server pulled in the window. What reached for it:"; \
@@ -231,19 +236,19 @@ sdrprobe-server: $(SRC)/server_main.c $(CORE_SRC) $(APP_HDR) $(DSP_SRC) $(DSP_HD
 # server-side file that reaches for a view, an overlay, raygui or raylib
 # stops the gate rather than a reader.
 #
-# It is the whole `sdrprobe-server` binary and not a contrivance: the same
+# It is the whole `./sdrprobe` binary and not a contrivance: the same
 # rule ships it. A check that built something nobody runs would rot exactly
 # the way `check-signal-probe` did while it was green and ungated.
-#: [Checks] the server links with no window: no raylib header, no raylib library
-check-server-link: sdrprobe-server
-	$(Q)./sdrprobe-server --version > /dev/null
-	$(Q)if ldd ./sdrprobe-server | grep -qiE 'raylib|libGL|libX11|wayland'; then \
-		echo "  FAIL  sdrprobe-server links the window:"; \
-		ldd ./sdrprobe-server | grep -iE 'raylib|libGL|libX11|wayland'; \
+#: [Checks] ./sdrprobe links no window: no raylib header, no raylib library
+check-no-window-link: sdrprobe
+	$(Q)./sdrprobe --version > /dev/null
+	$(Q)if ldd ./sdrprobe | grep -qiE 'raylib|libGL|libX11|wayland'; then \
+		echo "  FAIL  ./sdrprobe links the window:"; \
+		ldd ./sdrprobe | grep -iE 'raylib|libGL|libX11|wayland'; \
 		exit 1; \
 	fi
 	$(Q)printf '  %-56s %5d checks   ok\n' \
-		"the server links with no window" 2
+		"./sdrprobe links no window" 2
 	$(Q)if [ -n "$$CHECK_TALLY" ]; then echo "2 0" >> "$$CHECK_TALLY"; fi
 
 # Per-technology hardware-free DSP checks. Each technology's checks build and
@@ -651,7 +656,7 @@ check-options: $(TESTS)/options_test.c $(TESTS)/check.h $(SRC)/options.c $(SRC)/
 # decode, record, and the flags that reach them. Needs the binary and about ten
 # seconds; needs no receiver and nobody watching.
 #: [Gate] the built program over testfiles/, asserting on stdout
-check-pipelines: sdrprobe sdrprobe-server $(TESTS)/pipelines.sh $(FORMAT16)
+check-pipelines: sdrprobe sdrprobe-gui $(TESTS)/pipelines.sh $(FORMAT16)
 	@$(TESTS)/pipelines.sh
 
 # When a frequency correction may be trusted (ADR-0004). Pure arithmetic, so
@@ -1064,7 +1069,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-server-link check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-no-window-link check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \
@@ -1443,11 +1448,11 @@ SCREEN_H?=950
 # A change touches a screen or two; rendering the other ten costs a minute to
 # learn nothing.
 #: [Diagnostics] render the views from captures into build/screens/ (NAMES="gsm lte")
-screens: sdrprobe
+screens: sdrprobe-gui
 	@mkdir -p $(SCREEN_DIR)
 	$(Q)NAMES="$(NAMES)" sh scripts/screens.sh $(SCREEN_DIR) $(SCREEN_W) $(SCREEN_H)
 
-#: [Diagnostics] what `server` costs per subscription, live (SUBS_SERVE=, FFT_SERVE=)
+#: [Diagnostics] what `web` costs per subscription, live (SUBS_SERVE=, FFT_SERVE=)
 bench-serve: sdrprobe
 	$(Q)sh scripts/serve_cost.sh
 
@@ -1467,8 +1472,8 @@ hooks:
 	@printf '  %-34s %s\n' "pre-push" \
 		"installed; git push --no-verify skips it"
 
-#: [Tools] remove ./sdrprobe and build/
+#: [Tools] remove both binaries and build/
 clean:
-	rm -rf sdrprobe sdrprobe-server $(BUILD)
+	rm -rf sdrprobe sdrprobe-gui $(BUILD)
 
 .PHONY: help all check check-make-help $(CHECK_UNITS) hooks check-dsp probe-gsm-chain probe-adsb-chain probe-lte-chain probe-nbiot probe-two-cell probe-signal probe-ook probe-fcch probe-tone probe-artifacts probe-periodicity probe-survey-threshold bench-dsp screens rescale-capture add-argument clean

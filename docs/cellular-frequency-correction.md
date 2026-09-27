@@ -73,7 +73,7 @@ live receiver and a sample rate of at least 1 MS/s.
    believed to be correct, for example:
 
 ```sh
-./sdrprobe --frequency 1090M --sample-rate 2000000 \
+./sdrprobe-gui --frequency 1090M --sample-rate 2000000 \
   --gain 32.8 --ppm 0
 ```
 

@@ -29,7 +29,7 @@ tab after that startup flow.
 
 The command line is a peer interface, not a reduced demo. Headless paths can
 survey, confirm, watch, save, record, decode, scan LTE bands, walk the LTE
-chain, and calibrate. `./sdrprobe --help` is the authoritative option list;
+chain, and calibrate. `./sdrprobe-gui --help` is the authoritative option list;
 [README.md](../README.md) gives representative invocations.
 
 ## Sources and sample containers

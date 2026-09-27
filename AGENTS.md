@@ -110,7 +110,7 @@ transmitted information lives in a second bounded context (see
   library, and opens no window. A failure means geometry moved; if that was
   intended, re-bless the numbers in `tests/layout_test.c` in the same
   commit, so the diff shows what shifted.
-- `./sdrprobe [--frequency Hz|K|M|G] [--sample-rate S/s] [--gain max|auto|dB] [--ppm N]`
+- `./sdrprobe-gui [--frequency Hz|K|M|G] [--sample-rate S/s] [--gain max|auto|dB] [--ppm N]`
   plus the scripted flags: `--list-devices` (what is attached and whether it can
   be opened, which is how a busy dongle announces itself), `--device N`,
   `--view NAME` to open on a screen, `--record-seconds N` with `--technology`

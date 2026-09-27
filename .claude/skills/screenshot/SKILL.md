@@ -99,7 +99,7 @@ give.
 ## The debug log says what actually arrived
 
 ```sh
-./sdrprobe --view fm --duration 20 --debug-log /tmp/run.log
+./sdrprobe-gui --view fm --duration 20 --debug-log /tmp/run.log
 ```
 
 One line per key, click, retune, and screen change -- and for a key, the
@@ -141,7 +141,7 @@ narrow, and a misread digit looks like a decode bug.
    the frame is captured as the run ends.
 
    ```sh
-   ./sdrprobe --file testfiles/lte_b20_pci28.bin --view lte --earfcn 6200 \
+   ./sdrprobe-gui --file testfiles/lte_b20_pci28.bin --view lte --earfcn 6200 \
        --duration 6 --screenshot /tmp/shot.png
    ```
 

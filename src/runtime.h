@@ -209,7 +209,7 @@ int survey_report_run(struct app *app);
  * The window, to whichever binary has one.
  *
  * `sdrprobe` fills this in with its frame loop and its teardown;
- * `sdrprobe-server` passes NULL, is built with no raylib at all, and refuses
+ * `sdrprobe` passes NULL, is built with no raylib at all, and refuses
  * a windowed mode by naming the build (`.scratch/layer-boundaries/issues/04-*`).
  * Everything else about the two runs -- the flags, the subcommands, the
  * messages -- is `app_main.c` and identical.
