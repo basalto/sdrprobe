@@ -40,7 +40,8 @@ enum viewer_screen {
     VIEWER_SCREEN_GSM,
     VIEWER_SCREEN_ADSB,
     VIEWER_SCREEN_TETRA,
-    VIEWER_SCREEN_SRD
+    VIEWER_SCREEN_SRD,
+    VIEWER_SCREEN_LTE
 };
 
 struct viewer_command {

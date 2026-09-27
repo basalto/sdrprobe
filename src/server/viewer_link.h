@@ -7,6 +7,7 @@
 #include "model/fm_view_model.h"
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
+#include "model/lte_view_model.h"
 #include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
 #include "model/scope_view_model.h"
@@ -166,6 +167,7 @@ enum viewer_stream {
     VIEWER_STREAM_ADSB_STATE,
     VIEWER_STREAM_TETRA_STATE,
     VIEWER_STREAM_SRD_STATE,
+    VIEWER_STREAM_LTE_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -365,6 +367,15 @@ void viewer_link_publish_tetra_state(struct viewer_link *link,
    retune does not drag the history with it. */
 void viewer_link_publish_srd_state(struct viewer_link *link,
                                    const struct srd_view_model *svm,
+                                   uint64_t now_ms);
+
+/* The LTE screen: the funnel, the cell, what each measurement has done since
+   the identity last changed, the broadcast, the findings already worded, and
+   the band scan's rows. The largest of these objects by some way -- eight
+   findings of 120 characters and 24 scan rows -- so its buffer is sized for
+   both rather than for the usual case. */
+void viewer_link_publish_lte_state(struct viewer_link *link,
+                                   const struct lte_view_model *lvm,
                                    uint64_t now_ms);
 
 /*

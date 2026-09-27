@@ -34,7 +34,8 @@ static const struct {
     { "gsm",    VIEWER_SCREEN_GSM },
     { "adsb",   VIEWER_SCREEN_ADSB },
     { "tetra",  VIEWER_SCREEN_TETRA },
-    { "srd",    VIEWER_SCREEN_SRD }
+    { "srd",    VIEWER_SCREEN_SRD },
+    { "lte",    VIEWER_SCREEN_LTE }
 };
 
 int viewer_command_parse(const char *line, size_t len, struct viewer_command *out,

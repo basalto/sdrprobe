@@ -89,7 +89,8 @@ int viewer_link_open(struct viewer_link *link, uint16_t port,
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
-    "gsm_state", "adsb_state", "tetra_state", "srd_state"
+    "gsm_state", "adsb_state", "tetra_state", "srd_state",
+    "lte_state"
 };
 
 /*
@@ -1553,6 +1554,157 @@ void viewer_link_publish_tetra_state(struct viewer_link *link,
 }
 
 /* The SRD screen. 64 rows, each with up to 32 bytes rendered as hex. */
+/*
+ * One row of the LTE statistics table: smallest, mean, largest, and how many
+ * readings are behind them. The count travels because it is what separates a
+ * steady cell from a run of one block -- a mean of one reading is that
+ * reading, and the table's whole reason for existing is to say which.
+ */
+static int lte_stat_json(char *out, size_t cap, const char *name,
+                         const struct lte_stat *st) {
+    return snprintf(out, cap,
+                    "\"%s\":{\"min\":%.2f,\"mean\":%.2f,\"max\":%.2f,"
+                    "\"count\":%lu}",
+                    name, (double)st->min, (double)lte_stat_mean(st),
+                    (double)st->max, st->count);
+}
+
+void viewer_link_publish_lte_state(struct viewer_link *link,
+                                   const struct lte_view_model *lvm,
+                                   uint64_t now_ms) {
+    char json[16384];
+    char status[320];
+    char progress[192];
+    char note[256];
+    int json_len, used, i;
+
+    json_escape_into(status, sizeof(status), lvm->status,
+                     strlen(lvm->status));
+    json_escape_into(progress, sizeof(progress), lvm->scan_progress,
+                     strlen(lvm->scan_progress));
+    json_escape_into(note, sizeof(note), lvm->scan_note,
+                     strlen(lvm->scan_note));
+    used = snprintf(json, sizeof(json),
+                    "{\"type\":\"lte_state\",\"timestamp_ms\":%llu,"
+                    "\"earfcn\":%d,\"centre_hz\":%.0f,\"band\":%d,"
+                    "\"blocks_seen\":%llu,\"cells_found\":%llu,"
+                    "\"mibs_decoded\":%llu,\"mibs_confirmed\":%llu,"
+                    "\"status\":\"%s\","
+                    "\"cell_valid\":%s,\"pci\":%d,\"n_id_1\":%d,"
+                    "\"n_id_2\":%d,\"extended_cp\":%s,"
+                    "\"subframe_sample\":%d,\"second_half\":%s,"
+                    "\"crystal_ppm\":%.2f,\"crystal_subcarriers\":%d,"
+                    "\"cell_age_seconds\":%.1f,"
+                    "\"mib_valid\":%s,\"bandwidth_rb\":%d,"
+                    "\"bandwidth_mhz\":%.2f,\"phich\":\"%s\","
+                    "\"frame_number\":%d,"
+                    "\"quarter\":%d,\"antenna_ports\":%d,"
+                    "\"mib_age_seconds\":%.1f,"
+                    "\"on_grid\":%s,\"scanning\":%s,"
+                    "\"confirming\":%s,\"scan_progress\":\"%s\","
+                    "\"scan_note\":\"%s\",",
+                    (unsigned long long)now_ms,
+                    lvm->earfcn, lvm->centre_hz, lvm->band,
+                    (unsigned long long)lvm->blocks_seen,
+                    (unsigned long long)lvm->cells_found,
+                    (unsigned long long)lvm->mibs_decoded,
+                    (unsigned long long)lvm->mibs_confirmed,
+                    status,
+                    lvm->cell_valid ? "true" : "false",
+                    lvm->pci, lvm->n_id_1, lvm->n_id_2,
+                    lvm->extended_cp ? "true" : "false",
+                    lvm->subframe_sample,
+                    lvm->second_half ? "true" : "false",
+                    lvm->crystal_ppm, lvm->crystal_subcarriers,
+                    lvm->cell_age_seconds,
+                    lvm->mib_valid ? "true" : "false",
+                    lvm->bandwidth_rb, lvm->bandwidth_mhz, lvm->phich,
+                    lvm->frame_number, lvm->quarter, lvm->antenna_ports,
+                    lvm->mib_age_seconds,
+                    lvm->on_grid ? "true" : "false",
+                    lvm->scanning ? "true" : "false",
+                    lvm->confirming ? "true" : "false",
+                    progress, note);
+    if (used <= 0 || (size_t)used >= sizeof(json))
+        return;
+
+    used += snprintf(json + used, sizeof(json) - (size_t)used,
+                     "\"stats_valid\":%s,\"stats_pci\":%d,\"stats\":{",
+                     lvm->stats_valid ? "true" : "false", lvm->stats.pci);
+    {
+        static const char *const names[] = {
+            "frequency_khz", "pss", "sss", "rsrp_dbfs", "rsrq_db",
+            "sinr_db", "delay_ns", "spread_ns", "drift_hz", "ports"
+        };
+        const struct lte_stat *stats[] = {
+            &lvm->stats.frequency_khz, &lvm->stats.pss, &lvm->stats.sss,
+            &lvm->stats.rsrp_dbfs, &lvm->stats.rsrq_db, &lvm->stats.sinr_db,
+            &lvm->stats.delay_ns, &lvm->stats.spread_ns,
+            &lvm->stats.drift_hz, &lvm->stats.ports
+        };
+        for (i = 0; i < (int)(sizeof(stats) / sizeof(stats[0])); i++) {
+            if (i)
+                used += snprintf(json + used, sizeof(json) - (size_t)used,
+                                 ",");
+            used += lte_stat_json(json + used, sizeof(json) - (size_t)used,
+                                  names[i], stats[i]);
+        }
+    }
+    used += snprintf(json + used, sizeof(json) - (size_t)used,
+                     "},\"findings\":[");
+    /* The findings are sentences chosen by `lte_findings_from()`, so they
+       cross the wire whole -- a browser that re-worded them would be a
+       second decider about the same numbers. */
+    for (i = 0; i < lvm->findings.count; i++) {
+        char escaped[LTE_FINDING_TEXT * 2 + 8];
+
+        if (used > (int)sizeof(json) - 320)
+            break;
+        json_escape_into(escaped, sizeof(escaped), lvm->findings.line[i],
+                         strlen(lvm->findings.line[i]));
+        used += snprintf(json + used, sizeof(json) - (size_t)used,
+                         "%s\"%s\"", i ? "," : "", escaped);
+    }
+    used += snprintf(json + used, sizeof(json) - (size_t)used, "],\"found\":[");
+    for (i = 0; i < lvm->found_count; i++) {
+        const struct lte_found_cell *f = &lvm->found[i];
+
+        if (used > (int)sizeof(json) - 160)
+            break;
+        used += snprintf(json + used, sizeof(json) - (size_t)used,
+                         "%s{\"earfcn\":%u,\"hz\":%.0f,\"pci\":%d,"
+                         "\"pss\":%.2f,\"sss_margin\":%.2f}",
+                         i ? "," : "", f->earfcn, (double)f->frequency_hz,
+                         f->pci, (double)f->pss, (double)f->sss_margin);
+    }
+    used += snprintf(json + used, sizeof(json) - (size_t)used, "]}");
+
+    json_len = used;
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_LTE_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_LTE_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
 void viewer_link_publish_srd_state(struct viewer_link *link,
                                    const struct srd_view_model *svm,
                                    uint64_t now_ms) {

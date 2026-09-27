@@ -93,7 +93,8 @@ RANGE_HEADER_TYPES = (3, 4)
 # VIEWER_MESSAGE_SURVEY_SPECTRUM is what they are transcribed from).
 ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
                "survey_spectrum", "survey_state", "fm_spectrum",
-               "fm_state", "gsm_state", "adsb_state", "tetra_state", "srd_state")
+               "fm_state", "gsm_state", "adsb_state", "tetra_state", "srd_state",
+               "lte_state")
 
 
 class ViewerClient:
@@ -352,6 +353,18 @@ def run_print(client, count):
                      f"frames={state['frames']} "
                      f"carrier={state['carrier_offset_hz'] / 1e3:+.1f} kHz "
                      f"log={len(state['log'])} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            elif state.get("type") == "lte_state":
+                print(f"lte_state       earfcn={state['earfcn']} "
+                     f"band={state['band']} "
+                     f"pci={state['pci'] if state['cell_valid'] else '-'} "
+                     f"ppm={state['crystal_ppm']:+.1f} "
+                     f"funnel={state['blocks_seen']}/{state['cells_found']}/"
+                     f"{state['mibs_decoded']}/{state['mibs_confirmed']} "
+                     f"mib={state['bandwidth_rb']}rb/"
+                     f"{state['antenna_ports']}port "
+                     f"findings={len(state['findings'])} "
+                     f"found={len(state['found'])} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             elif state.get("type") == "receiver_state":
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "

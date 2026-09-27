@@ -251,7 +251,8 @@ async function run() {
     // GSM is visited over an FM capture, so its readouts say "idle" and
     // "none" -- which is the point: a view has to lay out correctly before
     // it has anything to show, and that is the state a reader meets first.
-    for (const tab of ['scope', 'survey', 'fm', 'gsm', 'adsb', 'tetra', 'srd']) {
+    for (const tab of ['scope', 'survey', 'fm', 'gsm', 'adsb', 'tetra', 'srd',
+                     'lte']) {
       await evaluate(`document.getElementById('tab-${tab}').click(); true`);
       /*
        * Wait for the panel to actually be the one showing, rather than

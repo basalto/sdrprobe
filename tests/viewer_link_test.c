@@ -754,7 +754,8 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
     static const char *const names[] = {
         "spectrum", "waterfall", "receiver_state", "link_health",
         "command_result", "survey_spectrum", "survey_state", "fm_spectrum",
-        "fm_state", "gsm_state", "adsb_state", "tetra_state", "srd_state"
+        "fm_state", "gsm_state", "adsb_state", "tetra_state", "srd_state",
+        "lte_state"
     };
     size_t n = sizeof(names) / sizeof(names[0]);
     uint16_t port = open_test_link();
@@ -917,7 +918,7 @@ static void test_link_health_reports_this_clients_own_counters(void) {
             "spectrum", "waterfall", "receiver_state", "link_health",
             "command_result", "survey_spectrum", "survey_state",
             "fm_spectrum", "fm_state", "gsm_state", "adsb_state", "tetra_state",
-            "srd_state"
+            "srd_state", "lte_state"
         };
         size_t n = sizeof(names) / sizeof(names[0]);
         size_t k;

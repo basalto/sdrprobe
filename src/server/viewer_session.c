@@ -11,6 +11,7 @@
 #include "model/fm_view_model.h"
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
+#include "model/lte_view_model.h"
 #include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
 #include "runtime/frame_advance.h"
@@ -120,6 +121,10 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
                 break;
             case VIEWER_SCREEN_SRD:
                 set_decode(app, DECODE_SRD, now);
+                set_tab(app, TAB_DECODE, now);
+                break;
+            case VIEWER_SCREEN_LTE:
+                set_decode(app, DECODE_LTE, now);
                 set_tab(app, TAB_DECODE, now);
                 break;
             case VIEWER_SCREEN_SCOPE:
@@ -335,6 +340,7 @@ int viewer_session_run(struct app *app) {
         struct adsb_view_model adsb_svm;
         struct tetra_view_model tetra_svm;
         struct srd_view_model srd_svm;
+        struct lte_view_model lte_svm;
         const struct receiver_view_model *rvm;
         uint64_t now_ms;
 
@@ -428,6 +434,27 @@ int viewer_session_run(struct app *app) {
             srd_view_model_build(&app->srd, app->applied.frequency_hz,
                                  app->applied.sample_rate_hz, &srd_svm);
             viewer_link_publish_srd_state(&link, &srd_svm, now_ms);
+            /* And LTE, on the same gate. The tuning it is handed is the
+               applied one, because the crystal error in ppm is that offset
+               over *this* carrier and means nothing without it. */
+            {
+                const struct lte_band *lte_band = selected_band(app);
+                struct lte_view_context lte_ctx;
+
+                memset(&lte_ctx, 0, sizeof(lte_ctx));
+                lte_ctx.centre_hz = app->applied.frequency_hz;
+                lte_ctx.band_number = lte_band ? lte_band->band : 0;
+                if (lte_band && app->lte.scan.running)
+                    lte_earfcn_downlink_hz(
+                        lte_scan_candidate(lte_band,
+                                           app->lte.scan.candidate),
+                        &lte_ctx.scan_candidate_hz);
+                lte_ctx.on_grid = lte_on_grid(app);
+                lte_ctx.receiver_mode = app->receiver_mode;
+                lte_ctx.now = now;
+                lte_view_model_build(&app->lte, &lte_ctx, &lte_svm);
+            }
+            viewer_link_publish_lte_state(&link, &lte_svm, now_ms);
         }
         /*
          * Not gated on spectrum_updated -- the tuning can change (the retune

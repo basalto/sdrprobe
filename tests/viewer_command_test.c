@@ -234,10 +234,18 @@ static void test_view_with_no_screen_is_refused(void) {
     check_true("it says why", strstr(error, "screen") != NULL);
 }
 
+/*
+ * A name the table does not hold.
+ *
+ * This asked about `view lte` until the LTE view landed and the table grew a
+ * row for it -- the last of ticket 07's seven, so there is no unserved
+ * screen left to name. A check written against "the one that is missing" has
+ * a shelf life; one written against a name nothing will ever serve does not.
+ */
 static void test_view_of_an_unrecognized_screen_is_refused(void) {
     struct viewer_command cmd;
     char error[64];
-    const char *line = "view lte";
+    const char *line = "view nosuchscreen";
 
     check_int("a screen this link does not serve is refused",
              viewer_command_parse(line, strlen(line), &cmd, error,
