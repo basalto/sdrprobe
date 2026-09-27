@@ -138,11 +138,60 @@ static void test_the_log_is_whole_and_clamped(void) {
     check_int("and a negative one carries nothing", m.log_count, 0);
 }
 
+/*
+ * The location area is read from a *different* block from the rest of the
+ * identity, so there is a window in which the identity is real and the
+ * location area is not known yet -- which is not a location area of zero.
+ *
+ * The window asked `broadcast_total > 0` in two places and worded the answer
+ * two different ways; the waterfall marker did not ask at all and printed
+ * "LA 0" over a carrier whose location area had not arrived.
+ */
+static void test_an_unread_location_area_is_not_zero(void) {
+    struct tetra_view_model m;
+
+    blank();
+    tetra.session.have_identity = 1;
+    tetra.session.mcc = 268;
+    tetra.session.mnc = 3;
+    tetra.session.colour = 17;
+    tetra.session.la = 4375;
+
+    m = build(1);
+    check_int("the identity is there", m.have_identity, 1);
+    check_int("and its colour code with it", m.colour, 17);
+    check_int("but no broadcast block has arrived", m.la_read, 0);
+    check_str("so the marker says so rather than naming one",
+              m.marker_label, "LA unread");
+
+    tetra.session.broadcast_total = 1;
+    m = build(1);
+    check_int("one broadcast block is enough", m.la_read, 1);
+    check_int("and the area is carried", m.la, 4375);
+    check_str("and named", m.marker_label, "LA 4375");
+}
+
+/*
+ * A marker is a claim that something is there, and `lock` alone is not one.
+ * With no identity there is no marker, which is what the empty label says.
+ */
+static void test_no_identity_puts_no_marker_on_the_waterfall(void) {
+    struct tetra_view_model m;
+
+    blank();
+    tetra.session.lock = 0.81f;
+    m = build(1);
+    check_int("a lock is not an identity", m.have_identity, 0);
+    check_str("so nothing is claimed over the carrier", m.marker_label, "");
+}
+
 int main(void) {
     test_an_unestablished_identity_is_not_carried();
     test_the_funnel_separates_three_kinds_of_nothing();
     test_lock_travels_as_a_number();
     test_the_log_is_whole_and_clamped();
+    test_an_unread_location_area_is_not_zero();
+    test_no_identity_puts_no_marker_on_the_waterfall();
     return check_report("what the TETRA screen says, decided without a "
                         "screen");
 }

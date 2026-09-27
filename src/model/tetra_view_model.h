@@ -60,12 +60,32 @@ struct tetra_view_model {
        this minute's heading. */
     int have_identity;
     int mcc, mnc, colour, la;
+    /*
+     * And whether the location area has actually been read.
+     *
+     * It comes from the **broadcast** block, which is scrambled with the
+     * network's own colour code and so cannot be read until the
+     * synchronization block has given that up -- so there is a window in
+     * which the colour code is known and the location area is not, and
+     * `la` is 0 rather than unknown. The window asked
+     * `broadcast_total > 0` in two places and worded the answer two
+     * different ways ("LA un4375" in the header, "location area unread" in
+     * the panel); the wire did not carry it at all.
+     */
+    int la_read;
 
     /* The funnel: this block, and the run. `blocks_failed` is the middle
        term -- synchronisation matched, parity did not. */
     int bursts, blocks, broadcast;
     unsigned long long bursts_total, blocks_total, broadcast_total;
     unsigned long long blocks_failed;
+
+    /*
+     * What the waterfall marker over this carrier says, and whether there is
+     * one at all. Empty when nothing has decoded: a marker is a claim that
+     * something is there, and `lock` alone is not one.
+     */
+    char marker_label[24];
 
     /* The identities seen, newest first. */
     int log_count;

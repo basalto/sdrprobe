@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "model/tetra_view_model.h"
 #include "gui/view.h"
 #include "runtime/debug_log.h"
 #include "gui/tetra_layout.h"
@@ -53,8 +54,7 @@ void handle_tetra_input(struct app *app) {
     }
 }
 
-static void draw_identity(const struct app *app, Rectangle box) {
-    const struct tetra_view *t = &app->tetra;
+static void draw_identity(const struct tetra_view_model *m, Rectangle box) {
     struct panel_rows rows = panel_rows_for(box, TETRA_PANEL_CAPTION_DROP,
                                             TETRA_PANEL_ROW_HEIGHT, 0.0f,
                                             0.0f, 0.0f);
@@ -65,9 +65,16 @@ static void draw_identity(const struct app *app, Rectangle box) {
     DrawRectangleLinesEx(box, 1.0f, (Color){ 48, 66, 88, 255 });
     DrawText("Network", (int)box.x + 10, (int)box.y + 8, 14,
              (Color){ 150, 176, 202, 255 });
-    if (!t->session.have_identity) {
-        sdrgui_text_fit("nothing has decoded yet", (int)box.x + 10, y, 14,
-                        box.width - 20.0f, (Color){ 120, 140, 160, 255 });
+    if (!m->have_identity) {
+        /* Three causes of an empty panel and they are not the same answer:
+           at the wrong rate the channel filter cannot decimate, so nothing
+           could have decoded whatever is on air (`tetra_session.h`). */
+        sdrgui_text_fit(m->rate_supported
+                            ? "nothing has decoded yet"
+                            : "wrong sample rate for TETRA",
+                        (int)box.x + 10, y, 14, box.width - 20.0f,
+                        m->rate_supported ? (Color){ 120, 140, 160, 255 }
+                                          : (Color){ 250, 190, 74, 255 });
         return;
     }
     /*
@@ -77,26 +84,26 @@ static void draw_identity(const struct app *app, Rectangle box) {
      */
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        snprintf(text, sizeof(text), "MCC  %d", t->session.mcc);
+        snprintf(text, sizeof(text), "MCC  %d", m->mcc);
         DrawText(text, (int)box.x + 10, y, 18, (Color){ 226, 236, 245, 255 });
     }
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        snprintf(text, sizeof(text), "MNC  %d", t->session.mnc);
+        snprintf(text, sizeof(text), "MNC  %d", m->mnc);
         DrawText(text, (int)box.x + 10, y, 18, (Color){ 226, 236, 245, 255 });
     }
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        snprintf(text, sizeof(text), "colour code  %d", t->session.colour);
+        snprintf(text, sizeof(text), "colour code  %d", m->colour);
         DrawText(text, (int)box.x + 10, y, 16, (Color){ 190, 210, 228, 255 });
     }
     r++;
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
-        if (t->session.broadcast_total > 0) {
-            snprintf(text, sizeof(text), "location area  %d", t->session.la);
+        if (m->la_read) {
+            snprintf(text, sizeof(text), "location area  %d", m->la);
             DrawText(text, (int)box.x + 10, y, 16,
                      (Color){ 190, 210, 228, 255 });
         } else {
@@ -108,14 +115,14 @@ static void draw_identity(const struct app *app, Rectangle box) {
     if (panel_row_visible(&rows, r)) {
         y = (int)panel_row_y(&rows, r);
         snprintf(text, sizeof(text), "lock %.2f   offset %+.0f Hz",
-                 (double)t->session.lock, t->session.offset_hz);
+                 (double)m->lock, m->offset_hz);
         sdrgui_text_fit(text, (int)box.x + 10, y, 14, box.width - 20.0f,
                         (Color){ 150, 176, 202, 255 });
     }
 }
 
-static void draw_log(struct app *app, Rectangle box) {
-    struct tetra_view *t = &app->tetra;
+static void draw_log(const struct tetra_view_model *m, int selected,
+                     Rectangle box) {
     struct sdrgui_message_log_params params;
     static struct sdrgui_message_log_row rows[TETRA_LOG_CAPACITY];
     static char at[TETRA_LOG_CAPACITY][16];
@@ -126,14 +133,14 @@ static void draw_log(struct app *app, Rectangle box) {
 
     /* Rows are one identity rather than one burst -- seventy a second all
        saying the same thing is not a log, it is a stuck key. */
-    for (i = 0; i < t->log_count; i++) {
-        snprintf(at[i], sizeof(at[i]), "%6.1fs", t->log[i].at);
-        snprintf(who[i], sizeof(who[i]), "%d-%d", t->log[i].mcc,
-                 t->log[i].mnc);
+    for (i = 0; i < m->log_count; i++) {
+        snprintf(at[i], sizeof(at[i]), "%6.1fs", m->log[i].at);
+        snprintf(who[i], sizeof(who[i]), "%d-%d", m->log[i].mcc,
+                 m->log[i].mnc);
         snprintf(detail[i], sizeof(detail[i]), "colour %d   LA %d",
-                 t->log[i].colour, t->log[i].la);
+                 m->log[i].colour, m->log[i].la);
         snprintf(counts[i], sizeof(counts[i]), "%d burst / %d block / %d bcast",
-                 t->log[i].bursts, t->log[i].blocks, t->log[i].broadcast);
+                 m->log[i].bursts, m->log[i].blocks, m->log[i].broadcast);
         rows[i].time = at[i];
         rows[i].id = who[i];
         rows[i].label = "SYNC";
@@ -144,12 +151,12 @@ static void draw_log(struct app *app, Rectangle box) {
     memset(&params, 0, sizeof(params));
     params.plot = box;
     params.rows = rows;
-    params.count = t->log_count;
+    params.count = m->log_count;
     params.caption = "Identities";
     params.empty_notice = "nothing has decoded yet";
     params.id_heading = "NETWORK";
     params.label_heading = "TYPE";
-    params.selected_row = t->selected_log;
+    params.selected_row = selected;
     /* Drawn, and nothing more: selecting a row is handle_tetra_input()'s. */
     sdrgui_message_log(&params);
 }
@@ -158,29 +165,53 @@ void draw_tetra(struct app *app) {
     struct tetra_view *t = &app->tetra;
     struct tetra_layout l = tetra_layout_for((float)GetScreenWidth(),
                                              (float)GetScreenHeight());
+    struct tetra_view_model m;
     char text[192];
 
-    if (t->session.have_identity)
+    /*
+     * Everything this view *decides* -- whether the rate can decode at all,
+     * whether the location area has been read, what the marker claims --
+     * is `tetra_view_model_build()`'s, so this drawing and the browser's
+     * cannot come to different answers (`web-visualization/16`).
+     */
+    tetra_view_model_build(t, &m);
+
+    if (m.have_identity)
         snprintf(text, sizeof(text),
                  "TETRA  MCC %d  MNC %d  colour code %d  LA %s%d",
-                 t->session.mcc, t->session.mnc, t->session.colour,
-                 t->session.broadcast_total > 0 ? "" : "un", t->session.la);
+                 m.mcc, m.mnc, m.colour, m.la_read ? "" : "un", m.la);
+    else if (!m.rate_supported)
+        /*
+         * The diagnosis the window could not give. `tetra_session_feed()`
+         * has always said so in its event and the headless path has always
+         * printed it; the window threw the event away, so a wrong rate read
+         * as "no network identity yet (lock 0.00)" -- which is a statement
+         * about the air, and this is a statement about the receiver.
+         */
+        /*
+         * Short enough to survive `sdrgui_text_fit()` at 640 px, because a
+         * clipped explanation is a dangling fragment and worse than none:
+         * the first draft ended "(the channel filter ne..." on a narrow
+         * window. The *why* is one line long in the browser, which wraps,
+         * and in the headless report, which does not truncate at all.
+         */
+        snprintf(text, sizeof(text),
+                 "TETRA  wrong sample rate -- nothing can decode here");
     else
         snprintf(text, sizeof(text),
                  "TETRA  no network identity yet  (lock %.2f)",
-                 (double)t->session.lock);
+                 (double)m.lock);
     sdrgui_text_fit(text, (int)l.header_left, 78, 20,
                     l.header_right - l.header_left,
-                    (Color){ 226, 236, 245, 255 });
+                    m.rate_supported ? (Color){ 226, 236, 245, 255 }
+                                     : (Color){ 250, 190, 74, 255 });
 
     /* The funnel, which is the diagnosis when nothing decodes: bursts found
        but no parity is a coding fault, no bursts at all is tuning or band. */
     snprintf(text, sizeof(text),
              "%llu burst(s)  %llu with parity  %llu failed  %llu broadcast",
-             (unsigned long long)t->session.bursts_total,
-             (unsigned long long)t->session.blocks_total,
-             (unsigned long long)t->session.blocks_failed,
-             (unsigned long long)t->session.broadcast_total);
+             m.bursts_total, m.blocks_total, m.blocks_failed,
+             m.broadcast_total);
     sdrgui_text_fit(text, (int)l.header_left, 106, 16,
                     l.header_right - l.header_left,
                     (Color){ 150, 176, 202, 255 });
@@ -191,8 +222,12 @@ void draw_tetra(struct app *app) {
     if (!t->analysis_mode) {
         struct sdrgui_waterfall_marker tetra_marker;
         int m_cnt = 0;
-        char tetra_lbl[32];
-        if (t->session.have_identity) {
+
+        /* A marker is a claim that something is there, so there is one
+           exactly when the model has an identity -- and it says what the
+           model says, including "LA unread", which this used to print as a
+           location area of zero. */
+        if (m.marker_label[0]) {
             tetra_marker.frequency_hz = (double)app->applied.frequency_hz;
             tetra_marker.bandwidth_hz = 25000.0; /* 25 kHz channel */
             tetra_marker.age_seconds = 0.5;
@@ -200,14 +235,13 @@ void draw_tetra(struct app *app) {
             tetra_marker.id = 0;
             tetra_marker.highlighted = 1;
             tetra_marker.color = (Color){ 80, 220, 240, 220 };
-            snprintf(tetra_lbl, sizeof(tetra_lbl), "LA %d", t->session.la);
-            tetra_marker.label = tetra_lbl;
+            tetra_marker.label = m.marker_label;
             m_cnt = 1;
         }
 
         draw_waterfall_rect_with_markers(app, 0, l.waterfall, &t->window,
                                          m_cnt ? &tetra_marker : NULL, m_cnt, NULL);
-        draw_log(app, l.log_full);
+        draw_log(&m, t->selected_log, l.log_full);
         return;
     }
 
@@ -243,8 +277,8 @@ void draw_tetra(struct app *app) {
         b.empty_notice = "no burst grid found";
         sdrgui_burst_chart(&b);
     }
-    draw_identity(app, l.identity);
-    draw_log(app, l.log_split);
+    draw_identity(&m, l.identity);
+    draw_log(&m, t->selected_log, l.log_split);
 }
 
 Rectangle tetra_waterfall_rect(const struct app *app) {

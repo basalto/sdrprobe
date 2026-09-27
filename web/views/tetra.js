@@ -54,8 +54,14 @@ const TetraView = (function () {
         + 'channel filter needs a whole-number decimation';
       e.head.style.color = WARN_COLOR;
     } else if (s.have_identity) {
+      // "LA unread" is not "LA 0". The location area rides the broadcast
+      // block, which is scrambled with the network's own colour code and
+      // cannot be read until the synchronisation block has given that up --
+      // so there is a window where the identity is real and the location
+      // area is simply not known yet. The server decides (`la_read`).
       e.head.textContent = 'TETRA   MCC ' + s.mcc + '   MNC ' + s.mnc
-        + '   colour code ' + s.colour + '   LA ' + s.la;
+        + '   colour code ' + s.colour
+        + (s.la_read ? '   LA ' + s.la : '   LA unread');
       e.head.style.color = HEAD_COLOR;
     } else {
       e.head.textContent = 'TETRA   no identity yet   lock '

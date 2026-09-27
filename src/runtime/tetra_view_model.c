@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <stdio.h>
 #include <string.h>
 
 #include "model/tetra_view_model.h"
@@ -35,6 +36,20 @@ void tetra_view_model_build(const struct tetra_view *tetra,
         out->mnc = s->mnc;
         out->colour = s->colour;
         out->la = s->la;
+        /*
+         * The location area rides the broadcast block, which is scrambled
+         * with the network's own colour code and cannot be read until the
+         * synchronization block has given that up. Until one has arrived
+         * the identity is real and its location area is simply not known
+         * yet -- which is a different thing from a location area of zero.
+         */
+        out->la_read = s->broadcast_total > 0;
+        if (out->la_read)
+            snprintf(out->marker_label, sizeof(out->marker_label), "LA %d",
+                     s->la);
+        else
+            snprintf(out->marker_label, sizeof(out->marker_label),
+                     "LA unread");
     }
 
     out->bursts = s->bursts;

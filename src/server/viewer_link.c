@@ -1496,6 +1496,7 @@ void viewer_link_publish_tetra_state(struct viewer_link *link,
                     "\"rate_supported\":%s,\"lock\":%.3f,"
                     "\"offset_hz\":%.1f,\"have_identity\":%s,"
                     "\"mcc\":%d,\"mnc\":%d,\"colour\":%d,\"la\":%d,"
+                    "\"la_read\":%s,\"marker\":\"%s\","
                     "\"bursts\":%d,\"blocks\":%d,\"broadcast\":%d,"
                     "\"bursts_total\":%llu,\"blocks_total\":%llu,"
                     "\"broadcast_total\":%llu,\"blocks_failed\":%llu,"
@@ -1505,6 +1506,7 @@ void viewer_link_publish_tetra_state(struct viewer_link *link,
                     (double)tvm->lock, tvm->offset_hz,
                     tvm->have_identity ? "true" : "false",
                     tvm->mcc, tvm->mnc, tvm->colour, tvm->la,
+                    tvm->la_read ? "true" : "false", tvm->marker_label,
                     tvm->bursts, tvm->blocks, tvm->broadcast,
                     (unsigned long long)tvm->bursts_total,
                     (unsigned long long)tvm->blocks_total,
