@@ -182,6 +182,17 @@ repository, by converting a view that looked finished:
 6. **Two different facts under one caption.** LTE's header printed the
    *picker's* band under a caption promising the band the **tuning** is in.
 
+**A blocker quoted from another ticket's measurement is a number about
+something else until somebody checks what it measured.** Tickets 07 and 14
+deferred the two overlays for two months on "typed input is unsolved, 161
+raylib input call sites". That figure is about the seven **views** — panning
+a chart, hit-testing a marker — where immediate mode really does entangle
+input with layout. The overlays are a form with a commit button:
+`handle_settings_input()` only stages and `apply_settings()` applies the set
+at once. There was nothing to reproduce, and they took two commits. Before
+accepting a stated blocker, check that the measurement behind it is about
+the thing in front of you.
+
 **Do not move data just because it is next to a decision.** ADS-B's message
 log is 48 rows in the model because that is what the wire can afford every
 block (ADR-0027) and 256 in the window. Reading the rows out of the model
@@ -398,6 +409,15 @@ DOM, driven by a real WebSocket. Answers *what did the page decide*: the
 generation rule, the reconnect, the subscribe line sent on a tab switch.
 Fast, no browser. **Structurally blind to layout.** Still a scratch harness;
 ticket 11's (a) is to commit it.
+
+**Not every view shows a measurement, and `check-web-layout` assumes they
+all do unless told.** It asserts "has a canvas", "its biggest chart is not a
+sliver" and "its main content dominates the panel". A **form** — Settings,
+Calibration — has no canvas and a panel sized to its content, because a page
+of controls stretched to fill 900 px is worse than one that stops. Those
+three are skipped for a form by name, and the scroll assertions carry it
+instead, which is what "all its controls are reachable" means for one. That
+assumption has now been wrong twice: ADS-B's table, and a form.
 
 **Drive a view over a capture that is not its own technology.** Every
 refusal path — "wrong sample rate", "outside the allocation", "nothing to

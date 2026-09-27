@@ -1,6 +1,8 @@
 # 17 - The two overlays, as state and named commands
 
-Status: ready-for-agent
+Status: **done** (2026-09-27/28). Both overlays ship; every acceptance
+criterion met. The premise this ticket was written to correct turned out to
+be the most valuable part of it.
 
 ## What this closes
 
@@ -116,3 +118,81 @@ size first.
 - Reproducing chart interactions in the views (07's real unsolved half).
 
 ## Comments
+
+
+**2026-09-28 -- done, in two commits.** `37855b6` (Settings), `d0bbb6b`
+(Calibration).
+
+### The premise, which is why this ticket existed
+
+Tickets 07 and 14 both said the overlays were blocked on unsolved typed
+input, quoting 161 raylib input call sites. **That figure is about the seven
+views.** These two panels are a form with a commit button:
+`handle_settings_input()` only stages, `apply_settings()` validates and
+applies the whole set at once, and calibration is a machine with a start, a
+stop and a verdict. There was nothing to reproduce, and the work took two
+commits rather than the ticket nobody wanted to open.
+
+The lesson generalises past this ticket: **a blocker quoted from another
+ticket's measurement is a number about something else until somebody checks
+which thing it measured.**
+
+### What each overlay turned up
+
+**Settings.** The staged set and the applied one are different facts and
+both travel -- the window shows the difference by having a text field in
+front of the reader, and a second reader with no field of its own would be
+told one number and have no way to know which. A field that does not parse
+counts as **dirty**, because "3-" is a state a reader can be in and a panel
+that looked settled over it would be lying.
+
+**Calibration.** Three decisions, all of them previously unreachable:
+
+- The **source** was spelled in two ternary chains -- `headless_run.c` and
+  the overlay's debug-log line -- and shown on screen nowhere, although
+  ADR-0004 makes it the difference between a correction worth trusting and
+  one belonging to neither reference.
+- **Which clause of the gate is unsatisfied** was named nowhere at all.
+  `calibration_is_stable()` returns one bit, so "it needs four more seconds"
+  and "the scatter is too wide to ever settle" looked identical. The window
+  now says which.
+- **Two references are not one reference twice.** `have_both` is its own
+  field because reporting a gap of `0 - 32` as a disagreement would be the
+  most misleading number on the screen.
+
+And a latent division by `expected_hz` with no guard, reachable only through
+an invariant that line was not the right place to rely on.
+
+### The decision the ticket asked for, made
+
+**`calibrate` starts and stops; it does not apply.** A calibration writes a
+standing fact about this receiver at this site (ADR-0018, ADR-0022), so
+applying it is `set ppm` then `apply` -- one more deliberate act. The
+browser's button stages the suggestion and says where to commit it.
+
+### Two checks corrected assumptions during the work
+
+- `check-viewer-session` failed until the on-time stream count went 2 -> 4.
+  That is exactly the enumeration ticket 12 built, working: a panel that
+  changes when somebody *types* must not wait for a sample block.
+- `check-web-layout` failed on "has a canvas" and "its biggest chart
+  dominates". **Not every view shows a measurement**, and asserting they all
+  do has now been wrong twice -- ADS-B's table, and a form. A form is held
+  to the scroll assertions instead, which is what "all its controls are
+  reachable" means for one.
+
+### Numbers
+
+`check-settings-view-model` 24, `check-calibration-view-model` 31, both
+`-lm` alone. `check-viewer-command` 53 -> 101. `check-viewer-link` 408 ->
+449. `check-web-layout` 107 -> 113, nine tabs. Gate **90 suites, 23022
+checks**.
+
+### What is still window-only, and named rather than implied
+
+The **startup form**, deliberately: it runs before a session exists, on a
+receiver nobody has identified yet, and a browser attached to a running
+server has already missed it (ADR-0024). The help and band-scan overlays.
+And the seven views' chart interactions -- panning, zooming, hit-testing a
+marker -- which is ticket 07's real unsolved half and the thing those 161
+call sites actually describe.

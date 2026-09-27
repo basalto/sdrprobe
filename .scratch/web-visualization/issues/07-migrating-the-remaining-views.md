@@ -1,6 +1,11 @@
 # 07 - Migrating the remaining views
 
-Status: needs-triage -- **all seven views are done**: Survey (2026-09-17), navigation included; FM (2026-09-26); GSM, ADS-B, TETRA, SRD and LTE (2026-09-27). **The two overlays remain** -- Settings and Calibration, which are mostly widgets and typed input, the input half of the seam this ticket says is unsolved.
+Status: **resolved, 2026-09-28** -- ticket 17 finished the two overlays, and
+found that the reason given below for deferring them ("typed input is
+unsolved") was a figure about the *views* rather than about those panels.
+What remains unsolved is the views' chart interactions, which is what those
+161 call sites actually describe; that is its own ticket and nobody has
+written it. Originally: **all seven views are done**: Survey (2026-09-17), navigation included; FM (2026-09-26); GSM, ADS-B, TETRA, SRD and LTE (2026-09-27). **The two overlays remain** -- Settings and Calibration, which are mostly widgets and typed input, the input half of the seam this ticket says is unsolved.
 
 ## Goal
 
