@@ -1,6 +1,6 @@
 # 07 - Migrating the remaining views
 
-Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); **GSM, ADS-B, TETRA and SRD are done** (2026-09-27); LTE remains, then the two overlays.
+Status: needs-triage -- **all seven views are done**: Survey (2026-09-17), navigation included; FM (2026-09-26); GSM, ADS-B, TETRA, SRD and LTE (2026-09-27). **The two overlays remain** -- Settings and Calibration, which are mostly widgets and typed input, the input half of the seam this ticket says is unsolved.
 
 ## Goal
 
@@ -450,3 +450,67 @@ the name poll ran and moved the layout again.
 
 `make check`: **87 suites, 22519 checks**. `check-web-layout` 90 checks,
 seven views, three consecutive clean runs.
+
+
+## Done, 2026-09-27 -- LTE, and the seven views are complete
+
+The three page files, `src/model/lte_view_model.h`, its builder in
+`src/runtime/`, `check-lte-view-model` (41 checks, `-lm` alone) and an
+`lte_state` stream. The largest of the seven -- 1738 bytes of JSON on a
+decoding block -- and the one where the least is decided in JavaScript.
+
+**Four decisions the drawing was making moved into the model as values.**
+The crystal error in parts per million, which is the figure that transfers:
+it is a property of the receiver's crystal rather than of this carrier, so
+it belongs up with the facts while the hertz stay in the statistics table.
+The PHICH's one sentence over its two fields. The scan's progress line,
+which the confirmation pass writes differently because the sweep's would sit
+at 100% and read as a scan that had hung. And the four notes an empty scan
+table gets -- "nobody pressed Scan", "a capture holds one tuning", "still
+looking" and "everything found was withdrawn on its second look" are
+different answers about the band, and a reader seeing no rows and no
+sentence cannot tell them apart.
+
+**A fifth thing did not move, deliberately.** `band_number` and
+`scan_candidate_hz` are `struct lte_view_context` -- facts the caller
+gathers -- rather than fields read from `scan`, which holds an *index* into
+a table this module does not link. Turning an EARFCN into a frequency lives
+in `lte_dsp.c`, and a view model that linked it would bring the whole cell
+search with it.
+
+### Two faults
+
+**`lte_phich_resource_name()` returns NULL outside the four values its
+two-bit field can encode**, and `view_lte.c` hands the result straight to
+`%s`. A MIB whose parity passed cannot be outside them, so it is unreachable
+from the window; a builder handed anything at all can reach it, and the
+model guards it. This libc prints "(null)"; the standard does not say so.
+
+**`check-viewer-command` asked whether `view lte` was refused**, as its
+example of a screen this link does not serve. LTE was the last one missing,
+so the check went green-to-red on the row being added rather than on
+anything breaking. It names `nosuchscreen` now: a check written against "the
+one that is missing" has a shelf life, and one written against a name
+nothing will ever serve does not.
+
+Verified over `testfiles/lte_b20_pci28.bin` at 1.92 MS/s -- EARFCN 6200,
+cell 28, N_ID_1 9 / N_ID_2 1, 50 blocks at 9.00 MHz, two antenna ports,
+-35.3 ppm, five findings including the Doppler refusal -- and at 2.048 MS/s,
+where the panel reads *"Receiver is at 2.048 MS/s; LTE's grid is 1.920"* in
+warning rather than an empty table. That refusal reaching a browser is
+ADR-0014 arriving intact: off the grid nothing could have decoded, which is
+a different answer from "nothing is transmitting".
+
+`make check`: **88 suites, 22578 checks**. `check-web-layout` 101 checks,
+eight views.
+
+### The residue this ticket carries forward
+
+The window's own `view_lte.c` still reads `struct app` directly rather than
+the model, as `view_adsb.c`, `view_tetra.c` and `view_srd.c` do -- so the
+window and the browser are two implementations that agree today for the
+fields the model does not own. Scope, Survey, FM and GSM are converted;
+these four are not. That is the skill's *"the window's own drawing then
+reads the model too, so there is one decision rather than two that agree
+today"*, and it is unfinished for four of seven views. Worth its own ticket
+rather than a line here.

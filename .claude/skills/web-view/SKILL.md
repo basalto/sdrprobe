@@ -138,12 +138,39 @@ The pattern, as FM did it:
   truncated chart.
 - **Anything the drawing *chose*** — which of several sentences, which
   emphasis, which mark — moves into the model as a value.
+  **The test for this is "would a second implementation get it right?", and
+  the answer is usually no.** LTE's four were: the crystal error in ppm (the
+  hertz are on the wire too, and dividing by the wrong frequency is a
+  plausible browser-side mistake); the PHICH's one sentence over two fields;
+  the scan's progress line, which the *confirmation pass* writes differently
+  because the sweep's would sit at 100% and read as a scan that had hung;
+  and the four notes an empty scan table gets, where "nobody pressed Scan"
+  and "everything found was withdrawn on its second look" are different
+  answers about the band. None of the four is arithmetic. All four are a
+  choice somebody made once and a reader acts on.
   `fm_view_model_reading()` picks one of five sentences and a
   `enum fm_reading_tone`; the drawing only picks a colour for a verdict it
   was handed. `survey_mark_of()` (`src/model/survey_mark.h`) is the same idea for the
   survey, and `gsm_sch_reading_name()` the same again.
 - The window's own drawing then reads the model too, so there is one
   decision rather than two that agree today.
+
+**Guard a `%s` the window does not have to.** `lte_phich_resource_name()`
+returns NULL outside the four values its two-bit field can encode, and
+`view_lte.c` passes the result straight to `snprintf`. That is unreachable
+from the window, because a MIB whose parity passed cannot be outside them —
+and reachable in a builder, which a check hands whatever it likes. Every
+`*_name()` a model calls needs a fallback for the value its enum does not
+cover; this libc prints "(null)" and the standard does not say so.
+
+**A builder takes the state it reads, plus a context struct for what the
+view cannot know about itself.** LTE's `struct lte_view_context` carries the
+applied tuning, the picker's band *number*, the sweep's candidate frequency,
+whether the rate is on LTE's grid, whether there is a receiver at all, and
+the clock. Two of those are there specifically to keep the check linking
+`-lm` alone: `scan.band` is an *index* into a table that lives in
+`lte_dsp.c`, and so is the EARFCN-to-hertz map, so resolving either inside
+the builder would drag the whole cell search into the check.
 
 Register the new header in `APP_HDR` and the new rule in `CHECK_UNITS`, and
 re-run both audits in `CLAUDE.md`. A suite that is green and never run is
@@ -330,6 +357,17 @@ generation rule, the reconnect, the subscribe line sent on a tab switch.
 Fast, no browser. **Structurally blind to layout.** Still a scratch harness;
 ticket 11's (a) is to commit it.
 
+**Drive a view over a capture that is not its own technology.** Every
+refusal path — "wrong sample rate", "outside the allocation", "nothing to
+read until a cell is found" — is only reachable that way, and those are the
+panels a reader most needs to be right: an empty table and a sentence saying
+why are different answers. `node scripts/web_layout.mjs --file X --rate R
+--freq F --tab <view> --png OUT` does it; note the flags are `--rate` and
+`--freq`, not `--sample-rate` and `--frequency`, and passing the wrong
+spelling silently gives you the FM defaults and a picture that proves
+nothing. It also *found two layout faults in the FM view* (ticket 07's SRD
+comment) that looking at FM over an FM capture could not.
+
 **The window, for comparison.** `make screens NAMES="<view>"` renders the
 raylib screen the web view mirrors. Three cautions, the third measured on
 GSM: a comparison across a build is a comparison at two machine *loads*
@@ -388,6 +426,11 @@ changes how this repository is worked on. After each of the remaining views:
   evidence attached rather than as advice.
 - Did the "three files, and a fourth is a signal" prediction hold? If a view
   touched more, either the prediction or the architecture is wrong, and
-  ticket 14 wants to know which.
+  ticket 14 wants to know which. **Across all seven it held for the page
+  side and never for the whole change**: a view is three `web/` files *plus*
+  a model header, a builder, a check, a Makefile rule, a stream, a screen
+  name and a `viewer_session.c` call. That is nine or ten files, and the
+  prediction was only ever about `web/`. Say "three page files" rather than
+  "three files".
 - Name the change in your reply: which section, what moved, and what in the
   session was the evidence.
