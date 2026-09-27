@@ -1,6 +1,6 @@
 # 16 - The window reads the model too
 
-Status: ready-for-agent
+Status: **done** (2026-09-27) -- all four views converted.
 
 ## The residue ticket 07 left
 
@@ -130,3 +130,76 @@ The check's link line grew: `srd_frame.c`, `srd_dsp.c`, `sdr_dsp.c` and
 raylib and no librtlsdr, which is the constraint that matters — but a model
 check that pulls in the whole technology module to ask one pure question is
 worth noticing if it happens again.
+
+
+**2026-09-27 — TETRA done.** `967978a`. The model was already right and the
+window was not reading it, which cost a diagnosis the program has been able
+to make since ticket 07 and had never shown: at a sample rate the channel
+filter cannot decimate, the window read "no network identity yet (lock
+0.00)" -- a statement about the air -- where the true statement is about the
+receiver. The *browser* had been drawing it since ticket 07.
+
+Also: "LA unread" is not "LA 0". The window asked `broadcast_total > 0` in
+two places and worded it two ways; the **waterfall marker did not ask at
+all** and printed a location area of zero over the carrier.
+
+One thing worth carrying: the first draft of the wrong-rate header carried
+its reason in parentheses and `sdrgui_text_fit()` cut it to "(the channel
+filter ne..." at 640 px. **A clipped explanation is a dangling fragment and
+worse than none.** The claim fits at every width; the why lives in the
+browser, which wraps, and in the headless report, which does not truncate.
+
+**2026-09-27 — ADS-B done.** `68de997`. Three decisions moved --
+`funnel_warn` (frames arriving and none decoding, which the browser drew in
+one colour), `enum adsb_readiness`, and which kind of empty an empty log is.
+
+**And one deliberately did not, which is the finding of this ticket.**
+Moving the row loop to the model was the obvious next line and is wrong:
+`ADSB_VIEW_MODEL_LOG` is 48 because that is what the wire can afford every
+block (ADR-0027) and the window keeps 256, so reading the rows out of the
+model would have cut the screen's scrollback to a fifth with nothing
+failing. **A view model built to a wire's budget does not bound the
+window.** Nothing in that loop decides anything, so it is drawing and it
+stays. The markers are the same case.
+
+**2026-09-27 — LTE done.** `6799552`. Four things, the first of which is the
+ticket's own argument made for it: the header printed the *picker's* band
+under a caption promising the band the **tuning** is in, a fix that lived in
+one `snprintf` where a browser could not see it and which this view already
+carried a comment about. Also `funnel_warn`, the scan's cost sentence, and
+`lte_findings_from()` being called twice -- once by the builder and once by
+the drawing, each with its own idea of the carrier frequency.
+
+## What the four came to
+
+Eleven drifts across four views, and **not one of them was hypothetical**.
+The ticket was written expecting to close a gap that might open; every view
+had already opened it.
+
+The shapes, in case a ninth view is ever added:
+
+1. **A sentence chosen from several** — every view had one, and in three of
+   four the browser had grown a *different* sentence for the same state.
+2. **A byte offset or a protocol constant written into a drawing** — SRD,
+   twice, one of them four lines below a comment recording that it had
+   already happened once.
+3. **A ternary chain whose last branch was doing duty as its fallback** —
+   SRD's marker labelled a frame of no kind `GENERIC`.
+4. **A field the model carried and the window ignored** — TETRA's
+   `rate_supported`, a diagnosis the browser drew and the window did not.
+5. **A verdict drawn as a colour** — ADS-B's and LTE's funnels, invisible to
+   anything that does not read pixels.
+6. **Two facts under one caption** — LTE's band.
+
+And one anti-pattern: **do not move data just because it is next to a
+decision.** ADS-B's 256-row log would have become 48.
+
+## What is left, in all four
+
+The analysis modes' bulk arrays and the captions chosen over them: SRD's
+envelope and chips, TETRA's phase steps and 255-symbol repeat profile,
+ADS-B's frame trace, LTE's four charts. Each is a decision over a few
+hundred floats the model does not carry, and no browser view has an analysis
+mode to show them in. Moving them is a question about whether a view model
+carries bulk arrays at all, which is its own ticket and not obviously worth
+opening: ADR-0027 budgets the wire, and these would not fit it.

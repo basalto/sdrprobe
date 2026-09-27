@@ -153,7 +153,49 @@ The pattern, as FM did it:
   was handed. `survey_mark_of()` (`src/model/survey_mark.h`) is the same idea for the
   survey, and `gsm_sch_reading_name()` the same again.
 - The window's own drawing then reads the model too, so there is one
-  decision rather than two that agree today.
+  decision rather than two that agree today. **This is not optional and it
+  is not cosmetic.** All eight views do it as of `web-visualization/16`, and
+  converting the last four turned up **eleven** places where the two readers
+  had already come apart -- not one of them hypothetical. If you add a view
+  model and leave the window reading `struct app`, you have written the bug,
+  not avoided it.
+
+**Six shapes a decision hides in.** Every one of these was found in this
+repository, by converting a view that looked finished:
+
+1. **A sentence chosen from several.** Every view had one, and in three of
+   four the browser had grown a *different* sentence for the same state.
+2. **A byte offset or a protocol constant written into a drawing.** SRD
+   twice, one of them four lines below a comment recording that it had
+   already happened once and been fixed -- and spelled *wrongly* the second
+   time, checking two bytes where the shared function checks three.
+3. **A ternary chain whose last branch is doing duty as its fallback.** A
+   frame of no kind came out labelled `GENERIC`, because that is where the
+   chain ended.
+4. **A field the model already carries and the window ignores.** TETRA's
+   `rate_supported`: the browser drew the diagnosis and the window drew "no
+   identity yet (lock 0.00)", which is a claim about the air where the true
+   claim is about the receiver.
+5. **A verdict drawn as a colour.** ADS-B's and LTE's funnels went amber on
+   a comparison written inline -- invisible to anything that does not read
+   pixels, and re-derived browser-side where it was derived at all.
+6. **Two different facts under one caption.** LTE's header printed the
+   *picker's* band under a caption promising the band the **tuning** is in.
+
+**Do not move data just because it is next to a decision.** ADS-B's message
+log is 48 rows in the model because that is what the wire can afford every
+block (ADR-0027) and 256 in the window. Reading the rows out of the model
+while converting the drawing would have cut the screen's scrollback to a
+fifth, silently. **A view model built to a wire's budget does not bound the
+window.** A loop that formats fields a session already wrote decides
+nothing; leave it, and say so in a comment so the next reader does not
+"finish" the job.
+
+**A clipped explanation is worse than none.** `sdrgui_text_fit()` truncates,
+so a refusal carrying its reason in parentheses came out as "(the channel
+filter ne..." at 640 px -- a dangling fragment. Make the claim fit at every
+width and let the *why* live where it can wrap: the browser, and the
+headless report, which does not truncate at all.
 
 **Guard a `%s` the window does not have to.** `lte_phich_resource_name()`
 returns NULL outside the four values its two-bit field can encode, and
