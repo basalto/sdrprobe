@@ -49,7 +49,13 @@ const AdsbView = (function () {
     // is the difference between a quiet sky and a receiver pointed
     // elsewhere -- which an empty table cannot tell a reader by itself.
     if (!s.ready) {
-      e.head.textContent = 'not where Mode S is -- 1090 MHz at 2 MS/s or more';
+      // Two answers, not one: a receiver pointed elsewhere can be retuned
+      // and a capture holds the one tuning it was taken at. The server
+      // decides which (`adsb_readiness_name()`); this page used to say one
+      // sentence for both, where the window drew a Retune button for one.
+      e.head.textContent = s.readiness === 'receiver-elsewhere'
+        ? 'Receiver is not on 1090 MHz; retune to hear Mode S'
+        : 'Capture is not 1090 MHz / 2 MS/s; no Mode S expected';
       e.head.style.color = WARN_COLOR;
     } else {
       e.head.textContent = '1090 MHz extended squitter   frames decoded '
@@ -64,6 +70,11 @@ const AdsbView = (function () {
       + ' -> decoded ' + s.decoded
       + '   block ' + s.block_preambles + '/' + s.block_shaped + '/'
       + s.block_crc_failed + '/' + s.block_decoded;
+    // Amber when frames are arriving and none of them decode -- the one
+    // reading of this funnel a reader acts on, and the state an empty
+    // message log cannot express. The window has coloured it for this since
+    // before the browser existed; the server decides it now.
+    e.funnel.style.color = s.funnel_warn ? WARN_COLOR : ROW_LABEL;
 
     e.count.textContent = s.log.length;
     renderRows(e.rows, s.log.map((m) => [

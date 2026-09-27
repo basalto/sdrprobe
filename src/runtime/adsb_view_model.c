@@ -14,6 +14,7 @@
 
 void adsb_view_model_build(const struct adsb_view *adsb,
                            uint32_t frequency_hz, uint32_t sample_rate_hz,
+                           int receiver_mode, int have_samples,
                            struct adsb_view_model *out) {
     int take, i;
 
@@ -24,11 +25,24 @@ void adsb_view_model_build(const struct adsb_view *adsb,
        disagree about what "ready" means. */
     out->ready = adsb_receiver_ready(frequency_hz, sample_rate_hz,
                                      DEFAULT_FREQUENCY);
+    /* And, when it is not, whose problem that is: a receiver can be retuned
+       from this screen and a capture holds one tuning. */
+    out->readiness = out->ready
+        ? ADSB_READY
+        : (receiver_mode ? ADSB_NOT_READY_RECEIVER : ADSB_NOT_READY_CAPTURE);
+    out->have_samples = have_samples;
 
     out->frames_total = adsb->session.frames_total;
     out->positions_total = adsb->session.positions_total;
     out->totals = adsb->session.totals;
     out->block = adsb->session.block_stats;
+    /*
+     * Frames arriving and none of them decoding. It reads `attempts` rather
+     * than `preambles` deliberately: a preamble is a correlation peak and
+     * noise produces those, where an attempt is a preamble that survived
+     * shaping and so is a frame that was really there.
+     */
+    out->funnel_warn = out->totals.attempts > 0 && out->totals.decoded == 0;
 
     /*
      * The newest `ADSB_VIEW_MODEL_LOG` of them. `adsb->log` is already

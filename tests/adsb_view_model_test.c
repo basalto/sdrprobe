@@ -18,16 +18,21 @@
  */
 
 static struct adsb_view adsb;
+static int receiver_mode = 1;
+static int have_samples = 1;
 
 static struct adsb_view_model build(uint32_t hz, uint32_t rate) {
     struct adsb_view_model out;
 
-    adsb_view_model_build(&adsb, hz, rate, &out);
+    adsb_view_model_build(&adsb, hz, rate, receiver_mode, have_samples,
+                          &out);
     return out;
 }
 
 static void blank(void) {
     memset(&adsb, 0, sizeof(adsb));
+    receiver_mode = 1;
+    have_samples = 1;
 }
 
 /* A row the log would hold, numbered so a test can tell them apart. */
@@ -146,7 +151,75 @@ static void test_the_funnel_carries_both_clocks(void) {
     check_int("with nothing decoded in it", (long)m.block.decoded, 0);
 }
 
+/*
+ * Whose problem an empty table is, and the one reading of the funnel a
+ * reader acts on.
+ *
+ * Both were decided inside `draw_adsb()`: the window drew a Retune button
+ * for one case and a sentence for the other, and coloured its funnel line
+ * amber when frames were arriving and none decoded. The browser could see
+ * neither -- it had one sentence for both cases and a funnel in one colour.
+ */
+static void test_not_ready_says_whose_problem_it_is(void) {
+    struct adsb_view_model m;
+
+    blank();
+    m = build(1090000000u, 2000000u);
+    check_str("on frequency", adsb_readiness_name(m.readiness), "ready");
+
+    m = build(100000000u, 2000000u);
+    check_str("a receiver pointed elsewhere",
+              adsb_readiness_name(m.readiness), "receiver-elsewhere");
+
+    receiver_mode = 0;
+    m = build(100000000u, 2000000u);
+    check_str("a capture taken elsewhere",
+              adsb_readiness_name(m.readiness), "capture-elsewhere");
+}
+
+static void test_frames_arriving_and_none_decoding_is_its_own_answer(void) {
+    struct adsb_view_model m;
+
+    blank();
+    m = build(1090000000u, 2000000u);
+    check_int("a quiet band is not a fault", m.funnel_warn, 0);
+
+    /*
+     * Preambles alone do not raise it: a preamble is a correlation peak and
+     * noise produces those. An *attempt* is a preamble that survived
+     * shaping, so it is a frame that was really there.
+     */
+    adsb.session.totals.preambles = 4000;
+    m = build(1090000000u, 2000000u);
+    check_int("correlation peaks on noise are not frames", m.funnel_warn, 0);
+
+    adsb.session.totals.attempts = 120;
+    m = build(1090000000u, 2000000u);
+    check_int("frames arriving and none decoding", m.funnel_warn, 1);
+
+    adsb.session.totals.decoded = 1;
+    m = build(1090000000u, 2000000u);
+    check_int("one decode is enough to clear it", m.funnel_warn, 0);
+}
+
+/* An empty log means "listening" once samples have arrived and "waiting"
+   before, which is the difference between a quiet sky and a receiver that
+   is not running. */
+static void test_an_empty_log_says_which_kind_of_empty(void) {
+    struct adsb_view_model m;
+
+    blank();
+    m = build(1090000000u, 2000000u);
+    check_int("samples are arriving", m.have_samples, 1);
+    have_samples = 0;
+    m = build(1090000000u, 2000000u);
+    check_int("and before any have", m.have_samples, 0);
+}
+
 int main(void) {
+    test_not_ready_says_whose_problem_it_is();
+    test_frames_arriving_and_none_decoding_is_its_own_answer();
+    test_an_empty_log_says_which_kind_of_empty();
     test_ready_is_about_the_receiver_not_the_sky();
     test_the_log_is_bounded_and_newest_first();
     test_an_impossible_count_is_clamped();

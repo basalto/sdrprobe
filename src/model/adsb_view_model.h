@@ -39,10 +39,34 @@
  */
 #define ADSB_VIEW_MODEL_LOG 48
 
+/*
+ * Whether Mode S could be here at all, and if not, whose problem it is.
+ *
+ * Two answers rather than one because only one of them is actionable: a
+ * receiver pointed elsewhere can be retuned from this screen, and a capture
+ * holds the one tuning it was taken at. The window drew two things -- a
+ * Retune button or a sentence -- and the browser drew one sentence for both.
+ */
+enum adsb_readiness {
+    ADSB_READY = 0,
+    ADSB_NOT_READY_RECEIVER,
+    ADSB_NOT_READY_CAPTURE
+};
+
+static inline const char *adsb_readiness_name(enum adsb_readiness r) {
+    switch (r) {
+    case ADSB_READY:              return "ready";
+    case ADSB_NOT_READY_RECEIVER: return "receiver-elsewhere";
+    case ADSB_NOT_READY_CAPTURE:  return "capture-elsewhere";
+    }
+    return "ready";
+}
+
 struct adsb_view_model {
     /* Whether Mode S could be here at all: on 1090 MHz, at 2 MS/s or more.
        Off frequency every chart is empty and that is not a quiet sky. */
     int ready;
+    enum adsb_readiness readiness;
 
     /* The run's totals, as the header prints them. */
     unsigned long long frames_total;
@@ -56,6 +80,20 @@ struct adsb_view_model {
      */
     struct adsb_demod_stats totals;
     struct adsb_demod_stats block;
+    /*
+     * And the one reading of that funnel a reader acts on: frames are
+     * arriving and **none** of them decode, which is a different fault from
+     * a quiet band and the state an empty message log cannot express. The
+     * window coloured its funnel line for this and the browser did not.
+     */
+    int funnel_warn;
+
+    /*
+     * Whether any samples have arrived at all. An empty log means "listening"
+     * once they have and "waiting" before -- two sentences, and the
+     * difference is whether the receiver is running.
+     */
+    int have_samples;
 
     /* The log, newest first -- the same entries the window's table draws. */
     int log_count;
@@ -72,6 +110,7 @@ struct adsb_view;
  */
 void adsb_view_model_build(const struct adsb_view *adsb,
                            uint32_t frequency_hz, uint32_t sample_rate_hz,
+                           int receiver_mode, int have_samples,
                            struct adsb_view_model *out);
 
 #endif

@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <time.h>
 
+#include "model/adsb_view_model.h"
 #include "gui/view.h"
 #include "gui/adsb_layout.h"
 #include "runtime/debug_log.h"
@@ -48,24 +49,39 @@ static struct adsb_layout adsb_layout_now(void) {
  * constructions would be two answers. A frame's label is its ICAO, which the
  * log already holds, so there is no label storage to pass in.
  */
-static int adsb_markers_build(const struct app *app,
+static int adsb_markers_build(const struct adsb_view *v, double now_sec,
                               struct sdrgui_waterfall_marker *markers,
                               int max) {
     int marker_count = 0;
-    double now_sec = GetTime();
+    int k;
 
-    for (int k = 0; k < app->adsb.log_count && k < max; k++) {
+    for (k = 0; k < v->log_count && k < max; k++) {
         markers[k].frequency_hz = 1090000000.0;
         markers[k].bandwidth_hz = 2000000.0;
-        markers[k].age_seconds = now_sec - app->adsb.log[k].time;
+        markers[k].age_seconds = now_sec - v->log[k].time;
         markers[k].duration_seconds = 0.000120;
         markers[k].id = k;
-        markers[k].highlighted = (k == app->adsb.selected_log);
+        markers[k].highlighted = (k == v->selected_log);
         markers[k].color = (Color){ 80, 220, 240, 220 };
-        markers[k].label = app->adsb.log[k].icao;
+        markers[k].label = v->log[k].icao;
         marker_count++;
     }
     return marker_count;
+}
+
+/*
+ * The screen's data, gathered once wherever it is needed.
+ *
+ * Everything this view *decides* -- whether Mode S could be here and whose
+ * problem it is when it cannot, whether frames are arriving and failing,
+ * which kind of empty an empty log is -- is `adsb_view_model_build()`'s, so
+ * this drawing and the browser's cannot come to different answers
+ * (`web-visualization/16`).
+ */
+static void adsb_model_of(const struct app *app, struct adsb_view_model *m) {
+    adsb_view_model_build(&app->adsb, app->applied.frequency_hz,
+                          app->applied.sample_rate_hz, app->receiver_mode,
+                          app->frame.have_samples, m);
 }
 
 /*
@@ -84,7 +100,8 @@ static void handle_marker_click(struct app *app) {
 
     if (adsb_analysis_showing(app))
         return;
-    count = adsb_markers_build(app, markers, ADSB_LOG_CAPACITY);
+    count = adsb_markers_build(&app->adsb, GetTime(), markers,
+                               ADSB_LOG_CAPACITY);
     if (count <= 0)
         return;
     for (i = 0; i < count; i++)
@@ -260,8 +277,9 @@ static void draw_decision_scatter(const struct app *app,
 
 void draw_adsb(struct app *app) {
     struct adsb_layout l = adsb_layout_now();
-    const struct adsb_demod_stats *total = &app->adsb.session.totals;
-    const struct adsb_demod_stats *block = &app->adsb.session.block_stats;
+    struct adsb_view_model m;
+    const struct adsb_demod_stats *total;
+    const struct adsb_demod_stats *block;
     int analysis = adsb_analysis_showing(app);
     uint64_t record_bytes = 0;
     char record_path[ACQUISITION_PATH_MAX];
@@ -271,13 +289,16 @@ void draw_adsb(struct app *app) {
     int header_x = (int)l.header_left;
     char text[400];
 
+    adsb_model_of(app, &m);
+    total = &m.totals;
+    block = &m.block;
+
     draw_button(l.record_button, recording ? "Recording..." : "Record 2s",
                 recording);
 
     snprintf(text, sizeof(text),
              "1090 MHz extended squitter   frames decoded: %llu   positions: %llu",
-             (unsigned long long)app->adsb.session.frames_total,
-             (unsigned long long)app->adsb.session.positions_total);
+             m.frames_total, m.positions_total);
     sdrgui_text_fit(text, header_x, 88, 17, l.header_right - l.header_left,
                     (Color){ 187, 205, 216, 255 });
 
@@ -294,20 +315,28 @@ void draw_adsb(struct app *app) {
              (unsigned long long)block->attempts,
              (unsigned long long)block->crc_failed,
              (unsigned long long)block->decoded);
-    Color funnel_color = (Color){ 151, 174, 188, 255 };
-    if (total->attempts > 0 && total->decoded == 0)
-        funnel_color = (Color){ 250, 190, 74, 255 };
+    /* Amber when frames are arriving and none of them decode, which is the
+       model's `funnel_warn` -- it reads `attempts` rather than `preambles`
+       because a preamble is a correlation peak and noise produces those. */
+    Color funnel_color = m.funnel_warn ? (Color){ 250, 190, 74, 255 }
+                                       : (Color){ 151, 174, 188, 255 };
     sdrgui_text_fit(text, header_x, 110, 16, l.header_right - l.header_left,
                     funnel_color);
 
     draw_button(l.view_toggle, analysis ? "Show log" : "Show charts", 0);
 
-    if (!adsb_tuned(app)) {
-        if (app->receiver_mode) {
+    if (!m.ready) {
+        if (m.readiness == ADSB_NOT_READY_RECEIVER) {
             draw_button(l.retune_button, "Retune to 1090 MHz", 1);
         } else {
-            DrawText("Capture is not 1090 MHz / 2 MS/s; no Mode S expected",
-                     470, 88, 17, (Color){ 250, 190, 74, 255 });
+            /* Placed from the layout rather than from a literal 470, which
+               is what this was and which put the sentence wherever that
+               happened to land at another width. */
+            sdrgui_text_fit(
+                "Capture is not 1090 MHz / 2 MS/s; no Mode S expected",
+                (int)l.retune_button.x, 88, 17,
+                l.header_right - l.retune_button.x,
+                (Color){ 250, 190, 74, 255 });
         }
     }
 
@@ -323,6 +352,15 @@ void draw_adsb(struct app *app) {
         snprintf(log_caption, sizeof(log_caption),
                  "Decoded messages (newest first)");
 
+    /*
+     * The rows come from the view's own log and **not** from the model's,
+     * deliberately: `ADSB_VIEW_MODEL_LOG` is 48 because that is what the
+     * wire can afford every block (ADR-0027), and the window keeps 256. A
+     * view model built to a wire's budget does not bound the window, and
+     * reading the rows out of it here would silently cut this screen's
+     * scrollback to a fifth. Nothing is decided in this loop -- every field
+     * is a string the session already wrote.
+     */
     struct sdrgui_message_log_row rows[ADSB_LOG_CAPACITY];
     for (int i = 0; i < app->adsb.log_count; i++) {
         rows[i].time = app->adsb.log[i].stamp;
@@ -346,7 +384,7 @@ void draw_adsb(struct app *app) {
         .rows = rows,
         .count = app->adsb.log_count,
         .caption = log_caption,
-        .empty_notice = app->frame.have_samples
+        .empty_notice = m.have_samples
                             ? "Listening for Mode S frames..."
                             : "Waiting for samples...",
         .id_heading = "ICAO",
@@ -356,7 +394,8 @@ void draw_adsb(struct app *app) {
 
     if (!analysis) {
         struct sdrgui_waterfall_marker markers[ADSB_LOG_CAPACITY];
-        int marker_count = adsb_markers_build(app, markers, ADSB_LOG_CAPACITY);
+        int marker_count = adsb_markers_build(&app->adsb, GetTime(), markers,
+                                              ADSB_LOG_CAPACITY);
 
         draw_waterfall_rect_with_markers(app, 0, l.waterfall, &app->adsb.window,
                                          markers, marker_count, NULL);

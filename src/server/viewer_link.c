@@ -1410,7 +1410,9 @@ void viewer_link_publish_adsb_state(struct viewer_link *link,
 
     used = snprintf(json, sizeof(json),
                     "{\"type\":\"adsb_state\",\"timestamp_ms\":%llu,"
-                    "\"ready\":%s,\"frames\":%llu,\"positions\":%llu,"
+                    "\"ready\":%s,\"readiness\":\"%s\","
+                    "\"funnel_warn\":%s,\"have_samples\":%s,"
+                    "\"frames\":%llu,\"positions\":%llu,"
                     "\"preambles\":%llu,\"shaped\":%llu,"
                     "\"crc_failed\":%llu,\"decoded\":%llu,"
                     "\"block_preambles\":%llu,\"block_shaped\":%llu,"
@@ -1418,6 +1420,9 @@ void viewer_link_publish_adsb_state(struct viewer_link *link,
                     "\"log\":[",
                     (unsigned long long)now_ms,
                     avm->ready ? "true" : "false",
+                    adsb_readiness_name(avm->readiness),
+                    avm->funnel_warn ? "true" : "false",
+                    avm->have_samples ? "true" : "false",
                     (unsigned long long)avm->frames_total,
                     (unsigned long long)avm->positions_total,
                     (unsigned long long)avm->totals.preambles,

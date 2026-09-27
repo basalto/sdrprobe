@@ -425,7 +425,9 @@ int viewer_session_run(struct app *app) {
             viewer_link_publish_gsm_state(&link, &gsm_svm, now_ms);
             /* And ADS-B, on the same gate. */
             adsb_view_model_build(&app->adsb, app->applied.frequency_hz,
-                                  app->applied.sample_rate_hz, &adsb_svm);
+                                  app->applied.sample_rate_hz,
+                                  app->receiver_mode,
+                                  app->frame.have_samples, &adsb_svm);
             viewer_link_publish_adsb_state(&link, &adsb_svm, now_ms);
             /* And TETRA, on the same gate. */
             tetra_view_model_build(&app->tetra, &tetra_svm);
