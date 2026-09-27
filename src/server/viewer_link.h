@@ -7,6 +7,7 @@
 #include "model/fm_view_model.h"
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
+#include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
 #include "model/scope_view_model.h"
 #include "model/survey_view_model.h"
@@ -164,6 +165,7 @@ enum viewer_stream {
     VIEWER_STREAM_GSM_STATE,
     VIEWER_STREAM_ADSB_STATE,
     VIEWER_STREAM_TETRA_STATE,
+    VIEWER_STREAM_SRD_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -357,6 +359,13 @@ void viewer_link_publish_adsb_state(struct viewer_link *link,
 void viewer_link_publish_tetra_state(struct viewer_link *link,
                                      const struct tetra_view_model *tvm,
                                      uint64_t now_ms);
+
+/* The SRD screen: the tuning, the two counters, and the whole frame log --
+   each row carrying the **absolute** frequency it was heard at, so a later
+   retune does not drag the history with it. */
+void viewer_link_publish_srd_state(struct viewer_link *link,
+                                   const struct srd_view_model *svm,
+                                   uint64_t now_ms);
 
 /*
  * Ticket 07's Survey tab, mirroring the pair above: the swept spectrum as a

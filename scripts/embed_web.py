@@ -60,6 +60,7 @@ JS_ORDER = [
     "views/gsm.js",
     "views/adsb.js",
     "views/tetra.js",
+    "views/srd.js",
     "viewer.js",
 ]
 

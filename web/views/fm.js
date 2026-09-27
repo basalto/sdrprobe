@@ -178,13 +178,21 @@ const FmView = (function () {
     else if (s.ps_segments) {
       station.push(pair('name', s.ps_segments + ' of 4 segments'));
     } else station.push(pair('name', '--'));
-    if (s.pty_valid) {
-      station.push(pair('programme type', s.pty_name));
-      station.push(pair('', s.traffic));
-    }
+    // Always these rows, with '--' where the field has not arrived -- not
+    // pushed only when valid.
+    //
+    // A panel whose row *count* changes makes every chart above it change
+    // height, and on a marginal signal `pty_valid` and `rt_valid` come and
+    // go block to block. Measured over a capture that is not FM at all: the
+    // waterfall's box oscillated between 465 and 477 pixels, one row's
+    // worth, every couple of seconds -- visible as a jumping chart, and it
+    // also meant the canvas was permanently one frame behind its own box.
+    // Values change; rows do not.
+    station.push(pair('programme type', s.pty_valid ? s.pty_name : '--'));
+    station.push(pair('', s.pty_valid ? s.traffic : ''));
     // Unwrapped on the wire: where the breaks go is the reader's, and a
     // browser wraps to its own width rather than the window's columns.
-    if (s.rt_valid) station.push(pair('radio text', s.rt));
+    station.push(pair('radio text', s.rt_valid ? s.rt : '--'));
     renderRows(e.station, station);
 
     renderRows(e.funnel, [
@@ -315,7 +323,14 @@ const FmView = (function () {
         panel('Station', '<table><tbody id="fm-station-rows"></tbody></table>') +
         panel('Where the decode stopped',
               '<table><tbody id="fm-funnel-rows"></tbody></table>'
-              + '<div id="fm-reading" style="margin-top:8px">'
+              // Two lines' worth, always. The funnel's sentence is one of
+              // five of very different lengths, so a long one wraps and a
+              // short one does not -- and every chart above it moved by a
+              // line each time the verdict changed. Reserved rather than
+              // fitted: the sentence is the point of the panel and must
+              // not be clipped.
+              + '<div id="fm-reading" style="margin-top:8px;'
+              + 'min-height:2.6em">'
               + 'awaiting fm_state...</div>') +
       '</div>',
     render(msg) {

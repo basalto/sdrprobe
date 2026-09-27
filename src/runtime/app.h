@@ -103,6 +103,7 @@ enum decode_kind {
 #include "tech/adsb_analysis.h"
 #include "tech/tetra_dsp.h"
 #include "tech/tetra_sync.h"
+#include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
 #include "runtime/chart_window.h"
 #include "tech/fm_dsp.h"
@@ -552,33 +553,6 @@ struct tetra_view {
     int log_count;
     int selected_log;
     struct chart_window window;
-};
-
-#define SRD_LOG_CAPACITY 64
-
-struct srd_log_entry {
-    double at;
-    enum srd_frame_kind kind;
-    enum srd_modulation modulation;
-    uint8_t bytes[32];
-    size_t byte_count;
-    size_t bit_count;
-    double carrier_hz;          /* offset from the tuning that heard it */
-    /*
-     * Where this actually was, in absolute hertz, fixed when the entry was
-     * written.
-     *
-     * The waterfall used to place a marker at `applied.frequency_hz +
-     * carrier_hz` **every frame**, with the *current* tuning -- so retuning
-     * dragged every historical label along with it and a burst recorded at
-     * 434.42 MHz would be drawn at 435.42 after a one-megahertz step. An
-     * offset only means anything beside the tuning it was measured against,
-     * and once the receiver can move from this screen it does not stay
-     * beside it.
-     */
-    double absolute_hz;
-    double chip_us;
-    size_t error_count;
 };
 
 struct srd_view {

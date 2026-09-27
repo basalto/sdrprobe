@@ -126,6 +126,12 @@ enum srd_modulation {
     SRD_MOD_FSK2 = 1  /* 2-FSK / 2-GFSK: srd_demodulate_fsk() */
 };
 
+/* The same two words the window's MOD column prints. By name, never as the
+   ordinal (`web-visualization/15`). */
+static inline const char *srd_modulation_name(enum srd_modulation m) {
+    return m == SRD_MOD_FSK2 ? "2FSK" : "OOK";
+}
+
 /*
  * Measured on the two real captures this module has: every burst of
  * testfiles/srd_remote_control_ook_a.bin (OOK) reads an instantaneous-frequency

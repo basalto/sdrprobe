@@ -89,7 +89,7 @@ int viewer_link_open(struct viewer_link *link, uint16_t port,
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
-    "gsm_state", "adsb_state", "tetra_state"
+    "gsm_state", "adsb_state", "tetra_state", "srd_state"
 };
 
 /*
@@ -1539,6 +1539,79 @@ void viewer_link_publish_tetra_state(struct viewer_link *link,
             !c->subscribed[VIEWER_STREAM_TETRA_STATE])
             continue;
         slot = &c->slot[VIEWER_STREAM_TETRA_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
+/* The SRD screen. 64 rows, each with up to 32 bytes rendered as hex. */
+void viewer_link_publish_srd_state(struct viewer_link *link,
+                                   const struct srd_view_model *svm,
+                                   uint64_t now_ms) {
+    char json[16384];
+    int json_len, used, i;
+
+    used = snprintf(json, sizeof(json),
+                    "{\"type\":\"srd_state\",\"timestamp_ms\":%llu,"
+                    "\"ready\":%s,\"centre_hz\":%.0f,"
+                    "\"transmissions\":%d,\"frames\":%d,"
+                    "\"have_carrier\":%s,\"carrier_offset_hz\":%.1f,"
+                    "\"log\":[",
+                    (unsigned long long)now_ms,
+                    svm->ready ? "true" : "false", svm->centre_hz,
+                    svm->transmissions, svm->frames,
+                    svm->have_carrier ? "true" : "false",
+                    svm->last_carrier_offset_hz);
+    if (used <= 0 || (size_t)used >= sizeof(json))
+        return;
+
+    for (i = 0; i < svm->log_count; i++) {
+        const struct srd_log_entry *e = &svm->log[i];
+        size_t b;
+
+        if (used > (int)sizeof(json) - 384)
+            break;      /* stop the list rather than truncate the object */
+        used += snprintf(json + used, sizeof(json) - (size_t)used,
+                         "%s{\"at\":%.2f,\"kind\":\"%s\","
+                         "\"modulation\":\"%s\",\"hz\":%.0f,"
+                         "\"chip_us\":%.2f,\"bits\":%zu,"
+                         "\"errors\":%zu,\"bytes\":\"",
+                         i ? "," : "", e->at,
+                         srd_frame_kind_name(e->kind),
+                         srd_modulation_name(e->modulation),
+                         e->absolute_hz, e->chip_us, e->bit_count,
+                         e->error_count);
+        /* Hex, not raw bytes: these are arbitrary octets and JSON is text.
+           Sixteen of them, which is what the window's RAW column shows. */
+        for (b = 0; b < e->byte_count && b < 16 &&
+                    used < (int)sizeof(json) - 8; b++)
+            used += snprintf(json + used, sizeof(json) - (size_t)used,
+                             "%s%02X", b ? " " : "", e->bytes[b]);
+        used += snprintf(json + used, sizeof(json) - (size_t)used, "\"}");
+    }
+    used += snprintf(json + used, sizeof(json) - (size_t)used, "]}");
+
+    json_len = used;
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_SRD_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_SRD_STATE];
         if (!slot_ready_for_new_message(slot))
             continue;
         frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,

@@ -11,6 +11,7 @@
 #include "model/fm_view_model.h"
 #include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
+#include "model/srd_view_model.h"
 #include "model/tetra_view_model.h"
 #include "runtime/frame_advance.h"
 #include "server/process_cpu.h"
@@ -115,6 +116,10 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
                 break;
             case VIEWER_SCREEN_TETRA:
                 set_decode(app, DECODE_TETRA, now);
+                set_tab(app, TAB_DECODE, now);
+                break;
+            case VIEWER_SCREEN_SRD:
+                set_decode(app, DECODE_SRD, now);
                 set_tab(app, TAB_DECODE, now);
                 break;
             case VIEWER_SCREEN_SCOPE:
@@ -329,6 +334,7 @@ int viewer_session_run(struct app *app) {
         struct gsm_view_model gsm_svm;
         struct adsb_view_model adsb_svm;
         struct tetra_view_model tetra_svm;
+        struct srd_view_model srd_svm;
         const struct receiver_view_model *rvm;
         uint64_t now_ms;
 
@@ -418,6 +424,10 @@ int viewer_session_run(struct app *app) {
             /* And TETRA, on the same gate. */
             tetra_view_model_build(&app->tetra, &tetra_svm);
             viewer_link_publish_tetra_state(&link, &tetra_svm, now_ms);
+            /* And SRD, on the same gate. */
+            srd_view_model_build(&app->srd, app->applied.frequency_hz,
+                                 app->applied.sample_rate_hz, &srd_svm);
+            viewer_link_publish_srd_state(&link, &srd_svm, now_ms);
         }
         /*
          * Not gated on spectrum_updated -- the tuning can change (the retune

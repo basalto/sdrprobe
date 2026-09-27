@@ -33,7 +33,8 @@ static const struct {
     { "fm",     VIEWER_SCREEN_FM },
     { "gsm",    VIEWER_SCREEN_GSM },
     { "adsb",   VIEWER_SCREEN_ADSB },
-    { "tetra",  VIEWER_SCREEN_TETRA }
+    { "tetra",  VIEWER_SCREEN_TETRA },
+    { "srd",    VIEWER_SCREEN_SRD }
 };
 
 int viewer_command_parse(const char *line, size_t len, struct viewer_command *out,

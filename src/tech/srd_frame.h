@@ -52,6 +52,28 @@ enum srd_frame_kind {
     SRD_FRAME_UNDECODED = 5 /* Detected burst, but no frame decoded */
 };
 
+/*
+ * The kind, as a name -- the same word the window's KIND column prints, so
+ * the window and the wire cannot come to spell it differently.
+ *
+ * Names and never the ordinal: an enum that crossed as an integer is what
+ * drew the survey's marks swapped for months with every check green
+ * (`web-visualization/15`). `SRD_FRAME_UNKNOWN` reads "unknown" rather than
+ * falling through to "UNDECODED", because those are different answers -- a
+ * burst nothing decoded, against a row that has no kind at all.
+ */
+static inline const char *srd_frame_kind_name(enum srd_frame_kind kind) {
+    switch (kind) {
+    case SRD_FRAME_FULL:          return "FULL";
+    case SRD_FRAME_REPEAT:        return "REPEAT";
+    case SRD_FRAME_GENERIC:       return "GENERIC";
+    case SRD_FRAME_FSK_DETECTED:  return "WAKEUP";
+    case SRD_FRAME_UNDECODED:     return "UNDECODED";
+    case SRD_FRAME_UNKNOWN:       break;
+    }
+    return "unknown";
+}
+
 struct srd_frame {
     enum srd_frame_kind kind;
     enum srd_modulation modulation;

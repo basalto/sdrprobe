@@ -247,10 +247,7 @@ static void draw_log(const struct app *app, Rectangle box) {
     for (i = 0; i < s->log_count; i++) {
         snprintf(at[i], sizeof(at[i]), "%6.1fs", s->log[i].at);
         snprintf(type[i], sizeof(type[i]), "%s",
-                 s->log[i].kind == SRD_FRAME_FULL ? "FULL" :
-                 s->log[i].kind == SRD_FRAME_REPEAT ? "REPEAT" :
-                 s->log[i].kind == SRD_FRAME_GENERIC ? "GENERIC" :
-                 s->log[i].kind == SRD_FRAME_FSK_DETECTED ? "WAKEUP" : "UNDECODED");
+                 srd_frame_kind_name(s->log[i].kind));
 
         if (s->log[i].kind == SRD_FRAME_FULL && s->log[i].byte_count >= 10) {
             snprintf(detail[i], sizeof(detail[i]),
@@ -312,7 +309,7 @@ static void draw_log(const struct app *app, Rectangle box) {
         rows[i].time = at[i];
         rows[i].freq = freq[i];
         rows[i].id = type[i];
-        rows[i].label = (s->log[i].modulation == SRD_MOD_FSK2) ? "2FSK" : "OOK";
+        rows[i].label = srd_modulation_name(s->log[i].modulation);
         /*
          * Named only where the decoded frame's own structure identifies the
          * device -- srd_frame_device_type() decides, and everything else

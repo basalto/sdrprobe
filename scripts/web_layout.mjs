@@ -251,7 +251,7 @@ async function run() {
     // GSM is visited over an FM capture, so its readouts say "idle" and
     // "none" -- which is the point: a view has to lay out correctly before
     // it has anything to show, and that is the state a reader meets first.
-    for (const tab of ['scope', 'survey', 'fm', 'gsm', 'adsb', 'tetra']) {
+    for (const tab of ['scope', 'survey', 'fm', 'gsm', 'adsb', 'tetra', 'srd']) {
       await evaluate(`document.getElementById('tab-${tab}').click(); true`);
       /*
        * Wait for the panel to actually be the one showing, rather than
@@ -310,8 +310,24 @@ async function run() {
          * canvas after a DOM change is what every page does; demanding it be
          * correct within the same tick is measuring the harness.
          */
-        await sleep(400);
       }
+      /*
+       * Settle, immediately before measuring and for every tab.
+       *
+       * A view's readouts change *shape* as state arrives -- GSM's BCCH
+       * line is an empty div until a broadcast block is read, FM's Station
+       * panel gains rows when the name appears -- so the panel resizes and
+       * the canvases above it are re-fitted a frame later. Measured in that
+       * tick, two of GSM's came out 68 and 22 pixels short of their boxes.
+       *
+       * It belongs *here* rather than after the name poll below, which is
+       * where it first went: the poll is only one of the things that moves
+       * the layout, and the measurement is the thing that must not race.
+       * A frame of stretched canvas after a DOM change is what every page
+       * does; demanding it be correct within the same tick is measuring the
+       * harness.
+       */
+      await sleep(400);
       const m = await evaluate(MEASURE);
       const at = `${size.w}x${size.h} ${tab}`;
 
@@ -380,7 +396,28 @@ async function run() {
         ok(`${at}: and its main content dominates the panel`,
            substance >= m.panelH * 0.4,
            `biggest chart or list ${substance} of panel ${m.panelH}`);
-      for (const c of m.canvases)
+      /*
+       * A mismatch is re-measured before it is believed.
+       *
+       * FM's Station panel grows as RDS groups arrive -- a traffic line, a
+       * radio-text row -- at arbitrary moments, so the panel above it
+       * resizes and its canvas is re-fitted a frame later. A single reading
+       * can always land in that gap, which showed up as a 12-pixel
+       * disagreement about one run in four, in *both* directions.
+       *
+       * Loosening the comparison to a tolerance was the obvious fix and the
+       * wrong one: the real faults this assertion has caught were 22 and 68
+       * pixels, and a tolerance wide enough to swallow the race would
+       * swallow those too. Asking again is the honest discriminator -- a
+       * frame of lag settles, a stretched canvas does not -- and it costs
+       * nothing on the runs that pass.
+       */
+      let canvases = m.canvases;
+      if (canvases.some((c) => c.storeW !== c.boxW || c.storeH !== c.boxH)) {
+        await sleep(600);
+        canvases = (await evaluate(MEASURE)).canvases;
+      }
+      for (const c of canvases)
         ok(`${at}: ${c.id} store matches its box`,
            c.storeW === c.boxW && c.storeH === c.boxH,
            `${c.storeW}x${c.storeH} vs ${c.boxW}x${c.boxH}`);
@@ -433,7 +470,15 @@ async function run() {
         `document.getElementById('health').style.paddingBottom = '40px'; true`);
       await sleep(300);
       {
-        const grown = await evaluate(MEASURE);
+        let grown = await evaluate(MEASURE);
+        /* Ask again on a mismatch, exactly as the first reading does --
+           growing the footer is one more thing that moves the layout, and
+           a canvas is re-fitted a frame after it. */
+        if (grown.canvases.some((c) => c.storeW !== c.boxW
+                                       || c.storeH !== c.boxH)) {
+          await sleep(600);
+          grown = await evaluate(MEASURE);
+        }
         for (const c of grown.canvases)
           ok(`${at}: ${c.id} store follows a taller footer`,
              c.storeW === c.boxW && c.storeH === c.boxH,

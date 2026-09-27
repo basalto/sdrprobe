@@ -9,8 +9,8 @@ description: Build or change a view in the browser Viewer (web/). Use when addin
 ADR-0027 keeps the window primary, which makes it the thing a web view is a
 view *of* — not a separate product with its own opinions.
 
-Two views are still to come (LTE, SRD — ticket 07); GSM, ADS-B and TETRA
-landed 2026-09-27, so everything below has now been done four times past FM.
+One view is still to come (LTE — ticket 07); GSM, ADS-B, TETRA and SRD
+landed 2026-09-27, so everything below has now been done five times past FM.
 
 ## Ask before deciding
 
@@ -205,6 +205,7 @@ more than half:
 | gsm | waterfall `3`, channel scan `1` | waterfall 372 |
 | adsb | waterfall `2`, message log `3` | **log** 370 |
 | tetra | waterfall `3`, identity log `1` | waterfall 484 |
+| srd | waterfall `2`, frame log `2` | even |
 
 TETRA's log is one row per *identity*, not per burst -- a base station has
 one -- so it is the chart that needs the room there, the opposite of ADS-B.
@@ -272,6 +273,15 @@ Each of these cost real time in this repository.
   without moving `#panels`', so the observer never fires. Observe the
   canvases too -- safe, because with a zero basis a backing store does not
   feed its own layout.
+- **A panel whose *row count* changes makes every chart above it jump.**
+  FM's Station panel pushed a row only `if (s.pty_valid)` and another
+  `if (s.rt_valid)`, and on a marginal signal those come and go block to
+  block: the waterfall's box oscillated between 465 and 477 pixels every
+  couple of seconds. Render the same rows always, with `--` where a field
+  has not arrived -- values change, rows do not. The same applies to a line
+  of text whose length changes: FM's funnel sentence is one of five of very
+  different lengths, so a long one wrapped and moved everything above it.
+  Reserve its height (`min-height`), do not let it grow.
 - **A view that yields nothing overflows.** GSM's first layout gave the
   channel-power canvas a fixed `flex:0 0 120px` beside a waterfall and two
   readout lines, and the panel scrolled by 121px at 1400x900. Both charts

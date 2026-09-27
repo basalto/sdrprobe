@@ -1,6 +1,6 @@
 # 07 - Migrating the remaining views
 
-Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); **GSM, ADS-B and TETRA are done** (2026-09-27); LTE and SRD remain, then the two overlays.
+Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); **GSM, ADS-B, TETRA and SRD are done** (2026-09-27); LTE remains, then the two overlays.
 
 ## Goal
 
@@ -401,3 +401,52 @@ the new view is what surfaced it.
 
 `make check`: **86 suites, 22476 checks**. `check-web-layout` 79 checks,
 six views.
+
+## Done, 2026-09-27 -- SRD
+
+The three page files, `src/model/srd_view_model.h`, its builder in
+`src/runtime/`, `check-srd-view-model` (25 checks, `-lm` alone) and an
+`srd_state` stream. Verified live over `srd_remote_control_ook_a.bin`: the
+carrier at +615.7 kHz from 433.8 MHz -- 434.417 MHz, which is what
+`check-pipelines` asserts -- and FULL frames reading
+`3F 04 0B 69 BB CC 9F 42 F2 D4`, header `0x3F` and trailer `0xD4` at their
+known offsets.
+
+**Two enums had no names and would have crossed as ordinals.**
+`srd_frame_kind` and `srd_modulation` were spelled inside `view_srd.c` as a
+chain of ternaries. They have `srd_frame_kind_name()` and
+`srd_modulation_name()` beside their enums now, and **the window reads
+them** -- one spelling, and the check walks every value. `SRD_FRAME_UNKNOWN`
+reads "unknown" rather than falling through to "UNDECODED", because a row
+with no kind and a burst that decoded to nothing are different answers.
+
+`struct srd_log_entry` moved into the model layer, the fourth such move
+after `site_seen.h`, `survey_tuning.h` and TETRA's.
+
+### Two real layout faults, both found by driving the FM view over a capture that is not FM
+
+Neither is about SRD, and neither would have been found by looking at a view
+over its own capture -- which is why the tooling's `--file` matters.
+
+**A panel whose row *count* changes makes every chart above it jump.** FM's
+Station panel pushed a row only `if (s.pty_valid)` and another
+`if (s.rt_valid)`; on a marginal signal those come and go block to block,
+and the waterfall's box oscillated between **465 and 477 pixels** every
+couple of seconds. It renders the same rows always now, with `--` where a
+field has not arrived. A reader would have seen the chart twitching.
+
+**And a line of text whose length changes does the same.** The funnel's
+sentence is one of five of very different lengths, so a long one wrapped to
+two lines and moved everything above it. Its height is reserved rather than
+fitted -- the sentence is the point of that panel and must not be clipped.
+
+The check's own part: a canvas mismatch is **re-measured** before it is
+believed, rather than compared with a tolerance. Loosening was the obvious
+fix and the wrong one -- the real faults this assertion has caught were 22
+and 68 pixels, and a tolerance wide enough to swallow a one-frame lag would
+swallow those. And the settle moved to immediately *before* the
+measurement, for every tab: it had been inside the FM branch, after which
+the name poll ran and moved the layout again.
+
+`make check`: **87 suites, 22519 checks**. `check-web-layout` 90 checks,
+seven views, three consecutive clean runs.
