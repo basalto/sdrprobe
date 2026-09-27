@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "model/fm_view_model.h"
+#include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
 #include "model/scope_view_model.h"
 #include "model/survey_view_model.h"
@@ -160,6 +161,7 @@ enum viewer_stream {
     VIEWER_STREAM_FM_SPECTRUM,
     VIEWER_STREAM_FM_STATE,
     VIEWER_STREAM_GSM_STATE,
+    VIEWER_STREAM_ADSB_STATE,
     VIEWER_STREAM_COUNT
 };
 
@@ -336,6 +338,16 @@ void viewer_link_publish_receiver_state(struct viewer_link *link,
 void viewer_link_publish_gsm_state(struct viewer_link *link,
                                    const struct gsm_view_model *gvm,
                                    uint64_t now_ms);
+
+/*
+ * The ADS-B screen: the funnel, the totals, and the newest 48 of the
+ * message log -- whole every block rather than incrementally, because this
+ * link drops messages and a lost increment loses decoded aircraft for good
+ * (`model/adsb_view_model.h` has the arithmetic).
+ */
+void viewer_link_publish_adsb_state(struct viewer_link *link,
+                                    const struct adsb_view_model *avm,
+                                    uint64_t now_ms);
 
 /*
  * Ticket 07's Survey tab, mirroring the pair above: the swept spectrum as a

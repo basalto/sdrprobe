@@ -9,8 +9,9 @@ description: Build or change a view in the browser Viewer (web/). Use when addin
 ADR-0027 keeps the window primary, which makes it the thing a web view is a
 view *of* — not a separate product with its own opinions.
 
-Four views are still to come (ADS-B, TETRA, LTE, SRD — ticket 07); GSM
-landed 2026-09-27, so everything below has now been done twice past FM.
+Three views are still to come (TETRA, LTE, SRD — ticket 07); GSM and ADS-B
+landed 2026-09-27, so everything below has now been done three times past
+FM.
 
 ## Ask before deciding
 
@@ -187,12 +188,20 @@ the health footer, and GSM's waterfall came out at 195 of a 676-pixel panel
 A view's own split is then weights on the flex children, and the chart takes
 more than half:
 
-| view | the split | chart at 1400x900 |
+| view | the split | main block at 1400x900 |
 |---|---|---|
 | scope | spectrum and waterfall, even | 342 each |
-| survey | chart `2`, candidate table `1` | 463 |
-| fm | waterfall, then the three panels | 481 |
-| gsm | waterfall `3`, channel scan `1` | 372 |
+| survey | chart `2`, candidate table `1` | chart 463 |
+| fm | waterfall, then the three panels | waterfall 481 |
+| gsm | waterfall `3`, channel scan `1` | waterfall 372 |
+| adsb | waterfall `2`, message log `3` | **log** 370 |
+
+**Not every view is chart-led, and assuming they all were was wrong.**
+ADS-B is a decoded-message log with a waterfall for context -- the window
+gives its table the same prominence -- so the gate asserts the *main content
+block*, chart or scrolling list, whichever the view is about. The chart
+alone only has to not be a sliver. That rule was written chart-only and
+failed on the first log-led view, which is how it got corrected.
 
 Two of those were even splits and should not have been: the survey's table
 is **empty** on a capture and scrolls when it is not, and GSM's channel scan

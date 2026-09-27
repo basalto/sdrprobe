@@ -37,7 +37,8 @@ enum viewer_screen {
     VIEWER_SCREEN_SCOPE = 0,
     VIEWER_SCREEN_SURVEY,
     VIEWER_SCREEN_FM,
-    VIEWER_SCREEN_GSM
+    VIEWER_SCREEN_GSM,
+    VIEWER_SCREEN_ADSB
 };
 
 struct viewer_command {

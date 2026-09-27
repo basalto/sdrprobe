@@ -89,7 +89,7 @@ int viewer_link_open(struct viewer_link *link, uint16_t port,
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
-    "gsm_state"
+    "gsm_state", "adsb_state"
 };
 
 /*
@@ -1383,6 +1383,93 @@ void viewer_link_publish_gsm_state(struct viewer_link *link,
             !c->subscribed[VIEWER_STREAM_GSM_STATE])
             continue;
         slot = &c->slot[VIEWER_STREAM_GSM_STATE];
+        if (!slot_ready_for_new_message(slot))
+            continue;
+        frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,
+                                          WEBSOCKET_OP_TEXT,
+                                          (const uint8_t *)json,
+                                          (size_t)json_len);
+        if (frame_len == 0)
+            continue;
+        slot->length = frame_len;
+        slot->sent = 0;
+    }
+}
+
+/*
+ * The ADS-B screen. The log is the long part: 48 rows of a timestamp, an
+ * identifier, a label, a decoded sentence and the raw hex, each of which
+ * can escape, so the buffer is sized for that rather than for the funnel.
+ */
+void viewer_link_publish_adsb_state(struct viewer_link *link,
+                                    const struct adsb_view_model *avm,
+                                    uint64_t now_ms) {
+    char json[24576];
+    int json_len, used, i;
+
+    used = snprintf(json, sizeof(json),
+                    "{\"type\":\"adsb_state\",\"timestamp_ms\":%llu,"
+                    "\"ready\":%s,\"frames\":%llu,\"positions\":%llu,"
+                    "\"preambles\":%llu,\"shaped\":%llu,"
+                    "\"crc_failed\":%llu,\"decoded\":%llu,"
+                    "\"block_preambles\":%llu,\"block_shaped\":%llu,"
+                    "\"block_crc_failed\":%llu,\"block_decoded\":%llu,"
+                    "\"log\":[",
+                    (unsigned long long)now_ms,
+                    avm->ready ? "true" : "false",
+                    (unsigned long long)avm->frames_total,
+                    (unsigned long long)avm->positions_total,
+                    (unsigned long long)avm->totals.preambles,
+                    (unsigned long long)avm->totals.attempts,
+                    (unsigned long long)avm->totals.crc_failed,
+                    (unsigned long long)avm->totals.decoded,
+                    (unsigned long long)avm->block.preambles,
+                    (unsigned long long)avm->block.attempts,
+                    (unsigned long long)avm->block.crc_failed,
+                    (unsigned long long)avm->block.decoded);
+    if (used <= 0 || (size_t)used >= sizeof(json))
+        return;
+
+    for (i = 0; i < avm->log_count; i++) {
+        const struct adsb_log_entry *e = &avm->log[i];
+        char stamp[sizeof(e->stamp) * 6 + 1];
+        char icao[sizeof(e->icao) * 6 + 1];
+        char label[sizeof(e->label) * 6 + 1];
+        char detail[sizeof(e->detail) * 6 + 1];
+        char raw[sizeof(e->raw) * 6 + 1];
+
+        /* A row that would not fit stops the list rather than truncating
+           the object: a half-written row is not JSON, and the count the
+           reader gets is then honest about what it holds. */
+        if (used > (int)sizeof(json) - 768)
+            break;
+        json_escape_into(stamp, sizeof(stamp), e->stamp, strlen(e->stamp));
+        json_escape_into(icao, sizeof(icao), e->icao, strlen(e->icao));
+        json_escape_into(label, sizeof(label), e->label, strlen(e->label));
+        json_escape_into(detail, sizeof(detail), e->detail, strlen(e->detail));
+        json_escape_into(raw, sizeof(raw), e->raw, strlen(e->raw));
+        used += snprintf(json + used, sizeof(json) - (size_t)used,
+                         "%s{\"stamp\":\"%s\",\"icao\":\"%s\","
+                         "\"label\":\"%s\",\"detail\":\"%s\","
+                         "\"raw\":\"%s\",\"highlight\":%s}",
+                         i ? "," : "", stamp, icao, label, detail, raw,
+                         e->highlight ? "true" : "false");
+    }
+    used += snprintf(json + used, sizeof(json) - (size_t)used, "]}");
+
+    json_len = used;
+    if (json_len <= 0 || (size_t)json_len >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
+        struct viewer_client *c = &link->clients[i];
+        struct viewer_stream_slot *slot;
+        size_t frame_len;
+
+        if (c->state != VIEWER_CLIENT_OPEN ||
+            !c->subscribed[VIEWER_STREAM_ADSB_STATE])
+            continue;
+        slot = &c->slot[VIEWER_STREAM_ADSB_STATE];
         if (!slot_ready_for_new_message(slot))
             continue;
         frame_len = websocket_frame_encode(slot->data, sizeof(slot->data), 1,

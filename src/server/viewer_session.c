@@ -9,6 +9,7 @@
 
 #include "server/browser.h"
 #include "model/fm_view_model.h"
+#include "model/adsb_view_model.h"
 #include "model/gsm_view_model.h"
 #include "runtime/frame_advance.h"
 #include "server/process_cpu.h"
@@ -105,6 +106,10 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
                 break;
             case VIEWER_SCREEN_GSM:
                 set_decode(app, DECODE_GSM, now);
+                set_tab(app, TAB_DECODE, now);
+                break;
+            case VIEWER_SCREEN_ADSB:
+                set_decode(app, DECODE_ADSB, now);
                 set_tab(app, TAB_DECODE, now);
                 break;
             case VIEWER_SCREEN_SCOPE:
@@ -317,6 +322,7 @@ int viewer_session_run(struct app *app) {
         struct survey_view_model survey_svm;
         struct fm_view_model fm_svm;
         struct gsm_view_model gsm_svm;
+        struct adsb_view_model adsb_svm;
         const struct receiver_view_model *rvm;
         uint64_t now_ms;
 
@@ -399,6 +405,10 @@ int viewer_session_run(struct app *app) {
                                                               NULL, 0),
                                  app->receiver_mode, &gsm_svm);
             viewer_link_publish_gsm_state(&link, &gsm_svm, now_ms);
+            /* And ADS-B, on the same gate. */
+            adsb_view_model_build(&app->adsb, app->applied.frequency_hz,
+                                  app->applied.sample_rate_hz, &adsb_svm);
+            viewer_link_publish_adsb_state(&link, &adsb_svm, now_ms);
         }
         /*
          * Not gated on spectrum_updated -- the tuning can change (the retune

@@ -147,6 +147,13 @@ const MEASURE = `(() => {
   };
   const panel = document.querySelector('#panels > div:not([hidden])');
   const panelH = panel ? Math.round(panel.getBoundingClientRect().height) : 0;
+  // The tallest *scrollable* block, which for a log-led view is the thing a
+  // reader is watching -- the equivalent of a chart for a chart-led one.
+  const scrollers = panel
+    ? [...panel.querySelectorAll('div')]
+        .filter((d) => /auto|scroll/.test(getComputedStyle(d).overflowY))
+        .map((d) => Math.round(d.getBoundingClientRect().height))
+    : [];
   const canvases = [...document.querySelectorAll('#panels > div:not([hidden]) canvas')]
     .filter((c) => c.getBoundingClientRect().width > 0)
     .map((c) => ({ id: c.id, storeW: c.width, storeH: c.height,
@@ -158,7 +165,7 @@ const MEASURE = `(() => {
   const row = signalRows ? signalRows.closest('div[style*="display:flex"]') : null;
   return {
     scrollHeight: d.scrollHeight, clientHeight: d.clientHeight,
-    panelH,
+    panelH, tallestScroller: Math.max(0, ...scrollers),
     scrollbar: window.innerWidth - d.clientWidth,
     shownPanels: shown.length,
     canvases,
@@ -244,7 +251,7 @@ async function run() {
     // GSM is visited over an FM capture, so its readouts say "idle" and
     // "none" -- which is the point: a view has to lay out correctly before
     // it has anything to show, and that is the state a reader meets first.
-    for (const tab of ['scope', 'survey', 'fm', 'gsm']) {
+    for (const tab of ['scope', 'survey', 'fm', 'gsm', 'adsb']) {
       await evaluate(`document.getElementById('tab-${tab}').click(); true`);
       /*
        * Wait for the panel to actually be the one showing, rather than
@@ -356,14 +363,23 @@ async function run() {
        * so it is not the regression detector -- and 40% wherever there is
        * actually room to divide, which is what catches it.
        */
-      const tallest = Math.max(0, ...m.canvases.map((c) => c.boxH));
+      const tallestChart = Math.max(0, ...m.canvases.map((c) => c.boxH));
+      /*
+       * **Not every view is chart-led**, and asserting that they all are was
+       * wrong: ADS-B is a decoded-message log with a waterfall for context,
+       * and the window gives its table the same prominence. So the property
+       * is about the view's *main content block* -- the tallest chart or the
+       * tallest scrolling region, whichever it is -- and the chart alone
+       * only has to not be a sliver.
+       */
+      const substance = Math.max(tallestChart, m.tallestScroller);
       ok(`${at}: its biggest chart is not a sliver`,
-         tallest >= m.panelH * 0.25,
-         `tallest canvas ${tallest} of panel ${m.panelH}`);
+         tallestChart >= m.panelH * 0.25,
+         `tallest canvas ${tallestChart} of panel ${m.panelH}`);
       if (m.panelH >= 500)
-        ok(`${at}: and with room to divide, it dominates`,
-           tallest >= m.panelH * 0.4,
-           `tallest canvas ${tallest} of panel ${m.panelH}`);
+        ok(`${at}: and its main content dominates the panel`,
+           substance >= m.panelH * 0.4,
+           `biggest chart or list ${substance} of panel ${m.panelH}`);
       for (const c of m.canvases)
         ok(`${at}: ${c.id} store matches its box`,
            c.storeW === c.boxW && c.storeH === c.boxH,

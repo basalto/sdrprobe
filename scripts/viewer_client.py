@@ -93,7 +93,7 @@ RANGE_HEADER_TYPES = (3, 4)
 # VIEWER_MESSAGE_SURVEY_SPECTRUM is what they are transcribed from).
 ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
                "survey_spectrum", "survey_state", "fm_spectrum",
-               "fm_state", "gsm_state")
+               "fm_state", "gsm_state", "adsb_state")
 
 
 class ViewerClient:
@@ -329,6 +329,13 @@ def run_print(client, count):
                      f"bcch={state['bcch']} "
                      f"mcc={state['mcc']} mnc={state['mnc']} "
                      f"lac={state['lac']} cell={state['cell_id']} "
+                     f"age={now_ms - state['timestamp_ms']:.1f} ms")
+            elif state.get("type") == "adsb_state":
+                print(f"adsb_state      ready={state['ready']} "
+                     f"frames={state['frames']} pos={state['positions']} "
+                     f"funnel={state['preambles']}/{state['shaped']}/"
+                     f"{state['crc_failed']}/{state['decoded']} "
+                     f"log={len(state['log'])} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             elif state.get("type") == "receiver_state":
                 print(f"receiver_state  center={state['center_hz'] / 1e6:.6f} MHz "

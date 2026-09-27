@@ -1,6 +1,6 @@
 # 07 - Migrating the remaining views
 
-Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); **GSM is done** (2026-09-27); ADS-B, TETRA, LTE and SRD remain, then the two overlays.
+Status: needs-triage -- **Survey is done** (2026-09-17), navigation included; **FM is done** (2026-09-26); **GSM and ADS-B are done** (2026-09-27); TETRA, LTE and SRD remain, then the two overlays.
 
 ## Goal
 
@@ -319,3 +319,45 @@ the layout and nothing else. Its server duration also had to allow for the FM
 tab's 30-second wait for the station name, which over any other capture is
 spent in full every run; the old budget had the server exiting before the
 last tab was reached.
+
+## Done, 2026-09-27 -- ADS-B
+
+The three page files again, plus `src/model/adsb_view_model.h`, its builder
+in `src/runtime/`, `check-adsb-view-model` (21 checks, `-lm` alone) and an
+`adsb_state` stream. Verified live over `adsb_modes1.bin`: 5677 frames, 2732
+positions, the funnel walking
+`preambles 20114 -> shaped 6380 -> CRC failed 683 -> decoded 5697`, and the
+log rendering real positions, velocities and the callsign AMC421.
+
+### What travels, and the argument that decided it
+
+The window keeps 256 log entries. All of them every block is about
+**570 KB/s** -- more than ADR-0027 budgets for every derived stream put
+together -- so the newest **48** travel, which is roughly 108 KB/s and about
+three screens.
+
+**Whole rather than incremental**, and that is the half worth recording. The
+obvious saving is to send only the rows new since last time; the Viewer link
+**drops messages by design** under load, so a dropped increment would lose
+those decoded aircraft permanently with nothing to say they had existed.
+Re-sending the newest 48 is self-healing: the next message is complete. It
+is the *opposite* choice to the waterfall, which is incremental, because
+there a gap is one missing row of a picture and here it is a lost aircraft.
+
+`adsb_receiver_ready()` travels as a field. Off 1090 MHz or under 2 MS/s
+nothing arriving can be a frame -- a pulse is half a microsecond -- and an
+empty table means something entirely different in that case. The window
+already decided it while drawing; now both readers get the same answer.
+
+### The gate caught an assumption, not a bug
+
+`check-web-layout`'s "the biggest chart dominates the panel" failed on
+ADS-B at 34%, and the check was right to fail: **it assumed every view is
+chart-led.** ADS-B is a log with a waterfall for context, and the window
+gives its table the same prominence. The property is about the view's *main
+content block* now -- tallest chart or tallest scrolling region -- with the
+chart alone only required not to be a sliver. A rule written from four
+chart-led views, corrected by the first log-led one.
+
+`make check`: **85 suites, 22434 checks**. `check-web-layout` 68 checks,
+five views.
