@@ -11,6 +11,7 @@
 #include "survey_layout.h"
 #include "row_list.h"
 #include "freq_window.h"
+#include "survey_window.h"
 #include "survey_suspect.h"
 #include "survey_store.h"
 #include "band_plan_view.h"
@@ -73,59 +74,8 @@ static int survey_hour_of_day(void) {
 }
 
 
-/*
- * Print what a confirmation pass settled, for a pass nobody is watching.
- *
- * A pass started from the command line has no status line and no panel, and a
- * verdict nobody can read is a verdict that may as well not have been reached
- * (ADR-0012). The same two records the headless sweep writes, through the same
- * spellings -- docs/band-surveys.md is the format.
- */
-void survey_print_confirm_target(const struct survey_confirm_target *target) {
-    char flags[SURVEY_FLAG_TEXT_MAX];
 
-    /*
-     * **Both frequencies**: the one the sweep asked about, which keys the row
-     * and matches the `candidate` rows above it, and the one the pass
-     * measured, which is what the flags are about. They can be tens of
-     * kilohertz apart and used to be indistinguishable
-     * (`.scratch/reading-origin/issues/03-*`).
-     *
-     * Appended rather than inserted, so every existing field keeps its
-     * position and a reader of field three still finds the verdict -- this is
-     * not a format change under ADR-0016, it is a wider row.
-     */
-    printf("confirm %.0f %s %s %.1f %d/%d %.0f %s %.0f\n", target->hz,
-           target->claim == SURVEY_CLAIM_MISSING ? "missing" : "new",
-           survey_verdict_name(target->verdict),
-           (double)target->prominence_db, target->hits, target->looks,
-           target->bandwidth_hz,
-           survey_flag_text(target->suspicion, flags, sizeof(flags)),
-           target->measured_hz);
-    if (!target->kind_measured)
-        return;
-    printf("kind %.0f %s %.1f %.3f %.3f %s %.4f\n", target->hz,
-           signal_verdict_name(signal_carrier_verdict(&target->carrier)),
-           target->carrier.carrier_over_noise_db,
-           target->carrier.carrier_power_fraction,
-           target->envelope.found ? target->envelope.variation : -1.0,
-           survey_burst_name(target->bursts.verdict),
-           target->bursts.occupancy);
-}
 
-void survey_print_confirm_header(void) {
-    printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
-           "<hits>/<looks> <bandwidth_hz> <flags|-> <measured_hz|0>\n");
-    printf("# kind <frequency_hz> <carrier> <over_noise_db> <standing_share> "
-           "<envelope> <bursts> <occupancy>\n");
-}
-
-void survey_print_confirm_summary(const struct survey_session *ss) {
-    printf("confirm-summary asked %d confirmed %d intermittent %d refuted "
-           "%d\n", ss->confirm.count, ss->confirm.confirmed,
-           ss->confirm.intermittent, ss->confirm.refuted);
-    fflush(stdout);
-}
 
 /*
  * Do what the session asked for.
@@ -136,30 +86,6 @@ void survey_print_confirm_summary(const struct survey_session *ss) {
  * holds one and says when it changed, and only the program knows which
  * installation it belongs to (ADR-0022).
  */
-
-/*
- * The window arithmetic lives in freq_window.h, as plain doubles that
- * tests/freq_window_test.c can exercise without a window or a receiver.
- * These are the adapters between it and the view's own state: the range that
- * exists is what was swept once there is a sweep, and what the fields say
- * before that.
- */
-static struct freq_window freq_window_of(const struct survey_view *s) {
-    const struct survey_session *ss = &s->session;
-    struct freq_window w;
-
-    w.data_lower_hz = ss->bins > 0 ? ss->lower_hz : s->field_lower_hz;
-    w.data_upper_hz = ss->bins > 0 ? ss->upper_hz : s->field_upper_hz;
-    w.view_lower_hz = s->view_lower_hz;
-    w.view_upper_hz = s->view_upper_hz;
-    return w;
-}
-
-static void freq_window_put(struct survey_view *s,
-                              const struct freq_window *w) {
-    s->view_lower_hz = w->view_lower_hz;
-    s->view_upper_hz = w->view_upper_hz;
-}
 
 /*
  * What is suspicious about a frequency this survey found. The bandwidth is
@@ -202,18 +128,6 @@ static int survey_suspicious_now(const struct app *app) {
                                 t.remove_dc);
 }
 
-/* The frequency at the middle of a survey bin, through the window the chart
-   is drawn against rather than through the session's own range: they differ
-   only before the first sweep, where the fields are the honest answer. */
-double survey_bin_hz(const struct survey_view *s, int bin) {
-    struct freq_window w = freq_window_of(s);
-
-    /* Bins span what was swept, so before a sweep there is nothing to index
-       into and the range's low edge is the honest answer. */
-    if (s->session.bins <= 0)
-        return s->session.lower_hz;
-    return freq_window_bin_hz(&w, s->session.bins, bin);
-}
 
 static double survey_bin_width_hz(const struct survey_view *s) {
     return survey_session_bin_width_hz(&s->session);
@@ -227,25 +141,19 @@ static double survey_bin_width_hz(const struct survey_view *s) {
  * they were dividing by a span of zero.
  */
 static double survey_data_lower(const struct survey_view *s) {
-    return freq_window_of(s).data_lower_hz;
+    return survey_freq_window_of(s).data_lower_hz;
 }
 
 static double survey_data_upper(const struct survey_view *s) {
-    return freq_window_of(s).data_upper_hz;
+    return survey_freq_window_of(s).data_upper_hz;
 }
 
-void survey_clamp_view(struct survey_view *s) {
-    struct freq_window w = freq_window_of(s);
-
-    freq_window_clamp(&w, SURVEY_MIN_SPAN_HZ);
-    freq_window_put(s, &w);
-}
 
 static void survey_reset_view(struct survey_view *s) {
-    struct freq_window w = freq_window_of(s);
+    struct freq_window w = survey_freq_window_of(s);
 
     freq_window_reset(&w);
-    freq_window_put(s, &w);
+    survey_freq_window_put(s, &w);
 }
 
 /*
@@ -383,30 +291,6 @@ static void survey_save_sweep(struct app *app) {
     survey_history_refresh(app);
 }
 
-/*
- * Reload what this site has heard, and re-mark this sweep against it.
- *
- * The one place the history reaches a file on this side: the session holds it
- * and marks against it, and only the program knows which installation the
- * baseline belongs to (ADR-0022). Done when the site changes or a sweep ends
- * rather than per frame -- it reads a file, and the answer does not change
- * between frames. It used to be inside the peak finder, which runs on every
- * folded block.
- */
-void survey_history_refresh(struct app *app) {
-    struct survey_session *ss = &app->survey.session;
-    struct site_history history;
-
-    if (!app->config.site[0]) {
-        survey_session_set_history(ss, NULL, 0);
-        return;
-    }
-    if (installation_history_load(&app->installation, &history) < 0) {
-        survey_session_set_history(ss, NULL, 0);
-        return;
-    }
-    survey_session_set_history(ss, &history, 1);
-}
 
 /* What the popup says about one remembered signal. */
 static void survey_history_line(const struct site_history *history,
@@ -509,21 +393,21 @@ static void survey_refresh_fields(struct survey_view *s) {
 /* Zoom about the selected candidate when there is one, so zooming in keeps
    what you picked in sight; otherwise about the middle. */
 static void survey_zoom(struct survey_view *s, double factor) {
-    struct freq_window w = freq_window_of(s);
+    struct freq_window w = survey_freq_window_of(s);
     int has_anchor = s->selected >= 0 && s->selected < s->session.peak_count;
     double anchor = has_anchor
                         ? survey_bin_hz(s, s->session.peaks[s->selected].index)
                         : 0.0;
 
     freq_window_zoom(&w, factor, anchor, has_anchor, SURVEY_MIN_SPAN_HZ);
-    freq_window_put(s, &w);
+    survey_freq_window_put(s, &w);
 }
 
 /* Panning a window that already spans the whole sweep cannot move it, and a
    key that silently does nothing reads as a broken key. Say which it is. */
 static void survey_pan(struct app *app, double fraction) {
     struct survey_view *s = &app->survey;
-    struct freq_window w = freq_window_of(s);
+    struct freq_window w = survey_freq_window_of(s);
     double span = w.view_upper_hz - w.view_lower_hz;
 
     if (!freq_window_pan(&w, fraction, SURVEY_MIN_SPAN_HZ))
@@ -533,20 +417,9 @@ static void survey_pan(struct app *app, double fraction) {
                  span >= (w.data_upper_hz - w.data_lower_hz) - 1.0
                      ? "all"
                      : "the end");
-    freq_window_put(s, &w);
+    survey_freq_window_put(s, &w);
 }
 
-/* Candidates inside the window on screen. Zooming into a band and still
-   being shown a list of what is loudest elsewhere is no use, so the list, the
-   count and the Up/Down walk all follow the window. */
-int survey_peak_visible(const struct survey_view *s, int index) {
-    struct freq_window w = freq_window_of(s);
-
-    if (index < 0 || index >= s->session.peak_count)
-        return 0;
-    return freq_window_bin_visible(&w, s->session.bins,
-                                   s->session.peaks[index].index);
-}
 
 static int survey_visible_count(const struct survey_view *s) {
     int count = 0;
@@ -855,7 +728,7 @@ static void survey_keep_current(struct survey_view *s) {
  */
 static int survey_sweep_target(const struct survey_view *s, double *from,
                                double *to) {
-    struct freq_window w = freq_window_of(s);
+    struct freq_window w = survey_freq_window_of(s);
 
     return freq_window_sweep_target(&w, from, to);
 }

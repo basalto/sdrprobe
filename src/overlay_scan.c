@@ -30,50 +30,6 @@ int scan_strongest_bcch(const struct app *app) {
     return scan_select_bcch(app->bandscan.power, app->bandscan.bcch_conf);
 }
 
-int start_scan(struct app *app) {
-    if (!app->receiver_mode) {
-        snprintf(app->receiver_error, sizeof(app->receiver_error),
-                 "Channel scan requires a live receiver");
-        return -1;
-    }
-    if (scan_plan_make((double)app->applied.sample_rate_hz, &app->bandscan.plan) !=
-        SCAN_PLAN_OK) {
-        snprintf(app->receiver_error, sizeof(app->receiver_error),
-                 "Channel scan requires a sample rate of at least 1 MS/s");
-        return -1;
-    }
-    app->bandscan.plan.step_count = app->bandscan.plan.step_count;
-    for (int arfcn = 0; arfcn <= SCAN_ARFCN_LAST; arfcn++) {
-        app->bandscan.power[arfcn] = SCAN_SENTINEL_DBFS;
-        app->bandscan.bcch_conf[arfcn] = 0.0f;
-    }
-    app->gsm.selected_arfcn = 0;
-    app->bandscan.step = 0;
-    /*
-     * Borrowed from whatever the GSM view had tuned, so finishing puts the
-     * receiver back on the channel being inspected rather than on whatever
-     * was on screen before GSM was entered. A rescan while the claim is still
-     * held keeps it: where the scan should return to has not changed.
-     */
-    if (receiver_lease_token_active(&app->bandscan.lease_token)) {
-        if (retune_receiver(app,
-                            (uint32_t)llround(app->bandscan.plan.first_center_hz),
-                            app->applied.ppm) < 0)
-            return -1;
-    } else if (receiver_borrow_at(app, &app->bandscan.lease_token,
-                                  (uint32_t)llround(app->bandscan.plan.first_center_hz),
-                                  0) < 0) {
-        return -1;
-    }
-    app->bandscan.step_started_at = monotonic_seconds();
-    app->bandscan.running = 1;
-    app->bandscan.open = 1;
-    debug_log_write("gsm-scan", "begin, %d steps, %.1f s",
-                    app->bandscan.plan.step_count,
-                    app->bandscan.plan.step_count *
-                        (SCAN_STEP_SETTLE_SECONDS + SCAN_STEP_PROBE_SECONDS));
-    return 0;
-}
 
 
 static int scan_arfcn_at(const struct app *app, Vector2 point) {
@@ -122,17 +78,6 @@ void draw_scan(struct app *app) {
     sdrgui_scan_chart(&params);
 }
 
-/*
- * Stop owning the receiver, for the paths that abandon a scan from outside it
- * -- leaving the GSM view while one runs, or opening calibration. The lease
- * refuses an out-of-order return, so the inner claim has to go first or the
- * outer owner cannot give the receiver back at all.
- *
- * A no-op when no scan is running, so callers need no guard.
- */
-void scan_release_receiver(struct app *app) {
-    receiver_return(app, &app->bandscan.lease_token);
-}
 
 void handle_scan_input(struct app *app) {
     struct scan_layout l = scan_layout_for((float)GetScreenWidth());

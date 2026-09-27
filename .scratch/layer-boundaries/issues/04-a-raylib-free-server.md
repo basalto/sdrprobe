@@ -188,3 +188,43 @@ already had. 25 checks to 35, and the count is now the same every run --
 which it was not before, and that variance was the tell.
 
 `make check`: 80 suites, 22046 checks, green.
+
+## Phase B done, 2026-09-27 -- the nine that were in a GUI file by accident
+
+None of them drew anything, and every one was already called from the
+raylib-free set, which is how the link found them.
+
+**`view_survey.c`, seven.** Three are a *headless* confirmation pass's own
+`printf`s -- `survey_print_confirm_header`, `_target`, `_summary` -- living
+in the file named for the screen that pass does not have; they are in
+`survey_runtime.c` now, beside the step that calls them. The other four --
+`survey_bin_hz`, `survey_clamp_view`, `survey_peak_visible`,
+`survey_history_refresh` -- are `freq_window` arithmetic over
+`struct survey_view`, and they were where they were only because the two
+adapters they stand on (`freq_window_of`, `freq_window_put`) were `static`
+in that file. Those are `survey_window.h` now, `static inline`, named
+`survey_freq_window_of/_put`: a header rather than a second copy, because
+two spellings of "which hertz is this bin" is what `chart_window.h`'s own
+comment says this program has already paid for once.
+
+**`overlay_scan.c`, two.** `start_scan` and `scan_release_receiver` into
+`scan_runtime.c`. The two `scan_strongest_*` selectors stay where they are
+deliberately -- nothing outside the window asks either, so moving them would
+be tidying rather than a boundary, and this ticket is about the boundary.
+
+### Where the link stands
+
+Re-measured the same way. Every `src/*.c` outside the GUI set compiles with
+no raylib cflags and links against a stub `main` with librtlsdr, libm and
+pthread, leaving **14 undefined symbols, all of them in `sdrprobe.c`**:
+
+    monotonic_seconds  process_block  receiver_borrow  receiver_borrow_at
+    receiver_commit  receiver_restore_held  receiver_return  retune_receiver
+    retune_receiver_at_rate  scope_requested_fft_size  set_decode  set_tab
+    start_capture_record  stop_requested
+
+That is the application layer and nothing else -- ticket 02's stated
+remainder, now the only thing between here and the binary. Phase C is
+splitting `sdrprobe.c`.
+
+`make check`: 80 suites, 22046 checks, green.

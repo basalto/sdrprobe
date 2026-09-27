@@ -27,6 +27,7 @@
 #include "installation.h"
 #include "runtime.h"
 #include "survey_session.h"
+#include "survey_window.h"
 
 /*
  * What one block looks like to the session: samples, a spectrum, and the
@@ -305,4 +306,126 @@ void update_survey(struct app *app, double now, int spectrum_updated) {
         if (best >= 0)
             survey_select(app, best, now);
     }
+}
+
+/*
+ * The seven below came out of `view_survey.c` by ticket 04 of
+ * `.scratch/layer-boundaries/`, and the link is what found them: every one
+ * was already called from this file, so a server built without the window
+ * could not link. Three are a *headless* pass's own `printf`s, which had
+ * been living in the file named for the screen that pass does not have.
+ *
+ * The other four are `freq_window` arithmetic over `struct survey_view`,
+ * `static` here only because the two adapters they stand on were -- those
+ * are `survey_window.h` now.
+ */
+/*
+ * Print what a confirmation pass settled, for a pass nobody is watching.
+ *
+ * A pass started from the command line has no status line and no panel, and a
+ * verdict nobody can read is a verdict that may as well not have been reached
+ * (ADR-0012). The same two records the headless sweep writes, through the same
+ * spellings -- docs/band-surveys.md is the format.
+ */
+void survey_print_confirm_target(const struct survey_confirm_target *target) {
+    char flags[SURVEY_FLAG_TEXT_MAX];
+
+    /*
+     * **Both frequencies**: the one the sweep asked about, which keys the row
+     * and matches the `candidate` rows above it, and the one the pass
+     * measured, which is what the flags are about. They can be tens of
+     * kilohertz apart and used to be indistinguishable
+     * (`.scratch/reading-origin/issues/03-*`).
+     *
+     * Appended rather than inserted, so every existing field keeps its
+     * position and a reader of field three still finds the verdict -- this is
+     * not a format change under ADR-0016, it is a wider row.
+     */
+    printf("confirm %.0f %s %s %.1f %d/%d %.0f %s %.0f\n", target->hz,
+           target->claim == SURVEY_CLAIM_MISSING ? "missing" : "new",
+           survey_verdict_name(target->verdict),
+           (double)target->prominence_db, target->hits, target->looks,
+           target->bandwidth_hz,
+           survey_flag_text(target->suspicion, flags, sizeof(flags)),
+           target->measured_hz);
+    if (!target->kind_measured)
+        return;
+    printf("kind %.0f %s %.1f %.3f %.3f %s %.4f\n", target->hz,
+           signal_verdict_name(signal_carrier_verdict(&target->carrier)),
+           target->carrier.carrier_over_noise_db,
+           target->carrier.carrier_power_fraction,
+           target->envelope.found ? target->envelope.variation : -1.0,
+           survey_burst_name(target->bursts.verdict),
+           target->bursts.occupancy);
+}
+
+void survey_print_confirm_header(void) {
+    printf("# confirm <frequency_hz> <claim> <verdict> <prominence_db> "
+           "<hits>/<looks> <bandwidth_hz> <flags|-> <measured_hz|0>\n");
+    printf("# kind <frequency_hz> <carrier> <over_noise_db> <standing_share> "
+           "<envelope> <bursts> <occupancy>\n");
+}
+
+void survey_print_confirm_summary(const struct survey_session *ss) {
+    printf("confirm-summary asked %d confirmed %d intermittent %d refuted "
+           "%d\n", ss->confirm.count, ss->confirm.confirmed,
+           ss->confirm.intermittent, ss->confirm.refuted);
+    fflush(stdout);
+}
+
+/* The frequency at the middle of a survey bin, through the window the chart
+   is drawn against rather than through the session's own range: they differ
+   only before the first sweep, where the fields are the honest answer. */
+double survey_bin_hz(const struct survey_view *s, int bin) {
+    struct freq_window w = survey_freq_window_of(s);
+
+    /* Bins span what was swept, so before a sweep there is nothing to index
+       into and the range's low edge is the honest answer. */
+    if (s->session.bins <= 0)
+        return s->session.lower_hz;
+    return freq_window_bin_hz(&w, s->session.bins, bin);
+}
+
+void survey_clamp_view(struct survey_view *s) {
+    struct freq_window w = survey_freq_window_of(s);
+
+    freq_window_clamp(&w, SURVEY_MIN_SPAN_HZ);
+    survey_freq_window_put(s, &w);
+}
+
+/* Candidates inside the window on screen. Zooming into a band and still
+   being shown a list of what is loudest elsewhere is no use, so the list, the
+   count and the Up/Down walk all follow the window. */
+int survey_peak_visible(const struct survey_view *s, int index) {
+    struct freq_window w = survey_freq_window_of(s);
+
+    if (index < 0 || index >= s->session.peak_count)
+        return 0;
+    return freq_window_bin_visible(&w, s->session.bins,
+                                   s->session.peaks[index].index);
+}
+
+/*
+ * Reload what this site has heard, and re-mark this sweep against it.
+ *
+ * The one place the history reaches a file on this side: the session holds it
+ * and marks against it, and only the program knows which installation the
+ * baseline belongs to (ADR-0022). Done when the site changes or a sweep ends
+ * rather than per frame -- it reads a file, and the answer does not change
+ * between frames. It used to be inside the peak finder, which runs on every
+ * folded block.
+ */
+void survey_history_refresh(struct app *app) {
+    struct survey_session *ss = &app->survey.session;
+    struct site_history history;
+
+    if (!app->config.site[0]) {
+        survey_session_set_history(ss, NULL, 0);
+        return;
+    }
+    if (installation_history_load(&app->installation, &history) < 0) {
+        survey_session_set_history(ss, NULL, 0);
+        return;
+    }
+    survey_session_set_history(ss, &history, 1);
 }
