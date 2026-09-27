@@ -130,7 +130,116 @@ static void test_the_duration_budget(void) {
               viewer_duration_elapsed(0.0, 0.0), 0);
 }
 
+/*
+ * Every stream in the enum says what paces it.
+ *
+ * This is the enumeration an inline `if` cannot have, and it is the check
+ * ticket 07's publish spin got past: the fault was fixed once for
+ * `receiver_state` (ticket 10), the fix produced a named predicate covered
+ * by this very suite, and the two new streams were then written with a bare
+ * inline `if` instead. A guideline is weaker than a fix that was read,
+ * understood and still not applied -- so this walks the enum.
+ *
+ * `VIEWER_PACED_UNKNOWN` is what a stream nobody has paced gets, so adding
+ * one to `enum viewer_stream` without a row in `viewer_stream_pacing()`
+ * fails here rather than shipping.
+ */
+static void test_every_stream_says_what_paces_it(void) {
+    int s;
+    int on_data = 0, on_time = 0, on_demand = 0;
+
+    for (s = 0; s < VIEWER_STREAM_COUNT; s++) {
+        enum viewer_stream_pacing p =
+            viewer_stream_pacing((enum viewer_stream)s);
+
+        /* By index rather than by name: linking viewer_link.c for the
+           spelling would pull sockets and the embedded page into a suite of
+           pure predicates. check-viewer-link pins the names. */
+        check_msg(p != VIEWER_PACED_UNKNOWN,
+                  "stream %d says what paces it\n", s);
+        if (p == VIEWER_PACED_ON_DATA)
+            on_data++;
+        else if (p == VIEWER_PACED_ON_TIME)
+            on_time++;
+        else
+            on_demand++;
+    }
+
+    /*
+     * And the split, because the two families are not paced the same way
+     * and one predicate that flattened them would either spin the metadata
+     * streams or stall the data ones.
+     */
+    check_int("the view streams are paced on data", on_data,
+              VIEWER_STREAM_COUNT - 3);
+    check_int("receiver_state and link_health on time", on_time, 2);
+    check_int("and command_result is a reply, not a stream", on_demand, 1);
+    check_str("which is what it is called",
+              viewer_pacing_name(
+                  viewer_stream_pacing(VIEWER_STREAM_COMMAND_RESULT)),
+              "on-demand");
+}
+
+/*
+ * What the two reasons do, and the one they must not do.
+ *
+ * A data stream is deliberately not also given an interval: a timer there
+ * would republish numbers no new block produced, and a publish **queues into
+ * a replaceable slot rather than sending**, so the loop's `select()` stays
+ * ready and it never waits. Measured at **234216 messages in 10 seconds**
+ * against the 15.26/s a live receiver's block rate caps it at.
+ */
+static void test_a_data_stream_is_not_also_on_a_timer(void) {
+    int s;
+
+    for (s = 0; s < VIEWER_STREAM_COUNT; s++) {
+        enum viewer_stream stream = (enum viewer_stream)s;
+
+        if (viewer_stream_pacing(stream) != VIEWER_PACED_ON_DATA)
+            continue;
+        /* No block this pass, an hour since the last publish, and the
+           caller shouting that something changed: still not due. */
+        check_msg(!viewer_publish_due(stream, 0, 3600.0, 0.0, 0.25, 1),
+                  "stream %d waits for a block, whatever the clock says\n", s);
+        check_msg(viewer_publish_due(stream, 1, 3600.0, 3599.99, 0.25, 0),
+                  "stream %d goes out when one arrives\n", s);
+    }
+}
+
+/* The on-time streams keep `viewer_update_due()`'s three reasons -- changed,
+   never sent, or the interval has passed -- and are not held back by a pass
+   with no block in it, which is the whole reason they are not on-data. */
+static void test_an_on_time_stream_does_not_wait_for_a_block(void) {
+    check_true("a retune goes out at once, block or no block",
+               viewer_publish_due(VIEWER_STREAM_RECEIVER_STATE, 0, 10.0, 9.99,
+                                  0.25, 1));
+    check_true("and so does the first one ever",
+               viewer_publish_due(VIEWER_STREAM_RECEIVER_STATE, 0, 10.0, -1.0,
+                                  0.25, 0));
+    check_true("and the quarter-second heartbeat",
+               viewer_publish_due(VIEWER_STREAM_RECEIVER_STATE, 0, 10.0, 9.5,
+                                  0.25, 0));
+    check_true("but not twice inside it",
+               !viewer_publish_due(VIEWER_STREAM_RECEIVER_STATE, 0, 10.0,
+                                   9.9, 0.25, 0));
+}
+
+/* A reply is sent by whoever answers the command. The loop never publishes
+   it, whatever it is asked. */
+static void test_a_reply_is_never_due(void) {
+    check_true("not on a block",
+               !viewer_publish_due(VIEWER_STREAM_COMMAND_RESULT, 1, 10.0,
+                                   -1.0, 0.0, 0));
+    check_true("not on a timer",
+               !viewer_publish_due(VIEWER_STREAM_COMMAND_RESULT, 0, 3600.0,
+                                   0.0, 0.25, 1));
+}
+
 int main(void) {
+    test_every_stream_says_what_paces_it();
+    test_a_data_stream_is_not_also_on_a_timer();
+    test_an_on_time_stream_does_not_wait_for_a_block();
+    test_a_reply_is_never_due();
     test_a_first_update_is_always_due();
     test_the_heartbeat();
     test_a_change_beats_the_interval();
@@ -138,5 +247,5 @@ int main(void) {
     test_a_run_of_the_loop_publishes_at_the_interval();
     test_no_budget_means_no_duration_limit();
     test_the_duration_budget();
-    return check_report("when a Viewer metadata update is due");
+    return check_report("what paces each Viewer stream, and when one is due");
 }

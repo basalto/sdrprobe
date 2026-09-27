@@ -384,7 +384,26 @@ int viewer_session_run(struct app *app) {
         rvm = &svm.receiver;
         now_ms = (uint64_t)(monotonic_seconds() * 1000.0);
 
-        if (spectrum_updated) {
+        /*
+         * The data-paced streams, all eleven of them, through the one
+         * predicate rather than a bare `if`.
+         *
+         * `viewer_publish_due()` reads the pacing table in
+         * `viewer_session.h`, which names every value of `enum
+         * viewer_stream` and which `check-viewer-session` walks: a stream
+         * added without saying what paces it fails the gate. The table is
+         * asked with `VIEWER_STREAM_SPECTRUM` because every stream in this
+         * block is on-data and the answer is the same for all of them --
+         * what the call buys over `if (spectrum_updated)` is that the
+         * *reason* has a name and an enumeration behind it.
+         *
+         * What it cannot buy: nothing here can see the shape of this loop,
+         * so a publish written outside this block is still invisible to a
+         * check. `make bench-serve` is what catches that, and it is a
+         * number rather than an opinion.
+         */
+        if (viewer_publish_due(VIEWER_STREAM_SPECTRUM, spectrum_updated,
+                               now, -1.0, 0.0, 0)) {
             viewer_link_publish_spectrum(&link, &svm, now_ms);
             viewer_link_publish_waterfall_row(&link, &svm, now_ms);
             /*
@@ -479,18 +498,21 @@ int viewer_session_run(struct app *app) {
          * immediate, because the tuning generation is what `changed` asks
          * about; everything else is the quarter-second heartbeat.
          */
-        if (viewer_update_due(now, state_published_at,
-                              VIEWER_SESSION_STATE_INTERVAL_SECONDS,
-                              state_ever_published &&
-                                  rvm->tuning_generation != state_generation)) {
+        if (viewer_publish_due(VIEWER_STREAM_RECEIVER_STATE, spectrum_updated,
+                               now, state_published_at,
+                               VIEWER_SESSION_STATE_INTERVAL_SECONDS,
+                               state_ever_published &&
+                                   rvm->tuning_generation !=
+                                       state_generation)) {
             viewer_link_publish_receiver_state(&link, rvm, now_ms);
             state_published_at = now;
             state_generation = rvm->tuning_generation;
             state_ever_published = 1;
         }
 
-        if (viewer_update_due(now, health_published_at,
-                              VIEWER_SESSION_HEALTH_INTERVAL_SECONDS, 0)) {
+        if (viewer_publish_due(VIEWER_STREAM_LINK_HEALTH, spectrum_updated,
+                               now, health_published_at,
+                               VIEWER_SESSION_HEALTH_INTERVAL_SECONDS, 0)) {
             struct process_cpu_sample cpu_now;
 
             if (process_cpu_sample_now(&cpu_now) == 0) {

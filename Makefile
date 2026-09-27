@@ -342,8 +342,13 @@ check-receiver-runtime: $(TESTS)/receiver_runtime_test.c $(TESTS)/check.h \
 # The per-block dispatch, with every callee faked -- see the file comment.
 # No raylib and no sockets: viewer_session.h's pacing decision is a header
 # function precisely so a check can reach it without the loop it lives in.
+# Pure predicates: the pacing table and the two "is this due?" rules, which
+# take an enum and some doubles. Deliberately still `-lm` alone -- linking
+# viewer_link.c for the *name* of a stream would pull in sockets, the
+# embedded page and four view models to improve a failure message. The names
+# are pinned next door, in check-viewer-link, which already links the table.
 check-viewer-session: $(TESTS)/viewer_session_test.c $(TESTS)/check.h \
-		$(SRC)/server/viewer_session.h
+		$(SRC)/server/viewer_session.h $(SRC)/server/viewer_link.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/viewer_session_test \

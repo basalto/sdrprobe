@@ -93,6 +93,12 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "lte_state"
 };
 
+const char *viewer_link_stream_name(enum viewer_stream stream) {
+    if ((int)stream < 0 || (int)stream >= VIEWER_STREAM_COUNT)
+        return NULL;
+    return stream_names[stream];
+}
+
 /*
  * Decimal SI, matching AGENTS.md's units convention: KB at 1000 bytes,
  * MB at 1e6, never KiB/MiB and never a silent /1024 wearing a "KB" label.

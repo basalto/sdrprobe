@@ -171,6 +171,21 @@ enum viewer_stream {
     VIEWER_STREAM_COUNT
 };
 
+/*
+ * A stream's name on the wire, as `subscribe` spells it.
+ *
+ * Public so a check can reach the table at all -- it was `static` in the
+ * `.c`, and it is `stream_names[VIEWER_STREAM_COUNT]`, sized by the enum, so
+ * a short initializer leaves the last entries **NULL** rather than
+ * overrunning. C zero-fills; `%s` on a NULL is undefined and glibc happens
+ * to render it "(null)". That is what happened when ticket 07 added two
+ * values to the enum (`web-visualization/12`).
+ *
+ * Returns NULL outside the enum rather than a placeholder, so a caller
+ * cannot mistake "no such stream" for a stream called something odd.
+ */
+const char *viewer_link_stream_name(enum viewer_stream stream);
+
 /* -------------------------------------------------------------------- */
 /* One connected client.                                                  */
 /* -------------------------------------------------------------------- */
@@ -320,6 +335,37 @@ void viewer_link_poll(struct viewer_link *link, int timeout_ms);
  * fine); what a caller must not do is skip work implied by "a subscription
  * says what to compute" at a higher level (ticket 05), which these
  * functions have no way to see.
+ *
+ * ----------------------------------------------------------------------
+ * **What a publish costs, read this before adding a call.**
+ *
+ * A publish **queues into a replaceable slot; it does not send.** So an
+ * unconditional republish leaves the serve loop's `select()` permanently
+ * ready and the loop never waits -- it does not merely send more messages,
+ * it stops idling at all. Measured twice, four and five orders of magnitude
+ * over the block rate:
+ *
+ *   ticket 10   `receiver_state` republished every iteration: idle `--serve`
+ *               went from 9.8% CPU to **98.6%** with one metadata subscriber.
+ *   ticket 07   the survey pair, same shape, six days later, written by
+ *               somebody who had just read ticket 10: **234216 messages in
+ *               10 seconds** against the 15.26/s a live receiver's block rate
+ *               caps it at.
+ *
+ * The second is why this paragraph is here rather than in a skill or in
+ * `CLAUDE.md`: both are read before the work, and ticket 10's fix had
+ * already produced a named, checked predicate that the new code did not use.
+ * This is the file somebody opens to find the function they are about to
+ * call.
+ *
+ * So: **a new stream is paced in `viewer_stream_pacing()`**
+ * (`server/viewer_session.h`) and published through `viewer_publish_due()`.
+ * `check-viewer-session` walks every value of `enum viewer_stream` and fails
+ * on one nobody has paced. It cannot see the shape of the loop, so it cannot
+ * catch a publish written outside the gate -- **`make bench-serve` is what
+ * turns "seems fine" into a number**, and it belongs in the acceptance
+ * criteria of any ticket that adds a stream.
+ * ----------------------------------------------------------------------
  */
 void viewer_link_publish_spectrum(struct viewer_link *link,
                                   const struct scope_view_model *svm,
