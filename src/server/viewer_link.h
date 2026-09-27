@@ -186,6 +186,29 @@ enum viewer_stream {
  */
 const char *viewer_link_stream_name(enum viewer_stream stream);
 
+/*
+ * The longest a stream's name may be, and how much room every name together
+ * needs.
+ *
+ * **Derived, not chosen.** The debug log's subscription summary was
+ * `char summary[64]`, sized when there were five names, and two more
+ * truncated it mid-word: `subscribed: spectrum waterfall receiver_state
+ * link_health survey_spectrum s`. It was then raised to 160 with a comment
+ * reading "90 bytes for all seven today" -- and seven more streams later
+ * that needed 164, so it was **truncating again**, silently, at the moment
+ * this ticket was picked up. A log line that lies about what a client asked
+ * for, in the one line that exists to answer that question.
+ *
+ * Both numbers were right when written. Neither could stay right, because a
+ * buffer sized from today's names is a caption that stops agreeing with its
+ * picture. `check-viewer-link` asserts no name exceeds the bound and that
+ * every name together fits inside it, so the next stream either fits or
+ * fails the gate (`web-visualization/12`).
+ */
+#define VIEWER_STREAM_NAME_MAX 20
+#define VIEWER_SUBSCRIPTION_SUMMARY_MAX \
+    (VIEWER_STREAM_COUNT * (VIEWER_STREAM_NAME_MAX + 1) + 1)
+
 /* -------------------------------------------------------------------- */
 /* One connected client.                                                  */
 /* -------------------------------------------------------------------- */

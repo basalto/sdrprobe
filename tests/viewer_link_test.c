@@ -771,6 +771,20 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
     check_size("the table names every stream in the enum", n,
               (size_t)VIEWER_STREAM_COUNT);
 
+    /*
+     * And the list above is the same list the *link* holds.
+     *
+     * This was two independent statements of the same names and that was
+     * deliberate -- a second statement is what makes it a check. Now that
+     * `viewer_link_stream_name()` is public the two can be compared
+     * directly, which turns "both lists have 14 entries" into "both lists
+     * have the same 14 entries in the same order". A name typed into one
+     * and not the other is the fault this catches.
+     */
+    for (i = 0; i < n; i++)
+        check_str("the link spells it the same way",
+                  viewer_link_stream_name((enum viewer_stream)i), names[i]);
+
     /* One name at a time, each on its own fresh subscribe line -- a line
        replaces the whole set, so this also confirms each name reaches its
        own slot rather than a neighbour's. */
@@ -1579,7 +1593,78 @@ static void test_the_token_is_found_among_other_query_parameters(void) {
     viewer_link_close(&vlink);
 }
 
+/*
+ * The name table itself: a list that must stay in step with an enum, with
+ * nothing checking that it did.
+ *
+ * `stream_names[VIEWER_STREAM_COUNT]` is sized by the enum, so adding two
+ * values left the last two entries **NULL** -- C zero-fills a short
+ * initializer rather than overrunning -- and NULL went to `%s`, which is
+ * undefined behaviour that glibc happens to render as "(null)". Nothing
+ * failed. `web-visualization/12`.
+ */
+static void test_the_name_table_keeps_up_with_the_enum(void) {
+    int a, b;
+    size_t total = 0;
+
+    for (a = 0; a < VIEWER_STREAM_COUNT; a++) {
+        const char *name = viewer_link_stream_name((enum viewer_stream)a);
+
+        check_msg(name != NULL, "stream %d has a name at all\n", a);
+        if (!name)
+            continue;
+        check_msg(name[0] != '\0', "stream %d's name is not empty\n", a);
+        /* The bound the summary buffer is sized from. A name past it would
+           make that buffer's arithmetic a guess again. */
+        check_msg(strlen(name) <= VIEWER_STREAM_NAME_MAX,
+                  "stream %d's name fits the stated bound (%s, %zu)\n", a,
+                  name, strlen(name));
+        total += strlen(name) + 1;      /* the name and its separator */
+
+        /* Unique, because the subscribe parser takes the first match: two
+           streams sharing a name would make the second unreachable, with
+           no error and an empty stream -- the same silence the missing
+           branches produced. */
+        for (b = 0; b < a; b++) {
+            const char *other = viewer_link_stream_name((enum viewer_stream)b);
+
+            check_msg(!other || strcmp(name, other) != 0,
+                      "stream %d's name is its own (%s)\n", a, name);
+        }
+    }
+
+    /*
+     * And every name together fits the log's summary line. This is the
+     * assertion that was missing when the buffer was 64 and then 160: both
+     * were right when written, and both were truncating two streams later.
+     * At the moment this ticket was picked up 160 was four bytes short of
+     * the 164 the fourteen names need.
+     */
+    check_true("every name together fits the subscription summary",
+               total + 1 <= (size_t)VIEWER_SUBSCRIPTION_SUMMARY_MAX);
+
+    /*
+     * `command_result` is pinned by name rather than looped over blindly.
+     * It is subscribable like any other -- a result is pushed whether it was
+     * asked for or not (ticket 06), and refusing the *name* would be a
+     * second rule nobody stated -- but it is the one stream the serve loop
+     * never publishes, so an exemption has to say which it is.
+     */
+    check_str("the reply stream is named, not special-cased silently",
+              viewer_link_stream_name(VIEWER_STREAM_COMMAND_RESULT),
+              "command_result");
+
+    /* Outside the enum is NULL rather than a placeholder, so a caller
+       cannot mistake "no such stream" for a stream called something odd. */
+    check_true("no name outside the enum",
+               viewer_link_stream_name((enum viewer_stream)
+                                       VIEWER_STREAM_COUNT) == NULL);
+    check_true("nor below it",
+               viewer_link_stream_name((enum viewer_stream)-1) == NULL);
+}
+
 int main(void) {
+    test_the_name_table_keeps_up_with_the_enum();
     test_plain_get_serves_the_page();
     test_upgrade_and_receiver_state();
     test_link_health_reports_this_clients_own_counters();

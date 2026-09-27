@@ -392,13 +392,11 @@ static void handle_subscribe_line(struct viewer_client *c, const char *line,
     }
     memcpy(c->subscribed, wanted, sizeof(wanted));
     if (debug_log_active()) {
-        /* Every stream name, space-separated, plus the terminator -- 90
-           bytes for all seven today. Sized generously rather than exactly:
-           this was 64 and silently truncated mid-word the moment ticket
-           07 added a sixth and seventh name, found live rather than
-           read -- a log line truncated is a log line lying about what a
-           client asked for, which is what this line exists to answer. */
-        char summary[160] = "";
+        /* Every stream name, space-separated, plus the terminator, sized
+           from the enum rather than from today's names -- see
+           VIEWER_SUBSCRIPTION_SUMMARY_MAX. This was 64, then 160, and both
+           were right when written and truncating two streams later. */
+        char summary[VIEWER_SUBSCRIPTION_SUMMARY_MAX] = "";
         int s;
 
         for (s = 0; s < VIEWER_STREAM_COUNT; s++)
