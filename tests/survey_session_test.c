@@ -949,7 +949,81 @@ static void test_a_range_it_will_not_sweep(void) {
     check_true("still idle", survey_session_sweeping(&ss) == 0);
 }
 
+/*
+ * A sweep ticked against a different clock stops and says so.
+ *
+ * The header's `survey_elapsed_sane()` answers the question; this is where
+ * it is acted on, because a `static inline` function with no state has
+ * nowhere to complain to and a session has a status line and a reader.
+ *
+ * The fault: `viewer_session_handle_command()` stamped `step_started_at`
+ * from a raw `monotonic_seconds()` -- absolute host uptime -- while the
+ * serve loop ticks with a `now` relative to its own baseline. Every later
+ * tick then compared the two, `now - step_started_at` was deeply negative,
+ * and `elapsed < SURVEY_SETTLE_SECONDS` is true for every negative number
+ * there is. **One retune happened in 75 seconds where thirteen were due**,
+ * silently, because settling looks like patience (`web-visualization/12`).
+ */
+static void test_a_sweep_against_the_wrong_clock_stops(void) {
+    static struct survey_session ss;
+    struct survey_session_event event;
+    struct survey_block block;
+
+    survey_session_reset(&ss);
+    check_int("a two-step sweep plans",
+              survey_session_sweep(&ss, 900e6, 903e6, RATE, 0.10, 0.0,
+                                   &event),
+              SURVEY_PLAN_OK);
+    check_int("and it is sweeping", ss.state, SURVEY_SESSION_SWEEPING);
+
+    flat_spectrum(-90.0f);
+    block = synthetic_block(survey_plan_step_centre(&ss.plan, 0));
+
+    /*
+     * `survey_session_sweep()` stamped the step at `now = 0`. Ticking with a
+     * `now` from another origin -- here a loop baseline where the stamp came
+     * from host uptime -- is the shape of the real fault.
+     */
+    survey_session_tick(&ss, &block, 1, -48210.5, &event);
+
+    check_int("the sweep stops rather than settling for ever", ss.state,
+              SURVEY_SESSION_IDLE);
+    check_true("and says the clock ran backwards, not that a tuner is slow",
+               strstr(ss.status, "clock ran backwards") != NULL);
+    check_int("the receiver is handed back", event.release_receiver, 1);
+    check_int("nothing was folded from the wrong step", ss.blocks_folded, 0);
+}
+
+/* The same question on the measure path, where a negative elapsed would hold
+   the measurement in its settle for ever and never reach its own deadline. */
+static void test_a_measurement_against_the_wrong_clock_stops(void) {
+    static struct survey_session ss;
+    struct survey_session_event event;
+    struct survey_block block;
+
+    survey_session_reset(&ss);
+    survey_session_sweep(&ss, 900e6, 903e6, RATE, 0.10, 0.0, &event);
+    flat_spectrum(-90.0f);
+    put_carrier(survey_plan_step_centre(&ss.plan, 0),
+                survey_plan_step_centre(&ss.plan, 0), -20.0f);
+    block = synthetic_block(survey_plan_step_centre(&ss.plan, 0));
+    survey_session_tick(&ss, &block, 1, 0.15, &event);
+    check_true("a candidate to measure", ss.peak_count >= 1);
+
+    survey_session_measure(&ss, survey_plan_step_centre(&ss.plan, 0), 0.20,
+                           &event);
+    check_int("measuring", ss.state, SURVEY_SESSION_MEASURING);
+
+    survey_session_tick(&ss, &block, 1, -48210.5, &event);
+    check_int("it stops rather than waiting for a settle that cannot end",
+              ss.state, SURVEY_SESSION_IDLE);
+    check_true("and says why",
+               strstr(ss.status, "clock ran backwards") != NULL);
+}
+
 int main(void) {
+    test_a_sweep_against_the_wrong_clock_stops();
+    test_a_measurement_against_the_wrong_clock_stops();
     test_the_same_capture_twice();
     test_the_mode_s_carrier();
     test_which_spectrum_may_be_measured();

@@ -518,6 +518,27 @@ static void survey_session_sweep_tick(struct survey_session *s,
         return;
     }
 
+    /*
+     * Before anything else: is this one clock?
+     *
+     * A monotonic clock does not run backwards, so a negative elapsed says
+     * the caller stamped `step_started_at` from a different origin than the
+     * one it is ticking with -- which is what
+     * `viewer_session_handle_command()` did, for 75 seconds, with one retune
+     * where thirteen were due. `survey_elapsed_sane()` carries the reasoning;
+     * this is where something can hear it. Stopping is the loudest response
+     * short of an assert, and it is safe to be loud because the condition
+     * cannot arise from timing at all -- only from a programming fault.
+     */
+    if (!survey_elapsed_sane(now - s->step_started_at)) {
+        survey_session_stop(s, out);
+        snprintf(s->status, sizeof(s->status),
+                 "Sweep stopped: the clock ran backwards (%.1f s). Two "
+                 "clocks with different origins, not a slow tuner.",
+                 now - s->step_started_at);
+        return;
+    }
+
     phase = survey_step_phase_at(now - s->step_started_at, s->dwell_seconds,
                                  s->step, s->step_count);
     if (have_block) {
@@ -1197,6 +1218,18 @@ static void survey_session_measure_tick(struct survey_session *s,
     /* Not until the tuner has settled: the blocks before that are the previous
        tuning's, and measuring them measures the wrong frequency.
        survey_measure_settled() carries the reason. */
+    /* The same question the sweep's step asks, and for the same reason: a
+       negative elapsed here would hold the measurement in its settle for
+       ever, and `SURVEY_MEASURE_SECONDS` below would never be reached. */
+    if (!survey_elapsed_sane(now - s->measure_started_at)) {
+        s->state = SURVEY_SESSION_IDLE;
+        snprintf(s->status, sizeof(s->status),
+                 "Measurement stopped: the clock ran backwards (%.1f s).",
+                 now - s->measure_started_at);
+        if (out)
+            out->measure_finished = 1;
+        return;
+    }
     if (have_block && survey_measure_settled(now - s->measure_started_at)) {
         struct sdr_carrier_report report;
         int found = sdr_dsp_characterise_carrier(

@@ -453,7 +453,50 @@ static void test_leaving_a_step(void) {
                survey_step_may_advance(SURVEY_STEP_FINISHED, 1));
 }
 
+/*
+ * A negative elapsed is not a small number: it is a different clock.
+ *
+ * Both settle predicates have the shape `elapsed < SURVEY_SETTLE_SECONDS`,
+ * which is true for every negative number there is -- so a sweep compared
+ * against the wrong clock origin reads "the tuner has not caught up" for
+ * ever, and settling is silent and looks like patience. On air that was one
+ * retune in 75 seconds where thirteen were due, with nothing on screen
+ * saying anything was wrong (`web-visualization/12`).
+ *
+ * The header answers the question and refuses to be the one that acts on it:
+ * a `static inline` function with no state has nowhere to complain to, so
+ * the *session* stops the sweep and says so. What is pinned here is that the
+ * question can be asked at all, and that it is not a clamp -- a clamp would
+ * turn the fault into a sweep that merely starts its settle late, which is
+ * silent again.
+ */
+static void test_a_backwards_clock_is_not_a_short_settle(void) {
+    check_int("an ordinary elapsed is sane", survey_elapsed_sane(0.05), 1);
+    check_int("zero is sane -- the block that arrives on the tuning",
+              survey_elapsed_sane(0.0), 1);
+    check_int("a whole dwell later is sane", survey_elapsed_sane(120.0), 1);
+
+    /* The value the fault actually produced: a loop-relative `now` minus an
+       absolute host-uptime stamp, which is tens of thousands of seconds. */
+    check_int("host uptime against a loop baseline is not",
+              survey_elapsed_sane(3.2 - 48213.7), 0);
+    check_int("nor is one microsecond of it",
+              survey_elapsed_sane(-1e-6), 0);
+
+    /*
+     * And the shape that made it invisible, asserted directly: both
+     * predicates *would* call it settling, which is why neither may be
+     * reached with a number the predicate above rejects.
+     */
+    check_int("the phase function would call it settling",
+              survey_step_phase_at(-48210.5, 0.10, 0, 13),
+              SURVEY_STEP_SETTLING);
+    check_int("and the measure would call it unsettled",
+              survey_measure_settled(-48210.5), 0);
+}
+
 int main(void) {
+    test_a_backwards_clock_is_not_a_short_settle();
     test_full_tuner_sweep();
     test_every_frequency_is_covered();
     test_bin_resolution();

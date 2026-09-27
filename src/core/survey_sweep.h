@@ -303,6 +303,39 @@ static inline float survey_fold_hold(float existing, float power) {
     return existing;
 }
 
+/*
+ * Whether an elapsed time can have come from one clock.
+ *
+ * **A negative elapsed is not a small number: it is a different clock.** A
+ * monotonic clock does not run backwards, so the value cannot arise from
+ * timing -- only from two origins being compared, which is what happened:
+ * `viewer_session_handle_command()` computed `now` as a raw
+ * `monotonic_seconds()` (absolute host uptime, tens of thousands of seconds)
+ * while `viewer_session_run()`'s loop computes it relative to a `started`
+ * baseline. `survey_start()` stamped `step_started_at` from the first and
+ * every later tick measured against the second.
+ *
+ * Reading that as "still settling" is the worst available response, because
+ * settling is **silent and looks like patience**: one retune happened in 75
+ * seconds where thirteen were due, and nothing on screen said anything was
+ * wrong. `survey_step_phase_at()` and `survey_measure_settled()` both have
+ * that shape -- `elapsed < SURVEY_SETTLE_SECONDS` is true for every negative
+ * number there is.
+ *
+ * This is deliberately a *predicate* and not a clamp or a refusal of its own.
+ * A clamp turns the fault into a sweep that merely starts its settle late,
+ * which is silent again; a new phase value gives every caller a case it
+ * would most likely handle by ignoring the block, which is settling by
+ * another name. A header of `static inline` functions with no state has
+ * nowhere to complain to, so it answers the question and the *session*
+ * refuses -- it has a status line, a log and a reader.
+ *
+ * `.scratch/web-visualization/issues/12-*`.
+ */
+static inline int survey_elapsed_sane(double elapsed) {
+    return elapsed >= 0.0;
+}
+
 enum survey_step_phase {
     SURVEY_STEP_SETTLING, /* the tuner has not caught up; nothing to fold */
     SURVEY_STEP_DWELLING, /* fold this block in and stay here */
