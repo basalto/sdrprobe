@@ -3,9 +3,9 @@
 
 #include "core/reading_origin.h"
 #include "model/survey_mark.h"
-#include "runtime/site_history.h"
+#include "model/site_seen.h"
 #include "core/survey_carrier.h"
-#include "runtime/survey_record.h"
+#include "model/survey_tuning.h"
 #include "core/survey_sweep.h"
 
 /* What this reads, and all of it: the sweep, and the four tuning facts

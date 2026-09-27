@@ -2,6 +2,7 @@
 #define READING_ORIGIN_H
 
 #include <math.h>
+#include <stddef.h>   /* NULL: this header stands alone, and did not */
 
 /*
  * Whose oscillator made this signal, from where its frequency reads.

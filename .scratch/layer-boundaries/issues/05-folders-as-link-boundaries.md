@@ -151,3 +151,71 @@ the reason `SRC_INC` exists rather than a per-rule flag.
 
 `tech/` is 50 files and stays flat. The ticket said to decide on the
 evidence of the move rather than before it, and the evidence is not in yet.
+
+## Follow-up, 2026-09-27 -- `model/` depends on nothing above it
+
+The move left one thing standing and the closing note named it: the
+view-model builders included `runtime/app.h` for their input types. Legal
+under the order as it then stood -- `model` was *above* `runtime` -- but the
+order was the cheap answer rather than the right one.
+
+**A model is a contract.** The Viewer link serialises these structs and
+`views/survey.js` keys tables by the names in them. A contract that reaches
+up into the layer which happens to compute it is a contract its readers
+cannot have without dragging the application in behind it. So `model` belongs
+beneath `runtime`, and the six violations that ruled against it were the
+work, not an argument.
+
+**Contract and builder are separated.** `*_view_model.h` stays in `model/`;
+the four `.c` files that fill them are in `runtime/`, where reading
+`struct app` is what they are for. Two values came down with them, both of
+which cross the wire and neither of which needs the machinery that produces
+it:
+
+- `enum site_seen` and `site_seen_name()` out of `site_history.h`, which
+  reads a file, into `model/site_seen.h`.
+- `struct survey_record_tuning` out of `survey_record.h` into
+  `model/survey_tuning.h`.
+
+`survey_record` and `survey_store` stayed in `runtime/`, for the reason that
+first looked like a counter-example: runtime writes them, a file and a script
+read them, and they never cross a seam to a *reader*.
+
+The order is now `core -> tech -> model -> runtime -> server -> gui -> app`,
+**zero violations**, and ADR-0028 is corrected to say why the first answer
+was wrong.
+
+One header was not self-contained and only this found it:
+`core/reading_origin.h` used `NULL` without including `<stddef.h>`, relying
+on whatever had been included before it. `model/survey_tuning.h` includes it
+first, and it stopped compiling.
+
+### What a check costs, by layer -- measured
+
+Asked during this work, and worth recording because it changes when to reach
+for `check-touched`. Clean run, nothing else on the machine, against a 220 s
+full gate:
+
+| changed | suites picked | `check-touched` | share |
+|---|---|---|---|
+| `gui/view_fm.c` | 1 of 83 | 56 s | 25% |
+| `runtime/frame_advance.c` | 2 | 67 s | 30% |
+| `model/survey_view_model.h` | 3 | 78 s | 35% |
+| `tech/gsm_dsp.c` | 4 | 101 s | 46% |
+| `core/sdr_dsp.c` | 21 | 215 s | 98% |
+
+**There is a 55-second floor.** Any change under `src/` pulls in
+`check-pipelines`, which runs the built program over every capture, so even
+one suite costs a quarter of the gate -- and the two binary builds are most
+of the difference. **A `core/` change is the gate**: 21 suites, 98% of the
+time, nothing to pick.
+
+The layering does not change these numbers -- `check-touched` reads Makefile
+prerequisites, not folders -- it explains their shape. A first measurement
+was thrown away because a background job was running against it: it read
+472 s for the full gate against 220 s clean, and every per-layer figure was
+inflated with it.
+
+Verified: `make check` 83 suites, **22325 checks**; both audits clean; and
+the binary before and after over a GSM decode, an FM decode and a capture
+survey, all three **byte-identical**.

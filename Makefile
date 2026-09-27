@@ -118,8 +118,8 @@ CORE_SRC=$(SRC)/runtime/installation.c $(SRC)/runtime/backend_rtlsdr.c $(SRC)/ru
 	$(SRC)/runtime/config.c $(SRC)/runtime/site_history.c $(SRC)/runtime/survey_record.c \
 	$(SRC)/tech/lte_chain_analysis.c $(SRC)/core/signal_frame.c $(SRC)/runtime/receiver_runtime.c \
 	$(SRC)/runtime/frame_advance.c $(SRC)/runtime/app_runtime.c $(SRC)/app/app_main.c \
-	$(SRC)/app/headless_run.c $(SRC)/model/receiver_view_model.c $(SRC)/model/scope_view_model.c \
-	$(SRC)/model/survey_view_model.c $(SRC)/model/fm_view_model.c $(SRC)/server/websocket.c \
+	$(SRC)/app/headless_run.c $(SRC)/runtime/receiver_view_model.c $(SRC)/runtime/scope_view_model.c \
+	$(SRC)/runtime/survey_view_model.c $(SRC)/runtime/fm_view_model.c $(SRC)/server/websocket.c \
 	$(SRC)/server/viewer_link.c $(SRC)/server/viewer_session.c $(SRC)/runtime/fm_runtime.c \
 	$(SRC)/runtime/gsm_runtime.c $(SRC)/runtime/adsb_runtime.c $(SRC)/runtime/tetra_runtime.c \
 	$(SRC)/runtime/srd_runtime.c $(SRC)/runtime/lte_runtime.c $(SRC)/runtime/scope_runtime.c \
@@ -137,7 +137,7 @@ VIEW_SRC=$(SRC)/gui/view_scope.c $(SRC)/gui/view_gsm.c \
 	$(SRC)/gui/overlay_calibration.c $(SRC)/gui/overlay_startup.c $(SRC)/gui/overlay_scan.c \
 	$(SRC)/gui/overlay_settings.c $(SRC)/gui/overlay_help.c $(SRC)/gui/overlay_signal_report.c
 APP_SRC=$(CORE_SRC) $(VIEW_SRC)
-APP_HDR=$(SRC)/runtime/options.h $(SRC)/runtime/config.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/tech/lte_chain_analysis.h $(SRC)/gui/calibration_layout.h $(SRC)/core/survey_carrier.h $(SRC)/core/survey_confirm.h $(SRC)/runtime/site_history.h $(SRC)/runtime/survey_store.h $(SRC)/runtime/survey_record.h $(SRC)/core/signal_frame.h $(SRC)/runtime/receiver_runtime.h $(SRC)/runtime/frame_advance.h $(SRC)/model/receiver_view_model.h $(SRC)/model/scope_view_model.h $(SRC)/model/survey_view_model.h $(SRC)/model/fm_view_model.h $(SRC)/gui/gui_state.h $(SRC)/runtime/runtime.h $(SRC)/server/websocket.h $(SRC)/server/viewer_link.h $(SRC)/server/viewer_session.h $(SRC)/server/process_cpu.h $(SRC)/server/viewer_command.h $(SRC)/gui/gsm_layout.h $(SRC)/gui/adsb_layout.h $(SRC)/gui/tetra_layout.h \
+APP_HDR=$(SRC)/runtime/options.h $(SRC)/runtime/config.h $(SRC)/core/reading_origin.h $(SRC)/core/clock_chain.h $(SRC)/tech/lte_chain_analysis.h $(SRC)/gui/calibration_layout.h $(SRC)/core/survey_carrier.h $(SRC)/core/survey_confirm.h $(SRC)/runtime/site_history.h $(SRC)/runtime/survey_store.h $(SRC)/runtime/survey_record.h $(SRC)/core/signal_frame.h $(SRC)/runtime/receiver_runtime.h $(SRC)/runtime/frame_advance.h $(SRC)/model/receiver_view_model.h $(SRC)/model/scope_view_model.h $(SRC)/model/survey_view_model.h $(SRC)/model/site_seen.h $(SRC)/model/survey_tuning.h $(SRC)/model/fm_view_model.h $(SRC)/gui/gui_state.h $(SRC)/runtime/runtime.h $(SRC)/server/websocket.h $(SRC)/server/viewer_link.h $(SRC)/server/viewer_session.h $(SRC)/server/process_cpu.h $(SRC)/server/viewer_command.h $(SRC)/gui/gsm_layout.h $(SRC)/gui/adsb_layout.h $(SRC)/gui/tetra_layout.h \
 	$(SRC)/gui/lte_layout.h $(SRC)/gui/fm_layout.h $(SRC)/gui/srd_layout.h $(SRC)/tech/srd_session.h $(SRC)/server/browser.h \
 	$(SRC)/runtime/survey_window.h $(SRC)/gui/survey_layout.h $(SRC)/core/freq_window.h $(SRC)/core/survey_sweep.h \
 	$(SRC)/runtime/survey_session.h $(SRC)/runtime/startup_session.h \
@@ -360,13 +360,13 @@ check-frame-advance: $(TESTS)/frame_advance_test.c $(TESTS)/check.h \
 # compile a .c that includes `view.h`, which is a GUI header and includes
 # raylib itself. Ticket 02 of that spec splits it.
 check-scope-view-model: $(TESTS)/scope_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/model/scope_view_model.c $(SRC)/model/scope_view_model.h \
-		$(SRC)/model/receiver_view_model.c $(SRC)/model/receiver_view_model.h $(SRC)/runtime/app.h
+		$(SRC)/runtime/scope_view_model.c $(SRC)/model/scope_view_model.h \
+		$(SRC)/runtime/receiver_view_model.c $(SRC)/model/receiver_view_model.h $(SRC)/runtime/app.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/scope_view_model_test \
-		$(TESTS)/scope_view_model_test.c $(SRC)/model/scope_view_model.c \
-		$(SRC)/model/receiver_view_model.c -lm
+		$(TESTS)/scope_view_model_test.c $(SRC)/runtime/scope_view_model.c \
+		$(SRC)/runtime/receiver_view_model.c -lm
 	$(Q)./$(BUILD)/scope_view_model_test
 
 # The shell's half of what a Viewer is told -- the screen's name and the
@@ -374,25 +374,25 @@ check-scope-view-model: $(TESTS)/scope_view_model_test.c $(TESTS)/check.h \
 # `.scratch/layer-boundaries/issues/03-*` item 4. No sample block and no
 # scatter history: two plain structs in, one out, and `-lm` alone.
 check-receiver-view-model: $(TESTS)/receiver_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/model/receiver_view_model.c $(SRC)/model/receiver_view_model.h $(SRC)/runtime/app.h
+		$(SRC)/runtime/receiver_view_model.c $(SRC)/model/receiver_view_model.h $(SRC)/runtime/app.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/receiver_view_model_test \
-		$(TESTS)/receiver_view_model_test.c $(SRC)/model/receiver_view_model.c -lm
+		$(TESTS)/receiver_view_model_test.c $(SRC)/runtime/receiver_view_model.c -lm
 	$(Q)./$(BUILD)/receiver_view_model_test
 
 # The survey's candidate view model, built from known inputs -- see the file
 # comment in survey_view_model.h for the two drawings' duplicated decision it
 # replaces. --cflags raylib alone for app.h's types; no raylib call in it.
 check-survey-view-model: $(TESTS)/survey_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/model/survey_view_model.c $(SRC)/model/survey_view_model.h \
+		$(SRC)/runtime/survey_view_model.c $(SRC)/model/survey_view_model.h \
 		$(SRC)/runtime/survey_session.c $(SRC)/runtime/survey_session.h \
 		$(SRC)/runtime/site_history.c $(SRC)/core/band_plan.c \
 		$(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/survey_view_model_test \
-		$(TESTS)/survey_view_model_test.c $(SRC)/model/survey_view_model.c \
+		$(TESTS)/survey_view_model_test.c $(SRC)/runtime/survey_view_model.c \
 		$(SRC)/runtime/survey_session.c $(SRC)/runtime/site_history.c \
 		$(SRC)/core/band_plan.c $(SRC)/core/signal_probe.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/survey_view_model_test
@@ -402,13 +402,13 @@ check-survey-view-model: $(TESTS)/survey_view_model_test.c $(TESTS)/check.h \
 # decide for itself (ADR-0012). --cflags raylib alone for app.h's types; no
 # raylib call in it.
 check-fm-view-model: $(TESTS)/fm_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/model/fm_view_model.c $(SRC)/model/fm_view_model.h $(SRC)/runtime/app.h \
+		$(SRC)/runtime/fm_view_model.c $(SRC)/model/fm_view_model.h $(SRC)/runtime/app.h \
 		$(SRC)/tech/fm_dsp.c $(SRC)/tech/fm_dsp.h $(SRC)/tech/rds.c $(SRC)/tech/rds.h \
 		$(SRC)/core/sdr_dsp.c
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) \
 		-o $(BUILD)/fm_view_model_test \
-		$(TESTS)/fm_view_model_test.c $(SRC)/model/fm_view_model.c \
+		$(TESTS)/fm_view_model_test.c $(SRC)/runtime/fm_view_model.c \
 		$(SRC)/tech/fm_dsp.c $(SRC)/tech/rds.c $(SRC)/core/sdr_dsp.c -lm
 	$(Q)./$(BUILD)/fm_view_model_test
 
@@ -447,8 +447,8 @@ check-websocket: $(TESTS)/websocket_test.c $(TESTS)/check.h \
 check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
 		$(SRC)/server/viewer_link.c $(SRC)/server/viewer_link.h $(BUILD)/viewer_page.h \
 		$(SRC)/server/websocket.c $(SRC)/server/websocket.h \
-		$(SRC)/model/scope_view_model.c $(SRC)/model/scope_view_model.h \
-		$(SRC)/model/receiver_view_model.c $(SRC)/model/receiver_view_model.h \
+		$(SRC)/runtime/scope_view_model.c $(SRC)/model/scope_view_model.h \
+		$(SRC)/runtime/receiver_view_model.c $(SRC)/model/receiver_view_model.h \
 		$(SRC)/model/survey_view_model.h $(SRC)/model/fm_view_model.h $(SRC)/model/survey_mark.h \
 		$(SRC)/runtime/debug_log.c $(SRC)/runtime/debug_log.h \
 		$(SRC)/server/viewer_command.c $(SRC)/server/viewer_command.h
@@ -456,7 +456,7 @@ check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
 	$(Q)$(CC) $(CFLAGS) $(SRC_INC) -I$(TESTS) $(WEB_CFLAGS) \
 		-o $(BUILD)/viewer_link_test \
 		$(TESTS)/viewer_link_test.c $(SRC)/server/viewer_link.c $(SRC)/server/websocket.c \
-		$(SRC)/model/scope_view_model.c $(SRC)/model/receiver_view_model.c \
+		$(SRC)/runtime/scope_view_model.c $(SRC)/runtime/receiver_view_model.c \
 		$(SRC)/runtime/debug_log.c $(SRC)/server/viewer_command.c -lm
 	$(Q)./$(BUILD)/viewer_link_test
 

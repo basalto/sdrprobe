@@ -28,17 +28,20 @@ import sys
 
 # Beneath to above. A layer may include itself and anything earlier.
 #
-# `model` sits above `runtime` and that was decided on evidence rather than
-# taste -- both orders were measured against the real include graph. Above,
-# three violations; beneath, six. The reason is that a view model is built
-# *for a reader* and so reads runtime state (`struct scope_view`, `struct
-# fm_view`, `enum decode_kind`), while the thing that looked like a
-# counter-example -- `survey_record` and `survey_store`, which runtime writes
-# -- turned out not to be a view model at all. Moving those two into
-# `runtime/` took the count to zero and gave `model/` a sharper definition:
-# **what crosses the seam to a reader**, which is the four view models and
-# nothing else.
-LAYERS = ["core", "tech", "runtime", "model", "server", "gui", "app"]
+# `model` sits **beneath** `runtime`, and getting there was the point of the
+# exercise rather than a detail. A model is a *contract*: plain structs a
+# reader depends on -- the Viewer link serialises them, the browser keys
+# tables by the names in them. A contract that reaches up into the layer
+# which happens to compute it is a contract its readers cannot have without
+# dragging the application in behind it.
+#
+# The four builders that *fill* the models therefore live in `runtime/`,
+# where they can read `struct app` freely, and `model/` holds the headers
+# they fill. Two values had to come down with them: `enum site_seen` (out of
+# `site_history.h`, which reads a file) and `struct survey_record_tuning`
+# (out of `survey_record.h`), both of which cross the wire and neither of
+# which needs the machinery that produces it.
+LAYERS = ["core", "tech", "model", "runtime", "server", "gui", "app"]
 
 # Either `"core/sdr_dsp.h"` or a bare `"sdr_dsp.h"`. Both are read, and the
 # difference matters: since ADR-0028's second half there is one `-I`, so a

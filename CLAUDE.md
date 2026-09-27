@@ -185,6 +185,29 @@ is **wontfix**: a 58-rule Makefile rewrite to buy four seconds of
 fifty-seven. It would be worth its day the moment the pole stops being one
 process, and the ticket says what would do that.
 
+**`src/` is seven layers, and which one you change is most of what a check
+costs.** `core -> tech -> model -> runtime -> server -> gui -> app`; a layer
+may include only what is beneath it, `check-layers` holds that, and every
+include names its layer (ADR-0028). Measured on this machine against a
+220 s full gate:
+
+| changed | suites picked | `check-touched` |
+|---|---|---|
+| `gui/view_fm.c` | 1 of 83 | 56 s |
+| `runtime/frame_advance.c` | 2 | 67 s |
+| `model/survey_view_model.h` | 3 | 78 s |
+| `tech/gsm_dsp.c` | 4 | 101 s |
+| `core/sdr_dsp.c` | 21 | 215 s |
+
+Two things in that are worth knowing before reaching for `check-touched`.
+**There is a 55-second floor**: any change under `src/` pulls in
+`check-pipelines`, which runs the built program over every capture, so one
+suite costs a quarter of the gate and the two binary builds are most of the
+difference. And **a `core/` change is the gate** -- 21 suites and 98% of the
+time -- so for anything in `core/` there is nothing to pick and `make check`
+is the honest command. The saving is real only for a leaf: the layering does
+not change these numbers, it explains their shape.
+
 The loop is three sizes:
 `make check-<one>` while iterating, `make check-touched` before committing --
 it reads each check rule's own prerequisites to pick, and prints how many

@@ -15,7 +15,7 @@ running an audit or by reading `CLAUDE.md`, not by looking at the tree.
 
 **`src/` is now seven directories, and the order between them is the rule:**
 
-    core -> tech -> runtime -> model -> server -> gui -> app
+    core -> tech -> model -> runtime -> server -> gui -> app
 
 A file in a layer may include only headers from its own layer and the layers
 beneath it. `scripts/layer_audit.py`, behind `make check-layers` and in
@@ -26,8 +26,8 @@ one, naming the file, the header and the layer it belongs to.
 |---|---|---|
 | `core/` | `sdr_dsp`, `signal_*`, `device_profile`, `band_plan`, `capture_sidecar`, the survey's analysis headers | `-lm` |
 | `tech/` | `gsm_*`, `lte_*`, `adsb_*`, `tetra_*`, `fm_*`, `rds`, `srd_*` | `-lm`, core |
-| `runtime/` | acquisition, the backends, the receiver lease, `frame_advance`, `*_runtime.c`, options, config, the survey machine and its record | `-pthread`, librtlsdr; **no raylib** |
-| `model/` | the four view models and `survey_mark.h` | `-lm` |
+| `model/` | the four view-model **contracts**, `survey_mark.h`, `site_seen.h`, `survey_tuning.h` | `-lm` |
+| `runtime/` | acquisition, the backends, the receiver lease, `frame_advance`, `*_runtime.c`, options, config, the survey machine and its record -- **and the four builders that fill the models** | `-pthread`, librtlsdr; **no raylib** |
 | `server/` | `websocket`, `viewer_*`, `browser`, `process_cpu` | no raylib |
 | `gui/` | `sdrgui*`, `view_*`, `overlay_*`, `*_layout.h`, `raygui_impl` | raylib |
 | `app/` | `sdrprobe.c`, `app_main.c`, and the two binaries' `main()` | both |
@@ -39,17 +39,33 @@ one, naming the file, the header and the layer it belongs to.
 without moving a file. Done first, this would have relocated the
 entanglement into subdirectories and fixed nothing.
 
-**The order was decided on measurement, not taste.** Both candidate orders
-were run against the real include graph. With `model` above `runtime`: three
-violations. With `model` beneath it: six. The asymmetry has a cause worth
-recording -- a view model is built *for a reader* and so legitimately reads
-runtime state (`struct scope_view`, `struct fm_view`, `enum decode_kind`),
-while the apparent counter-example turned out not to be a view model at all.
-`survey_record` and `survey_store` are written *by* runtime, consumed by a
-file and a script, and never cross a seam to a reader; moving them into
-`runtime/` took the count to **zero** and left `model/` with a sharper
-definition than the one it started with: **what crosses the seam to a
-reader**, which is the four view models and nothing else.
+**The order was decided on measurement, and then the measurement was
+rejected.** Both candidates were first run against the include graph as it
+stood: `model` above `runtime` gave three violations, beneath it gave six,
+so `model` went above. That was the cheap answer, not the right one.
+
+A model is a **contract** -- plain structs a reader depends on. The Viewer
+link serialises them; `views/survey.js` keys tables by the names in them. A
+contract that reaches up into the layer which happens to compute it is a
+contract its readers cannot have without dragging the application in behind
+it. So `model` belongs beneath `runtime`, and the six violations were the
+work, not an argument against it.
+
+The fix separates the contract from the builder. `*_view_model.h` stays in
+`model/`; the four `.c` files that *fill* them moved to `runtime/`, where
+reading `struct app` is exactly what they are for. Two values came down with
+them, both of which cross the wire and neither of which needs the machinery
+that produces it: `enum site_seen` out of `site_history.h` (which reads a
+file) into `model/site_seen.h`, and `struct survey_record_tuning` out of
+`survey_record.h` into `model/survey_tuning.h`.
+
+`survey_record` and `survey_store` stayed in `runtime/` throughout, for the
+reason that first looked like a counter-example: runtime writes them, a file
+and a script read them, and they never cross a seam to a *reader*.
+
+**`model/` now depends on nothing above `tech/`.** That is the property, and
+it is what makes the layer worth having: a reader -- the Viewer link, a
+future client -- can take a contract without taking the program.
 
 Two other files were in the wrong place and the audit is what said so.
 `view_input.h` is raylib-free routing state, sibling of `input_route.h`, and
