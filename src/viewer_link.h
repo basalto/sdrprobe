@@ -318,7 +318,7 @@ void viewer_link_publish_waterfall_row(struct viewer_link *link,
                                        const struct scope_view_model *svm,
                                        uint64_t now_ms);
 void viewer_link_publish_receiver_state(struct viewer_link *link,
-                                        const struct scope_view_model *svm,
+                                        const struct receiver_view_model *rvm,
                                         uint64_t now_ms);
 
 /*

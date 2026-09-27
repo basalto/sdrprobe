@@ -93,7 +93,7 @@ DSP_SRC=$(SRC)/gsm_session.c $(SRC)/tetra_session.c $(SRC)/lte_session.c $(SRC)/
 	$(SRC)/tetra_dsp.c $(SRC)/tetra_sync.c $(SRC)/srd_dsp.c $(SRC)/srd_frame.c
 APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/backend_uhd.c \
-	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/frame_advance.c $(SRC)/scope_view_model.c $(SRC)/survey_view_model.c $(SRC)/fm_view_model.c $(SRC)/websocket.c $(SRC)/viewer_link.c $(SRC)/viewer_session.c $(SRC)/fm_runtime.c $(SRC)/gsm_runtime.c $(SRC)/adsb_runtime.c $(SRC)/tetra_runtime.c $(SRC)/srd_runtime.c $(SRC)/lte_runtime.c $(SRC)/scope_runtime.c $(SRC)/scan_runtime.c $(SRC)/calibration_runtime.c $(SRC)/startup_runtime.c $(SRC)/survey_runtime.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
+	$(SRC)/acquisition.c $(SRC)/iq_ring.c $(SRC)/options.c $(SRC)/chart_window.c $(SRC)/config.c $(SRC)/site_history.c $(SRC)/survey_record.c $(SRC)/lte_chain_analysis.c $(SRC)/signal_frame.c $(SRC)/receiver_runtime.c $(SRC)/frame_advance.c $(SRC)/receiver_view_model.c $(SRC)/scope_view_model.c $(SRC)/survey_view_model.c $(SRC)/fm_view_model.c $(SRC)/websocket.c $(SRC)/viewer_link.c $(SRC)/viewer_session.c $(SRC)/fm_runtime.c $(SRC)/gsm_runtime.c $(SRC)/adsb_runtime.c $(SRC)/tetra_runtime.c $(SRC)/srd_runtime.c $(SRC)/lte_runtime.c $(SRC)/scope_runtime.c $(SRC)/scan_runtime.c $(SRC)/calibration_runtime.c $(SRC)/startup_runtime.c $(SRC)/survey_runtime.c $(SRC)/view_scope.c $(SRC)/view_gsm.c \
 	$(SRC)/view_adsb.c $(SRC)/view_lte.c $(SRC)/view_fm.c $(SRC)/view_tetra.c \
 	$(SRC)/view_srd.c \
 	$(SRC)/view_survey.c \
@@ -104,7 +104,7 @@ APP_SRC=$(SRC)/installation.c $(SRC)/backend_rtlsdr.c $(SRC)/backend_capture.c \
 	$(SRC)/survey_report.c $(SRC)/survey_store.c $(SRC)/survey_session.c \
 	$(SRC)/startup_session.c \
 	$(SRC)/debug_log.c $(SRC)/process_cpu.c $(SRC)/viewer_command.c $(SRC)/browser.c
-APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/gui_state.h $(SRC)/runtime.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
+APP_HDR=$(SRC)/options.h $(SRC)/config.h $(SRC)/reading_origin.h $(SRC)/clock_chain.h $(SRC)/lte_chain_analysis.h $(SRC)/calibration_layout.h $(SRC)/survey_carrier.h $(SRC)/survey_confirm.h $(SRC)/site_history.h $(SRC)/survey_store.h $(SRC)/survey_record.h $(SRC)/signal_frame.h $(SRC)/receiver_runtime.h $(SRC)/frame_advance.h $(SRC)/receiver_view_model.h $(SRC)/scope_view_model.h $(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/gui_state.h $(SRC)/runtime.h $(SRC)/websocket.h $(SRC)/viewer_link.h $(SRC)/viewer_session.h $(SRC)/process_cpu.h $(SRC)/viewer_command.h $(SRC)/gsm_layout.h $(SRC)/adsb_layout.h $(SRC)/tetra_layout.h \
 	$(SRC)/lte_layout.h $(SRC)/fm_layout.h $(SRC)/srd_layout.h $(SRC)/srd_session.h $(SRC)/browser.h \
 	$(SRC)/survey_layout.h $(SRC)/freq_window.h $(SRC)/survey_sweep.h \
 	$(SRC)/survey_session.h $(SRC)/startup_session.h \
@@ -226,12 +226,26 @@ check-frame-advance: $(TESTS)/frame_advance_test.c $(TESTS)/check.h \
 # compile a .c that includes `view.h`, which is a GUI header and includes
 # raylib itself. Ticket 02 of that spec splits it.
 check-scope-view-model: $(TESTS)/scope_view_model_test.c $(TESTS)/check.h \
-		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h $(SRC)/app.h
+		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h \
+		$(SRC)/receiver_view_model.c $(SRC)/receiver_view_model.h $(SRC)/app.h
 	@mkdir -p $(BUILD)
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
 		-o $(BUILD)/scope_view_model_test \
-		$(TESTS)/scope_view_model_test.c $(SRC)/scope_view_model.c -lm
+		$(TESTS)/scope_view_model_test.c $(SRC)/scope_view_model.c \
+		$(SRC)/receiver_view_model.c -lm
 	$(Q)./$(BUILD)/scope_view_model_test
+
+# The shell's half of what a Viewer is told -- the screen's name and the
+# applied tuning -- which was six fields on the Scope's chart model until
+# `.scratch/layer-boundaries/issues/03-*` item 4. No sample block and no
+# scatter history: two plain structs in, one out, and `-lm` alone.
+check-receiver-view-model: $(TESTS)/receiver_view_model_test.c $(TESTS)/check.h \
+		$(SRC)/receiver_view_model.c $(SRC)/receiver_view_model.h $(SRC)/app.h
+	@mkdir -p $(BUILD)
+	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) \
+		-o $(BUILD)/receiver_view_model_test \
+		$(TESTS)/receiver_view_model_test.c $(SRC)/receiver_view_model.c -lm
+	$(Q)./$(BUILD)/receiver_view_model_test
 
 # The survey's candidate view model, built from known inputs -- see the file
 # comment in survey_view_model.h for the two drawings' duplicated decision it
@@ -300,6 +314,7 @@ check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
 		$(SRC)/viewer_link.c $(SRC)/viewer_link.h $(BUILD)/viewer_page.h \
 		$(SRC)/websocket.c $(SRC)/websocket.h \
 		$(SRC)/scope_view_model.c $(SRC)/scope_view_model.h \
+		$(SRC)/receiver_view_model.c $(SRC)/receiver_view_model.h \
 		$(SRC)/survey_view_model.h $(SRC)/fm_view_model.h $(SRC)/survey_mark.h \
 		$(SRC)/debug_log.c $(SRC)/debug_log.h \
 		$(SRC)/viewer_command.c $(SRC)/viewer_command.h
@@ -307,7 +322,8 @@ check-viewer-link: $(TESTS)/viewer_link_test.c $(TESTS)/check.h \
 	$(Q)$(CC) $(CFLAGS) -I$(SRC) -I$(TESTS) $(WEB_CFLAGS) \
 		-o $(BUILD)/viewer_link_test \
 		$(TESTS)/viewer_link_test.c $(SRC)/viewer_link.c $(SRC)/websocket.c \
-		$(SRC)/scope_view_model.c $(SRC)/debug_log.c $(SRC)/viewer_command.c -lm
+		$(SRC)/scope_view_model.c $(SRC)/receiver_view_model.c \
+		$(SRC)/debug_log.c $(SRC)/viewer_command.c -lm
 	$(Q)./$(BUILD)/viewer_link_test
 
 # The percentage arithmetic behind the Health panel's server-CPU reading,
@@ -979,7 +995,7 @@ check-receiver-lease: $(TESTS)/receiver_lease_test.c $(TESTS)/check.h \
 #
 #   for r in $(CHECK_UNITS); do /usr/bin/time -f "%e $$r" $(MAKE) $$r; done
 #
-CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
+CHECK_UNITS=check-signal-probe check-signal-frame check-receiver-runtime check-frame-advance check-viewer-session check-scope-view-model check-receiver-view-model check-survey-view-model check-fm-view-model check-web-layout check-websocket check-viewer-link check-process-cpu check-viewer-command check-tetra-session check-lte-dsp \
 	check-fm-dsp check-lte-mib check-gsm-session check-fm-session \
 	check-lte-session check-survey-session check-startup-session \
 	check-gsm-dsp check-rds \

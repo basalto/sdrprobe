@@ -311,6 +311,7 @@ int viewer_session_run(struct app *app) {
         struct scope_view_model svm;
         struct survey_view_model survey_svm;
         struct fm_view_model fm_svm;
+        const struct receiver_view_model *rvm;
         uint64_t now_ms;
 
         /*
@@ -347,6 +348,10 @@ int viewer_session_run(struct app *app) {
     in.decode = (int)app->decode;
     scope_view_model_build(&in, &svm);
 }
+        /* The shell's half of what a Viewer is told -- the screen, the
+           tuning and ADR-0027's generation. Named here because the three
+           publishes below stamp every message with it. */
+        rvm = &svm.receiver;
         now_ms = (uint64_t)(monotonic_seconds() * 1000.0);
 
         if (spectrum_updated) {
@@ -372,12 +377,13 @@ int viewer_session_run(struct app *app) {
         survey_view_model_build(&app->survey.session, &tuning, &survey_svm);
     }
             viewer_link_publish_survey_spectrum(&link, &survey_svm,
-                                                svm.tuning_generation, now_ms);
+                                                rvm->tuning_generation,
+                                                now_ms);
             viewer_link_publish_survey_state(&link, &survey_svm, now_ms);
             /* The FM view, on the same gate and for the same reason. */
             fm_view_model_build(&app->fm, &fm_svm);
             viewer_link_publish_fm_spectrum(&link, &fm_svm,
-                                            svm.tuning_generation, now_ms);
+                                            rvm->tuning_generation, now_ms);
             viewer_link_publish_fm_state(&link, &fm_svm, now_ms);
         }
         /*
@@ -392,10 +398,10 @@ int viewer_session_run(struct app *app) {
         if (viewer_update_due(now, state_published_at,
                               VIEWER_SESSION_STATE_INTERVAL_SECONDS,
                               state_ever_published &&
-                                  svm.tuning_generation != state_generation)) {
-            viewer_link_publish_receiver_state(&link, &svm, now_ms);
+                                  rvm->tuning_generation != state_generation)) {
+            viewer_link_publish_receiver_state(&link, rvm, now_ms);
             state_published_at = now;
-            state_generation = svm.tuning_generation;
+            state_generation = rvm->tuning_generation;
             state_ever_published = 1;
         }
 

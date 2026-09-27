@@ -7,45 +7,16 @@
 #include "app.h"
 #include "device_profile.h"
 
-/*
- * Tab plus decode kind, as the one name a reader needs. On the Decode tab
- * the screen *is* the technology; elsewhere it is the tab. Kept here rather
- * than in `input_route.h` because it is what crosses the wire, and the two
- * enums it spells are `app.h`'s and `input_route.h`'s respectively -- this
- * is the only place both are already in hand.
- */
-void scope_screen_name(char *out, size_t size, int tab, int decode) {
-    static const char *const decodes[] = {
-        "fm", "adsb", "gsm", "lte", "tetra", "srd"
-    };
-    const char *name = "scope";
-
-    if (tab == TAB_SURVEY)
-        name = "survey";
-    else if (tab == TAB_DECODE)
-        name = (decode >= 0 &&
-                decode < (int)(sizeof(decodes) / sizeof(decodes[0])))
-                   ? decodes[decode] : "decode";
-    snprintf(out, size, "%s", name);
-}
-
-
 void scope_view_model_build(const struct scope_view_model_input *in,
                             struct scope_view_model *out) {
     memset(out, 0, sizeof(*out));
 
-    out->tab = in->tab;
-    out->decode = in->decode;
-    scope_screen_name(out->screen, sizeof(out->screen), out->tab,
-                      out->decode);
+    /* The tuning, the rate, the generation and the screen are the
+       receiver's, built by its own model -- see scope_view_model.h. */
+    receiver_view_model_build(in->applied, in->device, in->tab, in->decode,
+                              &out->receiver);
     out->have_samples = in->frame->have_samples;
 
-    out->center_hz = in->applied->frequency_hz;
-    out->sample_rate_hz = in->applied->sample_rate_hz;
-    out->ppm = in->applied->ppm;
-    out->tuning_generation = in->applied->generation;
-
-    out->full_scale = in->device->full_scale;
     out->physical_magnitude_max = device_magnitude_max(in->device);
 
     out->spectrum_ready = in->frame->spectrum_ready;
@@ -61,7 +32,7 @@ void scope_view_model_build(const struct scope_view_model_input *in,
     out->magnitude_max = in->frame->magnitude_max;
     out->duration_ms = out->have_samples
                            ? (double)out->pair_count * 1000.0 /
-                                 out->sample_rate_hz
+                                 out->receiver.sample_rate_hz
                            : 0.0;
 
     out->signal_stats_ready = in->frame->signal_stats_ready;

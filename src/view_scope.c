@@ -298,8 +298,8 @@ void draw_waterfall(const struct app *app, const struct scope_view_model *svm,
     double span = w->view_upper_hz - w->view_lower_hz;
     double data = w->data_upper_hz - w->data_lower_hz;
     struct sdrgui_waterfall_params params = {
-        plot, app->gui->waterfall, (double)svm->center_hz,
-        (double)svm->sample_rate_hz, 0, 0,
+        plot, app->gui->waterfall, (double)svm->receiver.center_hz,
+        (double)svm->receiver.sample_rate_hz, 0, 0,
         0.0, 0.0,
         app->sv.waterfall_rows, app->sv.waterfall_height, svm->pair_count,
         SAMPLE_BLOCK_PAIRS, app->waterfall_lower_dbfs, SPECTRUM_TOP_DBFS,
@@ -472,8 +472,8 @@ void draw_spectrum(const struct app *app, const struct scope_view_model *svm,
 
     memset(&params, 0, sizeof(params));
     params.plot = plot;
-    params.center_hz = (double)svm->center_hz;
-    params.sample_rate = (double)svm->sample_rate_hz;
+    params.center_hz = (double)svm->receiver.center_hz;
+    params.sample_rate = (double)svm->receiver.sample_rate_hz;
     params.ready = svm->spectrum_ready;
     params.average = svm->spectrum_average;
     params.peak = svm->spectrum_peak;

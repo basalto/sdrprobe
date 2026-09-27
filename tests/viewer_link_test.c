@@ -298,11 +298,15 @@ static struct scope_view_model a_view_model(void) {
     svm.spectrum_peak = peak;
     svm.waterfall_ready = 1;
     svm.waterfall_row = waterfall_row;
-    svm.center_hz = 948400000;
-    svm.sample_rate_hz = 2000000;
-    svm.ppm = 3;
-    svm.tuning_generation = 1;
-    svm.full_scale = 127.5f;
+    /* The tuning is the embedded receiver model's, which is also what
+       viewer_link_publish_receiver_state() is handed -- see
+       `.scratch/layer-boundaries/issues/03-*` item 4. */
+    svm.receiver.center_hz = 948400000;
+    svm.receiver.sample_rate_hz = 2000000;
+    svm.receiver.ppm = 3;
+    svm.receiver.tuning_generation = 1;
+    svm.receiver.full_scale = 127.5f;
+    snprintf(svm.receiver.screen, sizeof(svm.receiver.screen), "scope");
     return svm;
 }
 
@@ -840,7 +844,7 @@ static void test_upgrade_and_receiver_state(void) {
     client_send_text(&tc, "subscribe receiver_state");
     client_pump(&tc, 10);
 
-    viewer_link_publish_receiver_state(&vlink, &svm, 12345);
+    viewer_link_publish_receiver_state(&vlink, &svm.receiver, 12345);
     client_pump(&tc, 10);
 
     check_true("a receiver_state message arrived",
@@ -1096,7 +1100,7 @@ static void test_a_client_that_never_reads_drops_not_queues(void) {
        test ever reading -- 2048 bins is ~16 KB per message; a couple of
        hundred of those exceeds any socket buffer this vlink would use. */
     for (i = 0; i < 200; i++) {
-        svm.tuning_generation = (uint32_t)i;
+        svm.receiver.tuning_generation = (uint32_t)i;
         viewer_link_publish_spectrum(&vlink, &svm, (uint64_t)i);
         viewer_link_poll(&vlink, 0);
     }
@@ -1272,7 +1276,7 @@ static void test_two_clients_are_independent(void) {
     client_pump(&state_client, 10);
 
     viewer_link_publish_spectrum(&vlink, &svm, 0);
-    viewer_link_publish_receiver_state(&vlink, &svm, 0);
+    viewer_link_publish_receiver_state(&vlink, &svm.receiver, 0);
     client_pump(&spectrum_client, 10);
     client_pump(&state_client, 10);
 
@@ -1436,7 +1440,7 @@ static void test_commands_are_never_dropped_while_state_updates_are(void) {
        five queued commands above, since that is the read side of the
        same poll() calls building up the write side's backpressure. */
     for (i = 0; i < 200; i++) {
-        svm.tuning_generation = (uint32_t)i;
+        svm.receiver.tuning_generation = (uint32_t)i;
         viewer_link_publish_spectrum(&vlink, &svm, (uint64_t)i);
         viewer_link_poll(&vlink, 0);
     }

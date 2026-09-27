@@ -1,9 +1,8 @@
 # 03 - The data contracts stop taking `struct app`
 
-Status: needs-info -- items 1, 2 and 3 done (2026-09-27). No builder takes
-`struct app`, five checks are genuinely raylib-free, and no enum crosses the
-wire as an integer. Item 4 (a `receiver_view_model` of its own) remains, and
-is smaller than it was: `screen` already replaced `tab`/`decode`.
+Status: ready-for-human -- all four items done (2026-09-27). No builder takes
+`struct app`, five checks are genuinely raylib-free, no enum crosses the wire
+as an integer, and the shell's state is a type of its own.
 Blocked by: 01 (done)
 
 ## The problem
@@ -65,17 +64,17 @@ suite that allocated a whole `struct app` to write one file, which is how
 
 ## Acceptance criteria
 
-- [ ] No `*_view_model_build()` takes `struct app`; `grep 'struct app'
+- [x] No `*_view_model_build()` takes `struct app`; `grep 'struct app'
       src/*_view_model.h` finds only the forward declaration, or nothing.
-- [ ] `check-fm-view-model`, `check-scope-view-model` and
+- [x] `check-fm-view-model`, `check-scope-view-model` and
       `check-survey-view-model` build their inputs without a `struct app` at
       all -- no 9 MB static, no `zero_app()`.
-- [ ] `viewer_link.c` includes no `sdrgui*.h`, and `check-viewer-link` builds
+- [x] `viewer_link.c` includes no `sdrgui*.h`, and `check-viewer-link` builds
       with `-lm` and no raylib cflags.
-- [ ] No enum travels as an integer; `web/` indexes no table by an ordinal.
-- [ ] The survey's four marks are pinned by name in a check, including the
+- [x] No enum travels as an integer; `web/` indexes no table by an ordinal.
+- [x] The survey's four marks are pinned by name in a check, including the
       receiver-like/empty pair.
-- [ ] `make check`, `make check-pipelines`, warm `make screens NAMES="scope
+- [x] `make check`, `make check-pipelines`, warm `make screens NAMES="scope
       survey fm"`, `make check-web-layout`, a live `server` run.
 
 ## Take into account
@@ -186,3 +185,48 @@ still take raylib cflags are `check-layout`, `check-geometry` and
 Verified: `make check` green, `check-web-layout` 25 checks, the headless
 survey and the FM decode byte-identical, a live `server` still sending
 2048-bin spectra.
+
+## Item 4 done, 2026-09-27 -- the shell's state is a type of its own
+
+`src/receiver_view_model.{c,h}`: `struct receiver_view_model` is the screen's
+name, the applied tuning, rate and ppm, ADR-0027's tuning generation and the
+container's full scale. `receiver_view_model_build()` takes a
+`struct receiver_applied *` and a `struct device_profile *` and nothing else,
+so `check-receiver-view-model` sets two plain structs where the Scope's suite
+still needs a whole sample block -- 20 checks, `-lm` alone, milliseconds.
+
+`viewer_link_publish_receiver_state()` takes the receiver model now, which is
+the point of the split: `receiver_state` is what *every* browser view reads,
+and it was being built out of a struct named for one of them. The Scope's
+model **embeds** one rather than restating it -- `svm->receiver.center_hz` is
+what the frequency axis is drawn against and `svm->receiver.tuning_generation`
+is what stamps every binary message -- because the charts genuinely need those
+numbers and two copies that agree today is the shape this repository keeps
+paying for.
+
+**`tab` and `decode` are deleted rather than moved.** The grep that decided it
+found zero readers of either, on both sides of the wire: item 3 replaced them
+with `screen` on the wire, `viewForState()` matches on the name, and nothing
+in `src/` had read them since. A field moved is a field still to be read; a
+field with no readers is a deletion, and the ticket asked for a move because
+it was written before item 3 landed.
+
+Two things came out of it that the ticket did not ask for:
+
+- **`scope_screen_name()` is `receiver_screen_name()`** and lives with the
+  model whose field it fills. It was in `scope_view_model.c` for the same
+  reason the fields were -- that was the only model there was.
+- **The name table is coupled to its enum at compile time.** It is indexed by
+  `enum decode_kind` and was six strings with nothing tying them to it, so a
+  seventh technology would have been named `"decode"` by a silent fall-through
+  in the one function whose output a browser matches on. A
+  `typedef char ...[(DECODE_SRD + 1 == DECODE_SCREEN_COUNT) ? 1 : -1]` makes
+  that a build error -- the same device `sdrprobe.c` already uses for
+  `input_route.h`'s mirrored value. The suite's exhaustive walk stays: the two
+  failures are different, a kind nobody named against one named wrongly.
+
+Verified: `make check` green, **80 suites and 22016 checks** (79 before);
+`make check-web-layout` 25 checks in a real browser; both Makefile audits
+clean. The wire is unchanged -- `receiver_state` carries the same seven
+fields, built from a different struct -- which is why the browser needed no
+edit at all.

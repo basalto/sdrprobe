@@ -993,7 +993,7 @@ void viewer_link_publish_spectrum(struct viewer_link *link,
     if (svm->spectrum_bins < 0 || svm->spectrum_bins > SDR_DSP_FFT_MAX)
         return;
     publish_binary(link, VIEWER_STREAM_SPECTRUM, VIEWER_MESSAGE_SPECTRUM,
-                   svm->tuning_generation, now_ms,
+                   svm->receiver.tuning_generation, now_ms,
                    (uint32_t)svm->spectrum_bins, svm->spectrum_average,
                    svm->spectrum_peak);
 }
@@ -1006,7 +1006,7 @@ void viewer_link_publish_waterfall_row(struct viewer_link *link,
     if (svm->spectrum_bins < 0 || svm->spectrum_bins > SDR_DSP_FFT_MAX)
         return;
     publish_binary(link, VIEWER_STREAM_WATERFALL, VIEWER_MESSAGE_WATERFALL_ROW,
-                   svm->tuning_generation, now_ms,
+                   svm->receiver.tuning_generation, now_ms,
                    (uint32_t)svm->spectrum_bins, svm->waterfall_row, NULL);
 }
 
@@ -1288,7 +1288,7 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
 }
 
 void viewer_link_publish_receiver_state(struct viewer_link *link,
-                                        const struct scope_view_model *svm,
+                                        const struct receiver_view_model *rvm,
                                         uint64_t now_ms) {
     char json[256];
     int json_len;
@@ -1300,10 +1300,10 @@ void viewer_link_publish_receiver_state(struct viewer_link *link,
                         "\"sample_rate_hz\":%u,\"ppm\":%d,"
                         "\"tuning_generation\":%u,\"full_scale\":%g,"
                         "\"timestamp_ms\":%llu}",
-                        svm->screen, svm->center_hz,
-                        svm->sample_rate_hz,
-                        svm->ppm, svm->tuning_generation,
-                        (double)svm->full_scale,
+                        rvm->screen, rvm->center_hz,
+                        rvm->sample_rate_hz,
+                        rvm->ppm, rvm->tuning_generation,
+                        (double)rvm->full_scale,
                         (unsigned long long)now_ms);
     if (json_len <= 0)
         return;

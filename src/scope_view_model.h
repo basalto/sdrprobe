@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "receiver_view_model.h"
 #include "sdr_dsp.h"
 
 struct signal_frame;
@@ -49,53 +50,18 @@ struct device_profile;
 struct scope_view_model {
     int have_samples;
 
-    /* Which top-level tab is active -- `enum active_tab`'s own int, not a
-       Viewer-side redefinition of it. Ticket 07: `view survey`/`view scope`
-       change `app->tab`, and a client that sent one has no other way to
-       learn whether it landed, or which tab a browser reconnecting mid-
-       session should show. */
-    int tab;
-
-    /* And which Decode sub-view, `enum decode_kind`'s own int, meaningful
-       only while `tab` is TAB_DECODE. The tab alone stopped being enough
-       the moment a screen a Viewer can ask for was not a tab: `view fm`
-       (ticket 14's Phase 4) is TAB_DECODE plus DECODE_FM, and six screens
-       share that one tab. Carried unconditionally rather than zeroed off
-       the Decode tab -- it is what the window would switch back to, and a
-       reader that has to ask "is this field real?" gets no benefit from
-       a zero that means the same as DECODE_FM. */
-    int decode;
-
     /*
-     * Which screen is showing, as a name -- and the only one of the three a
-     * reader should use. `tab` and `decode` are kept beside it because
-     * `receiver_state` has carried them since ticket 07 and a check reads
-     * them, but a browser matching `tab === 2 && decode === 0` is
-     * re-declaring two of this program's enums in a second language: exactly
-     * what drew the survey's marks swapped for months
-     * (`web-visualization/15`).
-     *
-     * The vocabulary is already there and is the same one `view <name>`
-     * uses: "survey", "scope", and on the Decode tab the technology --
-     * "fm", "adsb", "gsm", "lte", "tetra", "srd". It matches each browser
-     * view's own `id` exactly, so the shell looks a view up by name.
+     * What the receiver is doing, embedded rather than restated: the
+     * frequency axis is drawn against `receiver.center_hz` and
+     * `receiver.sample_rate_hz`, and ADR-0027's staleness rule is decided
+     * by `receiver.tuning_generation`. The charts read these; they do not
+     * own them, and a second copy that agrees today is the shape this
+     * repository keeps paying for (`layer-boundaries/issues/03-*`, item 4).
      */
-    char screen[12];
+    struct receiver_view_model receiver;
 
-    /* The receiver's applied tuning, rate and ppm -- Probe language. */
-    uint32_t center_hz;
-    uint32_t sample_rate_hz;
-    int ppm;
-    /* ADR-0027's tuning generation: advanced by the receiver transaction
-       (receiver_runtime.h) on a success and by nothing else, so every path
-       that moves the receiver -- a Viewer command, the Settings panel, a
-       survey step -- moves it. It used to be retune_receiver()'s own line,
-       which left the Settings panel changing the tuning while this said
-       nothing had changed. */
-    uint32_t tuning_generation;
-
-    /* The two device-profile facts the charts read, not the whole profile. */
-    float full_scale;
+    /* The one device-profile fact the charts read that is not the
+       receiver's -- full scale sits on the model above. */
     float physical_magnitude_max;
 
     /* The spectrum: average and peak hold in dBFS, capacity
@@ -144,10 +110,6 @@ struct scope_view_model {
  * `app` is not advanced again, which is exactly the one frame this is built
  * for. It is not a snapshot to keep past that frame.
  */
-/* Tab plus decode kind as one name -- see `screen` above. Exposed so a check
-   can walk every screen without building a `struct app` for each. */
-void scope_screen_name(char *out, size_t size, int tab, int decode);
-
 /*
  * What the Scope's model is built from, and all of it.
  *
