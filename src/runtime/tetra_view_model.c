@@ -70,4 +70,27 @@ void tetra_view_model_build(const struct tetra_view *tetra,
     out->log_count = take;
     for (i = 0; i < take; i++)
         out->log[i] = tetra->log[i];
+
+    /*
+     * The analysis charts, computed in tetra_runtime.c so the server has them.
+     * The phase steps decimate to the model's cap -- a stride of at least one,
+     * so a short block is carried whole rather than skipped.
+     */
+    if (tetra->point_count > 0) {
+        int stride = tetra->point_count / TETRA_VIEW_MODEL_SCATTER;
+        if (stride < 1)
+            stride = 1;
+        out->scatter_count = 0;
+        for (i = 0; i * stride < tetra->point_count &&
+                    out->scatter_count < TETRA_VIEW_MODEL_SCATTER; i++) {
+            out->scatter_x[out->scatter_count] = tetra->point_x[i * stride];
+            out->scatter_y[out->scatter_count] = tetra->point_y[i * stride];
+            out->scatter_count++;
+        }
+    }
+
+    out->profile_valid = tetra->profile_valid;
+    out->profile_fixed = tetra->profile_fixed;
+    if (tetra->profile_valid)
+        memcpy(out->profile, tetra->profile, sizeof(out->profile));
 }

@@ -113,7 +113,12 @@ enum viewer_message_type {
        layout the Scope's spectrum uses for average-then-peak. */
     VIEWER_MESSAGE_FM_AUDIO = 5,
     VIEWER_MESSAGE_FM_AUDIO_SPECTRUM = 6,
-    VIEWER_MESSAGE_FM_SCATTER = 7
+    VIEWER_MESSAGE_FM_SCATTER = 7,
+    /* The TETRA analysis charts behind "Show charts": the phase-steps
+       constellation (two arrays, x then y, like the FM one) and the
+       repeats-within-a-slot bar profile (one array, base header). */
+    VIEWER_MESSAGE_TETRA_SCATTER = 8,
+    VIEWER_MESSAGE_TETRA_PROFILE = 9
 };
 
 /*
@@ -184,6 +189,10 @@ enum viewer_stream {
     VIEWER_STREAM_GSM_STATE,
     VIEWER_STREAM_ADSB_STATE,
     VIEWER_STREAM_TETRA_STATE,
+    /* The TETRA analysis charts, paced on time at 4 Hz and subscribed only
+       while "Show charts" is up, the same as FM's. */
+    VIEWER_STREAM_TETRA_SCATTER,
+    VIEWER_STREAM_TETRA_PROFILE,
     VIEWER_STREAM_SRD_STATE,
     VIEWER_STREAM_LTE_STATE,
     VIEWER_STREAM_SETTINGS_STATE,
@@ -530,6 +539,16 @@ void viewer_link_publish_fm_scatter(struct viewer_link *link,
                                     const struct fm_view_model *fvm,
                                     uint32_t tuning_generation,
                                     uint64_t now_ms);
+/* The TETRA analysis charts behind "Show charts": the phase-steps
+   constellation and the repeats-within-a-slot profile. */
+void viewer_link_publish_tetra_scatter(struct viewer_link *link,
+                                       const struct tetra_view_model *tvm,
+                                       uint32_t tuning_generation,
+                                       uint64_t now_ms);
+void viewer_link_publish_tetra_profile(struct viewer_link *link,
+                                       const struct tetra_view_model *tvm,
+                                       uint32_t tuning_generation,
+                                       uint64_t now_ms);
 
 /*
  * Ticket 08's Health panel: what only the server knows about the link

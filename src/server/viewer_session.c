@@ -320,8 +320,12 @@ int viewer_session_run(struct app *app) {
        zeroed model before the first block sends nothing. */
     double fm_charts_published_at = -1.0;
     struct fm_view_model fm_svm;
+    /* The TETRA analysis charts, persisted for the same reason as FM's. */
+    double tetra_charts_published_at = -1.0;
+    struct tetra_view_model tetra_svm;
 
     memset(&fm_svm, 0, sizeof(fm_svm));
+    memset(&tetra_svm, 0, sizeof(tetra_svm));
     process_cpu_sample_now(&cpu_previous);
 
     sdr_dsp_init(&app->frame.dsp);
@@ -488,7 +492,6 @@ int viewer_session_run(struct app *app) {
         struct survey_view_model survey_svm;
         struct gsm_view_model gsm_svm;
         struct adsb_view_model adsb_svm;
-        struct tetra_view_model tetra_svm;
         struct srd_view_model srd_svm;
         struct lte_view_model lte_svm;
         const struct receiver_view_model *rvm;
@@ -716,6 +719,18 @@ int viewer_session_run(struct app *app) {
             viewer_link_publish_fm_scatter(&link, &fm_svm,
                                            rvm->tuning_generation, now_ms);
             fm_charts_published_at = now;
+        }
+
+        /* The TETRA analysis charts, the same 4 Hz heartbeat and the same
+           persisted-model reasoning as FM's above. */
+        if (viewer_publish_due(VIEWER_STREAM_TETRA_SCATTER, spectrum_updated,
+                               now, tetra_charts_published_at,
+                               VIEWER_SESSION_CHART_INTERVAL_SECONDS, 0)) {
+            viewer_link_publish_tetra_scatter(&link, &tetra_svm,
+                                              rvm->tuning_generation, now_ms);
+            viewer_link_publish_tetra_profile(&link, &tetra_svm,
+                                              rvm->tuning_generation, now_ms);
+            tetra_charts_published_at = now;
         }
 
         if (viewer_publish_due(VIEWER_STREAM_LINK_HEALTH, spectrum_updated,

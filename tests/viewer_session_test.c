@@ -180,12 +180,13 @@ static void test_every_stream_says_what_paces_it(void) {
      */
     check_int("the eleven view streams are paced on data", on_data, 11);
     /* receiver_state, link_health, the Settings and Calibration panels, and
-       the three FM analysis charts -- the charts are measurement arrays but
-       paced on a 4 Hz heartbeat rather than per block, deliberately (a human
-       reading a chart does not need 15 Hz, and the audio spectrum recomputes
-       only at that cadence). That is the "which family did it join" decision
-       this count forces. */
-    check_int("the panels and the FM charts are paced on time", on_time, 7);
+       the analysis charts -- three for FM, two for TETRA -- which are
+       measurement arrays but paced on a 4 Hz heartbeat rather than per block,
+       deliberately (a human reading a chart does not need 15 Hz, and the audio
+       spectrum recomputes only at that cadence). That is the "which family did
+       it join" decision this count forces. */
+    check_int("the panels and the analysis charts are paced on time",
+              on_time, 9);
     check_int("and command_result is a reply, not a stream", on_demand, 1);
     check_int("which is all of them", on_data + on_time + on_demand,
               VIEWER_STREAM_COUNT);

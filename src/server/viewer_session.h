@@ -163,6 +163,10 @@ viewer_stream_pacing(enum viewer_stream stream) {
     case VIEWER_STREAM_FM_AUDIO:
     case VIEWER_STREAM_FM_AUDIO_SPECTRUM:
     case VIEWER_STREAM_FM_SCATTER:
+    /* The TETRA analysis charts, on the same 4 Hz heartbeat and for the same
+       reason as FM's. */
+    case VIEWER_STREAM_TETRA_SCATTER:
+    case VIEWER_STREAM_TETRA_PROFILE:
         return VIEWER_PACED_ON_TIME;
     case VIEWER_STREAM_COMMAND_RESULT:
         return VIEWER_PACED_ON_DEMAND;

@@ -864,6 +864,57 @@ static void test_fm_scatter_wire_format(void) {
     viewer_link_close(&vlink);
 }
 
+/* The TETRA analysis-chart streams behind "Show charts": the phase-steps
+   constellation (two arrays, x then y) and the repeats-within-a-slot profile
+   (one array). */
+static void test_tetra_chart_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct tetra_view_model tvm;
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t bins;
+    int i;
+
+    memset(&tvm, 0, sizeof(tvm));
+    tvm.scatter_count = 4;
+    for (i = 0; i < 4; i++) {
+        tvm.scatter_x[i] = (float)i * 0.25f;
+        tvm.scatter_y[i] = 1.0f - (float)i * 0.25f;
+    }
+    tvm.profile_valid = 1;
+    tvm.profile_fixed = 180;
+    for (i = 0; i < TETRA_SLOT_SYMBOLS; i++)
+        tvm.profile[i] = (i % 2) ? 1.0f : 0.0f;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe tetra_scatter tetra_profile");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_tetra_scatter(&vlink, &tvm, 4, 55);
+    viewer_link_publish_tetra_profile(&vlink, &tvm, 4, 55);
+    client_pump(&tc, 10);
+
+    check_true("a tetra_scatter message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the message type is tetra_scatter (8)", payload[1], 8);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the point count round-trips", (int)bins, 4);
+    check_size("it carries both arrays", len, 20 + 2 * 4 * 4);
+
+    check_true("a tetra_profile message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the message type is tetra_profile (9)", payload[1], 9);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the profile is a full slot", (int)bins, TETRA_SLOT_SYMBOLS);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 static void test_fm_streams_are_not_sent_when_unsubscribed(void) {
     uint16_t port = open_test_link();
     struct test_client tc;
@@ -901,7 +952,8 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
         "spectrum", "waterfall", "receiver_state", "link_health",
         "command_result", "survey_spectrum", "survey_state", "fm_spectrum",
         "fm_state", "fm_audio", "fm_audio_spectrum", "fm_scatter",
-        "gsm_state", "adsb_state", "tetra_state", "srd_state",
+        "gsm_state", "adsb_state", "tetra_state",
+        "tetra_scatter", "tetra_profile", "srd_state",
         "lte_state", "settings_state", "cal_state"
     };
     size_t n = sizeof(names) / sizeof(names[0]);
@@ -1082,6 +1134,7 @@ static void test_link_health_reports_this_clients_own_counters(void) {
             "command_result", "survey_spectrum", "survey_state",
             "fm_spectrum", "fm_state", "fm_audio", "fm_audio_spectrum",
             "fm_scatter", "gsm_state", "adsb_state", "tetra_state",
+            "tetra_scatter", "tetra_profile",
             "srd_state", "lte_state", "settings_state", "cal_state"
         };
         size_t n = sizeof(names) / sizeof(names[0]);
@@ -1841,6 +1894,7 @@ int main(void) {
     test_fm_audio_wire_format();
     test_fm_audio_spectrum_wire_format();
     test_fm_scatter_wire_format();
+    test_tetra_chart_wire_format();
     test_fm_spectrum_with_no_bins_publishes_nothing();
     test_fm_state_wire_format();
     test_fm_streams_are_not_sent_when_unsubscribed();

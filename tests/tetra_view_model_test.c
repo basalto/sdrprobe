@@ -185,8 +185,41 @@ static void test_no_identity_puts_no_marker_on_the_waterfall(void) {
     check_str("so nothing is claimed over the carrier", m.marker_label, "");
 }
 
+/* The analysis charts behind "Show charts": the phase steps decimate to the
+   model's cap, and the repeats profile is carried whole with its fixed count.
+   Both are computed in tetra_runtime.c; this pins the copy out. */
+static void test_the_analysis_charts_are_carried(void) {
+    struct tetra_view_model out;
+    int i;
+
+    blank();
+    tetra.point_count = TETRA_VIEW_MODEL_SCATTER * 2;  /* decimates by two */
+    for (i = 0; i < tetra.point_count && i < TETRA_MAX_SYMBOLS; i++) {
+        tetra.point_x[i] = (float)i;
+        tetra.point_y[i] = -(float)i;
+    }
+    tetra.profile_valid = 1;
+    tetra.profile_fixed = 180;
+    for (i = 0; i < TETRA_SLOT_SYMBOLS; i++)
+        tetra.profile[i] = (i % 2) ? 1.0f : 0.0f;
+
+    tetra.rate_unsupported = 0;
+    tetra_view_model_build(&tetra, &out);
+
+    check_int("the phase steps decimate to the cap", out.scatter_count,
+              TETRA_VIEW_MODEL_SCATTER);
+    check_close("the first point is the first step", out.scatter_x[0], 0.0,
+                1e-6);
+    check_close("and the second is two steps on (stride two)",
+                out.scatter_x[1], 2.0, 1e-6);
+    check_int("the profile is carried", out.profile_valid, 1);
+    check_int("with its fixed count", out.profile_fixed, 180);
+    check_close("and its values", out.profile[1], 1.0, 1e-6);
+}
+
 int main(void) {
     test_an_unestablished_identity_is_not_carried();
+    test_the_analysis_charts_are_carried();
     test_the_funnel_separates_three_kinds_of_nothing();
     test_lock_travels_as_a_number();
     test_the_log_is_whole_and_clamped();

@@ -38,6 +38,10 @@ struct tetra_log_entry {
    question here, and a reader gets the same scrollback the window has. */
 #define TETRA_VIEW_MODEL_LOG TETRA_LOG_CAPACITY
 
+/* The phase-steps constellation, capped: a symbol cloud reads the same at 512
+   points as at the window's up-to-3000, and the wire cost is a tenth. */
+#define TETRA_VIEW_MODEL_SCATTER 512
+
 struct tetra_view_model {
     /*
      * Whether this rate can decode TETRA at all.
@@ -90,6 +94,26 @@ struct tetra_view_model {
     /* The identities seen, newest first. */
     int log_count;
     struct tetra_log_entry log[TETRA_VIEW_MODEL_LOG];
+
+    /* -- The analysis charts behind "Show charts". Both are computed in
+          tetra_runtime.c (so the server has them without the window drawing),
+          and carried here so the browser draws what the window's charts read.
+          Empty until a block has demodulated. -- */
+
+    /* The phase steps as points on a circle: four clusters is a clean QPSK
+       lock. Decimated to a count a scatter renders cleanly -- the shape, not
+       the count, is the reading. Two arrays, x then y, like the FM
+       constellation. */
+    int scatter_count;
+    float scatter_x[TETRA_VIEW_MODEL_SCATTER];
+    float scatter_y[TETRA_VIEW_MODEL_SCATTER];
+
+    /* How much of a 255-symbol slot repeats: a bar per symbol position, the
+       fixed ones standing tall. `profile_fixed` is how many the burst finder
+       judged fixed, named in the caption. */
+    int profile_valid;
+    int profile_fixed;
+    float profile[TETRA_SLOT_SYMBOLS];
 };
 
 struct tetra_view;

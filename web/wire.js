@@ -15,6 +15,10 @@ const MSG_FM_SPECTRUM = 4;
 const MSG_FM_AUDIO = 5;
 const MSG_FM_AUDIO_SPECTRUM = 6;
 const MSG_FM_SCATTER = 7;
+// The TETRA analysis charts: the phase-steps constellation (two arrays, x then
+// y, like fm_scatter) and the repeats-within-a-slot profile (one array).
+const MSG_TETRA_SCATTER = 8;
+const MSG_TETRA_PROFILE = 9;
 
 // Decodes one WebSocket message and returns a plain object naming its
 // `kind`:
@@ -67,6 +71,19 @@ function decodeMessage(ev, latestGeneration) {
       i: new Float32Array(ev.data, 20, bins),
       q: new Float32Array(ev.data, 20 + bins * 4, bins),
     };
+  }
+  // The TETRA phase-steps constellation: two arrays, x then y.
+  if (type === MSG_TETRA_SCATTER) {
+    return {
+      kind: 'tetra_scatter', bytes: bytes,
+      x: new Float32Array(ev.data, 20, bins),
+      y: new Float32Array(ev.data, 20 + bins * 4, bins),
+    };
+  }
+  // The TETRA repeats-within-a-slot profile: one array.
+  if (type === MSG_TETRA_PROFILE) {
+    return { kind: 'tetra_profile', bytes: bytes,
+             profile: new Float32Array(ev.data, 20, bins) };
   }
   // The two range-header types (VIEWER_RANGE_HEADER_BYTES): an array whose
   // frequencies are its own rather than the receiver's, so it carries the

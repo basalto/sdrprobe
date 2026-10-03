@@ -90,7 +90,8 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
     "fm_audio", "fm_audio_spectrum", "fm_scatter",
-    "gsm_state", "adsb_state", "tetra_state", "srd_state",
+    "gsm_state", "adsb_state", "tetra_state",
+    "tetra_scatter", "tetra_profile", "srd_state",
     "lte_state", "settings_state", "cal_state"
 };
 
@@ -1158,6 +1159,35 @@ void viewer_link_publish_fm_scatter(struct viewer_link *link,
     publish_binary(link, VIEWER_STREAM_FM_SCATTER, VIEWER_MESSAGE_FM_SCATTER,
                    tuning_generation, now_ms, (uint32_t)fvm->scatter_points,
                    fvm->scatter_i, fvm->scatter_q);
+}
+
+/*
+ * The TETRA analysis charts behind "Show charts" -- the phase-steps
+ * constellation (two arrays, x then y) and the repeats-within-a-slot profile
+ * (one array). Each guards on its own count, so nothing is sent before a block
+ * has demodulated, the same rule every other chart stream follows.
+ */
+void viewer_link_publish_tetra_scatter(struct viewer_link *link,
+                                       const struct tetra_view_model *tvm,
+                                       uint32_t tuning_generation,
+                                       uint64_t now_ms) {
+    if (tvm->scatter_count <= 0 ||
+        tvm->scatter_count > TETRA_VIEW_MODEL_SCATTER)
+        return;
+    publish_binary(link, VIEWER_STREAM_TETRA_SCATTER,
+                   VIEWER_MESSAGE_TETRA_SCATTER, tuning_generation, now_ms,
+                   (uint32_t)tvm->scatter_count, tvm->scatter_x, tvm->scatter_y);
+}
+
+void viewer_link_publish_tetra_profile(struct viewer_link *link,
+                                       const struct tetra_view_model *tvm,
+                                       uint32_t tuning_generation,
+                                       uint64_t now_ms) {
+    if (!tvm->profile_valid)
+        return;
+    publish_binary(link, VIEWER_STREAM_TETRA_PROFILE,
+                   VIEWER_MESSAGE_TETRA_PROFILE, tuning_generation, now_ms,
+                   (uint32_t)TETRA_SLOT_SYMBOLS, tvm->profile, NULL);
 }
 
 /*
