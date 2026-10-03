@@ -2195,12 +2195,13 @@ void viewer_link_publish_cal_state(struct viewer_link *link,
 
 void viewer_link_publish_srd_state(struct viewer_link *link,
                                    const struct srd_view_model *svm,
-                                   uint64_t now_ms) {
+                                   double now_seconds, uint64_t now_ms) {
     char json[16384];
     int json_len, used, i;
 
     used = snprintf(json, sizeof(json),
                     "{\"type\":\"srd_state\",\"timestamp_ms\":%llu,"
+                    "\"now_seconds\":%.3f,"
                     "\"ready\":%s,\"readiness\":\"%s\","
                     "\"centre_hz\":%.0f,"
                     "\"transmissions\":%d,\"frames\":%d,"
@@ -2209,7 +2210,7 @@ void viewer_link_publish_srd_state(struct viewer_link *link,
                     "\"chip_us\":%.2f,\"chip_rate_hz\":%.0f,"
                     "\"over_floor_db\":%.1f,"
                     "\"log\":[",
-                    (unsigned long long)now_ms,
+                    (unsigned long long)now_ms, now_seconds,
                     svm->ready ? "true" : "false",
                     srd_readiness_name(svm->readiness),
                     svm->centre_hz,

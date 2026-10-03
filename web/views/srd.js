@@ -73,6 +73,18 @@ const SrdView = (function () {
   // only when it changes rather than on every srd_state -- which is what keeps
   // a click landing on an element that is still there (the FM Band II lesson).
   let rowSig = null, markerSig = null;
+  // The session's relative clock at the last srd_state, and the wall time this
+  // page read it -- so a marker's age can advance smoothly between states
+  // (`now()` below) and scroll each pill down the waterfall the way the window
+  // does, rather than pinning them all at the top where same-frequency
+  // transmissions pile up and only the last is clickable.
+  let lastNowSeconds = 0, lastNowStamp = 0;
+  // One waterfall row is one sample block; its duration sets how fast the marks
+  // scroll. SAMPLE_BLOCK_PAIRS is the program's block, in pairs.
+  const SRD_BLOCK_PAIRS = 131072;
+  function now() {
+    return lastNowSeconds + (performance.now() - lastNowStamp) / 1000;
+  }
   // The stream set, swapped on the toggle: the charts view wants the two
   // analysis streams and not the waterfall (hidden then). srd_state is in
   // both, so the frame table is always fed. Mutated in place.
@@ -108,6 +120,8 @@ const SrdView = (function () {
       const b = measure(g.c);
       fitCanvas(g.c, b.width, b.height);
     }
+    // The canvas height changed, so the age-to-pixel mapping did too.
+    positionMarkers();
   }
 
   function clearChart(x, w, h) {
@@ -216,6 +230,12 @@ const SrdView = (function () {
 
     lastLog = s.log || [];
     e.count.textContent = lastLog.length;
+    // The clock the marks age against, re-based each state so `now()` advances
+    // smoothly between them.
+    if (s.now_seconds !== undefined) {
+      lastNowSeconds = s.now_seconds;
+      lastNowStamp = performance.now();
+    }
     // A selection past the end of a log that shrank is no selection.
     if (selectedLog >= lastLog.length) selectedLog = -1;
     renderLog();
@@ -264,11 +284,18 @@ const SrdView = (function () {
   }
 
   // The transmission marks: one pill per logged frame at the frequency it was
-  // heard, across the received span -- the window's own marks, as HTML over
-  // the canvas so the scrolling picture never erases them, and clickable so a
-  // reader can select a transmission from the waterfall. A frame outside the
-  // current span is dropped; the selected one is brightened. Rebuilt only when
-  // the log, the selection or the span changes.
+  // heard (the x), and at its age down the waterfall (the y) -- the window's
+  // own marks, as HTML over the canvas so the scrolling picture never erases
+  // them, and clickable so a reader can select a transmission from the
+  // waterfall.
+  //
+  // Two steps, deliberately split. `renderMarkers()` rebuilds the pill DOM,
+  // but only when the log, the selection or the span changes -- so a click
+  // lands on a pill that is still there rather than one destroyed mid-rebuild
+  // (the FM Band II race). `positionMarkers()` then moves the existing pills
+  // down every waterfall row without touching the DOM, which is what lets them
+  // scroll like the window's while staying clickable. The x (frequency) is set
+  // at build time; only the y (age) changes between builds.
   function renderMarkers() {
     const e = elements();
     const span = lastUpperHz - lastLowerHz;
@@ -276,23 +303,49 @@ const SrdView = (function () {
     const sig = selectedLog + '|' + Math.round(lastLowerHz) + '|'
       + Math.round(lastUpperHz) + '|' + lastLog.map((f) =>
         Math.round(f.hz) + ':' + f.kind).join('|');
-    if (sig === markerSig) return;
-    markerSig = sig;
-    let html = '';
-    lastLog.forEach((f, i) => {
-      if (f.hz < lastLowerHz || f.hz > lastUpperHz) return;
-      const pct = (100 * (f.hz - lastLowerHz) / span).toFixed(2);
-      const sel = i === selectedLog;
-      const col = markerColor(f);
-      const label = f.marker || f.kind || 'SRD';
-      html += '<div data-i="' + i + '" style="position:absolute;top:0;left:'
-        + pct + '%;transform:translateX(-50%);white-space:nowrap;'
-        + 'font:11px monospace;padding:1px 4px;border:1px solid ' + col + ';'
-        + 'border-radius:2px;background:' + (sel ? '#133' : 'rgba(10,15,22,0.85)')
-        + ';color:' + col + (sel ? ';font-weight:bold' : '')
-        + ';cursor:pointer;pointer-events:auto">' + escapeHtml(label) + '</div>';
-    });
-    e.markers.innerHTML = html;
+    if (sig !== markerSig) {
+      markerSig = sig;
+      let html = '';
+      lastLog.forEach((f, i) => {
+        if (f.hz < lastLowerHz || f.hz > lastUpperHz) return;
+        const pct = (100 * (f.hz - lastLowerHz) / span).toFixed(2);
+        const sel = i === selectedLog;
+        const col = markerColor(f);
+        const label = f.marker || f.kind || 'SRD';
+        html += '<div data-i="' + i + '" id="srd-mark-' + i
+          + '" style="position:absolute;left:'
+          + pct + '%;transform:translate(-50%,-50%);white-space:nowrap;'
+          + 'font:11px monospace;padding:1px 4px;border:1px solid ' + col + ';'
+          + 'border-radius:2px;background:' + (sel ? '#133' : 'rgba(10,15,22,0.85)')
+          + ';color:' + col + (sel ? ';font-weight:bold' : '')
+          + ';cursor:pointer;pointer-events:auto">' + escapeHtml(label) + '</div>';
+      });
+      e.markers.innerHTML = html;
+    }
+    positionMarkers();
+  }
+
+  // Move each pill to its age's row, in CSS pixels down the canvas. The
+  // waterfall shows `e.wf.height` rows (one per backing pixel), each
+  // SRD_BLOCK_PAIRS/sample_rate seconds long, so the whole canvas covers
+  // `rows * row_seconds` and a mark of age A sits that fraction down. A mark
+  // older than the canvas holds, or from the future, is hidden rather than
+  // clamped to an edge where it would lie about where the signal was.
+  function positionMarkers() {
+    const e = elements();
+    if (charting) return;
+    const sampleRate = lastUpperHz - lastLowerHz;
+    const cssH = measure(e.wf).height;
+    if (sampleRate <= 0 || cssH <= 0 || e.wf.height <= 0) return;
+    const visibleSeconds = e.wf.height * (SRD_BLOCK_PAIRS / sampleRate);
+    const t = now();
+    for (const pill of e.markers.children) {
+      const f = lastLog[+pill.dataset.i];
+      const frac = f ? (t - f.at) / visibleSeconds : -1;
+      if (frac < 0 || frac > 1) { pill.style.display = 'none'; continue; }
+      pill.style.display = '';
+      pill.style.top = (frac * cssH).toFixed(1) + 'px';
+    }
   }
 
   function escapeHtml(text) {
@@ -345,7 +398,10 @@ const SrdView = (function () {
       + '<tbody id="srd-rows"></tbody></table></div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') {
-        if (!charting) drawWaterfall(msg.row);
+        // A new row is one row's worth of time passing, so the marks step
+        // down with it -- positioning only, never a rebuild, so a click in
+        // flight survives.
+        if (!charting) { drawWaterfall(msg.row); positionMarkers(); }
       } else if (msg.kind === 'srd_envelope') {
         if (charting) drawEnvelope(msg.envelope);
       } else if (msg.kind === 'srd_chips') {

@@ -511,10 +511,14 @@ void viewer_link_publish_tetra_state(struct viewer_link *link,
 
 /* The SRD screen: the tuning, the two counters, and the whole frame log --
    each row carrying the **absolute** frequency it was heard at, so a later
-   retune does not drag the history with it. */
+   retune does not drag the history with it. `now_seconds` is the session's
+   relative clock (the same one `entry.at` is stamped on), carried so the
+   Viewer can age each transmission down the waterfall the way the window's
+   `srd_markers_build()` does -- `now_ms` is a wall stamp on a different
+   origin and cannot do that arithmetic. */
 void viewer_link_publish_srd_state(struct viewer_link *link,
                                    const struct srd_view_model *svm,
-                                   uint64_t now_ms);
+                                   double now_seconds, uint64_t now_ms);
 
 /* The LTE screen: the funnel, the cell, what each measurement has done since
    the identity last changed, the broadcast, the findings already worded, and

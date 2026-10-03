@@ -336,6 +336,25 @@ the overlay while the charts are up (the mark belongs to the waterfall) and
 re-place it from `renderAxis` so a span change moves it without waiting for
 the next state.
 
+**A marker's y is its age, and that is half the point.** The window places a
+mark at `age_seconds / visible_seconds` down the waterfall so it scrolls with
+the signal; a web view that pins every mark at `top:0` piles same-frequency
+transmissions on top of each other, so they neither move nor can be clicked
+apart (both SRD bugs, one cause -- FM and LTE have one mark each and dodged
+it). SRD carries `now_seconds` on its state -- the session's relative clock,
+the one `entry.at` is stamped on, because `timestamp_ms` is a wall stamp on a
+different origin and cannot do the subtraction -- and the view advances it
+locally (`now_seconds` + elapsed) so the marks scroll smoothly between
+states. `visible_seconds` is `canvas.height * SAMPLE_BLOCK_PAIRS /
+sample_rate` (one waterfall row is one block), and `fitCanvas` uses CSS-pixel
+backing stores, so `canvas.height` equals the measured CSS height and the
+age-to-pixel map needs no dpr term. **Split the build from the move**: rebuild
+the pill DOM only on a content or selection change (the click-survival gate),
+and reposition the existing pills (`style.top`) every waterfall row --
+touching the DOM every row would destroy a pill mid-click. Marks far apart in
+time separate cleanly; the window's pill-collision resolver for ones close in
+time is not ported.
+
 **A selection travels as a command only when it changes receiver state.**
 GSM's `select arfcn`, LTE's `select cell` and the survey's `select candidate`
 retune or re-inspect the receiver, which is shared state, so they go to the

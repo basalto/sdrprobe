@@ -662,7 +662,7 @@ int viewer_session_run(struct app *app) {
             srd_view_model_build(&app->srd, app->applied.frequency_hz,
                                  app->applied.sample_rate_hz,
                                  app->receiver_mode, &srd_svm);
-            viewer_link_publish_srd_state(&link, &srd_svm, now_ms);
+            viewer_link_publish_srd_state(&link, &srd_svm, now, now_ms);
             /* And LTE, on the same gate. The tuning it is handed is the
                applied one, because the crystal error in ppm is that offset
                over *this* carrier and means nothing without it. */
