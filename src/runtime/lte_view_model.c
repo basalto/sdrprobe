@@ -129,6 +129,8 @@ void lte_view_model_build(const struct lte_view *lte,
         out->found_count = 0;
     for (i = 0; i < out->found_count; i++)
         out->found[i] = scan->found[i];
+    out->scan_selected = (scan->selected >= 0 && scan->selected < out->found_count)
+                             ? scan->selected : -1;
 
     /*
      * How far along the pass is. The confirmation pass gets its own line

@@ -1947,7 +1947,8 @@ void viewer_link_publish_lte_state(struct viewer_link *link,
                     "\"mib_age_seconds\":%.1f,"
                     "\"on_grid\":%s,\"funnel_warn\":%s,"
                     "\"marker\":\"%s\",\"marker_hz\":%.0f,\"scanning\":%s,"
-                    "\"confirming\":%s,\"scan_progress\":\"%s\","
+                    "\"confirming\":%s,\"scan_selected\":%d,"
+                    "\"scan_progress\":\"%s\","
                     "\"scan_note\":\"%s\",\"scan_cost\":\"%s\",",
                     (unsigned long long)now_ms,
                     lvm->earfcn, lvm->centre_hz, lvm->band,
@@ -1973,6 +1974,7 @@ void viewer_link_publish_lte_state(struct viewer_link *link,
                     lvm->marker_label, lvm->marker_hz,
                     lvm->scanning ? "true" : "false",
                     lvm->confirming ? "true" : "false",
+                    lvm->scan_selected,
                     progress, note, cost);
     if (used <= 0 || (size_t)used >= sizeof(json))
         return;

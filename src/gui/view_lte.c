@@ -659,7 +659,7 @@ void draw_lte(struct app *app) {
         draw_cell_panel(&m, l.cell_panel);
         draw_mib_panel(&m, l.mib_panel);
     }
-    draw_found_panel(&m, app->lte.scan.selected, found_rect(app, &l));
+    draw_found_panel(&m, m.scan_selected, found_rect(app, &l));
 }
 
 Rectangle lte_waterfall_rect(const struct app *app) {

@@ -289,7 +289,8 @@ const LteView = (function () {
     // --- the scan, left column -------------------------------------------
     // Rebuilt only when the found cells change, so a click lands on a row that
     // is still there (the FM Band II lesson, one table over).
-    const sig = s.found.map((f) => f.earfcn + ':' + f.pci + ':'
+    const selected = (s.scan_selected === undefined) ? -1 : s.scan_selected;
+    const sig = selected + '|' + s.found.map((f) => f.earfcn + ':' + f.pci + ':'
       + f.pss.toFixed(2)).join('|');
     if (sig !== scanSig) {
       scanSig = sig;
@@ -300,7 +301,11 @@ const LteView = (function () {
         '<td style="color:' + ROW_VALUE + '">' + f.pci + '</td>',
         '<td style="color:' + ROW_MUTED + '">' + f.pss.toFixed(2)
           + ' / ' + f.sss_margin.toFixed(2) + '</td>',
-      ]));
+      // The row the receiver is parked on, highlighted the way the window
+      // highlights its selected found cell. The selection is the server's
+      // (`scan_select`), so it survives a reconnect and agrees with the window.
+      ]), (i) => 'cursor:pointer'
+        + (i === selected ? ';background:#1b3a2e' : ''));
     }
     // Both sentences arrive chosen: which of four reasons the table is
     // empty, and how far along a running pass is.

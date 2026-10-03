@@ -142,6 +142,9 @@ struct lte_view_model {
     int receiver_scan_possible;
     int found_count;
     struct lte_found_cell found[LTE_VIEW_MODEL_FOUND];
+    /* Which found row the receiver is parked on, which the panel highlights --
+       -1 when none, as `scan_select()` leaves it until a row is chosen. */
+    int scan_selected;
     /* The two sentences the scan panel shows, chosen here: how far along the
        pass is, and -- when nothing has been found -- which of four reasons
        that is. "Nothing held up: every candidate failed its second look" and
