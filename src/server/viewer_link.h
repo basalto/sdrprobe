@@ -138,7 +138,16 @@ enum viewer_message_type {
     VIEWER_MESSAGE_GSM_CORR = 16,
     VIEWER_MESSAGE_GSM_SOFT = 17,
     VIEWER_MESSAGE_GSM_PHASE = 18,
-    VIEWER_MESSAGE_GSM_SCATTER = 19
+    VIEWER_MESSAGE_GSM_SCATTER = 19,
+    /* The LTE analysis charts behind "Show charts": the PSS correlation, the
+       SSS candidate scores, the channel across 72 subcarriers and the
+       antenna-port coherence (one array each), and the PBCH constellation
+       (two arrays, i then q). */
+    VIEWER_MESSAGE_LTE_PSS = 20,
+    VIEWER_MESSAGE_LTE_SSS = 21,
+    VIEWER_MESSAGE_LTE_CHANNEL = 22,
+    VIEWER_MESSAGE_LTE_PORTS = 23,
+    VIEWER_MESSAGE_LTE_SCATTER = 24
 };
 
 /*
@@ -229,6 +238,12 @@ enum viewer_stream {
     VIEWER_STREAM_SRD_ENVELOPE,
     VIEWER_STREAM_SRD_CHIPS,
     VIEWER_STREAM_LTE_STATE,
+    /* The LTE analysis charts, paced on time at 4 Hz, the same as the rest. */
+    VIEWER_STREAM_LTE_PSS,
+    VIEWER_STREAM_LTE_SSS,
+    VIEWER_STREAM_LTE_CHANNEL,
+    VIEWER_STREAM_LTE_PORTS,
+    VIEWER_STREAM_LTE_SCATTER,
     VIEWER_STREAM_SETTINGS_STATE,
     VIEWER_STREAM_CAL_STATE,
     VIEWER_STREAM_COUNT
@@ -625,6 +640,26 @@ void viewer_link_publish_gsm_phase(struct viewer_link *link,
                                    uint32_t tuning_generation, uint64_t now_ms);
 void viewer_link_publish_gsm_scatter(struct viewer_link *link,
                                      const struct gsm_view_model *gvm,
+                                     uint32_t tuning_generation,
+                                     uint64_t now_ms);
+/* The LTE analysis charts behind "Show charts": the PSS correlation, the SSS
+   candidate scores, the channel, the port coherence and the PBCH
+   constellation. */
+void viewer_link_publish_lte_pss(struct viewer_link *link,
+                                 const struct lte_view_model *lvm,
+                                 uint32_t tuning_generation, uint64_t now_ms);
+void viewer_link_publish_lte_sss(struct viewer_link *link,
+                                 const struct lte_view_model *lvm,
+                                 uint32_t tuning_generation, uint64_t now_ms);
+void viewer_link_publish_lte_channel(struct viewer_link *link,
+                                     const struct lte_view_model *lvm,
+                                     uint32_t tuning_generation,
+                                     uint64_t now_ms);
+void viewer_link_publish_lte_ports(struct viewer_link *link,
+                                   const struct lte_view_model *lvm,
+                                   uint32_t tuning_generation, uint64_t now_ms);
+void viewer_link_publish_lte_scatter(struct viewer_link *link,
+                                     const struct lte_view_model *lvm,
                                      uint32_t tuning_generation,
                                      uint64_t now_ms);
 

@@ -96,7 +96,9 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "adsb_landscape", "adsb_confidence", "adsb_envelope", "adsb_scatter",
     "tetra_state", "tetra_scatter", "tetra_profile",
     "srd_state", "srd_envelope", "srd_chips",
-    "lte_state", "settings_state", "cal_state"
+    "lte_state",
+    "lte_pss", "lte_sss", "lte_channel", "lte_ports", "lte_scatter",
+    "settings_state", "cal_state"
 };
 
 const char *viewer_link_stream_name(enum viewer_stream stream) {
@@ -1325,6 +1327,68 @@ void viewer_link_publish_gsm_scatter(struct viewer_link *link,
 }
 
 /*
+ * The LTE analysis charts behind "Show charts" -- the five the window draws
+ * from the cell-search trace and the port coherence. Each guards on its own
+ * validity and count.
+ */
+void viewer_link_publish_lte_pss(struct viewer_link *link,
+                                 const struct lte_view_model *lvm,
+                                 uint32_t tuning_generation, uint64_t now_ms) {
+    if (!lvm->trace_valid || lvm->profile_count <= 0 ||
+        lvm->profile_count > LTE_TRACE_PROFILE)
+        return;
+    publish_binary(link, VIEWER_STREAM_LTE_PSS, VIEWER_MESSAGE_LTE_PSS,
+                   tuning_generation, now_ms, (uint32_t)lvm->profile_count,
+                   lvm->profile, NULL);
+}
+
+void viewer_link_publish_lte_sss(struct viewer_link *link,
+                                 const struct lte_view_model *lvm,
+                                 uint32_t tuning_generation, uint64_t now_ms) {
+    if (!lvm->trace_valid || lvm->candidate_count <= 0 ||
+        lvm->candidate_count > LTE_N_ID_1_COUNT)
+        return;
+    publish_binary(link, VIEWER_STREAM_LTE_SSS, VIEWER_MESSAGE_LTE_SSS,
+                   tuning_generation, now_ms, (uint32_t)lvm->candidate_count,
+                   lvm->candidate, NULL);
+}
+
+void viewer_link_publish_lte_channel(struct viewer_link *link,
+                                     const struct lte_view_model *lvm,
+                                     uint32_t tuning_generation,
+                                     uint64_t now_ms) {
+    if (!lvm->trace_valid || lvm->channel_count <= 0 ||
+        lvm->channel_count > LTE_PBCH_SUBCARRIERS)
+        return;
+    publish_binary(link, VIEWER_STREAM_LTE_CHANNEL, VIEWER_MESSAGE_LTE_CHANNEL,
+                   tuning_generation, now_ms, (uint32_t)lvm->channel_count,
+                   lvm->channel_db, NULL);
+}
+
+void viewer_link_publish_lte_ports(struct viewer_link *link,
+                                   const struct lte_view_model *lvm,
+                                   uint32_t tuning_generation, uint64_t now_ms) {
+    if (!lvm->port_coherence_valid || lvm->port_count <= 0 ||
+        lvm->port_count > LTE_PORT_COUNT)
+        return;
+    publish_binary(link, VIEWER_STREAM_LTE_PORTS, VIEWER_MESSAGE_LTE_PORTS,
+                   tuning_generation, now_ms, (uint32_t)lvm->port_count,
+                   lvm->port_coherence, NULL);
+}
+
+void viewer_link_publish_lte_scatter(struct viewer_link *link,
+                                     const struct lte_view_model *lvm,
+                                     uint32_t tuning_generation,
+                                     uint64_t now_ms) {
+    if (!lvm->trace_valid || lvm->element_count <= 0 ||
+        lvm->element_count > LTE_PBCH_RESOURCE_ELEMENTS)
+        return;
+    publish_binary(link, VIEWER_STREAM_LTE_SCATTER, VIEWER_MESSAGE_LTE_SCATTER,
+                   tuning_generation, now_ms, (uint32_t)lvm->element_count,
+                   lvm->element_i, lvm->element_q);
+}
+
+/*
  * Ticket 07's sweep status, alongside the chart above: what the window's
  * own status line would say, whether a sweep is walking the range, and the
  * candidate list -- each candidate's mark named the way `sdrgui.h` already
@@ -2276,11 +2340,13 @@ void viewer_link_publish_link_health(struct viewer_link *link,
         struct viewer_client *c = &link->clients[i];
         struct viewer_stream_slot *slot;
         /*
-         * Nine streams at up to 85 bytes each -- a name, two 20-digit
-         * counts and their punctuation -- plus the wrapper, so 885 bytes
-         * at the arithmetic worst case and nothing like it in practice.
+         * Every stream at up to 85 bytes each -- a name, two 20-digit counts
+         * and their punctuation -- plus the wrapper. With the analysis-chart
+         * streams the count is into the thirties, so 4 KiB is generous against
+         * that worst case and the check walks every name to prove none is
+         * dropped (a truncated list is exactly what a too-small buffer gave).
          */
-        char json[1280];
+        char json[4096];
         int json_len = 0;
         size_t frame_len;
         int s;

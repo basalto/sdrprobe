@@ -12,8 +12,20 @@ const LteView = (function () {
 
   function elements() {
     if (!els) {
+      const cv = (id) => {
+        const c = document.getElementById(id);
+        return { c: c, x: c.getContext('2d') };
+      };
       els = {
         wf: document.getElementById('lte-waterfall'),
+        wfWrap: document.getElementById('lte-waterfall-wrap'),
+        grid: document.getElementById('lte-charts-grid'),
+        charts: document.getElementById('lte-charts'),
+        cc: {
+          pss: cv('lte-c-pss'), sss: cv('lte-c-sss'),
+          channel: cv('lte-c-channel'), ports: cv('lte-c-ports'),
+          scatter: cv('lte-c-scatter'),
+        },
         axis: document.getElementById('lte-axis'),
         head: document.getElementById('lte-head'),
         funnel: document.getElementById('lte-funnel'),
@@ -26,8 +38,105 @@ const LteView = (function () {
         findings: document.getElementById('lte-findings'),
       };
       els.wfCtx = els.wf.getContext('2d');
+      els.charts.onclick = () => showCharts(!charting);
     }
     return els;
+  }
+
+  const TRACE = '#5adcc8';
+  const LTEBAR = '#a9c5d6';
+  let charting = false;
+  // The stream set, swapped on the toggle. lte_state is in both, so the three
+  // panels are always fed; the five chart streams and not the waterfall are
+  // the charts view's. Mutated in place.
+  const SIGNAL_STREAMS = ['lte_state', 'waterfall'];
+  const CHART_STREAMS = ['lte_state', 'lte_pss', 'lte_sss', 'lte_channel',
+                         'lte_ports', 'lte_scatter'];
+  const streams = SIGNAL_STREAMS.slice();
+
+  function showCharts(on) {
+    const e = elements();
+    charting = on;
+    e.wfWrap.hidden = on;
+    e.wfWrap.style.display = on ? 'none' : 'flex';
+    e.grid.hidden = !on;
+    e.grid.style.display = on ? 'grid' : 'none';
+    e.charts.textContent = on ? 'Show waterfall' : 'Show charts';
+    const want = on ? CHART_STREAMS : SIGNAL_STREAMS;
+    streams.length = 0;
+    for (const s of want) streams.push(s);
+    if (typeof subscribeToActiveView === 'function') subscribeToActiveView();
+    resizeCanvases();
+  }
+
+  function resizeCanvases() {
+    const e = elements();
+    const box = measure(e.wf);
+    if (fitCanvas(e.wf, box.width, box.height))
+      waterfallRedraw(e.wfCtx, e.wf, wf);
+    for (const key in e.cc) {
+      const g = e.cc[key];
+      const b = measure(g.c);
+      fitCanvas(g.c, b.width, b.height);
+    }
+  }
+
+  function clearChart(x, w, h) {
+    x.fillStyle = '#0a0f16';
+    x.fillRect(0, 0, w, h);
+  }
+
+  // A line auto-scaled to its own min..max -- the PSS, SSS and channel charts
+  // all read against their own range.
+  function drawLine(key, data) {
+    const g = elements().cc[key], w = g.c.width, h = g.c.height, n = data.length;
+    clearChart(g.x, w, h);
+    if (n <= 0) return;
+    let lo = Infinity, hi = -Infinity;
+    for (let k = 0; k < n; k++) {
+      if (data[k] < lo) lo = data[k];
+      if (data[k] > hi) hi = data[k];
+    }
+    if (hi - lo < 1e-9) hi = lo + 1;
+    g.x.strokeStyle = TRACE;
+    g.x.beginPath();
+    for (let px = 0; px < w; px++) {
+      const i = Math.floor(px * n / w);
+      const y = h - ((data[i] - lo) / (hi - lo)) * (h - 2);
+      if (px === 0) g.x.moveTo(px, y); else g.x.lineTo(px, y);
+    }
+    g.x.stroke();
+  }
+
+  // The antenna-port coherence: a bar per port against the 0..1 scale.
+  function drawPorts(data) {
+    const g = elements().cc.ports, w = g.c.width, h = g.c.height, n = data.length;
+    clearChart(g.x, w, h);
+    if (n <= 0) return;
+    const bw = w / n;
+    g.x.fillStyle = LTEBAR;
+    for (let k = 0; k < n; k++) {
+      const bh = Math.max(0, Math.min(1, data[k])) * (h - 2);
+      g.x.fillRect(k * bw + 2, h - bh, Math.max(1, bw - 4), bh);
+    }
+  }
+
+  // The PBCH constellation: two clusters is a clean QPSK decode.
+  function drawScatter(px, py) {
+    const g = elements().cc.scatter, w = g.c.width, h = g.c.height;
+    clearChart(g.x, w, h);
+    g.x.strokeStyle = '#1b2531';
+    g.x.beginPath();
+    g.x.moveTo(w / 2 + 0.5, 0); g.x.lineTo(w / 2 + 0.5, h);
+    g.x.moveTo(0, h / 2 + 0.5); g.x.lineTo(w, h / 2 + 0.5);
+    g.x.stroke();
+    const half = 0.46 * Math.min(w, h);
+    g.x.fillStyle = TRACE;
+    for (let k = 0; k < px.length; k++) {
+      const x = w / 2 + (px[k] / 1.4) * half;
+      const y = h / 2 - (py[k] / 1.4) * half;
+      g.x.fillRect(x - 1, y - 1, 2, 2);
+    }
   }
 
   // view_lte.c's own Color constants, as the hex of their exact RGB.
@@ -199,6 +308,14 @@ const LteView = (function () {
       .replace(/>/g, '&gt;');
   }
 
+  // One grid cell: a label over a canvas that fills the rest.
+  function lteChartCell(canvasId, label) {
+    return '<div style="min-width:0;min-height:0;display:flex;'
+      + 'flex-direction:column"><div class="label">' + label + '</div>'
+      + '<canvas id="' + canvasId + '" style="flex:1 1 0;min-height:0;'
+      + 'width:100%"></canvas></div>';
+  }
+
   function panel(caption, bodyHtml, grow) {
     return '<div style="flex:' + grow + ' 1 0;min-width:0;background:'
       + PANEL_FILL + ';border:1px solid ' + PANEL_EDGE
@@ -212,13 +329,8 @@ const LteView = (function () {
   return {
     id: 'lte',
     label: 'LTE',
-    streams: ['lte_state', 'waterfall'],
-    resize() {
-      const e = elements();
-      const box = measure(e.wf);
-      if (fitCanvas(e.wf, box.width, box.height))
-        waterfallRedraw(e.wfCtx, e.wf, wf);
-    },
+    streams: streams,
+    resize: resizeCanvases,
     // Three panels across the bottom in the window's own order -- what a
     // scan found, what the synchronisation signals found, what the cell says
     // -- with the middle one widest because it carries the statistics table.
@@ -226,11 +338,28 @@ const LteView = (function () {
     // screen's substance is the numbers, and a browser column is taller than
     // it is wide.
     markup:
-      '<div id="lte-waterfall-wrap" style="flex:2 1 0;min-height:90px;'
+      '<div style="margin-bottom:8px;flex:0 0 auto">'
+      + '<button id="lte-charts" style="background:#16202c;color:#8291a0;'
+      + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
+      + 'cursor:pointer">Show charts</button></div>'
+      + '<div id="lte-waterfall-wrap" style="flex:2 1 0;min-height:90px;'
       + 'display:flex;flex-direction:column">'
       + '<canvas id="lte-waterfall" style="flex:1 1 0;min-height:0;'
       + 'width:100%"></canvas>'
       + '<div class="label" id="lte-axis">awaiting receiver_state...</div>'
+      + '</div>'
+      // The cell-search charts, a 3x2 grid taking the waterfall's room when it
+      // is hidden: the PSS correlation, the SSS candidate scores, the channel
+      // over 72 subcarriers, the antenna-port coherence and the PBCH
+      // constellation.
+      + '<div id="lte-charts-grid" hidden style="display:none;flex:2 1 0;'
+      + 'min-height:90px;grid-template-columns:repeat(3,1fr);'
+      + 'grid-template-rows:repeat(2,1fr);gap:10px">'
+      + lteChartCell('lte-c-pss', 'PSS correlation')
+      + lteChartCell('lte-c-sss', 'SSS candidate scores (168 N_ID_1)')
+      + lteChartCell('lte-c-channel', 'Channel over 72 subcarriers (dB)')
+      + lteChartCell('lte-c-ports', 'Antenna-port coherence')
+      + lteChartCell('lte-c-scatter', 'PBCH constellation')
       + '</div>'
       + '<div id="lte-head" style="font-size:14px;margin:4px 0 2px;color:'
       + HEAD_COLOR + '">awaiting lte_state...</div>'
@@ -255,8 +384,19 @@ const LteView = (function () {
               + 'color:' + ROW_VALUE + '"></div>', 3)
       + '</div>',
     render(msg) {
-      if (msg.kind === 'waterfall_row') drawWaterfall(msg.row);
-      else if (msg.kind === 'state') {
+      if (msg.kind === 'waterfall_row') {
+        if (!charting) drawWaterfall(msg.row);
+      } else if (msg.kind === 'lte_pss') {
+        if (charting) drawLine('pss', msg.data);
+      } else if (msg.kind === 'lte_sss') {
+        if (charting) drawLine('sss', msg.data);
+      } else if (msg.kind === 'lte_channel') {
+        if (charting) drawLine('channel', msg.data);
+      } else if (msg.kind === 'lte_ports') {
+        if (charting) drawPorts(msg.data);
+      } else if (msg.kind === 'lte_scatter') {
+        if (charting) drawScatter(msg.x, msg.y);
+      } else if (msg.kind === 'state') {
         if (msg.state.type === 'lte_state') renderState(msg.state);
         else if (msg.state.type === 'receiver_state') renderAxis(msg.state);
       }

@@ -36,6 +36,13 @@ const MSG_GSM_CORR = 16;
 const MSG_GSM_SOFT = 17;
 const MSG_GSM_PHASE = 18;
 const MSG_GSM_SCATTER = 19;
+// The LTE analysis charts: PSS correlation, SSS candidates, channel and port
+// coherence (one array each) and the PBCH constellation (two arrays).
+const MSG_LTE_PSS = 20;
+const MSG_LTE_SSS = 21;
+const MSG_LTE_CHANNEL = 22;
+const MSG_LTE_PORTS = 23;
+const MSG_LTE_SCATTER = 24;
 
 // Decodes one WebSocket message and returns a plain object naming its
 // `kind`:
@@ -148,6 +155,30 @@ function decodeMessage(ev, latestGeneration) {
   if (type === MSG_GSM_SCATTER) {
     return {
       kind: 'gsm_scatter', bytes: bytes,
+      x: new Float32Array(ev.data, 20, bins),
+      y: new Float32Array(ev.data, 20 + bins * 4, bins),
+    };
+  }
+  // The LTE analysis charts: four one-array charts and the PBCH constellation.
+  if (type === MSG_LTE_PSS) {
+    return { kind: 'lte_pss', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_LTE_SSS) {
+    return { kind: 'lte_sss', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_LTE_CHANNEL) {
+    return { kind: 'lte_channel', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_LTE_PORTS) {
+    return { kind: 'lte_ports', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_LTE_SCATTER) {
+    return {
+      kind: 'lte_scatter', bytes: bytes,
       x: new Float32Array(ev.data, 20, bins),
       y: new Float32Array(ev.data, 20 + bins * 4, bins),
     };

@@ -169,4 +169,31 @@ void lte_view_model_build(const struct lte_view *lte,
             note = "Press Scan band.";
         snprintf(out->scan_note, sizeof(out->scan_note), "%s", note);
     }
+
+    /*
+     * The analysis charts: the cell-search trace and the port coherence,
+     * copied out for the browser. The counts say how much of each fixed array
+     * is meaningful; the arrays themselves are small enough to carry whole.
+     */
+    out->trace_valid = lte->trace.valid;
+    if (lte->trace.valid) {
+        const struct lte_trace *t = &lte->trace;
+
+        out->profile_count = t->profile_count;
+        memcpy(out->profile, t->profile, sizeof(out->profile));
+        out->candidate_count = t->candidate_count;
+        out->candidate_best = t->candidate_best;
+        memcpy(out->candidate, t->candidate, sizeof(out->candidate));
+        out->channel_count = t->channel_count;
+        memcpy(out->channel_db, t->channel_db, sizeof(out->channel_db));
+        out->element_count = t->element_count;
+        memcpy(out->element_i, t->element_i, sizeof(out->element_i));
+        memcpy(out->element_q, t->element_q, sizeof(out->element_q));
+    }
+    out->port_coherence_valid = lte->session.port_coherence_valid;
+    if (lte->session.port_coherence_valid) {
+        out->port_count = LTE_PORT_COUNT;
+        memcpy(out->port_coherence, lte->session.port_coherence,
+               sizeof(out->port_coherence));
+    }
 }

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "tech/lte_dsp.h"       /* the trace arrays and LTE_PORT_COUNT */
 #include "tech/lte_findings.h"
 #include "tech/lte_mib.h"
 #include "tech/lte_scan.h"
@@ -159,6 +160,28 @@ struct lte_view_model {
        one: empty until an identity has been found, because a marker is a
        claim that something is there. */
     char marker_label[24];
+
+    /* -- The analysis charts behind "Show charts": the cell-search trace the
+          window's charts read -- the PSS correlation, the SSS candidate
+          scores, the channel across the broadcast's 72 subcarriers, the PBCH
+          constellation -- and the antenna-port coherence. Computed by the cell
+          search, so the server has them. Empty until a cell is found. -- */
+    int trace_valid;
+    int profile_count;
+    float profile[LTE_TRACE_PROFILE];
+    int candidate_count;
+    int candidate_best;
+    float candidate[LTE_N_ID_1_COUNT];
+    int channel_count;
+    float channel_db[LTE_PBCH_SUBCARRIERS];
+    int element_count;
+    float element_i[LTE_PBCH_RESOURCE_ELEMENTS];
+    float element_q[LTE_PBCH_RESOURCE_ELEMENTS];
+    /* Antenna-port coherence: how many ports the cell transmits on, as bars
+       against a chance floor. From the session rather than the trace. */
+    int port_coherence_valid;
+    int port_count;
+    float port_coherence[LTE_PORT_COUNT];
 };
 
 struct lte_view;

@@ -411,10 +411,13 @@ void update_lte_scan(struct app *app, double now, int have_block) {
  */
 void update_lte(struct app *app, double now) {
     struct lte_session_event event;
-    /* Collecting the trace costs a second pass over the correlation and a
-       copy of the candidate scores, so it is only done when something is
-       drawing them. */
-    struct lte_trace *trace = app->lte.analysis_mode ? &app->lte.trace : NULL;
+    /* Always collect the trace, not only under the window's `analysis_mode`:
+       the browser's cell-search charts are a second reader, and in `web` mode
+       that toggle is always off -- the same silent hole fm_spectrum had. The
+       cost is small (the profile is ~96 samples either side of the peak the
+       search already found, plus a copy of the candidate scores), and a
+       computation should not answer to which reader happens to be drawing. */
+    struct lte_trace *trace = &app->lte.trace;
 
     app->lte.earfcn = lte_earfcn_for_hz((double)app->applied.frequency_hz);
     lte_session_feed(&app->lte.session, app->frame.i_samples, app->frame.q_samples,

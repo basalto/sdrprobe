@@ -346,8 +346,47 @@ static void test_the_scan_says_what_it_would_cost(void) {
     check_str("silent while one is running", m.scan_cost, "");
 }
 
+/* The analysis charts behind "Show charts": the cell-search trace (PSS, SSS,
+   channel, PBCH elements) and the port coherence, carried for the browser. */
+static void test_the_analysis_charts_are_carried(void) {
+    struct lte_view_model m;
+    int i;
+
+    blank();
+    lte.trace.valid = 1;
+    lte.trace.profile_count = 193;
+    lte.trace.candidate_count = 168;
+    lte.trace.candidate_best = 42;
+    lte.trace.channel_count = 72;
+    lte.trace.element_count = 240;
+    for (i = 0; i < 193; i++) lte.trace.profile[i] = (float)i;
+    for (i = 0; i < 72; i++) lte.trace.channel_db[i] = -3.0f;
+    for (i = 0; i < 240; i++) {
+        lte.trace.element_i[i] = 1.0f;
+        lte.trace.element_q[i] = -1.0f;
+    }
+    lte.session.port_coherence_valid = 1;
+    for (i = 0; i < LTE_PORT_COUNT; i++) lte.session.port_coherence[i] = 0.5f;
+
+    m = build(796000000u);
+
+    check_int("the trace is carried", m.trace_valid, 1);
+    check_int("the PSS profile length", m.profile_count, 193);
+    check_int("the SSS candidate count", m.candidate_count, 168);
+    check_int("the winning N_ID_1 travels", m.candidate_best, 42);
+    check_int("the channel subcarrier count", m.channel_count, 72);
+    check_close("the channel values are carried", m.channel_db[0], -3.0, 1e-6);
+    check_int("the PBCH element count", m.element_count, 240);
+    check_close("the constellation x is carried", m.element_i[0], 1.0, 1e-6);
+    check_int("the port coherence is carried", m.port_coherence_valid, 1);
+    check_int("one value per port", m.port_count, LTE_PORT_COUNT);
+    check_close("the coherence values are carried", m.port_coherence[0], 0.5,
+                1e-6);
+}
+
 int main(void) {
     test_the_tuned_band_is_not_the_picked_band();
+    test_the_analysis_charts_are_carried();
     test_a_cell_that_will_not_speak_is_its_own_answer();
     test_the_marker_claims_only_what_was_found();
     test_the_scan_says_what_it_would_cost();

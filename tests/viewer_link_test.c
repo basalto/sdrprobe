@@ -1083,6 +1083,81 @@ static void test_gsm_chart_wire_format(void) {
     viewer_link_close(&vlink);
 }
 
+/* The LTE analysis-chart streams behind "Show charts": the PSS, SSS, channel
+   and port coherence (one array each) and the PBCH constellation (two
+   arrays). The trace-backed four guard on trace_valid; the ports on their own
+   validity. */
+static void test_lte_chart_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct lte_view_model lvm;
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t bins;
+    int i;
+
+    memset(&lvm, 0, sizeof(lvm));
+    lvm.trace_valid = 1;
+    lvm.profile_count = 193;
+    lvm.candidate_count = 168;
+    lvm.channel_count = 72;
+    lvm.element_count = 240;
+    for (i = 0; i < 240; i++) {
+        lvm.element_i[i] = (i % 2) ? 1.0f : -1.0f;
+        lvm.element_q[i] = 0.0f;
+    }
+    lvm.port_coherence_valid = 1;
+    lvm.port_count = LTE_PORT_COUNT;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe lte_pss lte_sss lte_channel "
+                          "lte_ports lte_scatter");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_lte_pss(&vlink, &lvm, 5, 22);
+    viewer_link_publish_lte_sss(&vlink, &lvm, 5, 22);
+    viewer_link_publish_lte_channel(&vlink, &lvm, 5, 22);
+    viewer_link_publish_lte_ports(&vlink, &lvm, 5, 22);
+    viewer_link_publish_lte_scatter(&vlink, &lvm, 5, 22);
+    client_pump(&tc, 10);
+
+    check_true("an lte_pss message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is lte_pss (20)", payload[1], 20);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the PSS profile length round-trips", (int)bins, 193);
+
+    check_true("an lte_sss message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is lte_sss (21)", payload[1], 21);
+    memcpy(&bins, payload + 16, 4);
+    check_int("168 N_ID_1 candidates", (int)bins, 168);
+
+    check_true("an lte_channel message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is lte_channel (22)", payload[1], 22);
+    memcpy(&bins, payload + 16, 4);
+    check_int("72 subcarriers", (int)bins, 72);
+
+    check_true("an lte_ports message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is lte_ports (23)", payload[1], 23);
+    memcpy(&bins, payload + 16, 4);
+    check_int("one bar per port", (int)bins, LTE_PORT_COUNT);
+
+    check_true("an lte_scatter message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is lte_scatter (24)", payload[1], 24);
+    memcpy(&bins, payload + 16, 4);
+    check_size("it carries both arrays", len, 20 + 2 * 240 * 4);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 static void test_fm_streams_are_not_sent_when_unsubscribed(void) {
     uint16_t port = open_test_link();
     struct test_client tc;
@@ -1125,7 +1200,9 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
         "adsb_landscape", "adsb_confidence", "adsb_envelope", "adsb_scatter",
         "tetra_state", "tetra_scatter", "tetra_profile", "srd_state",
         "srd_envelope", "srd_chips",
-        "lte_state", "settings_state", "cal_state"
+        "lte_state",
+        "lte_pss", "lte_sss", "lte_channel", "lte_ports", "lte_scatter",
+        "settings_state", "cal_state"
     };
     size_t n = sizeof(names) / sizeof(names[0]);
     uint16_t port = open_test_link();
@@ -1311,7 +1388,9 @@ static void test_link_health_reports_this_clients_own_counters(void) {
             "adsb_scatter", "tetra_state",
             "tetra_scatter", "tetra_profile",
             "srd_state", "srd_envelope", "srd_chips",
-            "lte_state", "settings_state", "cal_state"
+            "lte_state",
+        "lte_pss", "lte_sss", "lte_channel", "lte_ports", "lte_scatter",
+        "settings_state", "cal_state"
         };
         size_t n = sizeof(names) / sizeof(names[0]);
         size_t k;
@@ -2074,6 +2153,7 @@ int main(void) {
     test_srd_chart_wire_format();
     test_adsb_chart_wire_format();
     test_gsm_chart_wire_format();
+    test_lte_chart_wire_format();
     test_fm_spectrum_with_no_bins_publishes_nothing();
     test_fm_state_wire_format();
     test_fm_streams_are_not_sent_when_unsubscribed();
