@@ -80,7 +80,9 @@ MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall", 3: "survey_spectrum",
                       8: "tetra_scatter", 9: "tetra_profile",
                       10: "srd_envelope", 11: "srd_chips",
                       12: "adsb_landscape", 13: "adsb_confidence",
-                      14: "adsb_envelope", 15: "adsb_scatter"}
+                      14: "adsb_envelope", 15: "adsb_scatter",
+                      16: "gsm_corr", 17: "gsm_soft", 18: "gsm_phase",
+                      19: "gsm_scatter"}
 
 # The message types carrying VIEWER_RANGE_HEADER_BYTES rather than the
 # plain 20-byte one: an array whose frequencies are its own, not the
@@ -100,7 +102,9 @@ RANGE_HEADER_TYPES = (3, 4, 6)
 ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
                "survey_spectrum", "survey_state", "fm_spectrum",
                "fm_state", "fm_audio", "fm_audio_spectrum", "fm_scatter",
-               "gsm_state", "adsb_state",
+               "gsm_state",
+               "gsm_corr", "gsm_soft", "gsm_phase", "gsm_scatter",
+               "adsb_state",
                "adsb_landscape", "adsb_confidence", "adsb_envelope",
                "adsb_scatter",
                "tetra_state", "tetra_scatter", "tetra_profile",
@@ -276,7 +280,7 @@ def decode_binary(payload):
         # constellations (i/x then q/y: FM's RDS and TETRA's phase steps); one
         # for everything else on the base header (the waterfall row, the FM
         # audio waveform, the TETRA profile).
-        array_count = 2 if mtype in (1, 7, 8, 15) else 1
+        array_count = 2 if mtype in (1, 7, 8, 15, 19) else 1
     arrays_bytes = len(payload) - header_len
     expected = bins * 4 * array_count
     if arrays_bytes != expected:

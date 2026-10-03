@@ -1022,6 +1022,67 @@ static void test_adsb_chart_wire_format(void) {
     viewer_link_close(&vlink);
 }
 
+/* The GSM analysis-chart streams behind "View: Burst": the correlation, soft
+   magnitudes and phase (one array each) and the SCH constellation (two
+   arrays). All guard on a valid SCH burst. */
+static void test_gsm_chart_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct gsm_view_model gvm;
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t bins;
+    int i;
+
+    memset(&gvm, 0, sizeof(gvm));
+    gvm.sch_valid = 1;
+    gvm.sch_count = 60;
+    gvm.scatter_count = 60;
+    for (i = 0; i < 60; i++) {
+        gvm.corr[i] = (float)i;
+        gvm.soft_mag[i] = 1.0f;
+        gvm.phase[i] = (float)i * 0.1f;
+        gvm.scatter_x[i] = (i % 2) ? 1.0f : -1.0f;
+        gvm.scatter_y[i] = 0.0f;
+    }
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe gsm_corr gsm_soft gsm_phase gsm_scatter");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_gsm_corr(&vlink, &gvm, 2, 9);
+    viewer_link_publish_gsm_soft(&vlink, &gvm, 2, 9);
+    viewer_link_publish_gsm_phase(&vlink, &gvm, 2, 9);
+    viewer_link_publish_gsm_scatter(&vlink, &gvm, 2, 9);
+    client_pump(&tc, 10);
+
+    check_true("a gsm_corr message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is gsm_corr (16)", payload[1], 16);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the SCH count round-trips", (int)bins, 60);
+
+    check_true("a gsm_soft message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is gsm_soft (17)", payload[1], 17);
+
+    check_true("a gsm_phase message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is gsm_phase (18)", payload[1], 18);
+
+    check_true("a gsm_scatter message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is gsm_scatter (19)", payload[1], 19);
+    memcpy(&bins, payload + 16, 4);
+    check_size("it carries both arrays", len, 20 + 2 * 60 * 4);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 static void test_fm_streams_are_not_sent_when_unsubscribed(void) {
     uint16_t port = open_test_link();
     struct test_client tc;
@@ -1059,7 +1120,8 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
         "spectrum", "waterfall", "receiver_state", "link_health",
         "command_result", "survey_spectrum", "survey_state", "fm_spectrum",
         "fm_state", "fm_audio", "fm_audio_spectrum", "fm_scatter",
-        "gsm_state", "adsb_state",
+        "gsm_state", "gsm_corr", "gsm_soft", "gsm_phase", "gsm_scatter",
+        "adsb_state",
         "adsb_landscape", "adsb_confidence", "adsb_envelope", "adsb_scatter",
         "tetra_state", "tetra_scatter", "tetra_profile", "srd_state",
         "srd_envelope", "srd_chips",
@@ -1242,7 +1304,9 @@ static void test_link_health_reports_this_clients_own_counters(void) {
             "spectrum", "waterfall", "receiver_state", "link_health",
             "command_result", "survey_spectrum", "survey_state",
             "fm_spectrum", "fm_state", "fm_audio", "fm_audio_spectrum",
-            "fm_scatter", "gsm_state", "adsb_state",
+            "fm_scatter", "gsm_state",
+            "gsm_corr", "gsm_soft", "gsm_phase", "gsm_scatter",
+            "adsb_state",
             "adsb_landscape", "adsb_confidence", "adsb_envelope",
             "adsb_scatter", "tetra_state",
             "tetra_scatter", "tetra_profile",
@@ -2009,6 +2073,7 @@ int main(void) {
     test_tetra_chart_wire_format();
     test_srd_chart_wire_format();
     test_adsb_chart_wire_format();
+    test_gsm_chart_wire_format();
     test_fm_spectrum_with_no_bins_publishes_nothing();
     test_fm_state_wire_format();
     test_fm_streams_are_not_sent_when_unsubscribed();

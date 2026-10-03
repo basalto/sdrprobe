@@ -90,7 +90,9 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
     "fm_audio", "fm_audio_spectrum", "fm_scatter",
-    "gsm_state", "adsb_state",
+    "gsm_state",
+    "gsm_corr", "gsm_soft", "gsm_phase", "gsm_scatter",
+    "adsb_state",
     "adsb_landscape", "adsb_confidence", "adsb_envelope", "adsb_scatter",
     "tetra_state", "tetra_scatter", "tetra_profile",
     "srd_state", "srd_envelope", "srd_chips",
@@ -1270,6 +1272,56 @@ void viewer_link_publish_adsb_scatter(struct viewer_link *link,
     publish_binary(link, VIEWER_STREAM_ADSB_SCATTER,
                    VIEWER_MESSAGE_ADSB_SCATTER, tuning_generation, now_ms,
                    (uint32_t)avm->trace_bits, avm->scatter_x, avm->scatter_y);
+}
+
+/*
+ * The GSM analysis charts behind "View: Burst" -- the correlation landscape,
+ * the soft symbol magnitudes, the phase trajectory and the SCH constellation.
+ * Each guards on a valid SCH burst and its own count.
+ */
+void viewer_link_publish_gsm_corr(struct viewer_link *link,
+                                  const struct gsm_view_model *gvm,
+                                  uint32_t tuning_generation, uint64_t now_ms) {
+    if (!gvm->sch_valid || gvm->sch_count <= 0 ||
+        gvm->sch_count > GSM_SCH_BURST_BITS)
+        return;
+    publish_binary(link, VIEWER_STREAM_GSM_CORR, VIEWER_MESSAGE_GSM_CORR,
+                   tuning_generation, now_ms, (uint32_t)gvm->sch_count,
+                   gvm->corr, NULL);
+}
+
+void viewer_link_publish_gsm_soft(struct viewer_link *link,
+                                  const struct gsm_view_model *gvm,
+                                  uint32_t tuning_generation, uint64_t now_ms) {
+    if (!gvm->sch_valid || gvm->sch_count <= 0 ||
+        gvm->sch_count > GSM_SCH_BURST_BITS)
+        return;
+    publish_binary(link, VIEWER_STREAM_GSM_SOFT, VIEWER_MESSAGE_GSM_SOFT,
+                   tuning_generation, now_ms, (uint32_t)gvm->sch_count,
+                   gvm->soft_mag, NULL);
+}
+
+void viewer_link_publish_gsm_phase(struct viewer_link *link,
+                                   const struct gsm_view_model *gvm,
+                                   uint32_t tuning_generation, uint64_t now_ms) {
+    if (!gvm->sch_valid || gvm->sch_count <= 0 ||
+        gvm->sch_count > GSM_SCH_BURST_BITS)
+        return;
+    publish_binary(link, VIEWER_STREAM_GSM_PHASE, VIEWER_MESSAGE_GSM_PHASE,
+                   tuning_generation, now_ms, (uint32_t)gvm->sch_count,
+                   gvm->phase, NULL);
+}
+
+void viewer_link_publish_gsm_scatter(struct viewer_link *link,
+                                     const struct gsm_view_model *gvm,
+                                     uint32_t tuning_generation,
+                                     uint64_t now_ms) {
+    if (!gvm->sch_valid || gvm->scatter_count <= 0 ||
+        gvm->scatter_count > GSM_SCH_BURST_BITS)
+        return;
+    publish_binary(link, VIEWER_STREAM_GSM_SCATTER, VIEWER_MESSAGE_GSM_SCATTER,
+                   tuning_generation, now_ms, (uint32_t)gvm->scatter_count,
+                   gvm->scatter_x, gvm->scatter_y);
 }
 
 /*

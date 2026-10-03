@@ -10,8 +10,19 @@ const GsmView = (function () {
   // viewer.js is concatenated last and inserts it at mountViews().
   function elements() {
     if (!els) {
+      const cv = (id) => {
+        const c = document.getElementById(id);
+        return { c: c, x: c.getContext('2d') };
+      };
       els = {
         wf: document.getElementById('gsm-waterfall'),
+        wfWrap: document.getElementById('gsm-waterfall-wrap'),
+        grid: document.getElementById('gsm-charts-grid'),
+        charts: document.getElementById('gsm-charts'),
+        cc: {
+          corr: cv('gsm-c-corr'), soft: cv('gsm-c-soft'),
+          phase: cv('gsm-c-phase'), scatter: cv('gsm-c-scatter'),
+        },
         axis: document.getElementById('gsm-axis'),
         sch: document.getElementById('gsm-sch'),
         bcch: document.getElementById('gsm-bcch'),
@@ -22,8 +33,112 @@ const GsmView = (function () {
       };
       els.wfCtx = els.wf.getContext('2d');
       els.scanCtx = els.scan.getContext('2d');
+      els.charts.onclick = () => showCharts(!charting);
     }
     return els;
+  }
+
+  const TRACE = '#5adcc8';
+  const GSMBAR = '#a9c5d6';
+  let charting = false;
+  // The stream set, swapped on the toggle. gsm_state is in both, so the
+  // readouts and scan are always fed; the four chart streams and not the
+  // waterfall are the charts view's. Mutated in place.
+  const SIGNAL_STREAMS = ['gsm_state', 'waterfall'];
+  const CHART_STREAMS = ['gsm_state', 'gsm_corr', 'gsm_soft', 'gsm_phase',
+                         'gsm_scatter'];
+  const streams = SIGNAL_STREAMS.slice();
+
+  function showCharts(on) {
+    const e = elements();
+    charting = on;
+    e.wfWrap.hidden = on;
+    e.wfWrap.style.display = on ? 'none' : 'flex';
+    e.grid.hidden = !on;
+    e.grid.style.display = on ? 'grid' : 'none';
+    e.charts.textContent = on ? 'Show waterfall' : 'Show burst charts';
+    const want = on ? CHART_STREAMS : SIGNAL_STREAMS;
+    streams.length = 0;
+    for (const s of want) streams.push(s);
+    if (typeof subscribeToActiveView === 'function') subscribeToActiveView();
+    resizeCanvases();
+  }
+
+  function resizeCanvases() {
+    const e = elements();
+    const wfBox = measure(e.wf);
+    if (fitCanvas(e.wf, wfBox.width, wfBox.height))
+      waterfallRedraw(e.wfCtx, e.wf, wf);
+    const scanBox = measure(e.scan);
+    if (fitCanvas(e.scan, scanBox.width, scanBox.height)) drawScan(lastState);
+    for (const key in e.cc) {
+      const g = e.cc[key];
+      const b = measure(g.c);
+      fitCanvas(g.c, b.width, b.height);
+    }
+  }
+
+  function clearChart(x, w, h) {
+    x.fillStyle = '#0a0f16';
+    x.fillRect(0, 0, w, h);
+  }
+
+  // A line over its own min..max (the correlation and phase both auto-scale).
+  function drawCorr(key, data) {
+    const g = elements().cc[key], w = g.c.width, h = g.c.height, n = data.length;
+    clearChart(g.x, w, h);
+    if (n <= 0) return;
+    let lo = Infinity, hi = -Infinity;
+    for (let k = 0; k < n; k++) {
+      if (data[k] < lo) lo = data[k];
+      if (data[k] > hi) hi = data[k];
+    }
+    if (hi - lo < 1e-9) hi = lo + 1;
+    g.x.strokeStyle = TRACE;
+    g.x.beginPath();
+    for (let px = 0; px < w; px++) {
+      const i = Math.floor(px * n / w);
+      const y = h - ((data[i] - lo) / (hi - lo)) * (h - 2);
+      if (px === 0) g.x.moveTo(px, y); else g.x.lineTo(px, y);
+    }
+    g.x.stroke();
+  }
+
+  // The soft magnitudes, as bars normalised to the burst's 90th percentile
+  // (the window's own reference), outliers going past the top.
+  function drawSoft(data) {
+    const g = elements().cc.soft, w = g.c.width, h = g.c.height, n = data.length;
+    clearChart(g.x, w, h);
+    if (n <= 0) return;
+    const sorted = Array.prototype.slice.call(data).sort((a, b) => a - b);
+    let ref = sorted[Math.floor((n - 1) * 0.9)];
+    if (ref < 1e-12) ref = 1e-12;
+    const bw = w / n;
+    g.x.fillStyle = GSMBAR;
+    for (let k = 0; k < n; k++) {
+      const v = Math.min(1.4, data[k] / ref);
+      const bh = (v / 1.4) * (h - 2);
+      g.x.fillRect(k * bw, h - bh, Math.max(1, bw - 0.5), bh);
+    }
+  }
+
+  // The SCH constellation: points already on the unit circle (projected by the
+  // server), two clusters meaning a clean differential decode.
+  function drawScatter(px, py) {
+    const g = elements().cc.scatter, w = g.c.width, h = g.c.height;
+    clearChart(g.x, w, h);
+    g.x.strokeStyle = '#1b2531';
+    g.x.beginPath();
+    g.x.moveTo(w / 2 + 0.5, 0); g.x.lineTo(w / 2 + 0.5, h);
+    g.x.moveTo(0, h / 2 + 0.5); g.x.lineTo(w, h / 2 + 0.5);
+    g.x.stroke();
+    const half = 0.46 * Math.min(w, h);
+    g.x.fillStyle = TRACE;
+    for (let k = 0; k < px.length; k++) {
+      const x = w / 2 + px[k] * half;
+      const y = h / 2 - py[k] * half;
+      g.x.fillRect(x - 1, y - 1, 2, 2);
+    }
   }
 
   // The window's own colours, as the hex of its exact RGB -- view_gsm.c for
@@ -206,6 +321,14 @@ const GsmView = (function () {
             '<td style="color:' + ROW_VALUE + '">' + value + '</td>'];
   }
 
+  // One grid cell: a label over a canvas that fills the rest.
+  function gsmChartCell(canvasId, label) {
+    return '<div style="min-width:0;min-height:0;display:flex;'
+      + 'flex-direction:column"><div class="label">' + label + '</div>'
+      + '<canvas id="' + canvasId + '" style="flex:1 1 0;min-height:0;'
+      + 'width:100%"></canvas></div>';
+  }
+
   function panel(caption, bodyHtml) {
     return '<div style="flex:1 1 0;min-width:0;background:' + PANEL_FILL
       + ';border:1px solid ' + PANEL_EDGE
@@ -223,29 +346,33 @@ const GsmView = (function () {
     // two views, rather than a `gsm_waterfall` carrying identical bytes under
     // another name. `receiver_state` gives the span that axis is labelled
     // from, and the shell always subscribes to it.
-    streams: ['gsm_state', 'waterfall'],
-    resize() {
-      const e = elements();
-      // `flex:1 1 0`, not `auto`: a canvas's content size *is* its backing
-      // store, so with an `auto` basis fitting the store changes the box and
-      // the two chase each other a pixel at a time (web-visualization/07's
-      // FM findings). Keep the rows -- resizing a canvas clears it.
-      const wfBox = measure(e.wf);
-      if (fitCanvas(e.wf, wfBox.width, wfBox.height))
-        waterfallRedraw(e.wfCtx, e.wf, wf);
-      const scanBox = measure(e.scan);
-      if (fitCanvas(e.scan, scanBox.width, scanBox.height)) drawScan(lastState);
-    },
+    streams: streams,
+    resize: resizeCanvases,
     markup:
+      '<div style="margin-bottom:8px;flex:0 0 auto">'
+      + '<button id="gsm-charts" style="background:#16202c;color:#8291a0;'
+      + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
+      + 'cursor:pointer">Show burst charts</button></div>'
       // The waterfall is what a reader watches; the channel scan is a
       // reference beside it, and on a capture it says only "needs a live
       // receiver". Weighted 3 to 1 -- measured at 1400x900, that is 381px
       // against 134 where an even split gave them 243 each.
-      '<div id="gsm-waterfall-wrap" style="flex:3 1 0;min-height:100px;'
+      + '<div id="gsm-waterfall-wrap" style="flex:3 1 0;min-height:100px;'
       + 'display:flex;flex-direction:column">'
       + '<canvas id="gsm-waterfall" style="flex:1 1 0;min-height:0;'
       + 'width:100%"></canvas>'
       + '<div class="label" id="gsm-axis">awaiting receiver_state...</div>'
+      + '</div>'
+      // The SCH burst analysis, a 2x2 grid taking the waterfall's room when it
+      // is hidden: the timing-correlation landscape, the soft symbol
+      // magnitudes, the phase trajectory and the SCH constellation.
+      + '<div id="gsm-charts-grid" hidden style="display:none;flex:3 1 0;'
+      + 'min-height:100px;grid-template-columns:repeat(2,1fr);'
+      + 'grid-template-rows:repeat(2,1fr);gap:10px">'
+      + gsmChartCell('gsm-c-corr', 'Timing correlation landscape')
+      + gsmChartCell('gsm-c-soft', 'Soft symbol magnitudes')
+      + gsmChartCell('gsm-c-phase', 'Differential phase trajectory')
+      + gsmChartCell('gsm-c-scatter', 'SCH decoded symbols')
       + '</div>'
       + '<div id="gsm-sch" style="font-size:15px;margin:6px 0 2px;color:'
       + QUIET_COLOR + '">SCH   awaiting gsm_state...</div>'
@@ -260,8 +387,17 @@ const GsmView = (function () {
       + panel('Cell', '<table><tbody id="gsm-cell-rows"></tbody></table>')
       + '</div>',
     render(msg) {
-      if (msg.kind === 'waterfall_row') drawWaterfall(msg.row);
-      else if (msg.kind === 'state') {
+      if (msg.kind === 'waterfall_row') {
+        if (!charting) drawWaterfall(msg.row);
+      } else if (msg.kind === 'gsm_corr') {
+        if (charting) drawCorr('corr', msg.data);
+      } else if (msg.kind === 'gsm_soft') {
+        if (charting) drawSoft(msg.data);
+      } else if (msg.kind === 'gsm_phase') {
+        if (charting) drawCorr('phase', msg.data);
+      } else if (msg.kind === 'gsm_scatter') {
+        if (charting) drawScatter(msg.x, msg.y);
+      } else if (msg.kind === 'state') {
         if (msg.state.type === 'gsm_state') renderState(msg.state);
         else if (msg.state.type === 'receiver_state') renderAxis(msg.state);
       }

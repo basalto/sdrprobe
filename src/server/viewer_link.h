@@ -130,7 +130,15 @@ enum viewer_message_type {
     VIEWER_MESSAGE_ADSB_LANDSCAPE = 12,
     VIEWER_MESSAGE_ADSB_CONFIDENCE = 13,
     VIEWER_MESSAGE_ADSB_ENVELOPE = 14,
-    VIEWER_MESSAGE_ADSB_SCATTER = 15
+    VIEWER_MESSAGE_ADSB_SCATTER = 15,
+    /* The GSM analysis charts behind "View: Burst": the timing-correlation
+       landscape, the soft symbol magnitudes and the differential phase
+       trajectory (one array each), and the SCH constellation (two arrays,
+       x then y). */
+    VIEWER_MESSAGE_GSM_CORR = 16,
+    VIEWER_MESSAGE_GSM_SOFT = 17,
+    VIEWER_MESSAGE_GSM_PHASE = 18,
+    VIEWER_MESSAGE_GSM_SCATTER = 19
 };
 
 /*
@@ -199,6 +207,11 @@ enum viewer_stream {
     VIEWER_STREAM_FM_AUDIO_SPECTRUM,
     VIEWER_STREAM_FM_SCATTER,
     VIEWER_STREAM_GSM_STATE,
+    /* The GSM analysis charts, paced on time at 4 Hz, the same as the rest. */
+    VIEWER_STREAM_GSM_CORR,
+    VIEWER_STREAM_GSM_SOFT,
+    VIEWER_STREAM_GSM_PHASE,
+    VIEWER_STREAM_GSM_SCATTER,
     VIEWER_STREAM_ADSB_STATE,
     /* The ADS-B analysis charts, paced on time at 4 Hz, the same as the rest. */
     VIEWER_STREAM_ADSB_LANDSCAPE,
@@ -599,6 +612,21 @@ void viewer_link_publish_adsb_scatter(struct viewer_link *link,
                                       const struct adsb_view_model *avm,
                                       uint32_t tuning_generation,
                                       uint64_t now_ms);
+/* The GSM analysis charts behind "View: Burst": the correlation landscape, the
+   soft symbol magnitudes, the phase trajectory and the SCH constellation. */
+void viewer_link_publish_gsm_corr(struct viewer_link *link,
+                                  const struct gsm_view_model *gvm,
+                                  uint32_t tuning_generation, uint64_t now_ms);
+void viewer_link_publish_gsm_soft(struct viewer_link *link,
+                                  const struct gsm_view_model *gvm,
+                                  uint32_t tuning_generation, uint64_t now_ms);
+void viewer_link_publish_gsm_phase(struct viewer_link *link,
+                                   const struct gsm_view_model *gvm,
+                                   uint32_t tuning_generation, uint64_t now_ms);
+void viewer_link_publish_gsm_scatter(struct viewer_link *link,
+                                     const struct gsm_view_model *gvm,
+                                     uint32_t tuning_generation,
+                                     uint64_t now_ms);
 
 /*
  * Ticket 08's Health panel: what only the server knows about the link

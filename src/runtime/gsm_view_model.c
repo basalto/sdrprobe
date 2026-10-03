@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <math.h>
 #include <string.h>
 
 #include "model/gsm_view_model.h"
@@ -122,5 +123,37 @@ void gsm_view_model_build(const struct gsm_view *gsm,
         out->bcch_confidence[arfcn] = scan->bcch_conf[arfcn];
         if (scan->power[arfcn] > SCAN_SENTINEL_DBFS)
             out->have_scan = 1;
+    }
+
+    /*
+     * The analysis charts: the SCH burst's correlation, soft magnitudes and
+     * phase, plus the constellation projected onto the unit circle the way the
+     * window's default view draws it (diff_im as x, -diff_re as y). All from
+     * the session's symbols, computed by the decode.
+     */
+    out->sch_valid = gsm->session.sch_valid;
+    if (gsm->session.sch_valid) {
+        const struct gsm_sch_symbols *sym = &gsm->session.sch_symbols;
+        int n = sym->count;
+
+        if (n > GSM_SCH_BURST_BITS)
+            n = GSM_SCH_BURST_BITS;
+        if (n < 0)
+            n = 0;
+        out->sch_count = n;
+        memcpy(out->corr, sym->corr, sizeof(out->corr));
+        memcpy(out->soft_mag, sym->soft_mag, sizeof(out->soft_mag));
+        memcpy(out->phase, sym->phase, sizeof(out->phase));
+        out->scatter_count = n;
+        for (arfcn = 0; arfcn < n; arfcn++) {
+            float x = sym->diff_im[arfcn];
+            float y = -sym->diff_re[arfcn];
+            float mag = sqrtf(x * x + y * y);
+
+            if (mag < 1e-9f)
+                mag = 1e-9f;
+            out->scatter_x[arfcn] = x / mag;
+            out->scatter_y[arfcn] = y / mag;
+        }
     }
 }

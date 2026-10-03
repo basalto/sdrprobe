@@ -125,6 +125,22 @@ struct gsm_view_model {
     int have_scan;          /* any channel has been visited */
     float power[GSM_VIEW_MODEL_CHANNELS];
     float bcch_confidence[GSM_VIEW_MODEL_CHANNELS];
+
+    /* -- The analysis charts behind "View: Burst": the SCH burst the window's
+          charts read -- the timing-correlation landscape, the soft symbol
+          magnitudes and the differential phase trajectory (one array each) --
+          and the SCH constellation (two arrays, x then y, projected onto the
+          unit circle the way the window's default view draws it). All from
+          `session.sch_symbols`, computed by the decode. Empty until a
+          synchronisation burst. -- */
+    int sch_valid;
+    int sch_count;
+    float corr[GSM_SCH_BURST_BITS];
+    float soft_mag[GSM_SCH_BURST_BITS];
+    float phase[GSM_SCH_BURST_BITS];
+    int scatter_count;
+    float scatter_x[GSM_SCH_BURST_BITS];
+    float scatter_y[GSM_SCH_BURST_BITS];
 };
 
 

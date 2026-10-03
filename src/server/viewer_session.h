@@ -175,6 +175,11 @@ viewer_stream_pacing(enum viewer_stream stream) {
     case VIEWER_STREAM_ADSB_CONFIDENCE:
     case VIEWER_STREAM_ADSB_ENVELOPE:
     case VIEWER_STREAM_ADSB_SCATTER:
+    /* The GSM analysis charts, on the same 4 Hz heartbeat. */
+    case VIEWER_STREAM_GSM_CORR:
+    case VIEWER_STREAM_GSM_SOFT:
+    case VIEWER_STREAM_GSM_PHASE:
+    case VIEWER_STREAM_GSM_SCATTER:
         return VIEWER_PACED_ON_TIME;
     case VIEWER_STREAM_COMMAND_RESULT:
         return VIEWER_PACED_ON_DEMAND;

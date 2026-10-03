@@ -329,11 +329,15 @@ int viewer_session_run(struct app *app) {
     /* The ADS-B analysis charts, persisted for the same reason. */
     double adsb_charts_published_at = -1.0;
     struct adsb_view_model adsb_svm;
+    /* The GSM analysis charts, persisted for the same reason. */
+    double gsm_charts_published_at = -1.0;
+    struct gsm_view_model gsm_svm;
 
     memset(&fm_svm, 0, sizeof(fm_svm));
     memset(&tetra_svm, 0, sizeof(tetra_svm));
     memset(&srd_svm, 0, sizeof(srd_svm));
     memset(&adsb_svm, 0, sizeof(adsb_svm));
+    memset(&gsm_svm, 0, sizeof(gsm_svm));
     process_cpu_sample_now(&cpu_previous);
 
     sdr_dsp_init(&app->frame.dsp);
@@ -498,7 +502,6 @@ int viewer_session_run(struct app *app) {
         int spectrum_updated;
         struct scope_view_model svm;
         struct survey_view_model survey_svm;
-        struct gsm_view_model gsm_svm;
         struct lte_view_model lte_svm;
         const struct receiver_view_model *rvm;
         uint64_t now_ms;
@@ -763,6 +766,21 @@ int viewer_session_run(struct app *app) {
             viewer_link_publish_adsb_scatter(&link, &adsb_svm,
                                              rvm->tuning_generation, now_ms);
             adsb_charts_published_at = now;
+        }
+
+        /* The GSM analysis charts, the same 4 Hz heartbeat. */
+        if (viewer_publish_due(VIEWER_STREAM_GSM_CORR, spectrum_updated,
+                               now, gsm_charts_published_at,
+                               VIEWER_SESSION_CHART_INTERVAL_SECONDS, 0)) {
+            viewer_link_publish_gsm_corr(&link, &gsm_svm,
+                                         rvm->tuning_generation, now_ms);
+            viewer_link_publish_gsm_soft(&link, &gsm_svm,
+                                         rvm->tuning_generation, now_ms);
+            viewer_link_publish_gsm_phase(&link, &gsm_svm,
+                                          rvm->tuning_generation, now_ms);
+            viewer_link_publish_gsm_scatter(&link, &gsm_svm,
+                                            rvm->tuning_generation, now_ms);
+            gsm_charts_published_at = now;
         }
 
         if (viewer_publish_due(VIEWER_STREAM_LINK_HEALTH, spectrum_updated,

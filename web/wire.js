@@ -30,6 +30,12 @@ const MSG_ADSB_LANDSCAPE = 12;
 const MSG_ADSB_CONFIDENCE = 13;
 const MSG_ADSB_ENVELOPE = 14;
 const MSG_ADSB_SCATTER = 15;
+// The GSM analysis charts: the correlation landscape, the soft magnitudes and
+// the phase trajectory (one array each) and the SCH constellation (two arrays).
+const MSG_GSM_CORR = 16;
+const MSG_GSM_SOFT = 17;
+const MSG_GSM_PHASE = 18;
+const MSG_GSM_SCATTER = 19;
 
 // Decodes one WebSocket message and returns a plain object naming its
 // `kind`:
@@ -122,6 +128,26 @@ function decodeMessage(ev, latestGeneration) {
   if (type === MSG_ADSB_SCATTER) {
     return {
       kind: 'adsb_scatter', bytes: bytes,
+      x: new Float32Array(ev.data, 20, bins),
+      y: new Float32Array(ev.data, 20 + bins * 4, bins),
+    };
+  }
+  // The GSM analysis charts: three one-array charts and the SCH constellation.
+  if (type === MSG_GSM_CORR) {
+    return { kind: 'gsm_corr', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_GSM_SOFT) {
+    return { kind: 'gsm_soft', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_GSM_PHASE) {
+    return { kind: 'gsm_phase', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_GSM_SCATTER) {
+    return {
+      kind: 'gsm_scatter', bytes: bytes,
       x: new Float32Array(ev.data, 20, bins),
       y: new Float32Array(ev.data, 20 + bins * 4, bins),
     };

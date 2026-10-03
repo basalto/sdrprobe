@@ -246,8 +246,40 @@ static void test_every_reading_has_a_name(void) {
     check_str("read", gsm_bcch_reading_name(GSM_BCCH_READ), "read");
 }
 
+/* The analysis charts behind "View: Burst": the SCH burst's correlation,
+   soft magnitudes and phase, plus the constellation projected onto the unit
+   circle (diff_im as x, -diff_re as y). All from session.sch_symbols. */
+static void test_the_analysis_charts_are_carried(void) {
+    struct gsm_view_model m;
+    int i;
+
+    blank();
+    gsm.session.sch_valid = 1;
+    gsm.session.sch_symbols.count = 60;
+    for (i = 0; i < 60; i++) {
+        gsm.session.sch_symbols.corr[i] = (float)i;
+        gsm.session.sch_symbols.soft_mag[i] = 2.0f;
+        gsm.session.sch_symbols.phase[i] = (float)i * 0.1f;
+        gsm.session.sch_symbols.diff_im[i] = 3.0f;   /* x */
+        gsm.session.sch_symbols.diff_re[i] = 0.0f;   /* -> y 0 */
+    }
+
+    m = build(0, 0, 1);
+
+    check_int("the SCH charts are carried", m.sch_valid, 1);
+    check_int("the count is carried", m.sch_count, 60);
+    check_close("the correlation is carried", m.corr[3], 3.0, 1e-6);
+    check_close("the soft magnitude is carried", m.soft_mag[0], 2.0, 1e-6);
+    check_close("the phase is carried", m.phase[10], 1.0, 1e-5);
+    check_int("the constellation has a point per symbol", m.scatter_count, 60);
+    check_close("projected onto the unit circle: x is +1",
+                m.scatter_x[0], 1.0, 1e-6);
+    check_close("and y is 0", m.scatter_y[0], 0.0, 1e-6);
+}
+
 int main(void) {
     test_the_sch_line_says_one_of_four();
+    test_the_analysis_charts_are_carried();
     test_waiting_and_missed_are_different_facts();
     test_stale_fields_do_not_survive();
     test_an_implausible_frame_number_travels();
