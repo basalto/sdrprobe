@@ -299,8 +299,36 @@ static void test_a_row_says_what_it_is(void) {
               "unknown");
 }
 
+/* The analysis charts behind "Show charts": the envelope and chips are the
+   session's last-burst arrays, carried whole (clamped to the model's lengths).
+   The chips come across as floats. */
+static void test_the_analysis_charts_are_carried(void) {
+    struct srd_view_model out;
+    int i;
+
+    blank();
+    srd.session.last_envelope_count = 3;
+    srd.session.last_envelope[0] = 0.1f;
+    srd.session.last_envelope[1] = 0.9f;
+    srd.session.last_envelope[2] = 0.4f;
+    srd.session.last_chips_count = 4;
+    srd.session.last_chips[0] = 1;
+    srd.session.last_chips[1] = 0;
+    srd.session.last_chips[2] = 1;
+    srd.session.last_chips[3] = 1;
+
+    out = build(434000000, 2000000);
+
+    check_int("the envelope count is carried", out.envelope_count, 3);
+    check_close("its values are carried", out.envelope[1], 0.9, 1e-6);
+    check_int("the chip count is carried", out.chips_count, 4);
+    check_close("a chip comes across as a float", out.chips[0], 1.0, 1e-6);
+    check_close("and a zero chip stays zero", out.chips[1], 0.0, 1e-6);
+}
+
 int main(void) {
     test_ready_is_inside_the_band_not_all_of_it();
+    test_the_analysis_charts_are_carried();
     test_not_ready_says_whose_problem_it_is();
     test_the_parameters_panel_is_decided_here();
     test_a_row_says_what_it_is();

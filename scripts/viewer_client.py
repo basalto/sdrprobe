@@ -77,7 +77,8 @@ OPCODE_PONG = 0xA
 MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall", 3: "survey_spectrum",
                       4: "fm_spectrum", 5: "fm_audio",
                       6: "fm_audio_spectrum", 7: "fm_scatter",
-                      8: "tetra_scatter", 9: "tetra_profile"}
+                      8: "tetra_scatter", 9: "tetra_profile",
+                      10: "srd_envelope", 11: "srd_chips"}
 
 # The message types carrying VIEWER_RANGE_HEADER_BYTES rather than the
 # plain 20-byte one: an array whose frequencies are its own, not the
@@ -99,6 +100,7 @@ ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
                "fm_state", "fm_audio", "fm_audio_spectrum", "fm_scatter",
                "gsm_state", "adsb_state", "tetra_state",
                "tetra_scatter", "tetra_profile", "srd_state",
+               "srd_envelope", "srd_chips",
                "lte_state", "settings_state", "cal_state")
 
 

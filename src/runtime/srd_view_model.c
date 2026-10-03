@@ -6,6 +6,17 @@
 #include "model/srd_view_model.h"
 #include "runtime/app.h"
 
+/* The model's chart lengths match the session's own last-burst arrays, checked
+   here where both types are in hand. At file scope rather than inside the
+   builder, so it is not an unused *local* typedef (-Wunused-local-typedefs). */
+typedef char srd_envelope_matches
+    [(SRD_VIEW_MODEL_ENVELOPE ==
+      (int)(sizeof(((struct srd_view *)0)->session.last_envelope) /
+            sizeof(float))) ? 1 : -1];
+typedef char srd_chips_matches
+    [(SRD_VIEW_MODEL_CHIPS ==
+      (int)(sizeof(((struct srd_view *)0)->session.last_chips))) ? 1 : -1];
+
 /*
  * The SRD screen's tuning, counters and frame log, gathered once.
  *
@@ -151,6 +162,32 @@ void srd_view_model_build(const struct srd_view *srd, uint32_t centre_hz,
     out->last_chip_rate_hz = srd->session.last_chip_us > 0.0
                                  ? 1e6 / srd->session.last_chip_us : 0.0;
     out->last_over_floor_db = srd->session.last_over_floor_db;
+
+    /*
+     * The analysis charts: the last transmission's envelope and chips, carried
+     * whole. The model's lengths match the session's own arrays, asserted here
+     * where both are in hand rather than mirrored on faith.
+     */
+    {
+        int n = srd->session.last_envelope_count;
+
+        if (n > SRD_VIEW_MODEL_ENVELOPE)
+            n = SRD_VIEW_MODEL_ENVELOPE;
+        if (n < 0)
+            n = 0;
+        out->envelope_count = n;
+        for (i = 0; i < n; i++)
+            out->envelope[i] = srd->session.last_envelope[i];
+
+        n = srd->session.last_chips_count;
+        if (n > SRD_VIEW_MODEL_CHIPS)
+            n = SRD_VIEW_MODEL_CHIPS;
+        if (n < 0)
+            n = 0;
+        out->chips_count = n;
+        for (i = 0; i < n; i++)
+            out->chips[i] = (float)srd->session.last_chips[i];
+    }
 
     take = srd->log_count;
     if (take > SRD_VIEW_MODEL_LOG)

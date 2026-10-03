@@ -118,7 +118,11 @@ enum viewer_message_type {
        constellation (two arrays, x then y, like the FM one) and the
        repeats-within-a-slot bar profile (one array, base header). */
     VIEWER_MESSAGE_TETRA_SCATTER = 8,
-    VIEWER_MESSAGE_TETRA_PROFILE = 9
+    VIEWER_MESSAGE_TETRA_PROFILE = 9,
+    /* The SRD analysis charts behind "Show charts": the demodulated envelope
+       and the discretised chips, one float array each on the base header. */
+    VIEWER_MESSAGE_SRD_ENVELOPE = 10,
+    VIEWER_MESSAGE_SRD_CHIPS = 11
 };
 
 /*
@@ -194,6 +198,10 @@ enum viewer_stream {
     VIEWER_STREAM_TETRA_SCATTER,
     VIEWER_STREAM_TETRA_PROFILE,
     VIEWER_STREAM_SRD_STATE,
+    /* The SRD analysis charts, paced on time at 4 Hz and subscribed only while
+       "Show charts" is up, the same as FM's and TETRA's. */
+    VIEWER_STREAM_SRD_ENVELOPE,
+    VIEWER_STREAM_SRD_CHIPS,
     VIEWER_STREAM_LTE_STATE,
     VIEWER_STREAM_SETTINGS_STATE,
     VIEWER_STREAM_CAL_STATE,
@@ -549,6 +557,16 @@ void viewer_link_publish_tetra_profile(struct viewer_link *link,
                                        const struct tetra_view_model *tvm,
                                        uint32_t tuning_generation,
                                        uint64_t now_ms);
+/* The SRD analysis charts behind "Show charts": the demodulated envelope and
+   the discretised chips. */
+void viewer_link_publish_srd_envelope(struct viewer_link *link,
+                                      const struct srd_view_model *svm,
+                                      uint32_t tuning_generation,
+                                      uint64_t now_ms);
+void viewer_link_publish_srd_chips(struct viewer_link *link,
+                                   const struct srd_view_model *svm,
+                                   uint32_t tuning_generation,
+                                   uint64_t now_ms);
 
 /*
  * Ticket 08's Health panel: what only the server knows about the link

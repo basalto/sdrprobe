@@ -167,6 +167,9 @@ viewer_stream_pacing(enum viewer_stream stream) {
        reason as FM's. */
     case VIEWER_STREAM_TETRA_SCATTER:
     case VIEWER_STREAM_TETRA_PROFILE:
+    /* The SRD analysis charts, on the same 4 Hz heartbeat. */
+    case VIEWER_STREAM_SRD_ENVELOPE:
+    case VIEWER_STREAM_SRD_CHIPS:
         return VIEWER_PACED_ON_TIME;
     case VIEWER_STREAM_COMMAND_RESULT:
         return VIEWER_PACED_ON_DEMAND;

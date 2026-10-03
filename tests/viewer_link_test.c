@@ -915,6 +915,52 @@ static void test_tetra_chart_wire_format(void) {
     viewer_link_close(&vlink);
 }
 
+/* The SRD analysis-chart streams behind "Show charts": the demodulated
+   envelope and the discretised chips, one array each. */
+static void test_srd_chart_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct srd_view_model svm;
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t bins;
+    int i;
+
+    memset(&svm, 0, sizeof(svm));
+    svm.envelope_count = 64;
+    for (i = 0; i < 64; i++)
+        svm.envelope[i] = (float)i;
+    svm.chips_count = 32;
+    for (i = 0; i < 32; i++)
+        svm.chips[i] = (i % 2) ? 1.0f : 0.0f;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe srd_envelope srd_chips");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_srd_envelope(&vlink, &svm, 3, 44);
+    viewer_link_publish_srd_chips(&vlink, &svm, 3, 44);
+    client_pump(&tc, 10);
+
+    check_true("an srd_envelope message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the message type is srd_envelope (10)", payload[1], 10);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the envelope count round-trips", (int)bins, 64);
+
+    check_true("an srd_chips message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the message type is srd_chips (11)", payload[1], 11);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the chip count round-trips", (int)bins, 32);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 static void test_fm_streams_are_not_sent_when_unsubscribed(void) {
     uint16_t port = open_test_link();
     struct test_client tc;
@@ -954,6 +1000,7 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
         "fm_state", "fm_audio", "fm_audio_spectrum", "fm_scatter",
         "gsm_state", "adsb_state", "tetra_state",
         "tetra_scatter", "tetra_profile", "srd_state",
+        "srd_envelope", "srd_chips",
         "lte_state", "settings_state", "cal_state"
     };
     size_t n = sizeof(names) / sizeof(names[0]);
@@ -1135,7 +1182,8 @@ static void test_link_health_reports_this_clients_own_counters(void) {
             "fm_spectrum", "fm_state", "fm_audio", "fm_audio_spectrum",
             "fm_scatter", "gsm_state", "adsb_state", "tetra_state",
             "tetra_scatter", "tetra_profile",
-            "srd_state", "lte_state", "settings_state", "cal_state"
+            "srd_state", "srd_envelope", "srd_chips",
+            "lte_state", "settings_state", "cal_state"
         };
         size_t n = sizeof(names) / sizeof(names[0]);
         size_t k;
@@ -1895,6 +1943,7 @@ int main(void) {
     test_fm_audio_spectrum_wire_format();
     test_fm_scatter_wire_format();
     test_tetra_chart_wire_format();
+    test_srd_chart_wire_format();
     test_fm_spectrum_with_no_bins_publishes_nothing();
     test_fm_state_wire_format();
     test_fm_streams_are_not_sent_when_unsubscribed();

@@ -19,6 +19,10 @@ const MSG_FM_SCATTER = 7;
 // y, like fm_scatter) and the repeats-within-a-slot profile (one array).
 const MSG_TETRA_SCATTER = 8;
 const MSG_TETRA_PROFILE = 9;
+// The SRD analysis charts: the demodulated envelope and the discretised chips,
+// one array each.
+const MSG_SRD_ENVELOPE = 10;
+const MSG_SRD_CHIPS = 11;
 
 // Decodes one WebSocket message and returns a plain object naming its
 // `kind`:
@@ -84,6 +88,15 @@ function decodeMessage(ev, latestGeneration) {
   if (type === MSG_TETRA_PROFILE) {
     return { kind: 'tetra_profile', bytes: bytes,
              profile: new Float32Array(ev.data, 20, bins) };
+  }
+  // The SRD analysis charts: the envelope and the chips, one array each.
+  if (type === MSG_SRD_ENVELOPE) {
+    return { kind: 'srd_envelope', bytes: bytes,
+             envelope: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_SRD_CHIPS) {
+    return { kind: 'srd_chips', bytes: bytes,
+             chips: new Float32Array(ev.data, 20, bins) };
   }
   // The two range-header types (VIEWER_RANGE_HEADER_BYTES): an array whose
   // frequencies are its own rather than the receiver's, so it carries the

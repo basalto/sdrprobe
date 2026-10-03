@@ -94,6 +94,12 @@ struct srd_frame_view {
    hex, a few kilobytes. No newest-N arithmetic, unlike ADS-B's 256. */
 #define SRD_VIEW_MODEL_LOG SRD_LOG_CAPACITY
 
+/* The analysis charts' array lengths, matching `srd_session`'s own
+   `last_envelope[1024]` and `last_chips[512]`. Small enough to carry whole,
+   so no decimation: the builder asserts they still agree. */
+#define SRD_VIEW_MODEL_ENVELOPE 1024
+#define SRD_VIEW_MODEL_CHIPS 512
+
 /*
  * Whether this screen can expect to hear anything, and if not, whose
  * problem it is.
@@ -149,6 +155,16 @@ struct srd_view_model {
     /* The decoded frames, newest first. */
     int log_count;
     struct srd_frame_view log[SRD_VIEW_MODEL_LOG];
+
+    /* -- The analysis charts behind "Show charts": the last transmission's
+          demodulated envelope (the work rate) and its discretised chips
+          (preamble, delimiter, data). Both are the session's own last-burst
+          arrays, carried whole -- 1024 and 512 are a few KB -- and the browser
+          draws what the window's charts read. Empty until a burst. -- */
+    int envelope_count;
+    float envelope[SRD_VIEW_MODEL_ENVELOPE];
+    int chips_count;
+    float chips[SRD_VIEW_MODEL_CHIPS];
 };
 
 struct srd_view;

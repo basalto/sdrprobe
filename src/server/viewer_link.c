@@ -92,6 +92,7 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "fm_audio", "fm_audio_spectrum", "fm_scatter",
     "gsm_state", "adsb_state", "tetra_state",
     "tetra_scatter", "tetra_profile", "srd_state",
+    "srd_envelope", "srd_chips",
     "lte_state", "settings_state", "cal_state"
 };
 
@@ -1188,6 +1189,33 @@ void viewer_link_publish_tetra_profile(struct viewer_link *link,
     publish_binary(link, VIEWER_STREAM_TETRA_PROFILE,
                    VIEWER_MESSAGE_TETRA_PROFILE, tuning_generation, now_ms,
                    (uint32_t)TETRA_SLOT_SYMBOLS, tvm->profile, NULL);
+}
+
+/*
+ * The SRD analysis charts behind "Show charts" -- the demodulated envelope and
+ * the discretised chips, one float array each. Each guards on its own count.
+ */
+void viewer_link_publish_srd_envelope(struct viewer_link *link,
+                                      const struct srd_view_model *svm,
+                                      uint32_t tuning_generation,
+                                      uint64_t now_ms) {
+    if (svm->envelope_count <= 0 ||
+        svm->envelope_count > SRD_VIEW_MODEL_ENVELOPE)
+        return;
+    publish_binary(link, VIEWER_STREAM_SRD_ENVELOPE,
+                   VIEWER_MESSAGE_SRD_ENVELOPE, tuning_generation, now_ms,
+                   (uint32_t)svm->envelope_count, svm->envelope, NULL);
+}
+
+void viewer_link_publish_srd_chips(struct viewer_link *link,
+                                   const struct srd_view_model *svm,
+                                   uint32_t tuning_generation,
+                                   uint64_t now_ms) {
+    if (svm->chips_count <= 0 || svm->chips_count > SRD_VIEW_MODEL_CHIPS)
+        return;
+    publish_binary(link, VIEWER_STREAM_SRD_CHIPS, VIEWER_MESSAGE_SRD_CHIPS,
+                   tuning_generation, now_ms, (uint32_t)svm->chips_count,
+                   svm->chips, NULL);
 }
 
 /*

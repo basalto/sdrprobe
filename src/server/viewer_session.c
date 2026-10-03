@@ -323,9 +323,13 @@ int viewer_session_run(struct app *app) {
     /* The TETRA analysis charts, persisted for the same reason as FM's. */
     double tetra_charts_published_at = -1.0;
     struct tetra_view_model tetra_svm;
+    /* The SRD analysis charts, persisted for the same reason. */
+    double srd_charts_published_at = -1.0;
+    struct srd_view_model srd_svm;
 
     memset(&fm_svm, 0, sizeof(fm_svm));
     memset(&tetra_svm, 0, sizeof(tetra_svm));
+    memset(&srd_svm, 0, sizeof(srd_svm));
     process_cpu_sample_now(&cpu_previous);
 
     sdr_dsp_init(&app->frame.dsp);
@@ -492,7 +496,6 @@ int viewer_session_run(struct app *app) {
         struct survey_view_model survey_svm;
         struct gsm_view_model gsm_svm;
         struct adsb_view_model adsb_svm;
-        struct srd_view_model srd_svm;
         struct lte_view_model lte_svm;
         const struct receiver_view_model *rvm;
         uint64_t now_ms;
@@ -731,6 +734,17 @@ int viewer_session_run(struct app *app) {
             viewer_link_publish_tetra_profile(&link, &tetra_svm,
                                               rvm->tuning_generation, now_ms);
             tetra_charts_published_at = now;
+        }
+
+        /* The SRD analysis charts, the same 4 Hz heartbeat. */
+        if (viewer_publish_due(VIEWER_STREAM_SRD_ENVELOPE, spectrum_updated,
+                               now, srd_charts_published_at,
+                               VIEWER_SESSION_CHART_INTERVAL_SECONDS, 0)) {
+            viewer_link_publish_srd_envelope(&link, &srd_svm,
+                                             rvm->tuning_generation, now_ms);
+            viewer_link_publish_srd_chips(&link, &srd_svm,
+                                          rvm->tuning_generation, now_ms);
+            srd_charts_published_at = now;
         }
 
         if (viewer_publish_due(VIEWER_STREAM_LINK_HEALTH, spectrum_updated,

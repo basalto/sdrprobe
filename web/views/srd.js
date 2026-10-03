@@ -6,16 +6,100 @@ const SrdView = (function () {
 
   function elements() {
     if (!els) {
+      const cv = (id) => {
+        const c = document.getElementById(id);
+        return { c: c, x: c.getContext('2d') };
+      };
       els = {
         wf: document.getElementById('srd-waterfall'),
+        wfWrap: document.getElementById('srd-waterfall-wrap'),
+        grid: document.getElementById('srd-charts-grid'),
+        charts: document.getElementById('srd-charts'),
+        cc: { env: cv('srd-c-env'), chips: cv('srd-c-chips') },
         axis: document.getElementById('srd-axis'),
         head: document.getElementById('srd-head'),
         rows: document.getElementById('srd-rows'),
         count: document.getElementById('srd-count'),
       };
       els.wfCtx = els.wf.getContext('2d');
+      els.charts.onclick = () => showCharts(!charting);
     }
     return els;
+  }
+
+  const TRACE = '#5adcc8';
+  const BAR = '#a9c5d6';
+  let charting = false;
+  // The stream set, swapped on the toggle: the charts view wants the two
+  // analysis streams and not the waterfall (hidden then). srd_state is in
+  // both, so the frame table is always fed. Mutated in place.
+  const SIGNAL_STREAMS = ['srd_state', 'waterfall'];
+  const CHART_STREAMS = ['srd_state', 'srd_envelope', 'srd_chips'];
+  const streams = SIGNAL_STREAMS.slice();
+
+  function showCharts(on) {
+    const e = elements();
+    charting = on;
+    e.wfWrap.hidden = on;
+    e.wfWrap.style.display = on ? 'none' : 'flex';
+    e.grid.hidden = !on;
+    e.grid.style.display = on ? 'grid' : 'none';
+    e.charts.textContent = on ? 'Show waterfall' : 'Show charts';
+    const want = on ? CHART_STREAMS : SIGNAL_STREAMS;
+    streams.length = 0;
+    for (const s of want) streams.push(s);
+    if (typeof subscribeToActiveView === 'function') subscribeToActiveView();
+    resizeCanvases();
+  }
+
+  function resizeCanvases() {
+    const e = elements();
+    const box = measure(e.wf);
+    if (fitCanvas(e.wf, box.width, box.height))
+      waterfallRedraw(e.wfCtx, e.wf, wf);
+    for (const key in e.cc) {
+      const g = e.cc[key];
+      const b = measure(g.c);
+      fitCanvas(g.c, b.width, b.height);
+    }
+  }
+
+  function clearChart(x, w, h) {
+    x.fillStyle = '#0a0f16';
+    x.fillRect(0, 0, w, h);
+  }
+
+  // The demodulated envelope (the work rate): a flat line is no signal, a
+  // burst is the transmission's amplitude over time. Normalised to its own
+  // peak, the way the window scales its y axis.
+  function drawEnvelope(data) {
+    const g = elements().cc.env, w = g.c.width, h = g.c.height, n = data.length;
+    clearChart(g.x, w, h);
+    if (n <= 0) return;
+    let max = 0;
+    for (let k = 0; k < n; k++) if (data[k] > max) max = data[k];
+    if (max <= 0) max = 1;
+    g.x.strokeStyle = TRACE;
+    g.x.beginPath();
+    for (let px = 0; px < w; px++) {
+      const i = Math.floor(px * n / w);
+      const y = h - (data[i] / max) * (h - 2);
+      if (px === 0) g.x.moveTo(px, y); else g.x.lineTo(px, y);
+    }
+    g.x.stroke();
+  }
+
+  // The discretised chips (preamble, delimiter, data): a bar per chip, 0 or 1.
+  function drawChips(data) {
+    const g = elements().cc.chips, w = g.c.width, h = g.c.height, n = data.length;
+    clearChart(g.x, w, h);
+    if (n <= 0) return;
+    const bw = w / n;
+    g.x.fillStyle = BAR;
+    for (let k = 0; k < n; k++) {
+      const bh = Math.max(0, Math.min(1, data[k])) * (h - 2);
+      g.x.fillRect(k * bw, h - bh, Math.max(1, bw - 0.5), bh);
+    }
   }
 
   const ROW_LABEL = '#7e97a6';
@@ -107,22 +191,34 @@ const SrdView = (function () {
   return {
     id: 'srd',
     label: 'SRD',
-    streams: ['srd_state', 'waterfall'],
-    resize() {
-      const e = elements();
-      const box = measure(e.wf);
-      if (fitCanvas(e.wf, box.width, box.height))
-        waterfallRedraw(e.wfCtx, e.wf, wf);
-    },
+    streams: streams,
+    resize: resizeCanvases,
     // An even split: a press produces a handful of frames rather than the
     // stream ADS-B carries, and the waterfall is where a reader sees the
     // transmission arrive at all.
     markup:
-      '<div id="srd-waterfall-wrap" style="flex:2 1 0;min-height:100px;'
+      '<div style="margin-bottom:8px;flex:0 0 auto">'
+      + '<button id="srd-charts" style="background:#16202c;color:#8291a0;'
+      + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
+      + 'cursor:pointer">Show charts</button></div>'
+      + '<div id="srd-waterfall-wrap" style="flex:2 1 0;min-height:100px;'
       + 'display:flex;flex-direction:column">'
       + '<canvas id="srd-waterfall" style="flex:1 1 0;min-height:0;'
       + 'width:100%"></canvas>'
       + '<div class="label" id="srd-axis">awaiting receiver_state...</div>'
+      + '</div>'
+      // The analysis charts, two across, taking the waterfall's room when it
+      // is hidden: the demodulated envelope and the discretised chips.
+      + '<div id="srd-charts-grid" hidden style="display:none;flex:2 1 0;'
+      + 'min-height:100px;grid-template-columns:repeat(2,1fr);gap:10px">'
+      + '<div style="min-width:0;min-height:0;display:flex;'
+      + 'flex-direction:column"><div class="label">Demodulated envelope '
+      + '(work rate)</div><canvas id="srd-c-env" style="flex:1 1 0;'
+      + 'min-height:0;width:100%"></canvas></div>'
+      + '<div style="min-width:0;min-height:0;display:flex;'
+      + 'flex-direction:column"><div class="label">Discretised chips '
+      + '(preamble, delimiter, data)</div><canvas id="srd-c-chips" '
+      + 'style="flex:1 1 0;min-height:0;width:100%"></canvas></div>'
       + '</div>'
       + '<div id="srd-head" style="font-size:13px;margin:4px 0 6px;color:'
       + ROW_LABEL + '">awaiting srd_state...</div>'
@@ -134,8 +230,13 @@ const SrdView = (function () {
       + '</tr></thead>'
       + '<tbody id="srd-rows"></tbody></table></div>',
     render(msg) {
-      if (msg.kind === 'waterfall_row') drawWaterfall(msg.row);
-      else if (msg.kind === 'state') {
+      if (msg.kind === 'waterfall_row') {
+        if (!charting) drawWaterfall(msg.row);
+      } else if (msg.kind === 'srd_envelope') {
+        if (charting) drawEnvelope(msg.envelope);
+      } else if (msg.kind === 'srd_chips') {
+        if (charting) drawChips(msg.chips);
+      } else if (msg.kind === 'state') {
         if (msg.state.type === 'srd_state') renderState(msg.state);
         else if (msg.state.type === 'receiver_state') renderAxis(msg.state);
       }
