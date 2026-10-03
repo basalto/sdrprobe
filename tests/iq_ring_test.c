@@ -92,7 +92,11 @@ static void test_save_slice(void) {
         iq_ring_push(&ring, buf, 4000, (double)k * 0.2);
     }
 
-    char tmp_bin[] = "/tmp/opencode/test_ring_slice_XXXXXX";
+    /* A portable temp path: `/tmp` exists everywhere, where the
+       `/tmp/opencode/` this used to hardcode is one tool's scratch directory
+       and is absent on every other machine -- so mkstemp failed and took the
+       four assertions below with it, on any checkout, unrelated to any change. */
+    char tmp_bin[] = "/tmp/test_ring_slice_XXXXXX";
     int fd = mkstemp(tmp_bin);
     check_true("mkstemp created temp file", fd >= 0);
     close(fd);
