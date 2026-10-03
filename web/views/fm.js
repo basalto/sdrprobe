@@ -110,6 +110,10 @@ const FmView = (function () {
   // changes the span can re-place the marks without waiting for the next
   // fm_state.
   let lastStations = [];
+  // A signature of what the Band II rows currently show, so they are rebuilt
+  // only when it changes rather than on every fm_state -- which is what keeps
+  // a click landing on a row that is still there (see renderBandII).
+  let bandiiSig = null;
   // What this view asks the server for. Two sets, swapped on the toggle: the
   // signal view wants the waterfall (and nothing else binary), the charts view
   // wants the three analysis streams and the multiplex -- and *not* the
@@ -330,9 +334,32 @@ const FmView = (function () {
     const stations = s.stations || [];
 
     // The summary the scan wrote ("24 carriers, 18 in stereo, ..."), or the
-    // window's own two prompts when there is nothing yet.
+    // window's own two prompts when there is nothing yet. A separate element
+    // from the rows, so updating it every frame is safe (see below).
     e.bandiiStatus.textContent = s.scan_status
       || (s.scanning ? 'looking...' : 'press Scan band');
+
+    // Rebuild the rows only when what they *show* changes, never per frame --
+    // and the reason is a click, not performance. `fm_state` arrives ~20 Hz,
+    // and replacing `innerHTML` destroys and recreates every row; a mouse
+    // click spans two of those, so the <tr> under mousedown is gone before
+    // mouseup, the `click` then fires on the surviving ancestor (the tbody),
+    // and `closest('tr[data-hz]')` returns null -- the handler bails and the
+    // station never tunes. The window does not have this because it is
+    // immediate mode and reads the pointer each frame; a browser's click
+    // needs the element it pressed to still be there when it is released. So
+    // a signature of everything a row shows, the highlighted one included,
+    // gates the rebuild: static between scans, the rows persist and the click
+    // lands. This is the "render the same rows always" rule one level deeper
+    // -- not just a steady row *count*, a steady row *identity*.
+    const sig = !stations.length ? 'empty' : stations.map(function (st) {
+      const name = st.name || (st.pi_valid ? st.pi : '');
+      const tuned = Math.abs(lastTunedHz - st.hz) < TUNED_NEAR_HZ ? 'T' : '';
+      return Math.round(st.hz) + ':' + st.dbfs.toFixed(1) + ':'
+        + (st.stereo ? 1 : 0) + (st.rds ? 1 : 0) + ':' + name + ':' + tuned;
+    }).join('|');
+    if (sig === bandiiSig) return;
+    bandiiSig = sig;
 
     if (!stations.length) {
       e.bandiiRows.innerHTML = '';

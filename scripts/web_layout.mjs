@@ -468,6 +468,43 @@ async function run() {
         ok(`${at}: the waterfall axis is labelled`, /MHz/.test(m.text.axis),
            JSON.stringify(m.text.axis));
         ok(`${at}: the health footer rendered`, /sent\/dropped/.test(m.text.health));
+
+        /*
+         * The Band II rows must survive an unchanged fm_state, or a click on
+         * one never tunes: fm_state arrives ~20 Hz, and a tbody rebuilt on
+         * each one destroys the row under the cursor between mousedown and
+         * mouseup -- the `click` then fires on the surviving tbody,
+         * `closest('tr[data-hz]')` is null, and the handler bails. The receiver
+         * path a real click retunes through is the half no check reaches
+         * (ADR-0012), and a capture carries no scan to populate the table, so a
+         * station is injected through the view's own render: two identical
+         * states must leave the same <tr> node (the click can land), a changed
+         * one must rebuild it (the gate is not simply never-rendering). This is
+         * the browser half of the bug that shipped twice.
+         */
+        const bandii = await evaluate(`(function(){
+          const base={type:'fm_state',pilot_locked:false,pilot_coherence:0.5,
+            broadcast_stereo:false,playing:false,audio_error:'',pi_valid:false,
+            ps_valid:false,ps_segments:0,pty_valid:false,rt_valid:false,bits:0,
+            blocks_matched:0,groups:0,identified:0,named:0,reading:'',
+            reading_tone:'neutral',scanning:false,scan_status:'x',
+            timing_energy:[],groups_by_type:[],
+            stations:[{hz:89500000,dbfs:-17.7,stereo:true,rds:true,
+              pi_valid:true,pi:33603,name:'TSF'}]};
+          FmView.render({kind:'state',state:base});
+          const first=document.querySelector('#fm-bandii-rows tr');
+          FmView.render({kind:'state',state:base});
+          const stable=document.querySelector('#fm-bandii-rows tr')===first;
+          const changed=JSON.parse(JSON.stringify(base));
+          changed.stations[0].hz=98700000;
+          FmView.render({kind:'state',state:changed});
+          const rebuilt=document.querySelector('#fm-bandii-rows tr')!==first;
+          return {has:!!first,stable:stable,rebuilt:rebuilt};
+        })()`);
+        ok(`${at}: a Band II row survives an unchanged fm_state (a click can land)`,
+           bandii.has && bandii.stable, JSON.stringify(bandii));
+        ok(`${at}: and the rows rebuild when a carrier changes`,
+           bandii.rebuilt, JSON.stringify(bandii));
       }
 
       /*
