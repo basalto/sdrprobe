@@ -254,6 +254,30 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
         }
         return 0;
     }
+    case VIEWER_COMMAND_SELECT: {
+        /*
+         * A click on a view's own list or chart, the way `tune` is a click on
+         * FM's Band II table: GSM inspects a channel, LTE parks on a scan row,
+         * the survey inspects a candidate. Each is the window's own click
+         * handler reached from the browser, and each runtime function bounds
+         * its own index -- an out-of-range value from a command changes
+         * nothing rather than being refused here.
+         */
+        double now = monotonic_seconds() - viewer_session_started_at;
+
+        switch (cmd->select) {
+        case VIEWER_SELECT_ARFCN:
+            gsm_tune_selected(app, cmd->value);
+            break;
+        case VIEWER_SELECT_CELL:
+            scan_select(app, cmd->value);
+            break;
+        case VIEWER_SELECT_CANDIDATE:
+            survey_select(app, cmd->value, now);
+            break;
+        }
+        return 0;
+    }
     case VIEWER_COMMAND_APPLY: {
         int clear_waterfall = 0;
 

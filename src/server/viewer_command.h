@@ -51,7 +51,26 @@ enum viewer_command_type {
      * decision -- it only fills a list -- so it needs no second deliberate
      * act to be safe.
      */
-    VIEWER_COMMAND_SCAN
+    VIEWER_COMMAND_SCAN,
+    /*
+     * `select <kind> <n>` is a click on a view's own list or chart, the way
+     * `tune` is a click on FM's Band II table: it chooses what the receiver
+     * inspects. `select arfcn <n>` inspects a GSM channel, `select cell <n>`
+     * parks on an LTE scan row, `select candidate <n>` inspects a survey
+     * candidate -- each the window's own click handler, reached from the
+     * browser. The value is bounded by the runtime function it calls
+     * (`gsm_tune_selected`, `scan_select`, `survey_select`), which refuses an
+     * out-of-range index rather than this parser.
+     */
+    VIEWER_COMMAND_SELECT
+};
+
+/* What a `select` names: a GSM channel by ARFCN, an LTE scan row by index, or
+   a survey candidate by index. */
+enum viewer_select {
+    VIEWER_SELECT_ARFCN = 0,
+    VIEWER_SELECT_CELL,
+    VIEWER_SELECT_CANDIDATE
 };
 
 /* Which reference a `calibrate` names, or that it is asking for a stop. */
@@ -117,6 +136,7 @@ struct viewer_command {
     enum viewer_setting setting; /* VIEWER_COMMAND_SET */
     enum viewer_calibrate reference; /* VIEWER_COMMAND_CALIBRATE */
     enum viewer_scan scan;       /* VIEWER_COMMAND_SCAN */
+    enum viewer_select select;   /* VIEWER_COMMAND_SELECT */
     /*
      * The value, as a signed integer for every field there is: a PPM is
      * signed, a transform size and a gain index are counts, and an on/off is

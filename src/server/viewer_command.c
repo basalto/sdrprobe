@@ -272,6 +272,59 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
         set_error(error, error_cap, "unrecognized scan target");
         return -1;
     }
+    if (strcmp(word, "select") == 0) {
+        static const struct {
+            const char *name;
+            enum viewer_select select;
+        } kinds[] = {
+            { "arfcn",     VIEWER_SELECT_ARFCN },
+            { "cell",      VIEWER_SELECT_CELL },
+            { "candidate", VIEWER_SELECT_CANDIDATE }
+        };
+        char kind[32], text[32];
+        int kind_consumed = 0, text_consumed = 0;
+        size_t k;
+        long v;
+        char *end;
+
+        value_start = buf + word_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%31s%n", kind, &kind_consumed) != 1) {
+            set_error(error, error_cap,
+                      "select requires a kind and an index");
+            return -1;
+        }
+        value_start += kind_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%31s%n", text, &text_consumed) != 1) {
+            set_error(error, error_cap, "select requires an index");
+            return -1;
+        }
+        for (i = 0; value_start[text_consumed + i] != '\0'; i++) {
+            if (!isspace((unsigned char)value_start[text_consumed + i])) {
+                set_error(error, error_cap, "unexpected trailing field");
+                return -1;
+            }
+        }
+        errno = 0;
+        v = strtol(text, &end, 10);
+        if (end == text || *end != '\0' || errno == ERANGE || v < 0 ||
+            v > 100000) {
+            set_error(error, error_cap, "index must be a non-negative integer");
+            return -1;
+        }
+        for (k = 0; k < sizeof(kinds) / sizeof(kinds[0]); k++)
+            if (strcmp(kind, kinds[k].name) == 0) {
+                out->type = VIEWER_COMMAND_SELECT;
+                out->select = kinds[k].select;
+                out->value = (int)v;
+                return 0;
+            }
+        set_error(error, error_cap, "unrecognized select kind");
+        return -1;
+    }
     if (strcmp(word, "tune") != 0) {
         set_error(error, error_cap, "unrecognized command");
         return -1;

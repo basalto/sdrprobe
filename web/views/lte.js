@@ -39,9 +39,26 @@ const LteView = (function () {
       };
       els.wfCtx = els.wf.getContext('2d');
       els.charts.onclick = () => showCharts(!charting);
+      // Click a scan row to park on that cell -- the window's own row click
+      // (`scan_select`). The row index is its position in the tbody, which is
+      // the order `found` travels in. One handler on the tbody, and the rows
+      // are rebuilt only when they change (below), so a click lands on a row
+      // that is still there rather than on the tbody mid-rebuild -- the race
+      // the FM table hit.
+      els.scanRows.onclick = (ev) => {
+        const tr = ev.target.closest('tr');
+        if (!tr) return;
+        const i = Array.prototype.indexOf.call(els.scanRows.children, tr);
+        if (i >= 0) sendCommand('select cell ' + i);
+      };
     }
     return els;
   }
+
+  // A signature of what the scan rows show, so they rebuild only when the
+  // found cells change -- not every lte_state, which would destroy the row
+  // under a click.
+  let scanSig = null;
 
   const TRACE = '#5adcc8';
   const LTEBAR = '#a9c5d6';
@@ -210,14 +227,21 @@ const LteView = (function () {
       + s.mibs_confirmed + ' confirmed';
 
     // --- the scan, left column -------------------------------------------
-    renderRows(e.scanRows, s.found.map((f) => [
-      '<td style="color:' + ROW_VALUE + '">'
-        + (f.hz / 1e6).toFixed(1) + '</td>',
-      '<td style="color:' + ROW_LABEL + '">' + f.earfcn + '</td>',
-      '<td style="color:' + ROW_VALUE + '">' + f.pci + '</td>',
-      '<td style="color:' + ROW_MUTED + '">' + f.pss.toFixed(2)
-        + ' / ' + f.sss_margin.toFixed(2) + '</td>',
-    ]));
+    // Rebuilt only when the found cells change, so a click lands on a row that
+    // is still there (the FM Band II lesson, one table over).
+    const sig = s.found.map((f) => f.earfcn + ':' + f.pci + ':'
+      + f.pss.toFixed(2)).join('|');
+    if (sig !== scanSig) {
+      scanSig = sig;
+      renderRows(e.scanRows, s.found.map((f) => [
+        '<td style="color:' + ROW_VALUE + '">'
+          + (f.hz / 1e6).toFixed(1) + '</td>',
+        '<td style="color:' + ROW_LABEL + '">' + f.earfcn + '</td>',
+        '<td style="color:' + ROW_VALUE + '">' + f.pci + '</td>',
+        '<td style="color:' + ROW_MUTED + '">' + f.pss.toFixed(2)
+          + ' / ' + f.sss_margin.toFixed(2) + '</td>',
+      ]));
+    }
     // Both sentences arrive chosen: which of four reasons the table is
     // empty, and how far along a running pass is.
     // Three sentences, all chosen by the server: why the table is empty,

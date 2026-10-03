@@ -430,6 +430,35 @@ static void test_calibrate_names_its_reference(void) {
  * button. Unlike `calibrate` it applies nothing, so there is no second act to
  * guard; the parser's whole job is to name the target and refuse the rest.
  */
+/*
+ * `select <kind> <n>` is a click on a view's list or chart -- a GSM channel,
+ * an LTE scan row, a survey candidate. The index is bounded by the runtime
+ * function it calls, not here; the parser's job is the kind and a non-negative
+ * integer.
+ */
+static void test_select_names_a_kind_and_an_index(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("a GSM channel", parse("select arfcn 69", &cmd, error), 0);
+    check_int("is a select", cmd.type, VIEWER_COMMAND_SELECT);
+    check_int("of an ARFCN", cmd.select, VIEWER_SELECT_ARFCN);
+    check_int("carrying the index", cmd.value, 69);
+
+    check_int("an LTE cell row", parse("select cell 3", &cmd, error), 0);
+    check_int("by row", cmd.select, VIEWER_SELECT_CELL);
+    check_int("carrying the row", cmd.value, 3);
+
+    check_int("a survey candidate", parse("select candidate 0", &cmd, error), 0);
+    check_int("by index", cmd.select, VIEWER_SELECT_CANDIDATE);
+
+    check_int("a kind nobody has", parse("select cell_x 1", &cmd, error), -1);
+    check_int("a missing index", parse("select arfcn", &cmd, error), -1);
+    check_int("a non-numeric index", parse("select arfcn x", &cmd, error), -1);
+    check_int("a negative index", parse("select arfcn -1", &cmd, error), -1);
+    check_int("a trailing field", parse("select arfcn 1 2", &cmd, error), -1);
+}
+
 static void test_scan_names_its_target(void) {
     struct viewer_command cmd;
     char error[64];
@@ -451,6 +480,7 @@ static void test_scan_names_its_target(void) {
 int main(void) {
     test_calibrate_names_its_reference();
     test_scan_names_its_target();
+    test_select_names_a_kind_and_an_index();
     test_set_stages_one_field();
     test_a_toggle_takes_words_as_well_as_numbers();
     test_a_value_out_of_range_is_refused_here();

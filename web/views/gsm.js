@@ -34,6 +34,20 @@ const GsmView = (function () {
       els.wfCtx = els.wf.getContext('2d');
       els.scanCtx = els.scan.getContext('2d');
       els.charts.onclick = () => showCharts(!charting);
+      // Click a channel bar to inspect that ARFCN -- the window's own "click
+      // a channel to inspect it". The pixel maps to an ARFCN the way drawScan
+      // maps an ARFCN to a pixel; only a channel the scan actually measured is
+      // sent, so a click on empty band does nothing (as the window's does).
+      els.scan.onclick = (ev) => {
+        const s = lastState;
+        if (!s || !s.have_scan) return;
+        const span = LAST_ARFCN - FIRST_ARFCN + 1;
+        const frac = ev.offsetX / (els.scan.clientWidth || els.scan.width);
+        let a = FIRST_ARFCN + Math.floor(frac * span);
+        if (a < FIRST_ARFCN) a = FIRST_ARFCN;
+        if (a > LAST_ARFCN) a = LAST_ARFCN;
+        if (s.power[a] > SENTINEL) sendCommand('select arfcn ' + a);
+      };
     }
     return els;
   }

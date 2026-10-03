@@ -16,9 +16,25 @@ const SurveyView = (function () {
         surveyRows: document.getElementById('survey-rows'),
       };
       els.surveyCtx = els.surveyChart.getContext('2d');
+      // Click a candidate to inspect it -- the window's own candidate click
+      // (`survey_select`). Candidates travel in peak order, so the row's
+      // position is the index the server wants. One handler on the tbody, and
+      // the rows rebuild only when they change (below), so a click lands on a
+      // row that is still there rather than on the tbody mid-rebuild.
+      els.surveyRows.onclick = (ev) => {
+        const tr = ev.target.closest('tr');
+        if (!tr) return;
+        const i = Array.prototype.indexOf.call(els.surveyRows.children, tr);
+        if (i >= 0) sendCommand('select candidate ' + i);
+      };
     }
     return els;
   }
+
+  // A signature of what the candidate rows show, so they rebuild only when the
+  // candidates change -- not every survey_state, which would destroy the row
+  // under a click.
+  let candidateSig = null;
 
   // `mark` arrives as survey_mark_name()'s own string, keyed
   // here by name and not by ordinal. It was indexed by the enum's integer
@@ -43,17 +59,24 @@ const SurveyView = (function () {
     surveyStatus.textContent = state.status;
     surveyCount.textContent = state.candidate_count;
     lastCandidates = state.candidates || [];
-    renderRows(surveyRows, lastCandidates.map((c) => {
-      const cls = MARK_CLASS[c.mark] || 'mark-signal';
-      const glyph = MARK_GLYPH[c.mark] || '●';
-      return [
-        '<td class="' + cls + '">' + glyph + '</td>',
-        '<td>' + (c.hz / 1e6).toFixed(4) + ' MHz</td>',
-        '<td>' + c.power_dbfs.toFixed(1) + ' dBFS</td>',
-        '<td>' + (c.has_carrier ? Math.round(c.width_hz / 1e3) + ' kHz' : '-') + '</td>',
-        '<td>' + (c.has_carrier ? c.shape : '-') + '</td>',
-      ];
-    }));
+    // Rebuilt only when the candidates change, so a click lands on a row that
+    // is still there (the FM Band II lesson).
+    const sig = lastCandidates.map((c) => Math.round(c.hz) + ':' + c.mark + ':'
+      + c.power_dbfs.toFixed(1)).join('|');
+    if (sig !== candidateSig) {
+      candidateSig = sig;
+      renderRows(surveyRows, lastCandidates.map((c) => {
+        const cls = MARK_CLASS[c.mark] || 'mark-signal';
+        const glyph = MARK_GLYPH[c.mark] || '●';
+        return [
+          '<td class="' + cls + '">' + glyph + '</td>',
+          '<td>' + (c.hz / 1e6).toFixed(4) + ' MHz</td>',
+          '<td>' + c.power_dbfs.toFixed(1) + ' dBFS</td>',
+          '<td>' + (c.has_carrier ? Math.round(c.width_hz / 1e3) + ' kHz' : '-') + '</td>',
+          '<td>' + (c.has_carrier ? c.shape : '-') + '</td>',
+        ];
+      }));
+    }
   }
 
   // The same dBFS-to-y mapping the Scope's spectrum uses (lib/chart.js),
