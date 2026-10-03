@@ -58,4 +58,43 @@ void adsb_view_model_build(const struct adsb_view *adsb,
     out->log_count = take;
     for (i = 0; i < take; i++)
         out->log[i] = adsb->log[i];
+
+    /*
+     * The analysis charts' frame trace, the shown one -- latest attempt, or
+     * the last good frame while "Hold" is on -- selected the same way the
+     * window selects it. Computed by the decode, so the server has it.
+     */
+    {
+        const struct adsb_frame_trace *t =
+            adsb_trace_shown(&adsb->session.trace, &adsb->session.good_trace,
+                             adsb->hold_last_good);
+        out->trace_valid = t->valid;
+        if (t->valid) {
+            int bits = t->bit_count;
+
+            if (bits > ADSB_LONG_BITS)
+                bits = ADSB_LONG_BITS;
+            if (bits < 0)
+                bits = 0;
+            out->trace_bits = bits;
+            out->landscape_count = ADSB_TRACE_LANDSCAPE;
+            memcpy(out->landscape, t->landscape, sizeof(out->landscape));
+            memcpy(out->confidence, t->confidence, sizeof(out->confidence));
+            out->envelope_count =
+                ADSB_PREAMBLE_SAMPLES + bits * ADSB_SAMPLES_PER_BIT;
+            if (out->envelope_count > ADSB_TRACE_SAMPLES)
+                out->envelope_count = ADSB_TRACE_SAMPLES;
+            memcpy(out->envelope, t->envelope, sizeof(out->envelope));
+            for (i = 0; i < bits; i++) {
+                float a = t->amplitude[i] * 2.0f - 1.0f;
+
+                if (a > 1.4f)
+                    a = 1.4f;
+                if (a < -1.4f)
+                    a = -1.4f;
+                out->scatter_x[i] = t->margin[i];
+                out->scatter_y[i] = a;
+            }
+        }
+    }
 }

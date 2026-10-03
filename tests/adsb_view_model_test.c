@@ -216,8 +216,44 @@ static void test_an_empty_log_says_which_kind_of_empty(void) {
     check_int("and before any have", m.have_samples, 0);
 }
 
+/* The analysis charts behind "Show charts": the shown frame trace's four
+   arrays, carried when the trace is valid. The scatter's y centres on the
+   expected amplitude (amplitude*2-1, clamped). */
+static void test_the_analysis_charts_are_carried(void) {
+    struct adsb_view_model m;
+    struct adsb_frame_trace *t = &adsb.session.trace;
+    int i;
+
+    blank();
+    t->valid = 1;
+    t->bit_count = 56;
+    for (i = 0; i < ADSB_TRACE_LANDSCAPE; i++)
+        t->landscape[i] = (float)i;
+    for (i = 0; i < 56; i++) {
+        t->confidence[i] = 0.7f;
+        t->margin[i] = (float)i - 28.0f;
+        t->amplitude[i] = 0.5f;        /* -> scatter_y 0.0 */
+    }
+    for (i = 0; i < ADSB_TRACE_SAMPLES; i++)
+        t->envelope[i] = 0.1f;
+
+    m = build(1090000000u, 2000000u);
+
+    check_int("the trace is carried", m.trace_valid, 1);
+    check_int("the bit count is carried", m.trace_bits, 56);
+    check_int("the landscape is full", m.landscape_count,
+              ADSB_TRACE_LANDSCAPE);
+    check_close("the confidence is carried", m.confidence[0], 0.7, 1e-6);
+    check_int("the envelope count is preamble plus the bits",
+              m.envelope_count, ADSB_PREAMBLE_SAMPLES + 56 * ADSB_SAMPLES_PER_BIT);
+    check_close("the scatter x is the margin", m.scatter_x[0], -28.0, 1e-6);
+    check_close("the scatter y centres on the expected amplitude",
+                m.scatter_y[0], 0.0, 1e-6);
+}
+
 int main(void) {
     test_not_ready_says_whose_problem_it_is();
+    test_the_analysis_charts_are_carried();
     test_frames_arriving_and_none_decoding_is_its_own_answer();
     test_an_empty_log_says_which_kind_of_empty();
     test_ready_is_about_the_receiver_not_the_sky();

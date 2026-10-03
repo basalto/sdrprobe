@@ -98,6 +98,24 @@ struct adsb_view_model {
     /* The log, newest first -- the same entries the window's table draws. */
     int log_count;
     struct adsb_log_entry log[ADSB_VIEW_MODEL_LOG];
+
+    /* -- The analysis charts behind "Show charts": the frame trace the
+          window's four charts read -- the preamble-score landscape, the
+          pulse-position bit confidence, the frame magnitude envelope, and the
+          bit-decision scatter. Computed by the decode (so the server has it),
+          the shown trace being the latest attempt or the last good frame when
+          "Hold" is on. Empty until a frame. -- */
+    int trace_valid;
+    int trace_bits;             /* bit_count: confidence and scatter length */
+    int landscape_count;
+    float landscape[ADSB_TRACE_LANDSCAPE];
+    float confidence[ADSB_LONG_BITS];
+    int envelope_count;
+    float envelope[ADSB_TRACE_SAMPLES];
+    /* The bit decisions: signed margin (x) against amplitude (y), the window's
+       own axis -- 0 is the expected amplitude, clamped to the rim. */
+    float scatter_x[ADSB_LONG_BITS];
+    float scatter_y[ADSB_LONG_BITS];
 };
 
 struct adsb_view;

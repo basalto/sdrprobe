@@ -961,6 +961,67 @@ static void test_srd_chart_wire_format(void) {
     viewer_link_close(&vlink);
 }
 
+/* The ADS-B analysis-chart streams behind "Show charts": the landscape,
+   confidence and envelope (one array each), and the bit-decision scatter (two
+   arrays). All guard on the trace being valid. */
+static void test_adsb_chart_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct adsb_view_model avm;
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t bins;
+    int i;
+
+    memset(&avm, 0, sizeof(avm));
+    avm.trace_valid = 1;
+    avm.trace_bits = 56;
+    avm.landscape_count = ADSB_TRACE_LANDSCAPE;
+    avm.envelope_count = 48;
+    for (i = 0; i < 56; i++) {
+        avm.confidence[i] = 0.5f;
+        avm.scatter_x[i] = (float)i - 28.0f;
+        avm.scatter_y[i] = 0.5f;
+    }
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe adsb_landscape adsb_confidence "
+                          "adsb_envelope adsb_scatter");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_adsb_landscape(&vlink, &avm, 7, 11);
+    viewer_link_publish_adsb_confidence(&vlink, &avm, 7, 11);
+    viewer_link_publish_adsb_envelope(&vlink, &avm, 7, 11);
+    viewer_link_publish_adsb_scatter(&vlink, &avm, 7, 11);
+    client_pump(&tc, 10);
+
+    check_true("an adsb_landscape message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is adsb_landscape (12)", payload[1], 12);
+
+    check_true("an adsb_confidence message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is adsb_confidence (13)", payload[1], 13);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the confidence count is the bit count", (int)bins, 56);
+
+    check_true("an adsb_envelope message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is adsb_envelope (14)", payload[1], 14);
+
+    check_true("an adsb_scatter message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("the type is adsb_scatter (15)", payload[1], 15);
+    memcpy(&bins, payload + 16, 4);
+    check_size("it carries both arrays", len, 20 + 2 * 56 * 4);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
 static void test_fm_streams_are_not_sent_when_unsubscribed(void) {
     uint16_t port = open_test_link();
     struct test_client tc;
@@ -998,8 +1059,9 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
         "spectrum", "waterfall", "receiver_state", "link_health",
         "command_result", "survey_spectrum", "survey_state", "fm_spectrum",
         "fm_state", "fm_audio", "fm_audio_spectrum", "fm_scatter",
-        "gsm_state", "adsb_state", "tetra_state",
-        "tetra_scatter", "tetra_profile", "srd_state",
+        "gsm_state", "adsb_state",
+        "adsb_landscape", "adsb_confidence", "adsb_envelope", "adsb_scatter",
+        "tetra_state", "tetra_scatter", "tetra_profile", "srd_state",
         "srd_envelope", "srd_chips",
         "lte_state", "settings_state", "cal_state"
     };
@@ -1180,7 +1242,9 @@ static void test_link_health_reports_this_clients_own_counters(void) {
             "spectrum", "waterfall", "receiver_state", "link_health",
             "command_result", "survey_spectrum", "survey_state",
             "fm_spectrum", "fm_state", "fm_audio", "fm_audio_spectrum",
-            "fm_scatter", "gsm_state", "adsb_state", "tetra_state",
+            "fm_scatter", "gsm_state", "adsb_state",
+            "adsb_landscape", "adsb_confidence", "adsb_envelope",
+            "adsb_scatter", "tetra_state",
             "tetra_scatter", "tetra_profile",
             "srd_state", "srd_envelope", "srd_chips",
             "lte_state", "settings_state", "cal_state"
@@ -1944,6 +2008,7 @@ int main(void) {
     test_fm_scatter_wire_format();
     test_tetra_chart_wire_format();
     test_srd_chart_wire_format();
+    test_adsb_chart_wire_format();
     test_fm_spectrum_with_no_bins_publishes_nothing();
     test_fm_state_wire_format();
     test_fm_streams_are_not_sent_when_unsubscribed();

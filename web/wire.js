@@ -23,6 +23,13 @@ const MSG_TETRA_PROFILE = 9;
 // one array each.
 const MSG_SRD_ENVELOPE = 10;
 const MSG_SRD_CHIPS = 11;
+// The ADS-B analysis charts: the preamble-score landscape, the bit confidence,
+// the frame magnitude envelope (one array each) and the bit-decision scatter
+// (two arrays, margin then amplitude).
+const MSG_ADSB_LANDSCAPE = 12;
+const MSG_ADSB_CONFIDENCE = 13;
+const MSG_ADSB_ENVELOPE = 14;
+const MSG_ADSB_SCATTER = 15;
 
 // Decodes one WebSocket message and returns a plain object naming its
 // `kind`:
@@ -97,6 +104,27 @@ function decodeMessage(ev, latestGeneration) {
   if (type === MSG_SRD_CHIPS) {
     return { kind: 'srd_chips', bytes: bytes,
              chips: new Float32Array(ev.data, 20, bins) };
+  }
+  // The ADS-B analysis charts: three one-array charts and one two-array
+  // scatter (margin then amplitude).
+  if (type === MSG_ADSB_LANDSCAPE) {
+    return { kind: 'adsb_landscape', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_ADSB_CONFIDENCE) {
+    return { kind: 'adsb_confidence', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_ADSB_ENVELOPE) {
+    return { kind: 'adsb_envelope', bytes: bytes,
+             data: new Float32Array(ev.data, 20, bins) };
+  }
+  if (type === MSG_ADSB_SCATTER) {
+    return {
+      kind: 'adsb_scatter', bytes: bytes,
+      x: new Float32Array(ev.data, 20, bins),
+      y: new Float32Array(ev.data, 20 + bins * 4, bins),
+    };
   }
   // The two range-header types (VIEWER_RANGE_HEADER_BYTES): an array whose
   // frequencies are its own rather than the receiver's, so it carries the

@@ -122,7 +122,15 @@ enum viewer_message_type {
     /* The SRD analysis charts behind "Show charts": the demodulated envelope
        and the discretised chips, one float array each on the base header. */
     VIEWER_MESSAGE_SRD_ENVELOPE = 10,
-    VIEWER_MESSAGE_SRD_CHIPS = 11
+    VIEWER_MESSAGE_SRD_CHIPS = 11,
+    /* The ADS-B analysis charts behind "Show charts": the preamble-score
+       landscape, the pulse-position bit confidence, the frame magnitude
+       envelope (one array each), and the bit-decision scatter (two arrays,
+       margin then amplitude). */
+    VIEWER_MESSAGE_ADSB_LANDSCAPE = 12,
+    VIEWER_MESSAGE_ADSB_CONFIDENCE = 13,
+    VIEWER_MESSAGE_ADSB_ENVELOPE = 14,
+    VIEWER_MESSAGE_ADSB_SCATTER = 15
 };
 
 /*
@@ -192,6 +200,11 @@ enum viewer_stream {
     VIEWER_STREAM_FM_SCATTER,
     VIEWER_STREAM_GSM_STATE,
     VIEWER_STREAM_ADSB_STATE,
+    /* The ADS-B analysis charts, paced on time at 4 Hz, the same as the rest. */
+    VIEWER_STREAM_ADSB_LANDSCAPE,
+    VIEWER_STREAM_ADSB_CONFIDENCE,
+    VIEWER_STREAM_ADSB_ENVELOPE,
+    VIEWER_STREAM_ADSB_SCATTER,
     VIEWER_STREAM_TETRA_STATE,
     /* The TETRA analysis charts, paced on time at 4 Hz and subscribed only
        while "Show charts" is up, the same as FM's. */
@@ -567,6 +580,25 @@ void viewer_link_publish_srd_chips(struct viewer_link *link,
                                    const struct srd_view_model *svm,
                                    uint32_t tuning_generation,
                                    uint64_t now_ms);
+/* The ADS-B analysis charts behind "Show charts": the preamble-score
+   landscape, the pulse-position bit confidence, the frame magnitude envelope
+   and the bit-decision scatter. */
+void viewer_link_publish_adsb_landscape(struct viewer_link *link,
+                                        const struct adsb_view_model *avm,
+                                        uint32_t tuning_generation,
+                                        uint64_t now_ms);
+void viewer_link_publish_adsb_confidence(struct viewer_link *link,
+                                         const struct adsb_view_model *avm,
+                                         uint32_t tuning_generation,
+                                         uint64_t now_ms);
+void viewer_link_publish_adsb_envelope(struct viewer_link *link,
+                                       const struct adsb_view_model *avm,
+                                       uint32_t tuning_generation,
+                                       uint64_t now_ms);
+void viewer_link_publish_adsb_scatter(struct viewer_link *link,
+                                      const struct adsb_view_model *avm,
+                                      uint32_t tuning_generation,
+                                      uint64_t now_ms);
 
 /*
  * Ticket 08's Health panel: what only the server knows about the link

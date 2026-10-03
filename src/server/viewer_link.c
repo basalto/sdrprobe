@@ -90,9 +90,10 @@ static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
     "fm_audio", "fm_audio_spectrum", "fm_scatter",
-    "gsm_state", "adsb_state", "tetra_state",
-    "tetra_scatter", "tetra_profile", "srd_state",
-    "srd_envelope", "srd_chips",
+    "gsm_state", "adsb_state",
+    "adsb_landscape", "adsb_confidence", "adsb_envelope", "adsb_scatter",
+    "tetra_state", "tetra_scatter", "tetra_profile",
+    "srd_state", "srd_envelope", "srd_chips",
     "lte_state", "settings_state", "cal_state"
 };
 
@@ -1216,6 +1217,59 @@ void viewer_link_publish_srd_chips(struct viewer_link *link,
     publish_binary(link, VIEWER_STREAM_SRD_CHIPS, VIEWER_MESSAGE_SRD_CHIPS,
                    tuning_generation, now_ms, (uint32_t)svm->chips_count,
                    svm->chips, NULL);
+}
+
+/*
+ * The ADS-B analysis charts behind "Show charts" -- the four the window draws
+ * from the shown frame trace. Each guards on the trace being valid (and on its
+ * own count), so nothing is sent before a frame has been traced.
+ */
+void viewer_link_publish_adsb_landscape(struct viewer_link *link,
+                                        const struct adsb_view_model *avm,
+                                        uint32_t tuning_generation,
+                                        uint64_t now_ms) {
+    if (!avm->trace_valid || avm->landscape_count <= 0 ||
+        avm->landscape_count > ADSB_TRACE_LANDSCAPE)
+        return;
+    publish_binary(link, VIEWER_STREAM_ADSB_LANDSCAPE,
+                   VIEWER_MESSAGE_ADSB_LANDSCAPE, tuning_generation, now_ms,
+                   (uint32_t)avm->landscape_count, avm->landscape, NULL);
+}
+
+void viewer_link_publish_adsb_confidence(struct viewer_link *link,
+                                         const struct adsb_view_model *avm,
+                                         uint32_t tuning_generation,
+                                         uint64_t now_ms) {
+    if (!avm->trace_valid || avm->trace_bits <= 0 ||
+        avm->trace_bits > ADSB_LONG_BITS)
+        return;
+    publish_binary(link, VIEWER_STREAM_ADSB_CONFIDENCE,
+                   VIEWER_MESSAGE_ADSB_CONFIDENCE, tuning_generation, now_ms,
+                   (uint32_t)avm->trace_bits, avm->confidence, NULL);
+}
+
+void viewer_link_publish_adsb_envelope(struct viewer_link *link,
+                                       const struct adsb_view_model *avm,
+                                       uint32_t tuning_generation,
+                                       uint64_t now_ms) {
+    if (!avm->trace_valid || avm->envelope_count <= 0 ||
+        avm->envelope_count > ADSB_TRACE_SAMPLES)
+        return;
+    publish_binary(link, VIEWER_STREAM_ADSB_ENVELOPE,
+                   VIEWER_MESSAGE_ADSB_ENVELOPE, tuning_generation, now_ms,
+                   (uint32_t)avm->envelope_count, avm->envelope, NULL);
+}
+
+void viewer_link_publish_adsb_scatter(struct viewer_link *link,
+                                      const struct adsb_view_model *avm,
+                                      uint32_t tuning_generation,
+                                      uint64_t now_ms) {
+    if (!avm->trace_valid || avm->trace_bits <= 0 ||
+        avm->trace_bits > ADSB_LONG_BITS)
+        return;
+    publish_binary(link, VIEWER_STREAM_ADSB_SCATTER,
+                   VIEWER_MESSAGE_ADSB_SCATTER, tuning_generation, now_ms,
+                   (uint32_t)avm->trace_bits, avm->scatter_x, avm->scatter_y);
 }
 
 /*
