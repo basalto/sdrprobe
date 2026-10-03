@@ -38,6 +38,10 @@
             padding-top:5px; flex:0 0 auto; }
   #health span { color:#c7d3dc; }
   #health .row { margin:1px 0; }
+  /* The build's version, bottom-right, the way the window draws it in its
+     own corner. Muted and out of the way -- it answers "which program is
+     this a view of", which is a question asked once, not watched. */
+  #version { color:#55606b; text-align:right; margin-top:4px; flex:0 0 auto; }
   #tabs { margin-bottom:8px; flex:0 0 auto; }
   #tabs button { background:#16202c; color:#8291a0; border:1px solid #232f3b; font:12px monospace; padding:4px 12px; cursor:pointer; }
   #tabs button.active { background:#1d3b3a; color:#5adca4; border-color:#2e5a58; }
@@ -63,6 +67,7 @@
 <div id="panels"></div>
 <div class="label">link health</div>
 <div id="health">awaiting link_health...</div>
+<div id="version"></div>
 <script>
 /*BUILD:SCRIPT*/
 </script>

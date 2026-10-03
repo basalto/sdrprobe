@@ -28,8 +28,14 @@ const FmView = (function () {
         mpx, mpxCtx: mpx.getContext('2d'),
         wfWrap: document.getElementById('fm-waterfall-wrap'),
         mpxWrap: document.getElementById('fm-mpx-wrap'),
+        markers: document.getElementById('fm-markers'),
         axis: document.getElementById('fm-axis'),
         charts: document.getElementById('fm-charts'),
+        scan: document.getElementById('fm-scan'),
+        bandiiCaption: document.getElementById('fm-bandii-caption'),
+        bandiiStatus: document.getElementById('fm-bandii-status'),
+        bandiiRows: document.getElementById('fm-bandii-rows'),
+        bandiiEmpty: document.getElementById('fm-bandii-empty'),
         reading: document.getElementById('fm-reading'),
         signal: document.getElementById('fm-signal-rows'),
         station: document.getElementById('fm-station-rows'),
@@ -39,6 +45,31 @@ const FmView = (function () {
       // until viewer.js's mountViews() inserts it, which happens after
       // every view file has already run.
       els.charts.onclick = () => showCharts(!charting);
+      // The window's "Scan band" button, which the browser needs because in
+      // `web` mode there is no window to press: the Band II table and the
+      // waterfall marks are empty until a scan runs. It toggles on what the
+      // last fm_state said is happening, so the same button stops a sweep.
+      // `scan fm`/`scan stop` are commands like `tune` and `view` -- the
+      // program starts and stops the sweep; this only asks.
+      els.scan.onclick = () => sendCommand(scanning ? 'scan stop' : 'scan fm');
+      // One handler for the whole table rather than one per row: a click on a
+      // carrier tunes to it, the window's "click to listen". A Viewer cannot
+      // hear the audio -- that is the server's -- but tuning moves the decode
+      // and the highlight, which is the half a browser can do.
+      //
+      // Choosing a station stops the walk first, the way the window's own row
+      // click does, and for its reason: the table fills *while the scan is
+      // still visiting carriers*, so a sweep left running retunes to its next
+      // step on the following block and tunes straight back off the station
+      // just asked for -- which reads as the click doing nothing. `scan stop`
+      // returns the receiver and then `tune` moves it to the chosen carrier;
+      // the server reads the two in order on the one connection.
+      els.bandiiRows.onclick = (ev) => {
+        const tr = ev.target.closest('tr[data-hz]');
+        if (!tr) return;
+        if (scanning) sendCommand('scan stop');
+        sendCommand('tune ' + tr.dataset.hz);
+      };
     }
     return els;
   }
@@ -55,6 +86,17 @@ const FmView = (function () {
   // display is set alongside the attribute, not instead of it: `hidden`
   // stays for what it means to a reader and to anything asking.
   let charting = false;
+  // What the last fm_state said the band walk is doing, so the Scan button
+  // knows whether its next press starts or stops one.
+  let scanning = false;
+  // The received span and the tuned centre, from the last receiver_state --
+  // the markers are positioned against the span, and both the list and the
+  // marks highlight the carrier nearest the centre.
+  let lastLowerHz = 0, lastUpperHz = 0, lastTunedHz = 0;
+  // The carriers the last fm_state carried, kept so a receiver_state that
+  // changes the span can re-place the marks without waiting for the next
+  // fm_state.
+  let lastStations = [];
   function showCharts(on) {
     const e = elements();
     charting = on;
@@ -66,6 +108,9 @@ const FmView = (function () {
     // The canvas coming into view was last sized against a column it was
     // not part of; give it the one it is in now.
     resizeCanvases();
+    // The marks belong to the waterfall, so they clear when the multiplex is
+    // showing and come back with it.
+    renderMarkers();
   }
 
   // Matches each canvas's backing store to whatever CSS laid it out at --
@@ -102,6 +147,15 @@ const FmView = (function () {
   const PANEL_CAPTION = '#97aebc'; /* 151, 174, 188 */
   const ROW_LABEL = '#7e97a6';     /* 126, 151, 166 */
   const ROW_VALUE = '#d5e2ea';     /* 213, 226, 234 */
+  const ROW_GOOD = '#63e4aa';      /* 99, 228, 170 -- a named station */
+  const ROW_WEAK = '#fabe4a';      /* 250, 190, 74 */
+  /* The window's waterfall-mark colour, {80, 220, 240}: one pill per found
+     carrier at the top of the waterfall, where the newest row is. */
+  const MARKER_COLOR = '#50dcf0';
+  /* Within this of the tuned frequency, a carrier is the one being listened
+     to -- the window's own 50 kHz, so the list and the marks highlight the
+     same row it does. */
+  const TUNED_NEAR_HZ = 50000;
 
   // `enum fm_reading_tone` by *name*, never by its integer -- neutral (in
   // progress), good (working), weak (this is where the decode stopped) --
@@ -204,6 +258,85 @@ const FmView = (function () {
     ]);
     e.reading.textContent = s.reading;
     e.reading.style.color = TONE_COLOR[s.reading_tone] || TONE_COLOR.neutral;
+
+    // Band II: the carrier list, its one-line summary and the Scan button's
+    // label -- all from this state, re-decided by nobody.
+    scanning = !!s.scanning;
+    e.scan.textContent = scanning ? 'Stop' : 'Scan band';
+    e.bandiiCaption.textContent = scanning ? 'Scanning band II' : 'Band II';
+    renderBandII(s);
+    lastStations = s.stations || [];
+    renderMarkers();
+  }
+
+  // The Band II table, mirroring the window's draw_scan_list: a one-line
+  // summary the scan decides, then a row per carrier -- MHz, level, whether
+  // it is broadcasting (a pilot), whether RDS arrived, and its name. The
+  // carrier nearest the tuning is the one being listened to, highlighted the
+  // way the window highlights it, so choosing another is a move from
+  // somewhere.
+  function renderBandII(s) {
+    const e = elements();
+    const stations = s.stations || [];
+
+    // The summary the scan wrote ("24 carriers, 18 in stereo, ..."), or the
+    // window's own two prompts when there is nothing yet.
+    e.bandiiStatus.textContent = s.scan_status
+      || (s.scanning ? 'looking...' : 'press Scan band');
+
+    if (!stations.length) {
+      e.bandiiRows.innerHTML = '';
+      e.bandiiEmpty.textContent = s.scanning ? 'looking...' : 'press Scan band';
+      e.bandiiEmpty.style.display = '';
+      return;
+    }
+    e.bandiiEmpty.style.display = 'none';
+
+    let html = '';
+    for (const st of stations) {
+      const name = st.name
+        || (st.pi_valid
+          ? '0x' + st.pi.toString(16).toUpperCase().padStart(4, '0') : '--');
+      // The window's own row colour: a named station bright, a stereo one
+      // plain, an RDS-less mono one muted.
+      const colour = st.name ? ROW_GOOD : st.stereo ? ROW_VALUE : ROW_LABEL;
+      // The carrier being listened to now, so the list says where the
+      // receiver is among what it found.
+      const tuned = Math.abs(lastTunedHz - st.hz) < TUNED_NEAR_HZ;
+      html += '<tr data-hz="' + Math.round(st.hz) + '" style="cursor:pointer;'
+        + 'color:' + colour + (tuned ? ';background:#1b3a2e' : '') + '">'
+        + '<td>' + (st.hz / 1e6).toFixed(1) + '</td>'
+        + '<td>' + st.dbfs.toFixed(1) + ' dBFS</td>'
+        + '<td>' + (st.stereo ? 'stereo' : 'mono') + '</td>'
+        + '<td>' + (st.rds ? 'yes' : 'no') + '</td>'
+        + '<td>' + name + '</td></tr>';
+    }
+    e.bandiiRows.innerHTML = html;
+  }
+
+  // The waterfall's station marks: one pill per found carrier at the top row,
+  // positioned by frequency across the received span -- the window's own
+  // marks, as HTML over the canvas rather than drawn into it, so the
+  // scrolling picture underneath never erases them. A carrier outside the
+  // current span is dropped, and the tuned one is brightened.
+  function renderMarkers() {
+    const e = elements();
+    const span = lastUpperHz - lastLowerHz;
+    if (span <= 0 || charting) { e.markers.innerHTML = ''; return; }
+    let html = '';
+    for (const st of lastStations) {
+      if (st.hz < lastLowerHz || st.hz > lastUpperHz) continue;
+      const pct = (100 * (st.hz - lastLowerHz) / span).toFixed(2);
+      const tuned = Math.abs(lastTunedHz - st.hz) < TUNED_NEAR_HZ;
+      const label = st.name || 'FM';
+      html += '<div style="position:absolute;top:0;left:' + pct + '%;'
+        + 'transform:translateX(-50%);white-space:nowrap;font:11px monospace;'
+        + 'padding:1px 4px;border:1px solid ' + MARKER_COLOR + ';'
+        + 'border-radius:2px;background:rgba(10,15,22,0.85);color:'
+        + MARKER_COLOR + (tuned ? ';font-weight:bold;background:#133' : '')
+        + '">' + label + '</div>';
+    }
+    e.markers.innerHTML = html;
   }
 
   // The same waterfall the window draws over the received span, through
@@ -222,11 +355,17 @@ const FmView = (function () {
   // said. A waterfall with no frequencies on it is a picture; the window
   // labels its axis and so does this.
   function renderAxis(state) {
-    const lower = (state.center_hz - state.sample_rate_hz / 2) / 1e6;
-    const upper = (state.center_hz + state.sample_rate_hz / 2) / 1e6;
+    lastLowerHz = state.center_hz - state.sample_rate_hz / 2;
+    lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
+    lastTunedHz = state.center_hz;
+    const lower = lastLowerHz / 1e6;
+    const upper = lastUpperHz / 1e6;
     elements().axis.textContent =
       lower.toFixed(3) + ' MHz' + ' — ' + upper.toFixed(3)
       + ' MHz (newest at top)';
+    // The span moved, so the marks move with it, and the row highlight
+    // follows the new tuning without waiting for the next fm_state.
+    renderMarkers();
   }
 
   function drawMultiplex(lowerHz, upperHz, power) {
@@ -293,29 +432,62 @@ const FmView = (function () {
     // shows a band of it rather than a line.
     //
     resize: resizeCanvases,
-    // A column: the toolbar and the panel row take what they need, and
-    // whichever chart is showing takes everything left. `min-height:0` on
-    // each wrapper is what lets it be shorter than its own content rather
-    // than pushing the page past the viewport and bringing the scrollbar
-    // back.
+    // The window's own arrangement, mirrored: a toolbar, then a row with the
+    // Band II table on the left and the waterfall on the right, then the
+    // three panels across the bottom. `min-height:0`/`min-width:0` on the
+    // flex children is what lets each be smaller than its content rather than
+    // pushing the page past the viewport and bringing the scrollbar back.
     markup:
       '<div style="margin-bottom:10px;flex:0 0 auto">'
+      + '<button id="fm-scan" style="background:#16202c;color:#8291a0;'
+      + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
+      + 'cursor:pointer;margin-right:8px">Scan band</button>'
       + '<button id="fm-charts" style="background:#16202c;color:#8291a0;'
       + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
       + 'cursor:pointer">Show charts</button></div>' +
-      '<div id="fm-waterfall-wrap" style="flex:1 1 0;min-height:140px;'
-      + 'display:flex;flex-direction:column">' +
-        '<canvas id="fm-waterfall" style="flex:1 1 0;min-height:0;'
-        + 'width:100%"></canvas>' +
-        '<div class="label" id="fm-axis">awaiting receiver_state...</div>' +
-      '</div>' +
-      '<div id="fm-mpx-wrap" hidden style="flex:1 1 0;min-height:140px;'
-      + 'display:none;flex-direction:column">' +
-        '<div class="label">multiplex (the pilot at 19 kHz, stereo at 38,'
-        + ' RDS at 57 -- a station with the first two and not the third'
-        + ' sends no RDS)</div>' +
-        '<canvas id="fm-mpx" style="flex:1 1 0;min-height:0;'
-        + 'width:100%"></canvas>' +
+      // The main row: table left, waterfall right, the way the window draws
+      // Band II beside its waterfall.
+      '<div style="display:flex;gap:16px;flex:1 1 0;min-height:0">' +
+        // Band II. Its own panel rather than the generic one, because the
+        // rows scroll inside a fixed header -- the scrolling region is what a
+        // long band needs and what the layout gate reads as this view's main
+        // content when a scan has filled it.
+        '<div style="flex:1 1 0;min-width:0;background:' + PANEL_FILL
+        + ';border:1px solid ' + PANEL_EDGE + ';padding:10px 12px 12px;'
+        + 'display:flex;flex-direction:column;min-height:0">' +
+          '<div id="fm-bandii-caption" style="color:' + PANEL_CAPTION
+          + ';font-size:16px;margin-bottom:6px">Band II</div>' +
+          '<div id="fm-bandii-status" class="label" '
+          + 'style="margin-bottom:6px">awaiting fm_state...</div>' +
+          '<div style="flex:1 1 0;min-height:0;overflow:auto">' +
+            '<table><thead><tr><th>MHz</th><th>LEVEL</th>'
+            + '<th>BROADCAST</th><th>RDS</th><th>STATION</th></tr></thead>'
+            + '<tbody id="fm-bandii-rows"></tbody></table>' +
+            '<div id="fm-bandii-empty" class="label">press Scan band</div>' +
+          '</div>' +
+        '</div>' +
+        // The waterfall column. The markers are an absolutely-positioned
+        // layer over the canvas top rather than drawn into it, so the
+        // scrolling picture never erases them.
+        '<div style="flex:1 1 0;min-width:0;display:flex;'
+        + 'flex-direction:column;min-height:0">' +
+          '<div id="fm-waterfall-wrap" style="flex:1 1 0;min-height:140px;'
+          + 'position:relative;display:flex;flex-direction:column">' +
+            '<canvas id="fm-waterfall" style="flex:1 1 0;min-height:0;'
+            + 'width:100%"></canvas>' +
+            '<div id="fm-markers" style="position:absolute;top:0;left:0;'
+            + 'right:0;height:0;pointer-events:none"></div>' +
+            '<div class="label" id="fm-axis">awaiting receiver_state...</div>' +
+          '</div>' +
+          '<div id="fm-mpx-wrap" hidden style="flex:1 1 0;min-height:140px;'
+          + 'display:none;flex-direction:column">' +
+            '<div class="label">multiplex (the pilot at 19 kHz, stereo at 38,'
+            + ' RDS at 57 -- a station with the first two and not the third'
+            + ' sends no RDS)</div>' +
+            '<canvas id="fm-mpx" style="flex:1 1 0;min-height:0;'
+            + 'width:100%"></canvas>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div style="display:flex;gap:16px;margin-top:10px;flex:0 1 auto;'
       + 'min-height:0">' +

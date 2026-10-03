@@ -1210,15 +1210,19 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
                                   uint64_t now_ms) {
     /* Radio text is the long field at 64 characters, and every character of
        it can escape to six (\u001f); the fixed fields and the wrapper are a
-       few hundred more. 2 KiB is generous against that worst case. */
-    char json[2048];
+       few hundred more. The Band II list is the long part now -- up to 48
+       carriers of about ninety characters each -- so the buffer is sized for
+       that rather than for radio text, the same way the ADS-B log sizes
+       its own. */
+    char json[8192];
     char ps[sizeof(fvm->ps) * 6 + 1];
     char rt[sizeof(fvm->rt) * 6 + 1];
     char reading[sizeof(fvm->reading) * 6 + 1];
     char pty_name[sizeof(fvm->pty_name) * 6 + 1];
     char traffic[sizeof(fvm->traffic) * 6 + 1];
     char audio_error[sizeof(fvm->audio_error) * 6 + 1];
-    int json_len;
+    char scan_status[sizeof(fvm->scan_status) * 6 + 1];
+    int json_len, used;
     int i;
 
     json_escape_into(ps, sizeof(ps), fvm->ps, strlen(fvm->ps));
@@ -1231,8 +1235,10 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
                      strlen(fvm->traffic));
     json_escape_into(audio_error, sizeof(audio_error), fvm->audio_error,
                      strlen(fvm->audio_error));
+    json_escape_into(scan_status, sizeof(scan_status), fvm->scan_status,
+                     strlen(fvm->scan_status));
 
-    json_len = snprintf(json, sizeof(json),
+    used = snprintf(json, sizeof(json),
                         "{\"type\":\"fm_state\",\"timestamp_ms\":%llu,"
                         "\"pilot_locked\":%s,\"pilot_hz\":%.2f,"
                         "\"pilot_ppm\":%.1f,\"pilot_coherence\":%.3f,"
@@ -1249,7 +1255,9 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
                         "\"rt_valid\":%s,\"rt\":\"%s\","
                         "\"bits\":%ld,\"blocks_matched\":%ld,\"groups\":%ld,"
                         "\"identified\":%ld,\"named\":%ld,"
-                        "\"reading\":\"%s\",\"reading_tone\":\"%s\"}",
+                        "\"reading\":\"%s\",\"reading_tone\":\"%s\","
+                        "\"scanning\":%s,\"scan_status\":\"%s\","
+                        "\"stations\":[",
                         (unsigned long long)now_ms,
                         fvm->pilot_locked ? "true" : "false", fvm->pilot_hz,
                         fvm->pilot_ppm, fvm->pilot_coherence,
@@ -1267,7 +1275,34 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
                         fvm->rt_valid ? "true" : "false", rt,
                         fvm->bits, fvm->blocks_matched, fvm->groups,
                         fvm->identified, fvm->named, reading,
-                        fm_reading_tone_name(fvm->reading_tone));
+                        fm_reading_tone_name(fvm->reading_tone),
+                        fvm->scanning ? "true" : "false", scan_status);
+    if (used <= 0 || (size_t)used >= sizeof(json))
+        return; /* truncated: a half-written object is not JSON */
+
+    /* The Band II carriers, appended one at a time. A row that would not fit
+       stops the list rather than truncating the object -- the count the
+       reader gets is then honest, the same rule the ADS-B log follows. */
+    for (i = 0; i < fvm->station_count; i++) {
+        const struct fm_model_station *st = &fvm->stations[i];
+        char name[sizeof(st->ps) * 6 + 1];
+
+        if (used > (int)sizeof(json) - 256)
+            break;
+        json_escape_into(name, sizeof(name), st->ps, strlen(st->ps));
+        used += snprintf(json + used, sizeof(json) - (size_t)used,
+                         "%s{\"hz\":%.0f,\"dbfs\":%.1f,\"stereo\":%s,"
+                         "\"rds\":%s,\"pi_valid\":%s,\"pi\":%u,"
+                         "\"name\":\"%s\"}",
+                         i ? "," : "", st->frequency_hz,
+                         (double)st->power_dbfs,
+                         st->stereo ? "true" : "false",
+                         st->rds ? "true" : "false",
+                         st->pi_valid ? "true" : "false", st->pi, name);
+    }
+    used += snprintf(json + used, sizeof(json) - (size_t)used, "]}");
+
+    json_len = used;
     if (json_len <= 0 || (size_t)json_len >= sizeof(json))
         return; /* truncated: a half-written object is not JSON */
 
@@ -1957,11 +1992,13 @@ void viewer_link_publish_receiver_state(struct viewer_link *link,
                         "\"center_hz\":%u,"
                         "\"sample_rate_hz\":%u,\"ppm\":%d,"
                         "\"tuning_generation\":%u,\"full_scale\":%g,"
+                        "\"version\":\"%s\","
                         "\"timestamp_ms\":%llu}",
                         rvm->screen, rvm->center_hz,
                         rvm->sample_rate_hz,
                         rvm->ppm, rvm->tuning_generation,
                         (double)rvm->full_scale,
+                        rvm->version,
                         (unsigned long long)now_ms);
     if (json_len <= 0)
         return;

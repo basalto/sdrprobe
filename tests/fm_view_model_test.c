@@ -413,6 +413,68 @@ static void test_the_funnel_counts_are_carried(void) {
     check_int("named", out.named, 4);
 }
 
+/*
+ * The Band II list: a browser reads it to draw the window's scan table and
+ * the waterfall's station marks, so the view model has to carry it rather
+ * than leave it in `app->fm.scan` where no remote reader can reach it. Each
+ * field copied, the summary carried verbatim, and `scanning` reflecting the
+ * sweep.
+ */
+static void test_the_band_ii_stations_are_carried(void) {
+    static struct fm_view fm;
+    struct fm_view_model out;
+
+    zero_fm(&fm);
+    fm.scan.running = 1;
+    snprintf(fm.scan.status, sizeof(fm.scan.status),
+             "3 carriers, 2 in stereo, 1 carrying RDS, 1 named.");
+    fm.scan.found_count = 2;
+    fm.scan.found[0].frequency_hz = 97400000.0;
+    fm.scan.found[0].power_dbfs = -17.7f;
+    fm.scan.found[0].stereo = 1;
+    fm.scan.found[0].rds = 1;
+    fm.scan.found[0].pi_valid = 1;
+    fm.scan.found[0].pi = 0x8203;
+    snprintf(fm.scan.found[0].ps, sizeof(fm.scan.found[0].ps), "COMRCIAL");
+    fm.scan.found[1].frequency_hz = 95000000.0;
+    fm.scan.found[1].power_dbfs = -41.0f;
+    fm.scan.found[1].stereo = 0;
+    fm.scan.found[1].rds = 0;
+
+    fm_view_model_build(&fm, &out);
+
+    check_int("the sweep's own flag is carried", out.scanning, 1);
+    check_str("the summary is carried verbatim", out.scan_status,
+              "3 carriers, 2 in stereo, 1 carrying RDS, 1 named.");
+    check_int("both carriers are carried", out.station_count, 2);
+    check_close("the first carrier's frequency",
+                out.stations[0].frequency_hz, 97400000.0, 1.0);
+    check_close("its level", out.stations[0].power_dbfs, -17.7, 1e-3);
+    check_int("its stereo flag", out.stations[0].stereo, 1);
+    check_int("its rds flag", out.stations[0].rds, 1);
+    check_int("its pi valid", out.stations[0].pi_valid, 1);
+    check_int("its pi", (long)out.stations[0].pi, 0x8203);
+    check_str("its name", out.stations[0].ps, "COMRCIAL");
+    check_int("the second carrier is mono", out.stations[1].stereo, 0);
+    check_str("a nameless carrier has an empty name", out.stations[1].ps, "");
+}
+
+/* A scan can find more carriers than the model's array holds -- the copy
+   stops at the array rather than running past it, so a reader never sees a
+   count it cannot index. */
+static void test_the_station_list_is_clamped(void) {
+    static struct fm_view fm;
+    struct fm_view_model out;
+
+    zero_fm(&fm);
+    fm.scan.found_count = FM_SCAN_MAX_FOUND;
+
+    fm_view_model_build(&fm, &out);
+
+    check_int("the count never exceeds the array",
+              out.station_count <= FM_VIEW_MODEL_MAX_STATIONS, 1);
+}
+
 int main(void) {
     test_the_string_sizes_match_the_decoder();
     test_no_pilot_outranks_every_later_clause();
@@ -431,6 +493,8 @@ int main(void) {
     test_no_spectrum_before_the_first_refresh();
     test_the_bin_count_is_clamped_to_the_array();
     test_the_funnel_counts_are_carried();
+    test_the_band_ii_stations_are_carried();
+    test_the_station_list_is_clamped();
     return check_report("the FM view's model: its three panels, and the "
                         "funnel's own sentence");
 }

@@ -64,6 +64,14 @@ struct receiver_view_model {
        A device-profile fact rather than a receiver setting, and here
        because a reader deriving levels needs it alongside the tuning. */
     float full_scale;
+
+    /* The build's version, "v<major>.<minor>.<patch>" -- what the window
+       draws in its own corner (SDRPROBE_SIGNATURE), so a Viewer's footer can
+       say which program it is a view of. A constant rather than a measurement,
+       carried here because `receiver_state` is the one message that is about
+       the program rather than a technology, and the builder is the one place
+       version.h is already in hand. */
+    char version[16];
 };
 
 /*

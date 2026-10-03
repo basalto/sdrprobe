@@ -1,6 +1,7 @@
 #include "check.h"
 
 #include "runtime/app.h"
+#include "runtime/version.h"
 #include "core/device_profile.h"
 #include "model/receiver_view_model.h"
 
@@ -39,6 +40,9 @@ static void test_the_applied_state_passes_through(void) {
               (long)rvm.tuning_generation, 3);
     check_close("full_scale passes through", rvm.full_scale, 127.5, 1e-6);
     check_str("the screen is the tab's name", rvm.screen, "scope");
+    /* The build's version, what the window draws in its corner, so a Viewer's
+       footer can say which program it is a view of. */
+    check_str("the version is the build's", rvm.version, SDRPROBE_VERSION);
 }
 
 /*

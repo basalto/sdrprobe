@@ -40,7 +40,18 @@ enum viewer_command_type {
      * deliberate act. A browser that could silently recalibrate a receiver
      * would be a worse thing than one that cannot.
      */
-    VIEWER_COMMAND_CALIBRATE
+    VIEWER_COMMAND_CALIBRATE,
+    /*
+     * `scan fm` starts the FM band-II walk and `scan stop` ends it -- the
+     * window's "Scan band" button, which the browser needs because in `web`
+     * mode there is no window to press it: the Band II table and the
+     * waterfall's station marks stay empty until a scan has run, and a scan
+     * takes a live receiver (`fm_scan_begin()` says so when there is none).
+     * Unlike `calibrate`, a scan applies nothing and takes no standing
+     * decision -- it only fills a list -- so it needs no second deliberate
+     * act to be safe.
+     */
+    VIEWER_COMMAND_SCAN
 };
 
 /* Which reference a `calibrate` names, or that it is asking for a stop. */
@@ -48,6 +59,13 @@ enum viewer_calibrate {
     VIEWER_CALIBRATE_GSM = 0,
     VIEWER_CALIBRATE_LTE,
     VIEWER_CALIBRATE_STOP
+};
+
+/* What a `scan` names: the FM band walk, or a stop. One technology scans
+   from a decode view today; a second would be one more name here. */
+enum viewer_scan {
+    VIEWER_SCAN_FM = 0,
+    VIEWER_SCAN_STOP
 };
 
 /* Which Settings field a `set` names. Each is one row in a table the parser
@@ -98,6 +116,7 @@ struct viewer_command {
     enum viewer_screen screen; /* VIEWER_COMMAND_VIEW */
     enum viewer_setting setting; /* VIEWER_COMMAND_SET */
     enum viewer_calibrate reference; /* VIEWER_COMMAND_CALIBRATE */
+    enum viewer_scan scan;       /* VIEWER_COMMAND_SCAN */
     /*
      * The value, as a signed integer for every field there is: a PPM is
      * signed, a transform size and a gain index are counts, and an on/off is

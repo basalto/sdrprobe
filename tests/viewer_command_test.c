@@ -424,8 +424,33 @@ static void test_calibrate_names_its_reference(void) {
               parse("calibrate gsm now", &cmd, error), -1);
 }
 
+/*
+ * `scan fm` starts the FM band walk and `scan stop` ends it -- the browser's
+ * only route to a sweep, since in `web` mode there is no window to press the
+ * button. Unlike `calibrate` it applies nothing, so there is no second act to
+ * guard; the parser's whole job is to name the target and refuse the rest.
+ */
+static void test_scan_names_its_target(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("the FM band", parse("scan fm", &cmd, error), 0);
+    check_int("is a scan", cmd.type, VIEWER_COMMAND_SCAN);
+    check_int("of band II", cmd.scan, VIEWER_SCAN_FM);
+
+    check_int("and stopping", parse("scan stop", &cmd, error), 0);
+    check_int("is the same command", cmd.type, VIEWER_COMMAND_SCAN);
+    check_int("asking for a stop", cmd.scan, VIEWER_SCAN_STOP);
+
+    check_int("a target nobody has", parse("scan dab", &cmd, error), -1);
+    check_true("is named as such", strstr(error, "scan") != NULL);
+    check_int("and none at all", parse("scan", &cmd, error), -1);
+    check_int("nor a trailing field", parse("scan fm now", &cmd, error), -1);
+}
+
 int main(void) {
     test_calibrate_names_its_reference();
+    test_scan_names_its_target();
     test_set_stages_one_field();
     test_a_toggle_takes_words_as_well_as_numbers();
     test_a_value_out_of_range_is_refused_here();

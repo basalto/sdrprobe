@@ -5,6 +5,7 @@
 
 #include "model/receiver_view_model.h"
 #include "runtime/app.h"
+#include "runtime/version.h"
 #include "core/device_profile.h"
 
 /*
@@ -75,4 +76,6 @@ void receiver_view_model_build(const struct receiver_applied *applied,
     out->tuning_generation = applied->generation;
 
     out->full_scale = device->full_scale;
+
+    snprintf(out->version, sizeof(out->version), "%s", SDRPROBE_VERSION);
 }

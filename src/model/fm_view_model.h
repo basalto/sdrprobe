@@ -51,6 +51,31 @@ enum fm_reading_tone {
     FM_READING_WEAK          /* it stopped, and the sentence says where */
 };
 
+/*
+ * One carrier a band walk found, as plain fields -- the mirror of
+ * `struct fm_found_station` (`app.h`), restated here because this header is
+ * below the runtime layer and cannot reach it (`check-layers`). The builder,
+ * which sees both, asserts the two stay the same shape.
+ */
+struct fm_model_station {
+    double frequency_hz;
+    float power_dbfs;
+    int stereo;             /* a pilot: the station broadcasts in stereo */
+    int rds;                /* groups arrived */
+    int pi_valid;
+    unsigned pi;            /* programme identification */
+    char ps[9];             /* a whole repeated name, else empty */
+};
+
+/*
+ * `FM_SCAN_MAX_FOUND` (app.h) mirrored, for the same reason
+ * `FM_VIEW_MODEL_MAX_BINS` mirrors the spectrum length: a wire writer sizes
+ * its buffer from this header without reaching up into the runtime layer. The
+ * builder has both in hand and asserts they are equal, so this cannot quietly
+ * become a cap that drops carriers (the `input_route.h` idiom).
+ */
+#define FM_VIEW_MODEL_MAX_STATIONS 48
+
 /* The name that crosses the wire, for the reason `site_seen_name()` gives. */
 static inline const char *fm_reading_tone_name(enum fm_reading_tone tone) {
     switch (tone) {
@@ -141,6 +166,20 @@ struct fm_view_model {
     int spectrum_bins;
     double spectrum_bin_hz;
     float spectrum[FM_VIEW_MODEL_MAX_BINS];
+
+    /* -- Band II: what a band walk found, one row per carrier. The window
+          draws this as a scrolling table beside the waterfall and pills each
+          carrier over the waterfall; a Viewer reads the same list, since in
+          `web` mode the browser is the only frontend and starts the scan
+          itself (the `scan` command). `scan_status` is the one-line summary
+          the panel heads with -- "24 carriers, 18 in stereo, 7 carrying RDS,
+          5 named" -- decided by the scan, never re-counted by a reader.
+          `station_count` is zero until a scan has run, which is a fact, not a
+          placeholder. -- */
+    int scanning;              /* a sweep is under way */
+    char scan_status[160];
+    int station_count;
+    struct fm_model_station stations[FM_VIEW_MODEL_MAX_STATIONS];
 };
 
 /*
@@ -152,14 +191,16 @@ struct fm_view_model {
  * (`.scratch/layer-boundaries/issues/03-*`). It takes what it reads. Not a snapshot to keep past this frame: every
  * field is read fresh, the same as the drawing it serves.
  *
+ * The band scan's list of found stations **is** carried (the fields above).
+ * It once was not, on the argument that "nothing reads a scan it cannot
+ * start" -- but a Viewer in `web` mode is the only frontend, and now starts
+ * the scan itself through the `scan` command (`viewer_command.h`), so the
+ * list has a reader that can fill it. The window reads the same fields, so
+ * the two cannot disagree about a carrier.
+ *
  * What this deliberately does not carry, said here rather than left as a gap
  * for a reader to discover:
  *
- * - **The band scan's list of found stations.** A scan is started by a button
- *   and walks the receiver across band II; nothing reads a scan it cannot
- *   start, and a modelled list that stays empty for its only remote reader is
- *   the "half a screen modelled" fault `CLAUDE.md` names about layout
- *   headers, moved into a view model instead. `fm_scan.h` already owns it.
  * - **The audio ring and the `AudioStream`.** A raylib handle and a ring
  *   between two rates on *this* machine; `playing` and `audio_error` above
  *   are what a second reader can truthfully say about them.

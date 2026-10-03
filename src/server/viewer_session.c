@@ -223,6 +223,37 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
             return -1;
         }
         return 0;
+    case VIEWER_COMMAND_SCAN: {
+        /*
+         * The FM band walk, the window's "Scan band" button. The browser
+         * needs it because in `web` mode there is no window to press it, and
+         * the Band II table and the waterfall's marks are empty until it has
+         * run. It applies nothing -- a scan only fills a list -- so unlike
+         * `calibrate` it needs no second deliberate act.
+         *
+         * `now` is the serve loop's relative clock, for the reason the VIEW
+         * case gives: `fm_scan_begin()` stamps each step from it, and a 0.0
+         * origin would race the whole plan in one pass.
+         */
+        double now = monotonic_seconds() - viewer_session_started_at;
+
+        if (cmd->scan == VIEWER_SCAN_STOP) {
+            fm_scan_stop(app);
+            return 0;
+        }
+        fm_scan_begin(app, now);
+        if (!app->fm.scan.running) {
+            /* fm_scan_begin() is void and reports its refusal in the scan's
+               own status line -- "A band scan needs a live receiver.", or
+               the rate being too low -- so that sentence is what a reader
+               at the window would see too. */
+            snprintf(error, error_cap, "%s",
+                     app->fm.scan.status[0] ? app->fm.scan.status
+                                            : "the band scan would not start");
+            return -1;
+        }
+        return 0;
+    }
     case VIEWER_COMMAND_APPLY: {
         int clear_waterfall = 0;
 

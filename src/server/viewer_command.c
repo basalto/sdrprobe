@@ -238,6 +238,40 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
         set_error(error, error_cap, "unrecognized setting");
         return -1;
     }
+    if (strcmp(word, "scan") == 0) {
+        static const struct {
+            const char *name;
+            enum viewer_scan scan;
+        } targets[] = {
+            { "fm",   VIEWER_SCAN_FM },
+            { "stop", VIEWER_SCAN_STOP }
+        };
+        char which[32];
+        int which_consumed = 0;
+        size_t k;
+
+        value_start = buf + word_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%31s%n", which, &which_consumed) != 1) {
+            set_error(error, error_cap, "scan requires fm or stop");
+            return -1;
+        }
+        for (i = 0; value_start[which_consumed + i] != '\0'; i++) {
+            if (!isspace((unsigned char)value_start[which_consumed + i])) {
+                set_error(error, error_cap, "unexpected trailing field");
+                return -1;
+            }
+        }
+        for (k = 0; k < sizeof(targets) / sizeof(targets[0]); k++)
+            if (strcmp(which, targets[k].name) == 0) {
+                out->type = VIEWER_COMMAND_SCAN;
+                out->scan = targets[k].scan;
+                return 0;
+            }
+        set_error(error, error_cap, "unrecognized scan target");
+        return -1;
+    }
     if (strcmp(word, "tune") != 0) {
         set_error(error, error_cap, "unrecognized command");
         return -1;

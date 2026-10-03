@@ -6,6 +6,14 @@
 #include "model/fm_view_model.h"
 #include "runtime/app.h"
 
+/* The model mirrors `FM_SCAN_MAX_FOUND` as `FM_VIEW_MODEL_MAX_STATIONS`,
+   because it sits below the runtime layer and cannot include app.h. This is
+   the one place both are in hand: a band that grew the scan's capacity
+   without the model's is a build error here, not a table that silently drops
+   its tail (the input_route.h idiom). */
+typedef char fm_model_stations_match_the_scan
+    [(FM_VIEW_MODEL_MAX_STATIONS == FM_SCAN_MAX_FOUND) ? 1 : -1];
+
 /*
  * The funnel in words, which is the one thing in this file that was a
  * *decision* taken inside a drawing rather than a field copied out of one.
@@ -112,5 +120,28 @@ void fm_view_model_build(const struct fm_view *fm, struct fm_view_model *out) {
         out->spectrum_bin_hz = fm->spectrum_bin_hz;
         memcpy(out->spectrum, fm->spectrum,
                (size_t)out->spectrum_bins * sizeof(*out->spectrum));
+    }
+
+    /* Band II: the carrier list and its one-line summary, copied out of the
+       scan rather than re-counted. `scanning` is the sweep's own flag, so a
+       reader can say "Scanning band II" while it walks and "Band II" once it
+       is done -- the two headings the window uses. */
+    out->scanning = fm->scan.running;
+    snprintf(out->scan_status, sizeof(out->scan_status), "%s",
+             fm->scan.status);
+    out->station_count = fm->scan.found_count;
+    if (out->station_count > FM_VIEW_MODEL_MAX_STATIONS)
+        out->station_count = FM_VIEW_MODEL_MAX_STATIONS;
+    for (int i = 0; i < out->station_count; i++) {
+        const struct fm_found_station *f = &fm->scan.found[i];
+        struct fm_model_station *d = &out->stations[i];
+
+        d->frequency_hz = f->frequency_hz;
+        d->power_dbfs = f->power_dbfs;
+        d->stereo = f->stereo;
+        d->rds = f->rds;
+        d->pi_valid = f->pi_valid;
+        d->pi = f->pi;
+        snprintf(d->ps, sizeof(d->ps), "%s", f->ps);
     }
 }

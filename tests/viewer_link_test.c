@@ -307,6 +307,7 @@ static struct scope_view_model a_view_model(void) {
     svm.receiver.tuning_generation = 1;
     svm.receiver.full_scale = 127.5f;
     snprintf(svm.receiver.screen, sizeof(svm.receiver.screen), "scope");
+    snprintf(svm.receiver.version, sizeof(svm.receiver.version), "v9.9.9");
     return svm;
 }
 
@@ -585,6 +586,19 @@ static struct fm_view_model an_fm_view_model(void) {
     fvm.spectrum_bin_hz = 125.0;
     for (i = 0; i < 8; i++)
         fvm.spectrum[i] = -40.0f - (float)i;
+    /* A finished band walk, for the Band II table and the waterfall marks:
+       the summary the scan decided, and one carrier with a name. */
+    fvm.scanning = 0;
+    snprintf(fvm.scan_status, sizeof(fvm.scan_status),
+             "2 carriers, 1 in stereo, 1 carrying RDS, 1 named.");
+    fvm.station_count = 1;
+    fvm.stations[0].frequency_hz = 89500000.0;
+    fvm.stations[0].power_dbfs = -17.7f;
+    fvm.stations[0].stereo = 1;
+    fvm.stations[0].rds = 1;
+    fvm.stations[0].pi_valid = 1;
+    fvm.stations[0].pi = 0x8343;
+    snprintf(fvm.stations[0].ps, sizeof(fvm.stations[0].ps), "TSF");
     return fvm;
 }
 
@@ -713,6 +727,16 @@ static void test_fm_state_wire_format(void) {
        `web-visualization/15` cost. */
     check_true("and how it reads, by name", contains(payload, len,
               "\"reading_tone\":\"good\""));
+    /* Band II: the sweep's flag, its summary, and a carrier the browser draws
+       as a table row and a waterfall mark. */
+    check_true("carries whether a sweep is running", contains(payload, len,
+              "\"scanning\":false"));
+    check_true("carries the scan's summary", contains(payload, len,
+              "\"scan_status\":\"2 carriers, 1 in stereo, 1 carrying RDS, "
+              "1 named.\""));
+    check_true("carries a found carrier's frequency", contains(payload, len,
+              "\"hz\":89500000"));
+    check_true("and its name", contains(payload, len, "\"name\":\"TSF\""));
 
     client_close_conn(&tc);
     viewer_link_close(&vlink);
@@ -869,6 +893,8 @@ static void test_upgrade_and_receiver_state(void) {
               contains(payload, len, "948400000"));
     check_true("it names the tuning generation",
               contains(payload, len, "\"tuning_generation\":1"));
+    check_true("it carries the build's version for the footer",
+              contains(payload, len, "\"version\":\"v9.9.9\""));
 
     client_close_conn(&tc);
     viewer_link_close(&vlink);

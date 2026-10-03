@@ -4,6 +4,7 @@
 // Composes `VIEWS`; draws nothing itself.
 const hud = document.getElementById('hud');
 const health = document.getElementById('health');
+const versionEl = document.getElementById('version');
 
 // The registry. Ticket 07's remaining views each add one entry here and
 // one file under web/views/ -- no other file, and no other change to
@@ -260,6 +261,12 @@ function handleState(state) {
   }
   if (state.type === 'receiver_state') {
     latestGeneration = state.tuning_generation;
+    // The build's version, bottom-right, the way the window draws it in its
+    // corner. A constant, so set once and left -- it rides receiver_state
+    // because that is the one message about the program rather than a
+    // technology.
+    if (state.version && versionEl.textContent !== state.version)
+      versionEl.textContent = state.version;
     if (screenIsSettled(state))
       selectView(viewForState(state), false); // reflects another Viewer's own
                                               // switch, and the window's
