@@ -318,6 +318,46 @@ its data is plainly rendering above. That looked exactly like a broken
 publisher for a while; the server's own disconnect tally (115 sent) against
 the client's received count (119) is what settled it.
 
+## Waterfall markers, and who owns a selection
+
+**The marker overlay is one pattern, and it is HTML over the canvas, never
+drawn into it.** A `position:relative` waterfall wrap holds the canvas and an
+absolutely-positioned `#<view>-markers` div at `top:0`; each mark is a pill
+positioned by `left:<pct>%` against the span the last `receiver_state` gave
+(`lastLowerHz`/`lastUpperHz`). Drawing into the canvas is wrong because the
+waterfall scrolls and would erase the marks. FM, LTE and SRD all do this now
+-- FM from its station list, LTE from `marker`/`marker_hz` on `lte_state`
+(one highlighted pill over the found cell), SRD from the frame log's `hz` and
+`marker`. The mark's **frequency is a decision that belongs in the view
+model**, not re-derived in JS: LTE's window drew it at
+`applied.frequency_hz + cell.frequency_offset_hz`, so the model carries
+`marker_hz` and the window reads it too -- one frequency, two readers. Clear
+the overlay while the charts are up (the mark belongs to the waterfall) and
+re-place it from `renderAxis` so a span change moves it without waiting for
+the next state.
+
+**A selection travels as a command only when it changes receiver state.**
+GSM's `select arfcn`, LTE's `select cell` and the survey's `select candidate`
+retune or re-inspect the receiver, which is shared state, so they go to the
+server (`viewer_command.h`'s `select`). SRD's selection is a *reader's
+cursor* -- the window's `selected_log` only highlights a marker and a row,
+touching nothing on the air -- so it stays in the browser: a `selectLog(i)`
+that flips a local index and re-renders. Do not send a command for a cursor,
+and do not keep receiver state in the browser; which side a selection lives
+on is decided by whether anyone else can observe it.
+
+**`scan` names a technology, `scan stop` does not.** `scan fm` and `scan lte`
+each start that band's walk; the Stop button sends a bare `scan stop`, which
+the session stops *both* walks on, because a view's Stop button should not
+have to know which scan is running. A scan refused (no receiver, no band) is
+reported the way the window reports it.
+
+**`renderRows(tbody, rows, rowStyle)` takes an optional per-row style.** Pass
+a `(i) => '<style>'` to highlight the selected row (SRD's frame log), rather
+than each view re-implementing the `<tr>` map. The click handler is still one
+delegated `onclick` on the tbody, gated by a content+selection signature so
+the row survives the click (the FM Band II race, one table over).
+
 ## How a view divides its height
 
 **The charts are what a reader is here for.** The page's chrome is 12px and

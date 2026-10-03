@@ -158,8 +158,11 @@ struct lte_view_model {
 
     /* What the waterfall marker over this cell says, and whether there is
        one: empty until an identity has been found, because a marker is a
-       claim that something is there. */
+       claim that something is there. `marker_hz` is where it sits -- the
+       tuning plus the cell's own frequency offset, so the mark follows the
+       carrier and not the dial -- and is 0 while there is no label. */
     char marker_label[24];
+    double marker_hz;
 
     /* -- The analysis charts behind "Show charts": the cell-search trace the
           window's charts read -- the PSS correlation, the SSS candidate

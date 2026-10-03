@@ -244,6 +244,7 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
             enum viewer_scan scan;
         } targets[] = {
             { "fm",   VIEWER_SCAN_FM },
+            { "lte",  VIEWER_SCAN_LTE },
             { "stop", VIEWER_SCAN_STOP }
         };
         char which[32];
@@ -254,7 +255,7 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
         while (*value_start == ' ' || *value_start == '\t')
             value_start++;
         if (sscanf(value_start, "%31s%n", which, &which_consumed) != 1) {
-            set_error(error, error_cap, "scan requires fm or stop");
+            set_error(error, error_cap, "scan requires fm, lte or stop");
             return -1;
         }
         for (i = 0; value_start[which_consumed + i] != '\0'; i++) {

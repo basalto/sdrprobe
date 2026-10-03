@@ -19,8 +19,10 @@ const LteView = (function () {
       els = {
         wf: document.getElementById('lte-waterfall'),
         wfWrap: document.getElementById('lte-waterfall-wrap'),
+        markers: document.getElementById('lte-markers'),
         grid: document.getElementById('lte-charts-grid'),
         charts: document.getElementById('lte-charts'),
+        scan: document.getElementById('lte-scan'),
         cc: {
           pss: cv('lte-c-pss'), sss: cv('lte-c-sss'),
           channel: cv('lte-c-channel'), ports: cv('lte-c-ports'),
@@ -39,6 +41,14 @@ const LteView = (function () {
       };
       els.wfCtx = els.wf.getContext('2d');
       els.charts.onclick = () => showCharts(!charting);
+      // The window's "Scan band" button, which the browser needs because in
+      // `web` mode there is no window to press it: the scan list is empty
+      // until a walk runs, and a walk takes a live receiver (the server says
+      // so if there is none). It toggles on what the last lte_state reported,
+      // so the same button stops a sweep. `scan lte`/`scan stop` are commands
+      // like `tune` -- the program starts and stops the sweep; this only asks.
+      els.scan.onclick = () =>
+        sendCommand(scanning ? 'scan stop' : 'scan lte');
       // Click a scan row to park on that cell -- the window's own row click
       // (`scan_select`). The row index is its position in the tbody, which is
       // the order `found` travels in. One handler on the tbody, and the rows
@@ -63,6 +73,15 @@ const LteView = (function () {
   const TRACE = '#5adcc8';
   const LTEBAR = '#a9c5d6';
   let charting = false;
+  // What the last lte_state said the band walk is doing, so the Scan button
+  // knows whether its next press starts or stops one.
+  let scanning = false;
+  // The received span and tuned centre, from the last receiver_state -- the
+  // cell marker is positioned against the span. And the cell mark itself, from
+  // the last lte_state: where it sits and what it says, empty until a cell is
+  // found (a marker is a claim that something is there).
+  let lastLowerHz = 0, lastUpperHz = 0;
+  let markerHz = 0, markerLabel = '';
   // The stream set, swapped on the toggle. lte_state is in both, so the three
   // panels are always fed; the five chart streams and not the waterfall are
   // the charts view's. Mutated in place.
@@ -84,6 +103,9 @@ const LteView = (function () {
     for (const s of want) streams.push(s);
     if (typeof subscribeToActiveView === 'function') subscribeToActiveView();
     resizeCanvases();
+    // The mark belongs to the waterfall, so it clears with the charts and
+    // comes back with the signal view.
+    renderMarkers();
   }
 
   function resizeCanvases() {
@@ -176,10 +198,39 @@ const LteView = (function () {
 
   function renderAxis(state) {
     const { axis } = elements();
-    const lower = state.center_hz - state.sample_rate_hz / 2;
-    const upper = state.center_hz + state.sample_rate_hz / 2;
-    axis.textContent = (lower / 1e6).toFixed(3) + ' - '
-      + (upper / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    lastLowerHz = state.center_hz - state.sample_rate_hz / 2;
+    lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
+    axis.textContent = (lastLowerHz / 1e6).toFixed(3) + ' - '
+      + (lastUpperHz / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    // The span moved, so the cell mark moves with it without waiting for the
+    // next lte_state.
+    renderMarkers();
+  }
+
+  /* The window's waterfall-mark colour, {80, 220, 240}: one pill over the
+     found cell at the top of the waterfall, the same mark `view_lte.c` draws
+     into the canvas, here as HTML over it so the scrolling picture never
+     erases it. */
+  const MARKER_COLOR = '#50dcf0';
+
+  // The cell marker: one pill at the cell's own frequency across the received
+  // span, from `marker_hz`/`marker` on lte_state -- empty when there is no
+  // cell, and cleared while the charts are up (the mark belongs to the
+  // waterfall). The window draws exactly one, highlighted; so does this.
+  function renderMarkers() {
+    const e = elements();
+    const span = lastUpperHz - lastLowerHz;
+    if (span <= 0 || charting || !markerLabel
+        || markerHz < lastLowerHz || markerHz > lastUpperHz) {
+      e.markers.innerHTML = '';
+      return;
+    }
+    const pct = (100 * (markerHz - lastLowerHz) / span).toFixed(2);
+    e.markers.innerHTML = '<div style="position:absolute;top:0;left:' + pct
+      + '%;transform:translateX(-50%);white-space:nowrap;font:11px monospace;'
+      + 'padding:1px 4px;border:1px solid ' + MARKER_COLOR + ';border-radius:2px;'
+      + 'background:#133;font-weight:bold;color:' + MARKER_COLOR + '">'
+      + escapeHtml(markerLabel) + '</div>';
   }
 
   // A label/value row, the shape every panel here uses.
@@ -210,6 +261,15 @@ const LteView = (function () {
 
   function renderState(s) {
     const e = elements();
+
+    // The Scan button's label and the cell mark -- both from this state,
+    // re-decided by nobody. `marker`/`marker_hz` are empty and 0 until a cell
+    // has been found.
+    scanning = !!s.scanning;
+    e.scan.textContent = scanning ? 'Stop' : 'Scan band';
+    markerLabel = s.marker || '';
+    markerHz = s.marker_hz || 0;
+    renderMarkers();
 
     e.head.textContent = 'LTE   '
       + (s.earfcn ? 'EARFCN ' + s.earfcn : 'off the EARFCN raster')
@@ -363,13 +423,18 @@ const LteView = (function () {
     // it is wide.
     markup:
       '<div style="margin-bottom:8px;flex:0 0 auto">'
+      + '<button id="lte-scan" style="background:#16202c;color:#8291a0;'
+      + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
+      + 'cursor:pointer;margin-right:8px">Scan band</button>'
       + '<button id="lte-charts" style="background:#16202c;color:#8291a0;'
       + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
       + 'cursor:pointer">Show charts</button></div>'
       + '<div id="lte-waterfall-wrap" style="flex:2 1 0;min-height:90px;'
-      + 'display:flex;flex-direction:column">'
+      + 'position:relative;display:flex;flex-direction:column">'
       + '<canvas id="lte-waterfall" style="flex:1 1 0;min-height:0;'
       + 'width:100%"></canvas>'
+      + '<div id="lte-markers" style="position:absolute;top:0;left:0;right:0;'
+      + 'height:0;pointer-events:none"></div>'
       + '<div class="label" id="lte-axis">awaiting receiver_state...</div>'
       + '</div>'
       // The cell-search charts, a 3x2 grid taking the waterfall's room when it

@@ -467,6 +467,10 @@ static void test_scan_names_its_target(void) {
     check_int("is a scan", cmd.type, VIEWER_COMMAND_SCAN);
     check_int("of band II", cmd.scan, VIEWER_SCAN_FM);
 
+    check_int("the LTE band", parse("scan lte", &cmd, error), 0);
+    check_int("is also a scan", cmd.type, VIEWER_COMMAND_SCAN);
+    check_int("of an LTE band", cmd.scan, VIEWER_SCAN_LTE);
+
     check_int("and stopping", parse("scan stop", &cmd, error), 0);
     check_int("is the same command", cmd.type, VIEWER_COMMAND_SCAN);
     check_int("asking for a stop", cmd.scan, VIEWER_SCAN_STOP);

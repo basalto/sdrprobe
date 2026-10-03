@@ -225,20 +225,36 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
         return 0;
     case VIEWER_COMMAND_SCAN: {
         /*
-         * The FM band walk, the window's "Scan band" button. The browser
-         * needs it because in `web` mode there is no window to press it, and
-         * the Band II table and the waterfall's marks are empty until it has
-         * run. It applies nothing -- a scan only fills a list -- so unlike
-         * `calibrate` it needs no second deliberate act.
+         * A band walk, the window's "Scan band" button -- FM's band II or the
+         * LTE band the picker has selected. The browser needs it because in
+         * `web` mode there is no window to press it, and the scan lists (and
+         * FM's waterfall marks) are empty until one has run. It applies
+         * nothing -- a scan only fills a list -- so unlike `calibrate` it
+         * needs no second deliberate act.
          *
          * `now` is the serve loop's relative clock, for the reason the VIEW
-         * case gives: `fm_scan_begin()` stamps each step from it, and a 0.0
-         * origin would race the whole plan in one pass.
+         * case gives: the scans stamp each step from it, and a 0.0 origin
+         * would race the whole plan in one pass.
          */
         double now = monotonic_seconds() - viewer_session_started_at;
 
         if (cmd->scan == VIEWER_SCAN_STOP) {
+            /* The Stop button names no technology, so stop whichever walk is
+               running -- both flags are independent and stopping an idle one
+               is a no-op. */
             fm_scan_stop(app);
+            scan_stop(app);
+            return 0;
+        }
+        if (cmd->scan == VIEWER_SCAN_LTE) {
+            /* scan_start() returns -1 without a receiver or without a band
+               picked; `app->lte.scan.status` is not a thing, so the message
+               is this layer's, matching the window's refusal. */
+            if (scan_start(app, now) < 0) {
+                snprintf(error, error_cap, "%s",
+                         "an LTE band scan needs a live receiver and a band");
+                return -1;
+            }
             return 0;
         }
         fm_scan_begin(app, now);

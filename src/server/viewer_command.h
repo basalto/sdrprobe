@@ -42,12 +42,13 @@ enum viewer_command_type {
      */
     VIEWER_COMMAND_CALIBRATE,
     /*
-     * `scan fm` starts the FM band-II walk and `scan stop` ends it -- the
-     * window's "Scan band" button, which the browser needs because in `web`
-     * mode there is no window to press it: the Band II table and the
-     * waterfall's station marks stay empty until a scan has run, and a scan
-     * takes a live receiver (`fm_scan_begin()` says so when there is none).
-     * Unlike `calibrate`, a scan applies nothing and takes no standing
+     * `scan fm` starts the FM band-II walk, `scan lte` the LTE band walk, and
+     * `scan stop` ends whichever is running -- the window's "Scan band"
+     * button, which the browser needs because in `web` mode there is no
+     * window to press it: the FM Band II table (and its station marks) and
+     * the LTE scan list stay empty until a scan has run, and a scan takes a
+     * live receiver (`fm_scan_begin()`/`scan_start()` say so when there is
+     * none). Unlike `calibrate`, a scan applies nothing and takes no standing
      * decision -- it only fills a list -- so it needs no second deliberate
      * act to be safe.
      */
@@ -80,10 +81,13 @@ enum viewer_calibrate {
     VIEWER_CALIBRATE_STOP
 };
 
-/* What a `scan` names: the FM band walk, or a stop. One technology scans
-   from a decode view today; a second would be one more name here. */
+/* What a `scan` names: the FM band walk, the LTE band walk, or a stop. Two
+   technologies scan from a decode view; a third would be one more name here.
+   `scan stop` ends whichever is running, so a view's Stop button names no
+   technology. */
 enum viewer_scan {
     VIEWER_SCAN_FM = 0,
+    VIEWER_SCAN_LTE,
     VIEWER_SCAN_STOP
 };
 

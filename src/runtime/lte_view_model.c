@@ -74,6 +74,9 @@ void lte_view_model_build(const struct lte_view *lte,
         out->cell_age_seconds = ctx->now - s->cell_time;
         snprintf(out->marker_label, sizeof(out->marker_label), "PCI %d",
                  c->pci);
+        /* Where the mark sits: the tuning plus the cell's own offset, the
+           same frequency `view_lte.c` drew it at before it read this. */
+        out->marker_hz = (double)centre_hz + c->frequency_offset_hz;
     }
 
     out->stats_valid = s->stats.valid;

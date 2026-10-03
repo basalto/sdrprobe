@@ -644,8 +644,7 @@ void draw_lte(struct app *app) {
         /* A marker is a claim that something is there, so there is one
            exactly when the model has a label for it. */
         if (m.marker_label[0]) {
-            lte_marker.frequency_hz = (double)app->applied.frequency_hz +
-                                     app->lte.session.cell.frequency_offset_hz;
+            lte_marker.frequency_hz = m.marker_hz;
             lte_marker.bandwidth_hz = 1400000.0; /* 6 PRB minimum */
             lte_marker.age_seconds = m.cell_age_seconds;
             lte_marker.duration_seconds = 0.010; /* 10 ms frame */
