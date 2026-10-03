@@ -599,6 +599,25 @@ static struct fm_view_model an_fm_view_model(void) {
     fvm.stations[0].pi_valid = 1;
     fvm.stations[0].pi = 0x8343;
     snprintf(fvm.stations[0].ps, sizeof(fvm.stations[0].ps), "TSF");
+    /* The analysis charts behind "Show charts": a short waveform, a small
+       audio spectrum, a handful of symbols, the timing scores and some group
+       counts -- enough for each stream to carry something. */
+    fvm.audio_points = 4;
+    for (i = 0; i < 4; i++)
+        fvm.audio_wave[i] = (float)i * 0.1f - 0.15f;
+    fvm.audio_spectrum_bins = 4;
+    fvm.audio_spectrum_bin_hz = 24.0;
+    for (i = 0; i < 4; i++)
+        fvm.audio_spectrum[i] = -30.0f - (float)i;
+    fvm.scatter_points = 3;
+    for (i = 0; i < 3; i++) {
+        fvm.scatter_i[i] = (float)i - 1.0f;
+        fvm.scatter_q[i] = 0.5f - (float)i;
+    }
+    for (i = 0; i < FM_RDS_SAMPLES_PER_SYMBOL; i++)
+        fvm.timing_energy[i] = (float)i / 16.0f;
+    fvm.groups_by_type[0] = 162;
+    fvm.groups_by_type[2] = 20;
     return fvm;
 }
 
@@ -737,6 +756,109 @@ static void test_fm_state_wire_format(void) {
     check_true("carries a found carrier's frequency", contains(payload, len,
               "\"hz\":89500000"));
     check_true("and its name", contains(payload, len, "\"name\":\"TSF\""));
+    /* The two small analysis charts ride this state rather than streams of
+       their own. */
+    check_true("carries the timing scores", contains(payload, len,
+              "\"timing_energy\":["));
+    check_true("carries the group-type counts", contains(payload, len,
+              "\"groups_by_type\":[162,0,20"));
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+/* The three analysis-chart binary streams behind "Show charts". Each guards on
+   its own count, framed like the stream it most resembles: the waveform like a
+   waterfall row (one array), the audio spectrum like the multiplex (range
+   header), the constellation like a spectrum (two arrays). */
+static void test_fm_audio_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct fm_view_model fvm = an_fm_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t bins;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe fm_audio");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_fm_audio(&vlink, &fvm, 2, 99);
+    client_pump(&tc, 10);
+
+    check_true("an fm_audio message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a binary frame", opcode, WEBSOCKET_OP_BINARY);
+    check_int("the message type is fm_audio (5)", payload[1], 5);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the waveform point count round-trips", (int)bins, 4);
+    check_size("its length is the base header plus the points", len,
+              20 + 4 * 4);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_fm_audio_spectrum_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct fm_view_model fvm = an_fm_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t lower_hz, upper_hz;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe fm_audio_spectrum");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_fm_audio_spectrum(&vlink, &fvm, 2, 99);
+    client_pump(&tc, 10);
+
+    check_true("an fm_audio_spectrum message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a binary frame", opcode, WEBSOCKET_OP_BINARY);
+    check_int("the message type is fm_audio_spectrum (6)", payload[1], 6);
+    memcpy(&lower_hz, payload + 20, 4);
+    memcpy(&upper_hz, payload + 24, 4);
+    check_int("it starts at baseband", (int)lower_hz, 0);
+    check_int("and runs to bins times the bin width", (int)upper_hz, 96);
+
+    client_close_conn(&tc);
+    viewer_link_close(&vlink);
+}
+
+static void test_fm_scatter_wire_format(void) {
+    uint16_t port = open_test_link();
+    struct test_client tc;
+    struct fm_view_model fvm = an_fm_view_model();
+    int opcode;
+    const uint8_t *payload;
+    size_t len;
+    uint32_t bins;
+
+    client_connect(&tc, port);
+    client_pump(&tc, 10);
+    client_handshake(&tc);
+    client_send_text(&tc, "subscribe fm_scatter");
+    client_pump(&tc, 10);
+
+    viewer_link_publish_fm_scatter(&vlink, &fvm, 2, 99);
+    client_pump(&tc, 10);
+
+    check_true("an fm_scatter message arrived",
+              client_next_frame(&tc, &opcode, &payload, &len));
+    check_int("it is a binary frame", opcode, WEBSOCKET_OP_BINARY);
+    check_int("the message type is fm_scatter (7)", payload[1], 7);
+    memcpy(&bins, payload + 16, 4);
+    check_int("the point count round-trips", (int)bins, 3);
+    /* Two arrays, i then q: the header plus 2 * bins floats. */
+    check_size("its length carries both arrays", len, 20 + 2 * 3 * 4);
 
     client_close_conn(&tc);
     viewer_link_close(&vlink);
@@ -778,7 +900,8 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
     static const char *const names[] = {
         "spectrum", "waterfall", "receiver_state", "link_health",
         "command_result", "survey_spectrum", "survey_state", "fm_spectrum",
-        "fm_state", "gsm_state", "adsb_state", "tetra_state", "srd_state",
+        "fm_state", "fm_audio", "fm_audio_spectrum", "fm_scatter",
+        "gsm_state", "adsb_state", "tetra_state", "srd_state",
         "lte_state", "settings_state", "cal_state"
     };
     size_t n = sizeof(names) / sizeof(names[0]);
@@ -957,7 +1080,8 @@ static void test_link_health_reports_this_clients_own_counters(void) {
         static const char *const names[] = {
             "spectrum", "waterfall", "receiver_state", "link_health",
             "command_result", "survey_spectrum", "survey_state",
-            "fm_spectrum", "fm_state", "gsm_state", "adsb_state", "tetra_state",
+            "fm_spectrum", "fm_state", "fm_audio", "fm_audio_spectrum",
+            "fm_scatter", "gsm_state", "adsb_state", "tetra_state",
             "srd_state", "lte_state", "settings_state", "cal_state"
         };
         size_t n = sizeof(names) / sizeof(names[0]);
@@ -1714,6 +1838,9 @@ int main(void) {
     test_survey_marks_travel_by_name();
     test_survey_streams_are_not_sent_when_unsubscribed();
     test_fm_spectrum_wire_format();
+    test_fm_audio_wire_format();
+    test_fm_audio_spectrum_wire_format();
+    test_fm_scatter_wire_format();
     test_fm_spectrum_with_no_bins_publishes_nothing();
     test_fm_state_wire_format();
     test_fm_streams_are_not_sent_when_unsubscribed();

@@ -103,14 +103,16 @@ void update_fm_flush(struct app *app, double now, int flush) {
          * of those are most of the difference between what is transmitted and
          * what comes out of a speaker.
          *
-         * This one keeps the `analysis_mode` gate, and the difference is the
-         * whole point rather than an oversight: the multiplex now has two
-         * readers and so is nobody's to gate, while the audio spectrum still
-         * has exactly one -- the chart beside it -- and there is no second
-         * reader to leave holding an empty array. It also only ever has
-         * anything to measure once something is playing.
+         * It used to keep the `analysis_mode` gate while the window was its
+         * only reader. The browser's FM charts are a second reader -- and in
+         * `web` mode `analysis_mode` is always false, so the gate was the same
+         * silent hole `fm_spectrum` had, a chart permanently empty with no
+         * error. The gate is gone for the same reason and at the same cost:
+         * one `fm_multiplex_spectrum` over the audio trace, fewer samples than
+         * the multiplex above, already inside the 0.25 s cadence. It still has
+         * nothing to measure until the audio path has produced a trace.
          */
-        if (fm->analysis_mode && fm->audio_trace_count > 0) {
+        if (fm->audio_trace_count > 0) {
             fm->audio_spectrum_bins =
                 fm_multiplex_spectrum(fm->audio_trace, fm->audio_trace_count,
                                       fm_audio_rate(&fm->audio),
@@ -183,7 +185,12 @@ void update_fm_flush(struct app *app, double now, int flush) {
                             fm->session.station.pi, fm->session.station.ps,
                             fm->session.groups_total);
         }
-        if (fm->analysis_mode && fm->session.bb_count > 0)
+        /* The timing search's sixteen offsets, for the chart that shows how
+           clearly the winning one won. Computed always rather than under
+           `analysis_mode`, so the browser's FM charts (a second reader) are
+           not left an empty array in `web` mode where the toggle is always
+           off -- the same reasoning as the audio spectrum above. */
+        if (fm->session.bb_count > 0)
             fm_rds_timing_scores(fm->session.bb_i, fm->session.bb_q,
                                  fm_rds_chunk_length(fm->session.bb_count, 1),
                                  fm->timing_energy);

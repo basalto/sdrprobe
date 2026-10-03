@@ -75,14 +75,16 @@ OPCODE_PING = 0x9
 OPCODE_PONG = 0xA
 
 MESSAGE_TYPE_NAMES = {1: "spectrum", 2: "waterfall", 3: "survey_spectrum",
-                      4: "fm_spectrum"}
+                      4: "fm_spectrum", 5: "fm_audio",
+                      6: "fm_audio_spectrum", 7: "fm_scatter"}
 
 # The message types carrying VIEWER_RANGE_HEADER_BYTES rather than the
 # plain 20-byte one: an array whose frequencies are its own, not the
 # receiver's. Named rather than written as `mtype == 3` in two places,
 # which is how the second of those two places came to be missed when the
-# first was added.
-RANGE_HEADER_TYPES = (3, 4)
+# first was added. The FM audio spectrum (6) rides it too; the waveform (5)
+# and the constellation (7) are on the plain header.
+RANGE_HEADER_TYPES = (3, 4, 6)
 
 # survey_spectrum and survey_state (ticket 07) were missing here until
 # ticket 14 needed to subscribe to them for a bench-serve comparison and
@@ -93,7 +95,8 @@ RANGE_HEADER_TYPES = (3, 4)
 # VIEWER_MESSAGE_SURVEY_SPECTRUM is what they are transcribed from).
 ALL_STREAMS = ("spectrum", "waterfall", "receiver_state", "link_health",
                "survey_spectrum", "survey_state", "fm_spectrum",
-               "fm_state", "gsm_state", "adsb_state", "tetra_state", "srd_state",
+               "fm_state", "fm_audio", "fm_audio_spectrum", "fm_scatter",
+               "gsm_state", "adsb_state", "tetra_state", "srd_state",
                "lte_state", "settings_state", "cal_state")
 
 
@@ -239,13 +242,15 @@ def decode_binary(payload):
     little-endian. Returns a dict; raises on a payload too short for its
     own declared header, which a version mismatch would produce.
 
-    Types 3 and 4 (survey_spectrum, ticket 07; fm_spectrum, ticket 14's
-    Phase 4) share a wider header than types 1 and 2 --
-    `lower_hz`/`upper_hz` at offsets 20/24 before the one float32 array,
-    rather than starting the array at 20 -- because neither array sits on
-    the receiver's own frequency grid, so a bin index means nothing without
-    the range beside it (viewer_link.h's own comment on
-    VIEWER_RANGE_HEADER_BYTES)."""
+    Types 3, 4 and 6 (survey_spectrum, ticket 07; fm_spectrum, ticket 14's
+    Phase 4; fm_audio_spectrum, the FM analysis charts) share a wider header
+    than the base types -- `lower_hz`/`upper_hz` at offsets 20/24 before the
+    one float32 array, rather than starting the array at 20 -- because neither
+    array sits on the receiver's own frequency grid, so a bin index means
+    nothing without the range beside it (viewer_link.h's own comment on
+    VIEWER_RANGE_HEADER_BYTES). The FM waveform (5) is one plain array on the
+    base header; the FM constellation (7) is two, i then q, like a spectrum's
+    average/peak."""
     if len(payload) < 20:
         raise ValueError(f"binary message too short: {len(payload)} bytes")
     version, mtype = payload[0], payload[1]
@@ -259,7 +264,10 @@ def decode_binary(payload):
         lower_hz, upper_hz = struct.unpack_from("<II", payload, 20)
     else:
         header_len = 20
-        array_count = 2 if mtype == 1 else 1
+        # Two arrays for the spectrum (average then peak) and the FM
+        # constellation (i then q); one for everything else on the base header
+        # (the waterfall row, the FM audio waveform).
+        array_count = 2 if mtype in (1, 7) else 1
     arrays_bytes = len(payload) - header_len
     expected = bins * 4 * array_count
     if arrays_bytes != expected:
@@ -448,6 +456,12 @@ def run_stats(client, seconds):
         if opcode == OPCODE_TEXT:
             state = json.loads(payload)
             stream = state.get("type", "receiver_state")
+            # command_result is a reply (on-demand), not a paced stream, and
+            # carries no timestamp to age against -- it arrives whenever a
+            # --send line is answered, so a stats run that read its own `view`
+            # reply used to crash here on the missing key. Nothing to measure.
+            if "timestamp_ms" not in state:
+                continue
             ts_ms = state["timestamp_ms"]
         else:
             msg = decode_binary(payload)

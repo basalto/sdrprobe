@@ -55,6 +55,9 @@ int viewer_session_run(struct app *app);
  */
 #define VIEWER_SESSION_STATE_INTERVAL_SECONDS 0.25
 #define VIEWER_SESSION_HEALTH_INTERVAL_SECONDS 1.0
+/* The FM analysis charts' heartbeat: 4 Hz, the same cadence the audio
+   spectrum recomputes at and plenty for a chart a person is reading. */
+#define VIEWER_SESSION_CHART_INTERVAL_SECONDS 0.25
 
 /*
  * Whether a periodic State update is due: because something it carries
@@ -148,6 +151,18 @@ viewer_stream_pacing(enum viewer_stream stream) {
     /* And the Calibration overlay, for the same reason: it is a panel
        somebody is watching rather than a measurement of this block. */
     case VIEWER_STREAM_CAL_STATE:
+    /*
+     * The FM analysis charts behind "Show charts" are measurement arrays, but
+     * paced on time at a 4 Hz heartbeat rather than on data, and deliberately:
+     * a human reading a chart does not need 15 Hz, the audio spectrum only
+     * recomputes at that cadence anyway (fm_runtime.c), and at ~4 Hz the three
+     * arrays cost a few tens of KB/s rather than a few hundred. They are
+     * subscribed only while the charts show, so between the heartbeat and the
+     * subscription they cost nothing when nobody is looking.
+     */
+    case VIEWER_STREAM_FM_AUDIO:
+    case VIEWER_STREAM_FM_AUDIO_SPECTRUM:
+    case VIEWER_STREAM_FM_SCATTER:
         return VIEWER_PACED_ON_TIME;
     case VIEWER_STREAM_COMMAND_RESULT:
         return VIEWER_PACED_ON_DEMAND;

@@ -65,6 +65,9 @@ const EXTRA = opt('--extra', '').split(' ').filter((a) => a.length > 0);
 // without this the picture is whichever came last, which is rarely the one
 // being looked at.
 const PNG_TAB = opt('--tab', '');
+// An element id to click after showing the tab and before the PNG -- a view's
+// own control, e.g. FM's `fm-charts` ("Show charts") toggle.
+const PNG_CLICK = opt('--click', '');
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => {
@@ -515,6 +518,12 @@ async function run() {
   if (PNG) {
     if (PNG_TAB) {
       await evaluate(`document.getElementById('tab-${PNG_TAB}').click(); true`);
+      await sleep(2500);
+    }
+    // An optional element to click before the shot -- a view's own control,
+    // such as FM's "Show charts" toggle, which a tab click alone cannot reach.
+    if (PNG_CLICK) {
+      await evaluate(`document.getElementById('${PNG_CLICK}').click(); true`);
       await sleep(2500);
     }
     const shot = await cdp.send('Page.captureScreenshot', { format: 'png' });

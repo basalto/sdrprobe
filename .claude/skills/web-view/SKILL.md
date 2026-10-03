@@ -241,7 +241,36 @@ the failure these exist for.
   If the array does not sit on the receiver's own frequency grid, use
   `VIEWER_RANGE_HEADER_BYTES` and `publish_range_binary()` — it carries
   `lower_hz`/`upper_hz` and both the survey sweep and the FM multiplex go
-  through it.
+  through it. **Two arrays ride one message** the way a spectrum carries
+  average-then-peak: `publish_binary()` takes `array_a` and `array_b`, and
+  the FM constellation sends i-then-q that way (one `bins`, two float runs).
+- **A binary type is spelled in two readers, not one.** `wire.js` is the
+  browser's; `scripts/viewer_client.py` is the CLI's, and it has **three**
+  places to touch — `MESSAGE_TYPE_NAMES`, `RANGE_HEADER_TYPES` (if it rides
+  the wider header), and `decode_binary()`'s `array_count` (if it carries two
+  arrays). Miss the last and `--stats`/`--count` raise "declares N bins but
+  carries 2N"; the FM charts hit exactly that. `run_stats()` also skips a
+  text message with no `timestamp_ms` — `command_result`, the reply to the
+  `--send` line — rather than aging against a key it does not have.
+- **A measurement chart does not have to pace on data.** The FM analysis
+  charts are arrays but paced **on time** at a 4 Hz heartbeat
+  (`viewer_stream_pacing()` → `VIEWER_PACED_ON_TIME`, a `*_published_at` local
+  and `VIEWER_SESSION_CHART_INTERVAL_SECONDS`), because a human reading a
+  chart does not need 15 Hz and the audio spectrum recomputes only that often.
+  An on-time publish fires on passes with no new block, so its view model
+  must **persist across loop iterations** (declared before the `while`, zeroed
+  once, rebuilt in the on-data block) rather than being a loop-body local the
+  on-data block alone fills — else it reads garbage on a no-block pass. The
+  pacing table change makes `check-viewer-session`'s on-time count move, which
+  is the check forcing you to say the stream joined that family.
+- **A view can swap its own stream set.** `streams` can be a mutable array the
+  view rewrites on an internal toggle, calling viewer.js's
+  `subscribeToActiveView()` after. FM's "Show charts" does this: the signal
+  view subscribes the waterfall, the charts view subscribes the three analysis
+  streams and **drops the waterfall** (hidden then, and the page's largest
+  stream), so the swap is close to throughput-neutral and the charts cost
+  nothing while the signal view is up. Mutate the array in place — the
+  registry holds that reference.
 - **A decode view is not a tab.** `view <name>` for one is a `set_decode()`
   *then* a `set_tab()`, in that order — switching the tab first enters
   whichever decode kind is already recorded and leaves it again on the way
@@ -398,7 +427,14 @@ make check-web-layout WEB_SIZES=1920x1080,1280x720,1024x600
 node scripts/web_layout.mjs --png /tmp/page.png         # and a PNG to look at
 node scripts/web_layout.mjs --tab gsm --file testfiles/gsm_arfcn_69.bin \
     --rate 2000000 --extra "--arfcn 69" --png /tmp/gsm.png
+node scripts/web_layout.mjs --tab fm --click fm-charts \
+    --file testfiles/fm_rds_tsf.bin --rate 2048000 --freq 89.5M --png /tmp/c.png
 ```
+
+**`--click <id>`** clicks one element after showing the tab and before the
+PNG — a view's own control a tab click cannot reach, such as FM's `fm-charts`
+("Show charts") toggle. It is how you screenshot a mode the tab does not open
+into; without it the gate only ever sees a view's default arrangement.
 
 A PNG from it is worth trusting *because the same run already asserted the
 text is there* — ticket 07's headless screenshot showed the canvas and left

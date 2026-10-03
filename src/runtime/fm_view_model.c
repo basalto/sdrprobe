@@ -122,6 +122,54 @@ void fm_view_model_build(const struct fm_view *fm, struct fm_view_model *out) {
                (size_t)out->spectrum_bins * sizeof(*out->spectrum));
     }
 
+    /* The analysis charts. Each reads what the window's own chart reads;
+       decimated where the window's full resolution is not needed. */
+
+    /* The audio waveform, decimated to the model's point count. A stride of
+       at least one, so a short trace is carried whole rather than skipped. */
+    if (fm->audio_trace_count > 0) {
+        int src = (int)fm->audio_trace_count;
+        int stride = src / FM_VIEW_MODEL_AUDIO_POINTS;
+        int i;
+        if (stride < 1)
+            stride = 1;
+        out->audio_points = 0;
+        for (i = 0; i * stride < src &&
+                    out->audio_points < FM_VIEW_MODEL_AUDIO_POINTS; i++)
+            out->audio_wave[out->audio_points++] = fm->audio_trace[i * stride];
+    }
+
+    /* The audio spectrum, de-emphasised, as computed at the 0.25 s cadence. */
+    out->audio_spectrum_bins = (int)fm->audio_spectrum_bins;
+    if (out->audio_spectrum_bins > FM_VIEW_MODEL_MAX_BINS)
+        out->audio_spectrum_bins = FM_VIEW_MODEL_MAX_BINS;
+    if (out->audio_spectrum_bins > 0) {
+        out->audio_spectrum_bin_hz = fm->audio_spectrum_bin_hz;
+        memcpy(out->audio_spectrum, fm->audio_spectrum,
+               (size_t)out->audio_spectrum_bins * sizeof(*out->audio_spectrum));
+    }
+
+    /* The RDS constellation: computed here, where a check can reach it, rather
+       than in the draw call the window computes it in. */
+    if (fm->session.bb_count > 0)
+        out->scatter_points =
+            (int)fm_rds_symbols(fm->session.bb_i, fm->session.bb_q,
+                                fm->session.bb_count, fm->session.timing_offset,
+                                out->scatter_i, out->scatter_q,
+                                FM_VIEW_MODEL_SCATTER_POINTS);
+
+    /* The timing search's sixteen offsets. */
+    memcpy(out->timing_energy, fm->timing_energy, sizeof(out->timing_energy));
+
+    /* Group types, the A and B version of each summed, as the window sums
+       them. */
+    {
+        int i;
+        for (i = 0; i < 16; i++)
+            out->groups_by_type[i] =
+                (int)(s->groups_by_type[i * 2] + s->groups_by_type[i * 2 + 1]);
+    }
+
     /* Band II: the carrier list and its one-line summary, copied out of the
        scan rather than re-counted. `scanning` is the sweep's own flag, so a
        reader can say "Scanning band II" while it walks and "Band II" once it

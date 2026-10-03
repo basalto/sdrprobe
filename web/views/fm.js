@@ -22,12 +22,25 @@ const FmView = (function () {
   function elements() {
     if (!els) {
       const wf = document.getElementById('fm-waterfall');
-      const mpx = document.getElementById('fm-mpx');
+      // One {canvas, ctx} per analysis chart, by id.
+      const cv = (id) => {
+        const c = document.getElementById(id);
+        return { c: c, x: c.getContext('2d') };
+      };
       els = {
         wf, wfCtx: wf.getContext('2d'),
-        mpx, mpxCtx: mpx.getContext('2d'),
         wfWrap: document.getElementById('fm-waterfall-wrap'),
-        mpxWrap: document.getElementById('fm-mpx-wrap'),
+        // "Show charts" swaps the whole main area -- the Band II table and the
+        // waterfall together -- for the six-chart grid, the way the window's
+        // analysis arrangement takes the full area rather than a corner of it.
+        main: document.getElementById('fm-main'),
+        grid: document.getElementById('fm-charts-grid'),
+        cc: {
+          mpx: cv('fm-c-mpx'), wave: cv('fm-c-wave'),
+          aspec: cv('fm-c-aspec'), scatter: cv('fm-c-scatter'),
+          timing: cv('fm-c-timing'), groups: cv('fm-c-groups'),
+        },
+        timingCap: document.getElementById('fm-c-timing-cap'),
         markers: document.getElementById('fm-markers'),
         axis: document.getElementById('fm-axis'),
         charts: document.getElementById('fm-charts'),
@@ -97,19 +110,42 @@ const FmView = (function () {
   // changes the span can re-place the marks without waiting for the next
   // fm_state.
   let lastStations = [];
+  // What this view asks the server for. Two sets, swapped on the toggle: the
+  // signal view wants the waterfall (and nothing else binary), the charts view
+  // wants the three analysis streams and the multiplex -- and *not* the
+  // waterfall, which is hidden then and is the page's largest stream, so the
+  // swap is close to throughput-neutral. `fm_state` is in both, so the Band II
+  // marks and the timing/groups charts (which ride it) are always fed.
+  const SIGNAL_STREAMS = ['fm_state', 'waterfall'];
+  const CHART_STREAMS = ['fm_state', 'fm_spectrum', 'fm_audio',
+                         'fm_audio_spectrum', 'fm_scatter'];
+  // The live array the shell reads (viewer.js subscribes `activeView.streams`).
+  // Mutated in place so the reference the registry holds stays valid.
+  const streams = SIGNAL_STREAMS.slice();
+
   function showCharts(on) {
     const e = elements();
     charting = on;
-    e.wfWrap.hidden = on;
-    e.wfWrap.style.display = on ? 'none' : 'flex';
-    e.mpxWrap.hidden = !on;
-    e.mpxWrap.style.display = on ? 'flex' : 'none';
+    e.main.hidden = on;
+    e.main.style.display = on ? 'none' : 'flex';
+    e.grid.hidden = !on;
+    e.grid.style.display = on ? 'grid' : 'none';
     e.charts.textContent = on ? 'Show signal' : 'Show charts';
-    // The canvas coming into view was last sized against a column it was
-    // not part of; give it the one it is in now.
+
+    // Ask the server for the set this view now needs, so the chart streams
+    // cost nothing while the signal view is up and the waterfall costs nothing
+    // while the charts are. `subscribeToActiveView` is viewer.js's and reads
+    // `activeView.streams`, which is this same array.
+    const want = on ? CHART_STREAMS : SIGNAL_STREAMS;
+    streams.length = 0;
+    for (const s of want) streams.push(s);
+    if (typeof subscribeToActiveView === 'function') subscribeToActiveView();
+
+    // The canvases coming into view were last sized against a layout they were
+    // not part of; give them the one they are in now.
     resizeCanvases();
-    // The marks belong to the waterfall, so they clear when the multiplex is
-    // showing and come back with it.
+    // The marks belong to the waterfall, so they clear with the charts and
+    // come back with the signal view.
     renderMarkers();
   }
 
@@ -130,11 +166,18 @@ const FmView = (function () {
   // away the one it already built.
   function resizeCanvases() {
     const e = elements();
-    const wfBox = measure(e.wf), mpxBox = measure(e.mpx);
+    const wfBox = measure(e.wf);
 
     if (fitCanvas(e.wf, wfBox.width, wfBox.height))
       waterfallRedraw(e.wfCtx, e.wf, history);
-    fitCanvas(e.mpx, mpxBox.width, mpxBox.height);
+    // Each grid canvas to its own laid-out box. These carry no history of
+    // their own -- the next frame of each stream redraws it whole -- so a
+    // resize clearing them loses nothing.
+    for (const key in e.cc) {
+      const g = e.cc[key];
+      const box = measure(g.c);
+      fitCanvas(g.c, box.width, box.height);
+    }
   }
 
   // The window's own panel palette, taken from `src/gui/view_fm.c`'s file-scope
@@ -267,6 +310,13 @@ const FmView = (function () {
     renderBandII(s);
     lastStations = s.stations || [];
     renderMarkers();
+
+    // The two small analysis charts ride fm_state (sixteen numbers each), so
+    // they are drawn from it here -- only while the charts are showing.
+    if (charting) {
+      drawTiming(s.timing_energy || [], s.timing_offset || 0);
+      drawGroups(s.groups_by_type || []);
+    }
   }
 
   // The Band II table, mirroring the window's draw_scan_list: a one-line
@@ -368,32 +418,124 @@ const FmView = (function () {
     renderMarkers();
   }
 
-  function drawMultiplex(lowerHz, upperHz, power) {
-    const { mpx, mpxCtx } = elements();
-    const w = mpx.width, h = mpx.height;
-    const span = upperHz - lowerHz;
+  // The trace colour the window's charts draw in.
+  const TRACE = '#5adcc8';
+  const BAR = '#a9c5d6';       /* the window's bar fill */
+  const BAR_WIN = '#63e4aa';   /* the winning timing offset */
 
-    mpxCtx.fillStyle = '#0a0f16';
-    mpxCtx.fillRect(0, 0, w, h);
-    if (span > 0) {
-      mpxCtx.font = '12px monospace';
-      for (const m of LANDMARKS) {
-        const x = Math.round(w * (m.hz - lowerHz) / span);
-        if (x < 0 || x > w) continue;
-        mpxCtx.strokeStyle = '#232f3b';
-        mpxCtx.beginPath();
-        mpxCtx.moveTo(x + 0.5, 0);
-        mpxCtx.lineTo(x + 0.5, h);
-        mpxCtx.stroke();
-        mpxCtx.fillStyle = '#8291a0';
-        mpxCtx.fillText(m.label, x + 3, 12);
+  function clearChart(x, w, h) {
+    x.fillStyle = '#0a0f16';
+    x.fillRect(0, 0, w, h);
+  }
+
+  // A dBFS line spectrum, optionally with the multiplex's three landmarks and
+  // a top-of-band label -- the shared body of the multiplex and audio-spectrum
+  // charts, which differ only in their landmarks and their top frequency.
+  function spectrumChart(g, lowerHz, upperHz, power, landmarks) {
+    const w = g.c.width, h = g.c.height, span = upperHz - lowerHz;
+    clearChart(g.x, w, h);
+    if (span > 0 && landmarks) {
+      g.x.font = '12px monospace';
+      for (const m of landmarks) {
+        const bx = Math.round(w * (m.hz - lowerHz) / span);
+        if (bx < 0 || bx > w) continue;
+        g.x.strokeStyle = '#232f3b';
+        g.x.beginPath();
+        g.x.moveTo(bx + 0.5, 0);
+        g.x.lineTo(bx + 0.5, h);
+        g.x.stroke();
+        g.x.fillStyle = '#8291a0';
+        g.x.fillText(m.label, bx + 3, 12);
       }
     }
-    plot(mpxCtx, w, h, power, '#5adcc8', dbfsToY);
+    plot(g.x, w, h, power, TRACE, dbfsToY);
     if (span > 0) {
-      mpxCtx.fillStyle = '#8291a0';
-      mpxCtx.fillText((upperHz / 1e3).toFixed(0) + ' kHz', w - 60, h - 4);
+      g.x.fillStyle = '#8291a0';
+      g.x.fillText((upperHz / 1e3).toFixed(0) + ' kHz', w - 60, h - 4);
     }
+  }
+
+  function drawMultiplex(lowerHz, upperHz, power) {
+    spectrumChart(elements().cc.mpx, lowerHz, upperHz, power, LANDMARKS);
+  }
+
+  function drawAudioSpectrum(lowerHz, upperHz, power) {
+    spectrumChart(elements().cc.aspec, lowerHz, upperHz, power, null);
+  }
+
+  // The audio waveform, a line on a linear [-1, 1] axis (not dBFS): a flat
+  // line is dead air, a trace clipping the edges is a level follower behind a
+  // louder station -- the window's own reading of this chart.
+  function drawWave(wave) {
+    const g = elements().cc.wave, w = g.c.width, h = g.c.height;
+    clearChart(g.x, w, h);
+    g.x.strokeStyle = '#2a3744';
+    g.x.beginPath();
+    g.x.moveTo(0, h / 2 + 0.5);
+    g.x.lineTo(w, h / 2 + 0.5);   /* the zero line */
+    g.x.stroke();
+    plot(g.x, w, h, wave, TRACE, (v, hh) => hh * (1 - (v + 1) / 2));
+  }
+
+  // The RDS constellation: two lobes either side of the origin is a decode,
+  // one blob is a subcarrier not resolving, a ring is an axis not settled.
+  function drawScatter(pi, pq) {
+    const g = elements().cc.scatter, w = g.c.width, h = g.c.height;
+    clearChart(g.x, w, h);
+    // Axes through the middle, the window's framing.
+    g.x.strokeStyle = '#1b2531';
+    g.x.beginPath();
+    g.x.moveTo(w / 2 + 0.5, 0); g.x.lineTo(w / 2 + 0.5, h);
+    g.x.moveTo(0, h / 2 + 0.5); g.x.lineTo(w, h / 2 + 0.5);
+    g.x.stroke();
+    // A fixed scale so the cloud does not breathe with its own outliers; the
+    // soft symbols sit around +/-1.5.
+    const scale = 2.0;
+    g.x.fillStyle = TRACE;
+    for (let k = 0; k < pi.length; k++) {
+      const x = w / 2 + (pi[k] / scale) * (w / 2);
+      const y = h / 2 - (pq[k] / scale) * (h / 2);
+      g.x.fillRect(x - 1, y - 1, 2, 2);
+    }
+  }
+
+  // A bar chart over `values`, 0 to `ymax`, one bar per value, with an
+  // optional highlighted bar (the winning timing offset).
+  function barChart(g, values, ymax, color, highlight) {
+    const w = g.c.width, h = g.c.height, n = values.length;
+    clearChart(g.x, w, h);
+    if (n <= 0 || ymax <= 0) return;
+    const bw = w / n;
+    for (let k = 0; k < n; k++) {
+      const bh = Math.max(0, Math.min(1, values[k] / ymax)) * (h - 2);
+      g.x.fillStyle = k === highlight ? BAR_WIN : color;
+      g.x.fillRect(k * bw + 1, h - bh, Math.max(1, bw - 2), bh);
+    }
+  }
+
+  function drawTiming(energy, winOffset) {
+    barChart(elements().cc.timing, energy, 1.05, BAR, winOffset);
+    const cap = elements().timingCap;
+    if (cap)
+      cap.textContent = 'symbol timing: offset ' + winOffset + ' of '
+        + energy.length + ' wins';
+  }
+
+  // A round ceiling, not 1.15x the tallest bar, so the axis does not shift as
+  // a count crosses ten -- the window's `sdrgui_nice_ceiling`.
+  function niceCeiling(v) {
+    if (v <= 1) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const s of [1, 2, 5, 10]) {
+      if (v <= s * mag) return s * mag;
+    }
+    return 10 * mag;
+  }
+
+  function drawGroups(counts) {
+    let top = 1;
+    for (const c of counts) if (c > top) top = c;
+    barChart(elements().cc.groups, counts, niceCeiling(top), BAR, -1);
   }
 
   // One panel of the three-across row the window draws, with the window's
@@ -418,14 +560,28 @@ const FmView = (function () {
       + bodyHtml + '</div>';
   }
 
+  // One cell of the analysis grid: a label over a canvas that fills the rest
+  // of the cell. `capId` names the label for the one caption that changes at
+  // runtime -- the timing chart says which offset won.
+  function chartCell(canvasId, label, capId) {
+    const cap = '<div class="label"' + (capId ? ' id="' + capId + '"' : '')
+      + '>' + label + '</div>';
+    return '<div style="min-width:0;min-height:0;display:flex;'
+      + 'flex-direction:column">' + cap
+      + '<canvas id="' + canvasId + '" style="flex:1 1 0;min-height:0;'
+      + 'width:100%"></canvas></div>';
+  }
+
   return {
     id: 'fm',
     label: 'FM',
-    // `waterfall` is the Scope's own stream, and the window's FM screen
-    // draws the very same rows over the very same span -- one stream, two
-    // views, rather than an `fm_waterfall` that would carry identical
-    // bytes under another name.
-    streams: ['fm_spectrum', 'fm_state', 'waterfall'],
+    // The live stream set, swapped by `showCharts()` between the signal view's
+    // (waterfall + fm_state) and the charts view's (the three analysis streams
+    // + the multiplex + fm_state). `waterfall` is the Scope's own stream --
+    // one stream, two views, rather than an `fm_waterfall` carrying identical
+    // bytes under another name. Mutated in place so this reference stays the
+    // one the shell reads.
+    streams: streams,
     // The window gives its waterfall the whole width and the room left
     // above the panels; this takes the width the shell measured and about
     // two fifths of the viewport, with a floor so a short window still
@@ -445,9 +601,12 @@ const FmView = (function () {
       + '<button id="fm-charts" style="background:#16202c;color:#8291a0;'
       + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
       + 'cursor:pointer">Show charts</button></div>' +
-      // The main row: table left, waterfall right, the way the window draws
-      // Band II beside its waterfall.
-      '<div style="display:flex;gap:16px;flex:1 1 0;min-height:0">' +
+      // The signal view: table left, waterfall right, the way the window draws
+      // Band II beside its waterfall. Hidden as a whole when "Show charts" is
+      // on, which swaps it for the full-width chart grid below -- the window's
+      // analysis arrangement takes the full area, not a corner.
+      '<div id="fm-main" style="display:flex;gap:16px;flex:1 1 0;'
+      + 'min-height:0">' +
         // Band II. Its own panel rather than the generic one, because the
         // rows scroll inside a fixed header -- the scrolling region is what a
         // long band needs and what the layout gate reads as this view's main
@@ -479,15 +638,25 @@ const FmView = (function () {
             + 'right:0;height:0;pointer-events:none"></div>' +
             '<div class="label" id="fm-axis">awaiting receiver_state...</div>' +
           '</div>' +
-          '<div id="fm-mpx-wrap" hidden style="flex:1 1 0;min-height:140px;'
-          + 'display:none;flex-direction:column">' +
-            '<div class="label">multiplex (the pilot at 19 kHz, stereo at 38,'
-            + ' RDS at 57 -- a station with the first two and not the third'
-            + ' sends no RDS)</div>' +
-            '<canvas id="fm-mpx" style="flex:1 1 0;min-height:0;'
-            + 'width:100%"></canvas>' +
-          '</div>' +
         '</div>' +
+      '</div>' +
+      // The analysis grid, the window's "Show charts": six charts, three across
+      // and two down, in the window's own order -- multiplex, audio waveform,
+      // audio spectrum; then RDS symbols, symbol timing, groups by type. Hidden
+      // until the toggle, and then it takes the room the signal view had. Each
+      // cell is a label over a canvas that fills what is left; `min-height:0`/
+      // `min-width:0` let the cells divide the grid rather than overflow it.
+      '<div id="fm-charts-grid" hidden style="display:none;flex:1 1 0;'
+      + 'min-height:0;grid-template-columns:repeat(3,1fr);'
+      + 'grid-template-rows:repeat(2,1fr);gap:10px">' +
+      chartCell('fm-c-mpx',
+                'multiplex 0-76 kHz: pilot 19, stereo 38, RDS 57', '') +
+      chartCell('fm-c-wave', 'audio: the last tenth of a second', '') +
+      chartCell('fm-c-aspec', 'audio spectrum, 0-16 kHz, de-emphasised', '') +
+      chartCell('fm-c-scatter', 'RDS symbols, before the axis is chosen', '') +
+      chartCell('fm-c-timing', 'symbol timing', 'fm-c-timing-cap') +
+      chartCell('fm-c-groups',
+                'groups by type: 0 carries the name, 2 the radio text', '') +
       '</div>' +
       '<div style="display:flex;gap:16px;margin-top:10px;flex:0 1 auto;'
       + 'min-height:0">' +
@@ -510,6 +679,12 @@ const FmView = (function () {
         if (!charting) drawWaterfall(msg.row);
       } else if (msg.kind === 'fm_spectrum') {
         if (charting) drawMultiplex(msg.lowerHz, msg.upperHz, msg.power);
+      } else if (msg.kind === 'fm_audio') {
+        if (charting) drawWave(msg.wave);
+      } else if (msg.kind === 'fm_audio_spectrum') {
+        if (charting) drawAudioSpectrum(msg.lowerHz, msg.upperHz, msg.power);
+      } else if (msg.kind === 'fm_scatter') {
+        if (charting) drawScatter(msg.i, msg.q);
       } else if (msg.kind === 'state') {
         if (msg.state.type === 'fm_state') renderState(msg.state);
         else if (msg.state.type === 'receiver_state') renderAxis(msg.state);

@@ -89,6 +89,7 @@ int viewer_link_open(struct viewer_link *link, uint16_t port,
 static const char *const stream_names[VIEWER_STREAM_COUNT] = {
     "spectrum", "waterfall", "receiver_state", "link_health", "command_result",
     "survey_spectrum", "survey_state", "fm_spectrum", "fm_state",
+    "fm_audio", "fm_audio_spectrum", "fm_scatter",
     "gsm_state", "adsb_state", "tetra_state", "srd_state",
     "lte_state", "settings_state", "cal_state"
 };
@@ -1110,6 +1111,56 @@ void viewer_link_publish_fm_spectrum(struct viewer_link *link,
 }
 
 /*
+ * The three analysis charts behind "Show charts". Each guards on its own
+ * count, so nothing is sent before a decode has produced it -- the same rule
+ * `fm_spectrum` follows, which is what keeps an empty chart off the wire
+ * rather than publishing a zero-length array a client must special-case.
+ */
+void viewer_link_publish_fm_audio(struct viewer_link *link,
+                                  const struct fm_view_model *fvm,
+                                  uint32_t tuning_generation, uint64_t now_ms) {
+    if (fvm->audio_points <= 0 ||
+        fvm->audio_points > FM_VIEW_MODEL_AUDIO_POINTS)
+        return;
+    /* A time trace, not a spectrum, so no range header: the base binary
+       message, one float array. */
+    publish_binary(link, VIEWER_STREAM_FM_AUDIO, VIEWER_MESSAGE_FM_AUDIO,
+                   tuning_generation, now_ms, (uint32_t)fvm->audio_points,
+                   fvm->audio_wave, NULL);
+}
+
+void viewer_link_publish_fm_audio_spectrum(struct viewer_link *link,
+                                           const struct fm_view_model *fvm,
+                                           uint32_t tuning_generation,
+                                           uint64_t now_ms) {
+    if (fvm->audio_spectrum_bins <= 0 ||
+        fvm->audio_spectrum_bins > FM_VIEW_MODEL_MAX_BINS)
+        return;
+    /* Baseband, 0 to about 16 kHz -- its own grid, so the range header, like
+       the multiplex. */
+    publish_range_binary(link, VIEWER_STREAM_FM_AUDIO_SPECTRUM,
+                         VIEWER_MESSAGE_FM_AUDIO_SPECTRUM, tuning_generation,
+                         now_ms, (uint32_t)fvm->audio_spectrum_bins, 0.0,
+                         (double)fvm->audio_spectrum_bins *
+                             fvm->audio_spectrum_bin_hz,
+                         fvm->audio_spectrum);
+}
+
+void viewer_link_publish_fm_scatter(struct viewer_link *link,
+                                    const struct fm_view_model *fvm,
+                                    uint32_t tuning_generation,
+                                    uint64_t now_ms) {
+    if (fvm->scatter_points <= 0 ||
+        fvm->scatter_points > FM_VIEW_MODEL_SCATTER_POINTS)
+        return;
+    /* Two arrays, i then q, the same layout the Scope's spectrum uses for
+       average then peak -- one `bins`, two float runs after the header. */
+    publish_binary(link, VIEWER_STREAM_FM_SCATTER, VIEWER_MESSAGE_FM_SCATTER,
+                   tuning_generation, now_ms, (uint32_t)fvm->scatter_points,
+                   fvm->scatter_i, fvm->scatter_q);
+}
+
+/*
  * Ticket 07's sweep status, alongside the chart above: what the window's
  * own status line would say, whether a sweep is walking the range, and the
  * candidate list -- each candidate's mark named the way `sdrgui.h` already
@@ -1222,8 +1273,22 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
     char traffic[sizeof(fvm->traffic) * 6 + 1];
     char audio_error[sizeof(fvm->audio_error) * 6 + 1];
     char scan_status[sizeof(fvm->scan_status) * 6 + 1];
-    int json_len, used;
-    int i;
+    char timing[16 * 12 + 2];
+    char groups[16 * 8 + 2];
+    int json_len, used, off, k, i;
+
+    /* The two small analysis arrays, folded into this state rather than given
+       streams of their own: sixteen numbers each is a couple of hundred bytes,
+       and fm_state is already subscribed whenever the FM view is up, so the
+       timing and group-type charts draw with no stream to manage. */
+    off = 0;
+    for (k = 0; k < FM_RDS_SAMPLES_PER_SYMBOL && k < 16; k++)
+        off += snprintf(timing + off, sizeof(timing) - (size_t)off, "%s%.4f",
+                        k ? "," : "", fvm->timing_energy[k]);
+    off = 0;
+    for (k = 0; k < 16; k++)
+        off += snprintf(groups + off, sizeof(groups) - (size_t)off, "%s%d",
+                        k ? "," : "", fvm->groups_by_type[k]);
 
     json_escape_into(ps, sizeof(ps), fvm->ps, strlen(fvm->ps));
     json_escape_into(rt, sizeof(rt), fvm->rt, strlen(fvm->rt));
@@ -1257,6 +1322,7 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
                         "\"identified\":%ld,\"named\":%ld,"
                         "\"reading\":\"%s\",\"reading_tone\":\"%s\","
                         "\"scanning\":%s,\"scan_status\":\"%s\","
+                        "\"timing_energy\":[%s],\"groups_by_type\":[%s],"
                         "\"stations\":[",
                         (unsigned long long)now_ms,
                         fvm->pilot_locked ? "true" : "false", fvm->pilot_hz,
@@ -1276,7 +1342,8 @@ void viewer_link_publish_fm_state(struct viewer_link *link,
                         fvm->bits, fvm->blocks_matched, fvm->groups,
                         fvm->identified, fvm->named, reading,
                         fm_reading_tone_name(fvm->reading_tone),
-                        fvm->scanning ? "true" : "false", scan_status);
+                        fvm->scanning ? "true" : "false", scan_status,
+                        timing, groups);
     if (used <= 0 || (size_t)used >= sizeof(json))
         return; /* truncated: a half-written object is not JSON */
 

@@ -33,6 +33,15 @@ struct fm_view;
    this is the array's own length, not a cap chosen under it. */
 #define FM_VIEW_MODEL_MAX_BINS FM_MPX_SPECTRUM_BINS
 
+/* The audio waveform, decimated for the chart: a line over a few hundred
+   pixels does not need the window's full ~3277 samples, and a quarter of them
+   is the same shape at a quarter the wire cost. */
+#define FM_VIEW_MODEL_AUDIO_POINTS 1024
+
+/* The RDS constellation, capped: a symbol cloud reads the same at 256 points
+   as at the window's 512, and the chart is about shape, not count. */
+#define FM_VIEW_MODEL_SCATTER_POINTS 256
+
 /*
  * How the funnel's closing sentence reads, decided once here rather than by
  * whoever draws it.
@@ -166,6 +175,43 @@ struct fm_view_model {
     int spectrum_bins;
     double spectrum_bin_hz;
     float spectrum[FM_VIEW_MODEL_MAX_BINS];
+
+    /* -- The analysis arrangement's other charts, the five beside the
+          multiplex the window draws behind "Show charts". Each carries what
+          the window's own chart reads; the browser draws the same picture.
+          Decimated where a chart does not need the window's full resolution
+          (a waveform and a symbol cloud are the same shape at a quarter the
+          points), which is also what keeps the wire cost of these to a few
+          tens of KB/s. All are zero/empty until a decode has produced them. -- */
+
+    /* The sound, as a waveform -- `fm_view.audio_trace`, decimated to a count
+       a line chart renders cleanly. */
+    int audio_points;
+    float audio_wave[FM_VIEW_MODEL_AUDIO_POINTS];
+
+    /* The sound's own spectrum, de-emphasised, 0 to about 16 kHz
+       (`fm_view.audio_spectrum`). Its own bin width, like the multiplex. */
+    int audio_spectrum_bins;
+    double audio_spectrum_bin_hz;
+    float audio_spectrum[FM_VIEW_MODEL_MAX_BINS];
+
+    /* The RDS symbols as a constellation -- `fm_rds_symbols()` over the
+       session's baseband, which the window computes in the draw call and this
+       computes in the builder so a check can reach it. Interleaved would save
+       a field; two arrays match how the Scope's spectrum already travels. */
+    int scatter_points;
+    float scatter_i[FM_VIEW_MODEL_SCATTER_POINTS];
+    float scatter_q[FM_VIEW_MODEL_SCATTER_POINTS];
+
+    /* The timing search's sixteen offsets, and which won (the offset is
+       `timing_offset` above). A small bar chart: a clear peak is a symbol
+       clock nobody need think about. */
+    float timing_energy[FM_RDS_SAMPLES_PER_SYMBOL];
+
+    /* How many of each RDS group type arrived -- type 0 carries the name,
+       type 2 the radio text. The window sums the A and B versions of each;
+       this carries the sixteen sums. */
+    int groups_by_type[16];
 
     /* -- Band II: what a band walk found, one row per carrier. The window
           draws this as a scrolling table beside the waterfall and pills each

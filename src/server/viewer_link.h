@@ -104,7 +104,16 @@ enum viewer_message_type {
     /* The FM multiplex (ticket 14's Phase 4), on that same wider header and
        for the same reason: it is a baseband spectrum, 0 Hz to about 60 kHz,
        which is not the receiver's own grid either. */
-    VIEWER_MESSAGE_FM_SPECTRUM = 4
+    VIEWER_MESSAGE_FM_SPECTRUM = 4,
+    /* The FM analysis charts behind "Show charts". The audio waveform is a
+       plain float array on the base header (it is a time trace, not a
+       spectrum, so it carries no range); the audio spectrum rides the wider
+       range header (0 to ~16 kHz baseband, like the multiplex); and the RDS
+       constellation is two float arrays on the base header, the same i-then-q
+       layout the Scope's spectrum uses for average-then-peak. */
+    VIEWER_MESSAGE_FM_AUDIO = 5,
+    VIEWER_MESSAGE_FM_AUDIO_SPECTRUM = 6,
+    VIEWER_MESSAGE_FM_SCATTER = 7
 };
 
 /*
@@ -165,6 +174,13 @@ enum viewer_stream {
        spectrum binary, the three panels' fields JSON. */
     VIEWER_STREAM_FM_SPECTRUM,
     VIEWER_STREAM_FM_STATE,
+    /* The FM analysis charts behind "Show charts" -- the waveform, the audio
+       spectrum and the RDS constellation. Paced on time at a 4 Hz heartbeat
+       rather than on data (viewer_session.h), and subscribed only while the
+       charts are showing, so they cost nothing when nobody is looking. */
+    VIEWER_STREAM_FM_AUDIO,
+    VIEWER_STREAM_FM_AUDIO_SPECTRUM,
+    VIEWER_STREAM_FM_SCATTER,
     VIEWER_STREAM_GSM_STATE,
     VIEWER_STREAM_ADSB_STATE,
     VIEWER_STREAM_TETRA_STATE,
@@ -501,6 +517,19 @@ void viewer_link_publish_fm_spectrum(struct viewer_link *link,
 void viewer_link_publish_fm_state(struct viewer_link *link,
                                   const struct fm_view_model *fvm,
                                   uint64_t now_ms);
+/* The three analysis charts behind "Show charts" (the waveform, the audio
+   spectrum and the RDS constellation), paced on time at a 4 Hz heartbeat. */
+void viewer_link_publish_fm_audio(struct viewer_link *link,
+                                  const struct fm_view_model *fvm,
+                                  uint32_t tuning_generation, uint64_t now_ms);
+void viewer_link_publish_fm_audio_spectrum(struct viewer_link *link,
+                                           const struct fm_view_model *fvm,
+                                           uint32_t tuning_generation,
+                                           uint64_t now_ms);
+void viewer_link_publish_fm_scatter(struct viewer_link *link,
+                                    const struct fm_view_model *fvm,
+                                    uint32_t tuning_generation,
+                                    uint64_t now_ms);
 
 /*
  * Ticket 08's Health panel: what only the server knows about the link

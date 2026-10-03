@@ -313,7 +313,15 @@ int viewer_session_run(struct app *app) {
     double state_published_at = -1.0;
     uint32_t state_generation = 0;
     int state_ever_published = 0;
+    /* The FM analysis charts are paced on time, so they read the most recent
+       FM model on a 4 Hz heartbeat rather than only on the pass that built it.
+       The model therefore persists across iterations: zeroed here, rebuilt in
+       the on-data block, and its publishers guard on their own counts so a
+       zeroed model before the first block sends nothing. */
+    double fm_charts_published_at = -1.0;
+    struct fm_view_model fm_svm;
 
+    memset(&fm_svm, 0, sizeof(fm_svm));
     process_cpu_sample_now(&cpu_previous);
 
     sdr_dsp_init(&app->frame.dsp);
@@ -478,7 +486,6 @@ int viewer_session_run(struct app *app) {
         int spectrum_updated;
         struct scope_view_model svm;
         struct survey_view_model survey_svm;
-        struct fm_view_model fm_svm;
         struct gsm_view_model gsm_svm;
         struct adsb_view_model adsb_svm;
         struct tetra_view_model tetra_svm;
@@ -687,6 +694,28 @@ int viewer_session_run(struct app *app) {
                                          &cvm);
             viewer_link_publish_cal_state(&link, &cvm, now_ms);
             cal_published_at = now;
+        }
+
+        /*
+         * The FM analysis charts behind "Show charts", on a 4 Hz heartbeat.
+         * One `viewer_publish_due` gates all three because they share a pacing
+         * (the on-data block does the same with VIEWER_STREAM_SPECTRUM). They
+         * read the persisted `fm_svm`, rebuilt in the on-data block from the
+         * last block, and each publisher sends nothing for an array no decode
+         * has filled -- so before the first block, and for a chart with no
+         * data yet, this costs nothing. Subscribed only while the charts show.
+         */
+        if (viewer_publish_due(VIEWER_STREAM_FM_AUDIO, spectrum_updated,
+                               now, fm_charts_published_at,
+                               VIEWER_SESSION_CHART_INTERVAL_SECONDS, 0)) {
+            viewer_link_publish_fm_audio(&link, &fm_svm,
+                                         rvm->tuning_generation, now_ms);
+            viewer_link_publish_fm_audio_spectrum(&link, &fm_svm,
+                                                  rvm->tuning_generation,
+                                                  now_ms);
+            viewer_link_publish_fm_scatter(&link, &fm_svm,
+                                           rvm->tuning_generation, now_ms);
+            fm_charts_published_at = now;
         }
 
         if (viewer_publish_due(VIEWER_STREAM_LINK_HEALTH, spectrum_updated,

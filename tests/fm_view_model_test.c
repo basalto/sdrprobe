@@ -459,6 +459,59 @@ static void test_the_band_ii_stations_are_carried(void) {
     check_str("a nameless carrier has an empty name", out.stations[1].ps, "");
 }
 
+/*
+ * The analysis charts behind "Show charts" -- the five beside the multiplex.
+ * The browser draws each from these fields, so the model has to carry what the
+ * window's own charts read: the waveform (decimated), the audio spectrum, the
+ * timing scores and the group-type sums. The constellation needs real
+ * baseband, which `check-fm-dsp` owns, so it is only checked to be empty here
+ * when there is none.
+ */
+static void test_the_analysis_charts_are_carried(void) {
+    static struct fm_view fm;
+    struct fm_view_model out;
+    int i;
+
+    zero_fm(&fm);
+
+    /* The waveform: 2048 samples decimate by two to the model's 1024 points. */
+    fm.audio_trace_count = 2048;
+    for (i = 0; i < 2048; i++)
+        fm.audio_trace[i] = (float)i;
+
+    /* The audio spectrum, carried as measured. */
+    fm.audio_spectrum_bins = 8;
+    fm.audio_spectrum_bin_hz = 24.0;
+    for (i = 0; i < 8; i++)
+        fm.audio_spectrum[i] = -40.0f - (float)i;
+
+    /* The timing search's sixteen offsets. */
+    for (i = 0; i < FM_RDS_SAMPLES_PER_SYMBOL; i++)
+        fm.timing_energy[i] = (float)i;
+
+    /* Group types: the A and B version of each summed, as the window sums. */
+    fm.session.station.groups_by_type[0] = 100;  /* type 0, version A */
+    fm.session.station.groups_by_type[1] = 20;   /* type 0, version B */
+    fm.session.station.groups_by_type[4] = 7;    /* type 2, version A */
+
+    fm_view_model_build(&fm, &out);
+
+    check_int("the waveform decimates to the model's point count",
+              out.audio_points, FM_VIEW_MODEL_AUDIO_POINTS);
+    check_close("the first waveform point is the first sample",
+                out.audio_wave[0], 0.0, 1e-6);
+    check_close("and the second is two samples on (stride two)",
+                out.audio_wave[1], 2.0, 1e-6);
+    check_int("the audio spectrum bin count is carried",
+              out.audio_spectrum_bins, 8);
+    check_close("its first bin is carried", out.audio_spectrum[0], -40.0, 1e-6);
+    check_close("the timing energy is carried", out.timing_energy[3], 3.0,
+                1e-6);
+    check_int("type 0 sums its two versions", out.groups_by_type[0], 120);
+    check_int("type 2 carries its count", out.groups_by_type[2], 7);
+    check_int("an empty baseband means no symbols", out.scatter_points, 0);
+}
+
 /* A scan can find more carriers than the model's array holds -- the copy
    stops at the array rather than running past it, so a reader never sees a
    count it cannot index. */
@@ -495,6 +548,7 @@ int main(void) {
     test_the_funnel_counts_are_carried();
     test_the_band_ii_stations_are_carried();
     test_the_station_list_is_clamped();
+    test_the_analysis_charts_are_carried();
     return check_report("the FM view's model: its three panels, and the "
                         "funnel's own sentence");
 }
