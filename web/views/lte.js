@@ -233,11 +233,24 @@ const LteView = (function () {
       + escapeHtml(markerLabel) + '</div>';
   }
 
-  // A label/value row, the shape every panel here uses.
+  // The column grid the cell-search and broadcast tables are laid out on: a
+  // wide label column and three equal numeric columns (min/mean/max). With
+  // `table-layout:fixed` these widths are the whole truth -- cell content no
+  // longer gets a vote, so a value changing length cannot move a column.
+  const COLS = '<colgroup><col style="width:46%"><col style="width:18%">'
+    + '<col style="width:18%"><col style="width:18%"></colgroup>';
+
+  // A label/value row, the shape every panel here uses. The value spans the
+  // three numeric columns the stat rows use, so it reads against the same left
+  // edge whether its table is the four-column cell search or the mib panel --
+  // and, with the table laid out `fixed` (below), a value that changes length
+  // ("first half" to "second half", a wider sample number) no longer resizes a
+  // column and slides every stat row sideways.
   function row(label, value, color) {
     return [
       '<td style="color:' + ROW_LABEL + '">' + label + '</td>',
-      '<td style="color:' + (color || ROW_VALUE) + '">' + value + '</td>',
+      '<td colspan="3" style="color:' + (color || ROW_VALUE) + '">'
+        + value + '</td>',
     ];
   }
 
@@ -467,11 +480,13 @@ const LteView = (function () {
               + '<div id="lte-scan-note" style="font-size:12px;'
               + 'margin-top:6px;color:' + ROW_MUTED + '"></div>', 2)
       + panel('Cell search -- what PSS and SSS found',
-              '<table><tbody id="lte-cell-rows"></tbody></table>'
+              '<table style="table-layout:fixed;width:100%">' + COLS
+              + '<tbody id="lte-cell-rows"></tbody></table>'
               + '<div id="lte-cell-note" style="font-size:12px;'
               + 'margin-top:6px;color:' + ROW_MUTED + '"></div>', 3)
       + panel('Broadcast -- what the cell says about itself',
-              '<table><tbody id="lte-mib-rows"></tbody></table>'
+              '<table style="table-layout:fixed;width:100%">' + COLS
+              + '<tbody id="lte-mib-rows"></tbody></table>'
               + '<div id="lte-mib-note" style="font-size:12px;'
               + 'margin:6px 0 8px;color:' + ROW_MUTED + '"></div>'
               + '<div id="lte-findings" style="font-size:12px;line-height:1.4;'
