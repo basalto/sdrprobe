@@ -271,6 +271,29 @@ the failure these exist for.
   stream), so the swap is close to throughput-neutral and the charts cost
   nothing while the signal view is up. Mutate the array in place — the
   registry holds that reference.
+- **Every decode view now has its analysis charts**, each the FM pattern
+  repeated: FM (6), TETRA (2), SRD (2), ADS-B (4), GSM (4), LTE (5). Three
+  things recurred and are worth knowing before porting a sixth:
+  - **The chart data is usually computed already, sometimes behind a gate.**
+    TETRA's and SRD's and ADS-B's arrays are filled by the decode every block;
+    FM's audio spectrum, FM's timing, and **LTE's whole trace** were gated on
+    the window's `analysis_mode`, which is always off in `web` mode — the same
+    silent hole `fm_spectrum` had. Drop the gate (the cost is small and a
+    computation should not answer to who is drawing); do not leave it and
+    wonder why the browser chart is empty.
+  - **A constellation is two arrays, `publish_binary(a, b)`** — i/x then q/y,
+    the spectrum's average/peak layout. Everything else is one array. Carry
+    the points projected the way the window draws them (GSM onto the unit
+    circle; ADS-B's bit-decision y centred on the expected amplitude), so the
+    browser only plots.
+  - **The link_health buffer is sized by the stream count.** Twenty-four chart
+    streams took it past the old 1280 bytes and the list truncated silently;
+    `check-viewer-link` walks every name and caught it. It is 4096 now.
+  - **One caveat that is faithful, not a bug:** LTE's PSS-correlation chart
+    is empty on a latched capture, because the session skips the full PSS
+    search once it has a cell — and the window's PSS chart is empty there too,
+    for the same reason. It fills during acquisition. Match the window's data
+    source and the browser inherits the window's honesty.
 - **A decode view is not a tab.** `view <name>` for one is a `set_decode()`
   *then* a `set_tab()`, in that order — switching the tab first enters
   whichever decode kind is already recorded and leaves it again on the way
