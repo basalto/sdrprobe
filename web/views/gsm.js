@@ -17,6 +17,7 @@ const GsmView = (function () {
       els = {
         wf: document.getElementById('gsm-waterfall'),
         wfWrap: document.getElementById('gsm-waterfall-wrap'),
+        markers: document.getElementById('gsm-markers'),
         grid: document.getElementById('gsm-charts-grid'),
         charts: document.getElementById('gsm-charts'),
         cc: {
@@ -76,6 +77,8 @@ const GsmView = (function () {
     for (const s of want) streams.push(s);
     if (typeof subscribeToActiveView === 'function') subscribeToActiveView();
     resizeCanvases();
+    // The mark belongs to the waterfall, so it clears with the charts.
+    renderMarkers();
   }
 
   function resizeCanvases() {
@@ -176,9 +179,15 @@ const GsmView = (function () {
   const FIRST_ARFCN = 1;
   const LAST_ARFCN = 124;
 
+  /* The window's marker colour for the inspected channel, {100, 220, 140}. */
+  const MARKER_COLOR = '#64dc8c';
+
   // Whichever gsm_state arrived last, so a resize can redraw the scan
   // without waiting for the next block.
   let lastState = null;
+  // The received span from the last receiver_state, and the inspected channel
+  // from the last gsm_state -- the ARFCN mark is placed against the span.
+  let lastLowerHz = 0, lastUpperHz = 0, markerHz = 0, markerLabel = '';
   const wf = createWaterfall();   // lib/waterfall.js -- rows survive a resize
 
   function drawWaterfall(row) {
@@ -192,10 +201,32 @@ const GsmView = (function () {
   // though the rows are byte-for-byte the same stream.
   function renderAxis(state) {
     const { axis } = elements();
-    const lower = state.center_hz - state.sample_rate_hz / 2;
-    const upper = state.center_hz + state.sample_rate_hz / 2;
+    lastLowerHz = state.center_hz - state.sample_rate_hz / 2;
+    lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
     axis.textContent = 'GSM 900 ARFCN (200 kHz spacing)   '
-      + (lower / 1e6).toFixed(3) + ' - ' + (upper / 1e6).toFixed(3) + ' MHz';
+      + (lastLowerHz / 1e6).toFixed(3) + ' - '
+      + (lastUpperHz / 1e6).toFixed(3) + ' MHz';
+    renderMarkers();
+  }
+
+  // One mark over the inspected ARFCN, the window's own: at the selected
+  // channel's frequency (`carrier_hz`), labelled by its BSIC once the
+  // synchronisation burst has decoded and by its ARFCN until then. Empty when
+  // no channel is inspected, and cleared while the burst charts are up.
+  function renderMarkers() {
+    const e = elements();
+    const span = lastUpperHz - lastLowerHz;
+    if (span <= 0 || charting || !markerLabel
+        || markerHz < lastLowerHz || markerHz > lastUpperHz) {
+      e.markers.innerHTML = '';
+      return;
+    }
+    const pct = (100 * (markerHz - lastLowerHz) / span).toFixed(2);
+    e.markers.innerHTML = '<div style="position:absolute;top:0;left:' + pct
+      + '%;transform:translateX(-50%);white-space:nowrap;font:11px monospace;'
+      + 'padding:1px 4px;border:1px solid ' + MARKER_COLOR + ';border-radius:2px;'
+      + 'background:#133;font-weight:bold;color:' + MARKER_COLOR + '">'
+      + markerLabel + '</div>';
   }
 
   // The two readouts. Both arrive already decided, as names
@@ -303,6 +334,14 @@ const GsmView = (function () {
     const e = elements();
     lastState = s;
 
+    // The inspected-channel mark: its frequency and a label chosen the way the
+    // window chooses it -- BSIC once the SCH has decoded, ARFCN until then.
+    markerHz = s.carrier_hz || 0;
+    markerLabel = markerHz > 0
+      ? (s.sch === 'decoded' ? 'BSIC ' + s.bsic : 'ARFCN ' + s.arfcn)
+      : '';
+    renderMarkers();
+
     const sch = schLine(s), bcch = bcchLine(s);
     e.sch.textContent = sch.text;
     e.sch.style.color = sch.color;
@@ -372,9 +411,11 @@ const GsmView = (function () {
       // receiver". Weighted 3 to 1 -- measured at 1400x900, that is 381px
       // against 134 where an even split gave them 243 each.
       + '<div id="gsm-waterfall-wrap" style="flex:3 1 0;min-height:100px;'
-      + 'display:flex;flex-direction:column">'
+      + 'position:relative;display:flex;flex-direction:column">'
       + '<canvas id="gsm-waterfall" style="flex:1 1 0;min-height:0;'
       + 'width:100%"></canvas>'
+      + '<div id="gsm-markers" style="position:absolute;top:0;left:0;right:0;'
+      + 'height:0;pointer-events:none"></div>'
       + '<div class="label" id="gsm-axis">awaiting receiver_state...</div>'
       + '</div>'
       // The SCH burst analysis, a 2x2 grid taking the waterfall's room when it

@@ -19,6 +19,7 @@ const AdsbView = (function () {
           land: cv('adsb-c-land'), conf: cv('adsb-c-conf'),
           env: cv('adsb-c-env'), scatter: cv('adsb-c-scatter'),
         },
+        markers: document.getElementById('adsb-markers'),
         axis: document.getElementById('adsb-axis'),
         head: document.getElementById('adsb-head'),
         funnel: document.getElementById('adsb-funnel'),
@@ -27,13 +28,54 @@ const AdsbView = (function () {
       };
       els.wfCtx = els.wf.getContext('2d');
       els.charts.onclick = () => showCharts(!charting);
+      // Click a message row to select that aircraft -- the window's own
+      // log-row and marker click (`selected_log`), a reader's cursor that
+      // touches nothing on the air, so it stays in the browser. The rows
+      // rebuild only when they change (below), so the click lands.
+      els.rows.onclick = (ev) => {
+        const tr = ev.target.closest('tr');
+        if (!tr) return;
+        const i = Array.prototype.indexOf.call(els.rows.children, tr);
+        if (i >= 0) selectLog(i);
+      };
+      // And the same selection from the waterfall dot, which carries its log
+      // index.
+      els.markers.onclick = (ev) => {
+        const dot = ev.target.closest('[data-i]');
+        if (!dot) return;
+        const i = parseInt(dot.dataset.i, 10);
+        if (i >= 0) selectLog(i);
+      };
     }
     return els;
   }
 
+  // The selected message -- the window's `selected_log`, a per-viewer cursor.
+  let selectedLog = -1;
+  let lastLog = [], rowSig = null, markerSig = null;
+  // The session clock at the last adsb_state, advanced locally so the dots
+  // scroll smoothly down the waterfall between states (the SRD pattern).
+  let lastNowSeconds = 0, lastNowStamp = 0;
+  // One waterfall row is one sample block; its duration sets the scroll rate.
+  const ADSB_BLOCK_PAIRS = 131072;
+  function now() {
+    return lastNowSeconds + (performance.now() - lastNowStamp) / 1000;
+  }
+
+  function selectLog(i) {
+    selectedLog = (i === selectedLog) ? -1 : i;
+    renderLog();
+    renderMarkers();
+  }
+
   const TRACE = '#5adcc8';
   const BAR = '#a9c5d6';
+  /* The window's ADS-B marker colour, {80, 220, 240}. */
+  const MARKER_COLOR = '#50dcf0';
   let charting = false;
+  // The received span from the last receiver_state -- the aircraft dots all sit
+  // at the 1090 MHz centre (x), separated only by age (y).
+  let lastLowerHz = 0, lastUpperHz = 0;
   // The stream set, swapped on the toggle. adsb_state is in both, so the
   // funnel and log are always fed; the four chart streams and not the
   // waterfall are the charts view's. Mutated in place.
@@ -55,6 +97,8 @@ const AdsbView = (function () {
     for (const s of want) streams.push(s);
     if (typeof subscribeToActiveView === 'function') subscribeToActiveView();
     resizeCanvases();
+    // The dots belong to the waterfall, so they clear with the charts.
+    renderMarkers();
   }
 
   function resizeCanvases() {
@@ -67,6 +111,8 @@ const AdsbView = (function () {
       const b = measure(g.c);
       fitCanvas(g.c, b.width, b.height);
     }
+    // The canvas height changed, so the age-to-pixel mapping did too.
+    positionMarkers();
   }
 
   function clearChart(x, w, h) {
@@ -143,10 +189,76 @@ const AdsbView = (function () {
 
   function renderAxis(state) {
     const { axis } = elements();
-    const lower = state.center_hz - state.sample_rate_hz / 2;
-    const upper = state.center_hz + state.sample_rate_hz / 2;
-    axis.textContent = (lower / 1e6).toFixed(3) + ' - '
-      + (upper / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    lastLowerHz = state.center_hz - state.sample_rate_hz / 2;
+    lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
+    axis.textContent = (lastLowerHz / 1e6).toFixed(3) + ' - '
+      + (lastUpperHz / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    positionMarkers();
+  }
+
+  // The aircraft dots: one per message at the 1090 MHz centre (x), aged down
+  // the waterfall (y), coloured alike and filled when selected, with the ICAO
+  // as a hover title rather than a drawn label -- the sky is busy, and a column
+  // of dots reads where a stack of call-signs would not (the SRD pattern). Two
+  // steps: rebuild the dot DOM only on a content or selection change (so a
+  // click survives), then reposition the dots every waterfall row.
+  function renderMarkers() {
+    const e = elements();
+    if (charting || lastUpperHz <= lastLowerHz) {
+      e.markers.innerHTML = ''; markerSig = null; return;
+    }
+    const sig = selectedLog + '|' + lastLog.map((m) => m.icao).join('|');
+    if (sig !== markerSig) {
+      markerSig = sig;
+      e.markers.innerHTML = lastLog.map((m, i) =>
+        '<div data-i="' + i + '" id="adsb-mark-' + i + '" title="' + m.icao
+        + '" style="position:absolute;left:50%;transform:translate(-50%,-50%);'
+        + 'width:9px;height:9px;border:1px solid ' + MARKER_COLOR
+        + ';border-radius:2px;background:'
+        + (i === selectedLog ? MARKER_COLOR : 'rgba(10,15,22,0.55)')
+        + ';cursor:pointer;pointer-events:auto"></div>').join('');
+    }
+    positionMarkers();
+  }
+
+  // Move each dot to its age's row, in CSS pixels down the canvas -- the
+  // waterfall shows canvas.height rows, each ADSB_BLOCK_PAIRS/sample_rate
+  // seconds, so a message of age A sits that fraction down. Older than the
+  // canvas holds, or from the future, is hidden.
+  function positionMarkers() {
+    const e = elements();
+    if (charting) return;
+    const sampleRate = lastUpperHz - lastLowerHz;
+    const cssH = measure(e.wf).height;
+    if (sampleRate <= 0 || cssH <= 0 || e.wf.height <= 0) return;
+    const visibleSeconds = e.wf.height * (ADSB_BLOCK_PAIRS / sampleRate);
+    const t = now();
+    for (const dot of e.markers.children) {
+      const m = lastLog[+dot.dataset.i];
+      const frac = m ? (t - m.time) / visibleSeconds : -1;
+      if (frac < 0 || frac > 1) { dot.style.display = 'none'; continue; }
+      dot.style.display = '';
+      dot.style.top = (frac * cssH).toFixed(1) + 'px';
+    }
+  }
+
+  // The message log, rebuilt only when the rows or the selection change so a
+  // click lands; the selected row is highlighted the way the window's is.
+  function renderLog() {
+    const e = elements();
+    const sig = selectedLog + '|' + lastLog.map((m) =>
+      m.stamp + ':' + m.icao + ':' + m.label).join('|');
+    if (sig === rowSig) return;
+    rowSig = sig;
+    renderRows(e.rows, lastLog.map((m) => [
+      '<td style="color:' + ROW_LABEL + '">' + m.stamp + '</td>',
+      '<td style="color:' + ROW_VALUE + '">' + m.icao + '</td>',
+      '<td style="color:' + (TYPE_COLOR[m.label] || ROW_LABEL) + '">'
+        + m.label + '</td>',
+      '<td style="color:' + ROW_VALUE + '">' + m.detail + '</td>',
+      '<td style="color:' + ROW_LABEL + '">' + m.raw + '</td>',
+    ]), (i) => 'cursor:pointer'
+      + (i === selectedLog ? ';background:#1b3a2e' : ''));
   }
 
   function renderState(s) {
@@ -183,15 +295,17 @@ const AdsbView = (function () {
     // before the browser existed; the server decides it now.
     e.funnel.style.color = s.funnel_warn ? WARN_COLOR : ROW_LABEL;
 
-    e.count.textContent = s.log.length;
-    renderRows(e.rows, s.log.map((m) => [
-      '<td style="color:' + ROW_LABEL + '">' + m.stamp + '</td>',
-      '<td style="color:' + ROW_VALUE + '">' + m.icao + '</td>',
-      '<td style="color:' + (TYPE_COLOR[m.label] || ROW_LABEL) + '">'
-        + m.label + '</td>',
-      '<td style="color:' + ROW_VALUE + '">' + m.detail + '</td>',
-      '<td style="color:' + ROW_LABEL + '">' + m.raw + '</td>',
-    ]));
+    lastLog = s.log || [];
+    e.count.textContent = lastLog.length;
+    // The clock the dots age against, re-based each state so `now()` advances
+    // smoothly between them.
+    if (s.now_seconds !== undefined) {
+      lastNowSeconds = s.now_seconds;
+      lastNowStamp = performance.now();
+    }
+    if (selectedLog >= lastLog.length) selectedLog = -1;
+    renderLog();
+    renderMarkers();
   }
 
   // One grid cell: a label over a canvas that fills the rest.
@@ -216,9 +330,11 @@ const AdsbView = (function () {
       + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
       + 'cursor:pointer">Show charts</button></div>'
       + '<div id="adsb-waterfall-wrap" style="flex:2 1 0;min-height:100px;'
-      + 'display:flex;flex-direction:column">'
+      + 'position:relative;display:flex;flex-direction:column">'
       + '<canvas id="adsb-waterfall" style="flex:1 1 0;min-height:0;'
       + 'width:100%"></canvas>'
+      + '<div id="adsb-markers" style="position:absolute;top:0;left:0;right:0;'
+      + 'height:0"></div>'
       + '<div class="label" id="adsb-axis">awaiting receiver_state...</div>'
       + '</div>'
       // The analysis charts, a 2x2 grid taking the waterfall's room when it is
@@ -244,7 +360,9 @@ const AdsbView = (function () {
       + '<tbody id="adsb-rows"></tbody></table></div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') {
-        if (!charting) drawWaterfall(msg.row);
+        // A new row is one row's worth of time; the dots step down with it,
+        // positioning only (no rebuild), so a click in flight survives.
+        if (!charting) { drawWaterfall(msg.row); positionMarkers(); }
       } else if (msg.kind === 'adsb_landscape') {
         if (charting) drawLine('land', msg.data, 0);
       } else if (msg.kind === 'adsb_confidence') {

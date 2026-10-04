@@ -24,6 +24,7 @@ const TetraView = (function () {
         charts: document.getElementById('tetra-charts'),
         cc: { phase: cv('tetra-c-phase'), profile: cv('tetra-c-profile') },
         profileCap: document.getElementById('tetra-c-profile-cap'),
+        markers: document.getElementById('tetra-markers'),
         axis: document.getElementById('tetra-axis'),
         head: document.getElementById('tetra-head'),
         funnel: document.getElementById('tetra-funnel'),
@@ -31,8 +32,29 @@ const TetraView = (function () {
         count: document.getElementById('tetra-count'),
       };
       els.charts.onclick = () => showCharts(!charting);
+      // Click an identity row to select it -- the window's own log-row click
+      // (`selected_log`), a reader's cursor that touches nothing on the air, so
+      // it stays in the browser rather than travelling as a command. The rows
+      // rebuild only when they change (below), so the click lands on a row that
+      // is still there.
+      els.rows.onclick = (ev) => {
+        const tr = ev.target.closest('tr');
+        if (!tr) return;
+        const i = Array.prototype.indexOf.call(els.rows.children, tr);
+        if (i >= 0) selectLog(i);
+      };
     }
     return els;
+  }
+
+  // The selected identity row -- the window's `selected_log`, a per-viewer
+  // cursor. -1 is none.
+  let selectedLog = -1;
+  let lastLog = [], rowSig = null;
+
+  function selectLog(i) {
+    selectedLog = (i === selectedLog) ? -1 : i;
+    renderLog();
   }
 
   const ROW_LABEL = '#7e97a6';
@@ -45,6 +67,11 @@ const TetraView = (function () {
   const BAR = '#a9c5d6';
 
   let charting = false;
+  /* The window's TETRA marker colour, {80, 220, 240}. */
+  const MARKER_COLOR = '#50dcf0';
+  // The received span from the last receiver_state, and the identity label from
+  // the last tetra_state -- the single carrier mark is placed against the span.
+  let lastLowerHz = 0, lastUpperHz = 0, markerLabel = '';
   // The stream set, swapped on the toggle: the signal view wants the
   // waterfall, the charts view the two analysis streams -- and not the
   // waterfall, hidden then and the page's largest stream. tetra_state is in
@@ -69,6 +96,8 @@ const TetraView = (function () {
     for (const s of want) streams.push(s);
     if (typeof subscribeToActiveView === 'function') subscribeToActiveView();
     resizeCanvases();
+    // The mark belongs to the waterfall, so it clears with the charts.
+    renderMarkers();
   }
 
   function resizeCanvases() {
@@ -130,14 +159,59 @@ const TetraView = (function () {
 
   function renderAxis(state) {
     const { axis } = elements();
-    const lower = state.center_hz - state.sample_rate_hz / 2;
-    const upper = state.center_hz + state.sample_rate_hz / 2;
-    axis.textContent = (lower / 1e6).toFixed(3) + ' - '
-      + (upper / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    lastLowerHz = state.center_hz - state.sample_rate_hz / 2;
+    lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
+    axis.textContent = (lastLowerHz / 1e6).toFixed(3) + ' - '
+      + (lastUpperHz / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    renderMarkers();
+  }
+
+  // One mark over the carrier, the window's own: at the tuned centre (a TETRA
+  // view holds one 25 kHz carrier), labelled by the identity the broadcast
+  // gave up. Empty until there is an identity -- a marker is a claim that
+  // something is there -- and cleared while the charts are up.
+  function renderMarkers() {
+    const e = elements();
+    const span = lastUpperHz - lastLowerHz;
+    if (span <= 0 || charting || !markerLabel) {
+      e.markers.innerHTML = '';
+      return;
+    }
+    e.markers.innerHTML = '<div style="position:absolute;top:0;left:50%;'
+      + 'transform:translateX(-50%);white-space:nowrap;font:11px monospace;'
+      + 'padding:1px 4px;border:1px solid ' + MARKER_COLOR + ';border-radius:2px;'
+      + 'background:#133;font-weight:bold;color:' + MARKER_COLOR + '">'
+      + markerLabel + '</div>';
+  }
+
+  // The identity log, rebuilt only when the rows or the selection change so a
+  // click lands on a row that is still there; the selected row is highlighted
+  // the way the window highlights it.
+  function renderLog() {
+    const e = elements();
+    const sig = selectedLog + '|' + lastLog.map((r) =>
+      r.at.toFixed(1) + ':' + r.mcc + '-' + r.mnc + ':' + r.colour).join('|');
+    if (sig === rowSig) return;
+    rowSig = sig;
+    renderRows(e.rows, lastLog.map((r) => [
+      '<td style="color:' + ROW_LABEL + '">' + r.at.toFixed(1) + 's</td>',
+      '<td style="color:' + NET_COLOR + '">' + r.mcc + '-' + r.mnc + '</td>',
+      '<td style="color:' + SYNC_COLOR + '">SYNC</td>',
+      '<td style="color:' + ROW_VALUE + '">colour ' + r.colour
+        + '   LA ' + r.la + '</td>',
+      '<td style="color:' + ROW_LABEL + '">' + r.bursts + ' burst / '
+        + r.blocks + ' block / ' + r.broadcast + ' bcast</td>',
+    ]), (i) => 'cursor:pointer'
+      + (i === selectedLog ? ';background:#1b3a2e' : ''));
   }
 
   function renderState(s) {
     const e = elements();
+
+    // The carrier mark: the identity the server worded (`marker`), empty until
+    // there is one.
+    markerLabel = s.marker || '';
+    renderMarkers();
 
     // Three things produce an empty table and they are not the same. The
     // rate is the first of them, and it is about the receiver rather than
@@ -173,16 +247,10 @@ const TetraView = (function () {
       + '   offset ' + s.offset_hz.toFixed(0) + ' Hz'
       + '   block ' + s.bursts + '/' + s.blocks + '/' + s.broadcast;
 
-    e.count.textContent = s.log.length;
-    renderRows(e.rows, s.log.map((r) => [
-      '<td style="color:' + ROW_LABEL + '">' + r.at.toFixed(1) + 's</td>',
-      '<td style="color:' + NET_COLOR + '">' + r.mcc + '-' + r.mnc + '</td>',
-      '<td style="color:' + SYNC_COLOR + '">SYNC</td>',
-      '<td style="color:' + ROW_VALUE + '">colour ' + r.colour
-        + '   LA ' + r.la + '</td>',
-      '<td style="color:' + ROW_LABEL + '">' + r.bursts + ' burst / '
-        + r.blocks + ' block / ' + r.broadcast + ' bcast</td>',
-    ]));
+    lastLog = s.log || [];
+    e.count.textContent = lastLog.length;
+    if (selectedLog >= lastLog.length) selectedLog = -1;
+    renderLog();
 
     // The profile's caption names how many positions the burst finder judged
     // fixed, the way the window's does.
@@ -206,9 +274,11 @@ const TetraView = (function () {
       + 'border:1px solid #232f3b;font:14px monospace;padding:6px 16px;'
       + 'cursor:pointer">Show charts</button></div>'
       + '<div id="tetra-waterfall-wrap" style="flex:3 1 0;min-height:100px;'
-      + 'display:flex;flex-direction:column">'
+      + 'position:relative;display:flex;flex-direction:column">'
       + '<canvas id="tetra-waterfall" style="flex:1 1 0;min-height:0;'
       + 'width:100%"></canvas>'
+      + '<div id="tetra-markers" style="position:absolute;top:0;left:0;right:0;'
+      + 'height:0;pointer-events:none"></div>'
       + '<div class="label" id="tetra-axis">awaiting receiver_state...</div>'
       + '</div>'
       // The analysis charts, two across, taking the waterfall's room when it

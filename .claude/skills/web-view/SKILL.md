@@ -325,10 +325,16 @@ drawn into it.** A `position:relative` waterfall wrap holds the canvas and an
 absolutely-positioned `#<view>-markers` div at `top:0`; each mark is a pill
 positioned by `left:<pct>%` against the span the last `receiver_state` gave
 (`lastLowerHz`/`lastUpperHz`). Drawing into the canvas is wrong because the
-waterfall scrolls and would erase the marks. FM, LTE and SRD all do this now
--- FM from its station list, LTE from `marker`/`marker_hz` on `lte_state`
-(one highlighted pill over the found cell), SRD from the frame log's `hz` and
-`marker`. The mark's **frequency is a decision that belongs in the view
+waterfall scrolls and would erase the marks. **Every decode view does this
+now.** Two shapes, by how many marks a view has: a **single labelled pill**
+for a one-carrier view (LTE's found cell, TETRA's identity, GSM's inspected
+channel -- `marker`/`marker_hz` or the view's own frequency, a bright pill at
+the top), and a **column of bare dots** for a many-mark view (SRD's
+transmissions, ADS-B's aircraft -- one small square per log entry, label on
+hover, aged down). FM is the odd one, a pill per band-II station across the
+span. The rule for which: a label on forty overlapping marks is unreadable,
+so a view whose marks pile up on one frequency draws dots; a view with one
+mark labels it. The mark's **frequency is a decision that belongs in the view
 model**, not re-derived in JS: LTE's window drew it at
 `applied.frequency_hz + cell.frequency_offset_hz`, so the model carries
 `marker_hz` and the window reads it too -- one frequency, two readers. Clear
@@ -358,12 +364,14 @@ time is not ported.
 **A selection travels as a command only when it changes receiver state.**
 GSM's `select arfcn`, LTE's `select cell` and the survey's `select candidate`
 retune or re-inspect the receiver, which is shared state, so they go to the
-server (`viewer_command.h`'s `select`). SRD's selection is a *reader's
-cursor* -- the window's `selected_log` only highlights a marker and a row,
-touching nothing on the air -- so it stays in the browser: a `selectLog(i)`
-that flips a local index and re-renders. Do not send a command for a cursor,
-and do not keep receiver state in the browser; which side a selection lives
-on is decided by whether anyone else can observe it.
+server (`viewer_command.h`'s `select`). SRD's, ADS-B's and TETRA's selections
+are *reader's cursors* -- the window's `selected_log` only highlights a mark
+and a row, touching nothing on the air -- so they stay in the browser: a
+`selectLog(i)` that flips a local index and re-renders. Do not send a command
+for a cursor, and do not keep receiver state in the browser; which side a
+selection lives on is decided by whether anyone else can observe it. (GSM is
+the one whose log-like click *is* a retune -- `select arfcn` inspects a
+channel -- so it alone of the decode views goes to the server.)
 
 **`scan` names a technology, `scan stop` does not.** `scan fm` and `scan lte`
 each start that band's walk; the Stop button sends a bare `scan stop`, which

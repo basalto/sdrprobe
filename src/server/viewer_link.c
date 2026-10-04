@@ -1738,12 +1738,13 @@ void viewer_link_publish_gsm_state(struct viewer_link *link,
  */
 void viewer_link_publish_adsb_state(struct viewer_link *link,
                                     const struct adsb_view_model *avm,
-                                    uint64_t now_ms) {
+                                    double now_seconds, uint64_t now_ms) {
     char json[24576];
     int json_len, used, i;
 
     used = snprintf(json, sizeof(json),
                     "{\"type\":\"adsb_state\",\"timestamp_ms\":%llu,"
+                    "\"now_seconds\":%.3f,"
                     "\"ready\":%s,\"readiness\":\"%s\","
                     "\"funnel_warn\":%s,\"have_samples\":%s,"
                     "\"frames\":%llu,\"positions\":%llu,"
@@ -1752,7 +1753,7 @@ void viewer_link_publish_adsb_state(struct viewer_link *link,
                     "\"block_preambles\":%llu,\"block_shaped\":%llu,"
                     "\"block_crc_failed\":%llu,\"block_decoded\":%llu,"
                     "\"log\":[",
-                    (unsigned long long)now_ms,
+                    (unsigned long long)now_ms, now_seconds,
                     avm->ready ? "true" : "false",
                     adsb_readiness_name(avm->readiness),
                     avm->funnel_warn ? "true" : "false",
@@ -1791,9 +1792,9 @@ void viewer_link_publish_adsb_state(struct viewer_link *link,
         used += snprintf(json + used, sizeof(json) - (size_t)used,
                          "%s{\"stamp\":\"%s\",\"icao\":\"%s\","
                          "\"label\":\"%s\",\"detail\":\"%s\","
-                         "\"raw\":\"%s\",\"highlight\":%s}",
+                         "\"raw\":\"%s\",\"time\":%.3f,\"highlight\":%s}",
                          i ? "," : "", stamp, icao, label, detail, raw,
-                         e->highlight ? "true" : "false");
+                         e->time, e->highlight ? "true" : "false");
     }
     used += snprintf(json + used, sizeof(json) - (size_t)used, "]}");
 

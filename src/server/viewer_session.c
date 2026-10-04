@@ -654,7 +654,7 @@ int viewer_session_run(struct app *app) {
                                   app->applied.sample_rate_hz,
                                   app->receiver_mode,
                                   app->frame.have_samples, &adsb_svm);
-            viewer_link_publish_adsb_state(&link, &adsb_svm, now_ms);
+            viewer_link_publish_adsb_state(&link, &adsb_svm, now, now_ms);
             /* And TETRA, on the same gate. */
             tetra_view_model_build(&app->tetra, &tetra_svm);
             viewer_link_publish_tetra_state(&link, &tetra_svm, now_ms);

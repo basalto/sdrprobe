@@ -500,7 +500,7 @@ void viewer_link_publish_gsm_state(struct viewer_link *link,
  */
 void viewer_link_publish_adsb_state(struct viewer_link *link,
                                     const struct adsb_view_model *avm,
-                                    uint64_t now_ms);
+                                    double now_seconds, uint64_t now_ms);
 
 /* The TETRA screen: the identity, the funnel whose middle term separates a
    weak TETRA carrier from one that is not TETRA, and the whole identity
