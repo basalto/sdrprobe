@@ -19,6 +19,8 @@ const SrdView = (function () {
         cc: { env: cv('srd-c-env'), chips: cv('srd-c-chips') },
         axis: document.getElementById('srd-axis'),
         head: document.getElementById('srd-head'),
+        params: document.getElementById('srd-params'),
+        paramsBody: document.getElementById('srd-params-body'),
         rows: document.getElementById('srd-rows'),
         count: document.getElementById('srd-count'),
       };
@@ -99,6 +101,9 @@ const SrdView = (function () {
     e.wfWrap.style.display = on ? 'none' : 'flex';
     e.grid.hidden = !on;
     e.grid.style.display = on ? 'grid' : 'none';
+    // The Parameters panel belongs to the charts arrangement, beside the log.
+    e.params.hidden = !on;
+    e.params.style.display = on ? 'block' : 'none';
     e.charts.textContent = on ? 'Show waterfall' : 'Show charts';
     const want = on ? CHART_STREAMS : SIGNAL_STREAMS;
     streams.length = 0;
@@ -166,6 +171,10 @@ const SrdView = (function () {
   const ROW_VALUE = '#c7d3dc';
   const HEAD_COLOR = '#96b0ca';   /* 150, 176, 202 */
   const WARN_COLOR = '#fabe4a';   /* 250, 190, 74 */
+  const PANEL_FILL = '#111a25';
+  const PANEL_EDGE = '#304258';   /* 48, 66, 88 -- draw_identity's box edge */
+  const PARAM_BRIGHT = '#e2ecf5'; /* 226, 236, 245 */
+  const PARAM_VALUE = '#bed2e4';  /* 190, 210, 228 */
   // The window colours a decoded kind apart from a burst that decoded to
   // nothing, because those are different answers.
   const KIND_COLOR = {
@@ -228,6 +237,7 @@ const SrdView = (function () {
       e.head.style.color = HEAD_COLOR;
     }
 
+    renderParams(s);
     lastLog = s.log || [];
     e.count.textContent = lastLog.length;
     // The clock the marks age against, re-based each state so `now()` advances
@@ -348,6 +358,35 @@ const SrdView = (function () {
     }
   }
 
+  // The Parameters panel of the window's "Show charts" arrangement
+  // (draw_identity), row for row: the modulation (a constant "OOK (ASK)" on the
+  // window, mirrored), the line code, the chip period, the carrier, and the
+  // framing (also a constant). Every value is one the state already carries, so
+  // nothing is re-decided here. Empty until a transmission has been heard,
+  // which is the window's own "no transmissions heard yet".
+  function renderParams(s) {
+    const e = elements();
+    if (!s.have_parameters) {
+      e.paramsBody.innerHTML = '<tr><td style="color:' + ROW_LABEL
+        + '">no transmissions heard yet</td></tr>';
+      return;
+    }
+    const fmt = (v, d) => (v >= 0 ? '+' : '') + v.toFixed(d);
+    const rows = [
+      ['modulation', 'OOK (ASK)', PARAM_BRIGHT],
+      ['line code', s.line_code, PARAM_BRIGHT],
+      ['chip period', s.chip_us.toFixed(1) + ' us ('
+        + s.chip_rate_hz.toFixed(0) + ' chip/s)', PARAM_VALUE],
+      ['carrier', fmt(s.carrier_offset_hz / 1e3, 1) + ' kHz ('
+        + fmt(s.over_floor_db, 1) + ' dB)', PARAM_VALUE],
+      ['framing', '6x750us sync, 80b/24b', HEAD_COLOR],
+    ];
+    e.paramsBody.innerHTML = rows.map(([l, v, c]) =>
+      '<tr><td style="color:' + ROW_LABEL + ';padding-right:14px">' + l
+      + '</td><td style="color:' + c + '">' + escapeHtml(v) + '</td></tr>')
+      .join('');
+  }
+
   function escapeHtml(text) {
     return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
@@ -389,13 +428,26 @@ const SrdView = (function () {
       + '</div>'
       + '<div id="srd-head" style="font-size:13px;margin:4px 0 6px;color:'
       + ROW_LABEL + '">awaiting srd_state...</div>'
+      // The bottom row mirrors the window's charts arrangement: the Parameters
+      // panel on the left, shown only with the charts, and the frame log on the
+      // right, always. In the waterfall view the panel is hidden and the log
+      // takes the whole width.
+      + '<div style="display:flex;gap:10px;flex:2 1 0;min-height:0">'
+      + '<div id="srd-params" hidden style="display:none;flex:1 1 0;'
+      + 'min-width:0;background:' + PANEL_FILL + ';border:1px solid '
+      + PANEL_EDGE + ';padding:8px 10px 10px;overflow:auto">'
+      + '<div style="color:' + HEAD_COLOR
+      + ';font-size:14px;margin-bottom:6px">Parameters</div>'
+      + '<table><tbody id="srd-params-body"></tbody></table></div>'
+      + '<div style="flex:2 1 0;min-width:0;display:flex;flex-direction:column;'
+      + 'min-height:0">'
       + '<div class="label">decoded frames, newest first '
       + '(<span id="srd-count">0</span>)</div>'
-      + '<div style="flex:2 1 0;min-height:0;overflow:auto">'
+      + '<div style="flex:1 1 0;min-height:0;overflow:auto">'
       + '<table><thead><tr><th>TIME</th><th>MHz</th><th>KIND</th>'
       + '<th>MOD</th><th>TYPE</th><th>DECODED</th><th>RAW (hex)</th>'
       + '</tr></thead>'
-      + '<tbody id="srd-rows"></tbody></table></div>',
+      + '<tbody id="srd-rows"></tbody></table></div></div></div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') {
         // A new row is one row's worth of time passing, so the marks step
