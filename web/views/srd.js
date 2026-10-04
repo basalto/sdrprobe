@@ -321,14 +321,18 @@ const SrdView = (function () {
         const pct = (100 * (f.hz - lastLowerHz) / span).toFixed(2);
         const sel = i === selectedLog;
         const col = markerColor(f);
+        // Just the mark, no label: a small square at the transmission's
+        // frequency and age, coloured by kind, filled solid when selected and
+        // a translucent outline otherwise. The frame's text is the hover title
+        // rather than a drawn pill, so a busy band is a column of dots rather
+        // than a stack of overlapping words.
         const label = f.marker || f.kind || 'SRD';
         html += '<div data-i="' + i + '" id="srd-mark-' + i
-          + '" style="position:absolute;left:'
-          + pct + '%;transform:translate(-50%,-50%);white-space:nowrap;'
-          + 'font:11px monospace;padding:1px 4px;border:1px solid ' + col + ';'
-          + 'border-radius:2px;background:' + (sel ? '#133' : 'rgba(10,15,22,0.85)')
-          + ';color:' + col + (sel ? ';font-weight:bold' : '')
-          + ';cursor:pointer;pointer-events:auto">' + escapeHtml(label) + '</div>';
+          + '" title="' + escapeHtml(label) + '" style="position:absolute;left:'
+          + pct + '%;transform:translate(-50%,-50%);width:9px;height:9px;'
+          + 'border:1px solid ' + col + ';border-radius:2px;background:'
+          + (sel ? col : 'rgba(10,15,22,0.55)')
+          + ';cursor:pointer;pointer-events:auto"></div>';
       });
       e.markers.innerHTML = html;
     }
