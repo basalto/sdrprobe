@@ -416,7 +416,33 @@ static void test_detail_of_a_selected_candidate(void) {
                detail.line_count <= SURVEY_DETAIL_MAX_LINES);
 }
 
+static void test_bands_come_from_the_tuner_reach(void) {
+    static struct survey_session ss;
+    struct survey_record_tuning tuning;
+    struct survey_view_model svm;
+
+    zero_sweep(&ss, &tuning);
+    set_minimal_sweep(&ss, &tuning);
+    tuning.tuner_lower_hz = 24e6;       /* an R820T's reach */
+    tuning.tuner_upper_hz = 1766e6;
+
+    survey_view_model_build(&ss, &tuning, &svm);
+    check_true("the picker offers the reachable allocations", svm.band_count > 0);
+    check_true("each names an allocation", svm.bands[0].name[0] != '\0');
+    check_true("with a range to sweep",
+               svm.bands[0].to_hz > svm.bands[0].from_hz);
+    check_true("and a dwell that suits it", svm.bands[0].dwell_s > 0.0);
+
+    /* A capture reaches nowhere -- its range is one frequency -- so it offers
+       no bands. */
+    tuning.tuner_lower_hz = 0.0;
+    tuning.tuner_upper_hz = 0.0;
+    survey_view_model_build(&ss, &tuning, &svm);
+    check_int("a source that reaches nowhere offers none", svm.band_count, 0);
+}
+
 int main(void) {
+    test_bands_come_from_the_tuner_reach();
     test_detail_is_empty_when_nothing_is_selected();
     test_detail_of_a_selected_candidate();
     test_candidate_count_mirrors_peak_count();

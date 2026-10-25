@@ -136,9 +136,28 @@ static inline const char *survey_detail_tone_name(enum survey_detail_tone tone) 
     return "value";
 }
 
+/*
+ * One allocation the band picker offers -- the window's "Band..." menu, as data
+ * the browser can fill its range fields from. Reachability is the tuner's, so
+ * the list is the receiver's and not a constant (survey_bands.h): an R820T and a
+ * B210 get different lists. Constant for a session, but small, so it rides
+ * survey_state rather than earning a stream of its own.
+ */
+#define SURVEY_VIEW_MODEL_MAX_BANDS 96
+struct survey_band_view {
+    char name[48];
+    double from_hz;     /* the range a sweep of it should cover, clipped to */
+    double to_hz;       /* the tuner's reach, with a little air each side */
+    double dwell_s;     /* the dwell that suits its width */
+};
+
 struct survey_view_model {
     struct survey_candidate_view candidates[SURVEY_MAX_PEAKS];
     int candidate_count;
+
+    /* The allocations this receiver can reach, for the Band picker. */
+    struct survey_band_view bands[SURVEY_VIEW_MODEL_MAX_BANDS];
+    int band_count;
 
     /* Whether a sweep is currently walking the range below, and what the
        window's own status line would say -- "sweeping...", "nothing found",

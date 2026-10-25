@@ -18,6 +18,7 @@ const SurveyView = (function () {
         from: document.getElementById('survey-from'),
         to: document.getElementById('survey-to'),
         dwell: document.getElementById('survey-dwell'),
+        band: document.getElementById('survey-band'),
         sweep: document.getElementById('survey-sweep'),
         ask: document.getElementById('survey-ask'),
         watch: document.getElementById('survey-watch'),
@@ -83,6 +84,33 @@ const SurveyView = (function () {
   // command. The server owns the truth; this only mirrors it.
   let lastSweeping = false;
   let lastWatching = false;
+  // The reachable allocations from the last state, and whether the dropdown has
+  // been filled from them. The list is constant for a session, so it is built
+  // once -- rebuilding it every state would reset a half-open menu.
+  let lastBands = [];
+  let bandsPopulated = false;
+
+  // A frequency the way the range fields spell it, matching survey_format_hz:
+  // whole megahertz as "24M", otherwise a trimmed decimal.
+  function formatMHz(hz) {
+    const mhz = hz / 1e6;
+    if (Number.isInteger(mhz)) return mhz + 'M';
+    return mhz.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') + 'M';
+  }
+
+  function chooseBand() {
+    const e = elements();
+    const i = e.band.selectedIndex - 1;   // 0 is the "Band..." placeholder
+    const b = i >= 0 ? lastBands[i] : null;
+    if (b) {
+      // The window's Band... fills the range and dwell fields; so does this,
+      // leaving Sweep to send them. No command: the fields stay authoritative.
+      e.from.value = formatMHz(b.from_hz);
+      e.to.value = formatMHz(b.to_hz);
+      e.dwell.value = b.dwell_s.toFixed(2);
+    }
+    e.band.selectedIndex = 0;             // back to the placeholder
+  }
 
   function startOrStopSweep() {
     const e = elements();
@@ -147,6 +175,13 @@ const SurveyView = (function () {
       watch.textContent = lastWatching ? 'Stop watching' : 'Watch';
       watch.style.background = lastWatching ? ACTIVE : '#1b2836';
       watch.style.color = lastWatching ? '#0a0f16' : CAPTION;
+    }
+    // The band list is constant for a session, so fill the dropdown once.
+    lastBands = state.bands || [];
+    if (!bandsPopulated && lastBands.length) {
+      elements().band.innerHTML = '<option>Band…</option>'
+        + lastBands.map((b) => '<option>' + esc(b.name) + '</option>').join('');
+      bandsPopulated = true;
     }
     lastCandidates = state.candidates || [];
     // Rebuilt only when the candidates change, so a click lands on a row that
@@ -224,6 +259,8 @@ const SurveyView = (function () {
     mounted() {
       const e = elements();
       e.sweep.addEventListener('click', startOrStopSweep);
+      // Band... fills the range and dwell from a reachable allocation.
+      e.band.addEventListener('change', chooseBand);
       // Enter in any field starts the sweep, the way the window commits a field.
       for (const f of [e.from, e.to, e.dwell])
         f.addEventListener('keydown', (ev) => {
@@ -271,6 +308,9 @@ const SurveyView = (function () {
       + 'size="4" value="0.10" style="background:#16222e;color:' + VALUE
       + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;padding:3px 6px">'
       + '</label>'
+      + '<select id="survey-band" style="background:#16222e;color:' + VALUE
+      + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;padding:3px 6px;'
+      + 'cursor:pointer"><option>Band…</option></select>'
       + '<button id="survey-sweep" style="background:#1b2836;color:' + CAPTION
       + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
       + 'cursor:pointer">Sweep</button>'
