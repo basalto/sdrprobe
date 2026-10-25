@@ -375,6 +375,12 @@ int install_signal_handlers(struct app *app);
 void view_survey_enter(struct app *app, double now);
 void view_survey_leave(struct app *app);
 int survey_start(struct app *app, double now);
+/* Write the finished sweep to surveys/ and fold it into the site history, and
+   commit the site/antenna fields to the config. Actions, not drawing, so both
+   the window's buttons and the browser's `survey save`/`site`/`antenna`
+   commands reach the one copy (ADR-0012). */
+void survey_save_sweep(struct app *app);
+void survey_commit_installation(struct app *app);
 void survey_clear(struct survey_view *s);
 void survey_reset_view(struct survey_view *s);
 void survey_load_installation(struct app *app);

@@ -21,6 +21,9 @@ const SurveyView = (function () {
         sweep: document.getElementById('survey-sweep'),
         ask: document.getElementById('survey-ask'),
         watch: document.getElementById('survey-watch'),
+        site: document.getElementById('survey-site'),
+        antenna: document.getElementById('survey-antenna'),
+        save: document.getElementById('survey-save'),
       };
       els.surveyCtx = els.surveyChart.getContext('2d');
       // Click a candidate to inspect it -- the window's own candidate click
@@ -232,6 +235,26 @@ const SurveyView = (function () {
       e.ask.addEventListener('click', () => send('survey ask'));
       e.watch.addEventListener('click',
         () => send(lastWatching ? 'survey watch stop' : 'survey watch'));
+      // Site and antenna commit on Enter, the way the window commits a field on
+      // losing focus; Save writes the sweep and folds it into the site history.
+      // A site must be named first -- the server refuses an unnamed save in its
+      // own words.
+      e.site.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && e.site.value.trim())
+          send('survey site ' + e.site.value.trim());
+      });
+      e.antenna.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && e.antenna.value.trim())
+          send('survey antenna ' + e.antenna.value.trim());
+      });
+      e.save.addEventListener('click', () => {
+        // Commit a site typed but not yet entered, so Save does not refuse what
+        // the operator has clearly just named.
+        if (e.site.value.trim()) send('survey site ' + e.site.value.trim());
+        if (e.antenna.value.trim())
+          send('survey antenna ' + e.antenna.value.trim());
+        send('survey save');
+      });
     },
     markup:
       '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
@@ -257,6 +280,23 @@ const SurveyView = (function () {
       + '<button id="survey-watch" style="background:#1b2836;color:' + CAPTION
       + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
       + 'cursor:pointer">Watch</button>'
+      + '</div>' +
+      // A second row for the installation and Save -- the window's site/antenna
+      // combos and Save survey button. A sweep is refused a save until the site
+      // is named, so levels from two sweeps are only ever compared within one.
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
+      + 'flex:0 0 auto;margin-bottom:6px">'
+      + '<label style="color:' + LABEL + '">site <input id="survey-site" '
+      + 'size="14" placeholder="name this site" style="background:#16222e;color:'
+      + VALUE + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;'
+      + 'padding:3px 6px"></label>'
+      + '<label style="color:' + LABEL + '">antenna <input id="survey-antenna" '
+      + 'size="12" style="background:#16222e;color:' + VALUE
+      + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;padding:3px 6px">'
+      + '</label>'
+      + '<button id="survey-save" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
+      + 'cursor:pointer">Save survey</button>'
       + '</div>' +
       '<div class="label" id="survey-status">no sweep yet</div>' +
       '<canvas id="survey-chart" style="flex:2 1 0;min-height:120px;width:100%">'
