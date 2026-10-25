@@ -63,7 +63,7 @@ static void copy_id(char *out, size_t size, const char *in) {
 
 void survey_record_setup_from(struct survey_record_setup *out,
                               const struct installation *inst,
-                              int gain_tenths) {
+                              int gain_tenths, enum gain_unit gain_unit) {
     if (!out)
         return;
     memset(out, 0, sizeof(*out));
@@ -74,6 +74,7 @@ void survey_record_setup_from(struct survey_record_setup *out,
         copy_id(out->site, sizeof(out->site), inst->site);
     }
     out->gain_tenths = gain_tenths;
+    out->gain_unit = gain_unit;
 }
 
 struct tm survey_record_now(void) {
@@ -218,6 +219,7 @@ int survey_record_form(struct survey_record *out,
                 setup->antenna);
         copy_id(out->setup.site, sizeof(out->setup.site), setup->site);
         out->setup.gain_tenths = setup->gain_tenths;
+        out->setup.gain_unit = setup->gain_unit;
     }
     /* The tolerance every match below is made with, so nothing re-derives
        it. A plan with no bins gives zero, which matches exactly. */

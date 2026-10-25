@@ -114,61 +114,129 @@ static void print_supported_gains(const struct device_profile *profile) {
 }
 
 int configure_receiver(struct app *app) {
-    const int *gains;
-    int gain_count;
+    const struct device_backend *backend;
+    const char *driver_name;
+    int device_count;
+    int option_count;
     int selected_gain = 0;
     int result = -1;
     uint32_t reported_frequency;
     uint32_t reported_rate;
 
-    if (device_backend_rtlsdr_count() == 0) {
-        fprintf(stderr, "No supported RTLSDR devices found.\n");
+    /*
+     * Pick the backend the way `--driver` asked. SoapySDR is NULL in a build
+     * without HAVE_SOAPY, which is the one place an explicit `--driver soapy`
+     * is refused with a sentence rather than a link error (device_backend.h).
+     */
+    if (app->options.driver == DEVICE_DRIVER_SOAPY) {
+        backend = device_backend_soapy();
+        driver_name = "SoapySDR";
+        if (!backend) {
+            fprintf(stderr, "This build has no SoapySDR support; rebuild with "
+                            "HAVE_SOAPY=1 to use --driver soapy.\n");
+            return -1;
+        }
+        device_count = device_backend_soapy_count();
+    } else if (app->options.driver == DEVICE_DRIVER_RTLSDR) {
+        backend = device_backend_rtlsdr();
+        driver_name = "RTL-SDR";
+        device_count = device_backend_rtlsdr_count();
+    } else {
+        /*
+         * AUTO: prefer an RTL-SDR, fall back to SoapySDR when none is present,
+         * so a bare launch opens whatever is plugged in rather than failing
+         * because the default backend's device is not the one connected.
+         */
+        if (device_backend_rtlsdr_count() > 0) {
+            backend = device_backend_rtlsdr();
+            driver_name = "RTL-SDR";
+            device_count = device_backend_rtlsdr_count();
+        } else if (device_backend_soapy() &&
+                   device_backend_soapy_count() > 0) {
+            backend = device_backend_soapy();
+            driver_name = "SoapySDR";
+            device_count = device_backend_soapy_count();
+        } else {
+            fprintf(stderr, "No RTL-SDR or SoapySDR devices found.\n");
+            return -1;
+        }
+    }
+    if (device_count == 0) {
+        fprintf(stderr, "No %s devices found.\n", driver_name);
         return -1;
     }
     /*
      * The backend opens the device and fills in the profile -- the container,
-     * the full scale, the tuner's reach, the gain list -- because it is the
-     * only thing that knows any of that. What used to be a malloc'd copy of
-     * the gain list is the profile's own array now, so there is one of it.
+     * the full scale, the reach, the gain model -- because it is the only thing
+     * that knows any of that. An RTL-SDR fills a discrete gain list; the B210
+     * fills a gain-index range. Everything below reads the model from the
+     * profile rather than assuming the RTL's.
      */
-    if (device_backend_rtlsdr()->open(&app->source, app->options.device_index,
-                                      &app->device) < 0) {
-        fprintf(stderr, "Failed to open RTL-SDR receiver index %d. "
+    if (backend->open(&app->source, app->options.device_index,
+                      &app->device) < 0) {
+        fprintf(stderr, "Failed to open %s receiver index %d. "
                         "Try --list-devices.\n",
-                app->options.device_index);
+                driver_name, app->options.device_index);
         return -1;
     }
 
-    gains = app->device.gain_list;
-    gain_count = app->device.gain_count;
-    if (gain_count <= 0) {
-        fprintf(stderr, "Failed to enumerate supported tuner gains.\n");
+    /*
+     * Gain selection runs off the profile's option stepper, which abstracts a
+     * tuner's discrete gains and an AD9361's index range into one list
+     * (device_profile.h). Values are in the profile's own unit, so nothing
+     * here converts.
+     */
+    option_count = device_gain_option_count(&app->device);
+    if (option_count <= 0) {
+        fprintf(stderr, "Failed to enumerate supported gains.\n");
         goto done;
     }
 
     if (app->options.gain_kind != GAIN_REQUEST_AUTO) {
         if (app->options.gain_kind == GAIN_REQUEST_MAX) {
-            selected_gain = gains[0];
-            for (int i = 1; i < gain_count; i++)
-                if (gains[i] > selected_gain)
-                    selected_gain = gains[i];
+            selected_gain = device_gain_option_value(&app->device, 0);
+            for (int i = 1; i < option_count; i++) {
+                int value = device_gain_option_value(&app->device, i);
+                if (value > selected_gain)
+                    selected_gain = value;
+            }
         } else if (app->options.gain_kind == GAIN_REQUEST_DEFAULT) {
-            /* The gain table is tuner-specific, so the default is a target to
-               snap to rather than a value to demand. */
-            selected_gain = gains[0];
-            for (int i = 1; i < gain_count; i++)
-                if (abs(gains[i] - DEFAULT_GAIN_TENTHS) <
-                    abs(selected_gain - DEFAULT_GAIN_TENTHS))
-                    selected_gain = gains[i];
+            /*
+             * The default is unit-specific. Tenths-of-a-dB snaps to the tuner
+             * gain nearest DEFAULT_GAIN_TENTHS, as it always has; an index (or
+             * plain dB) has no such target, so the middle option is the
+             * reasonable default rather than a decibel figure that means
+             * nothing to a gain table.
+             */
+            if (app->device.gain_unit == GAIN_UNIT_TENTHS_DB) {
+                selected_gain = device_gain_option_value(&app->device, 0);
+                for (int i = 1; i < option_count; i++) {
+                    int value = device_gain_option_value(&app->device, i);
+                    if (abs(value - DEFAULT_GAIN_TENTHS) <
+                        abs(selected_gain - DEFAULT_GAIN_TENTHS))
+                        selected_gain = value;
+                }
+            } else {
+                selected_gain =
+                    device_gain_option_value(&app->device, option_count / 2);
+            }
         } else {
             int supported = 0;
-            selected_gain = app->options.gain_tenths;
-            for (int i = 0; i < gain_count; i++)
-                if (gains[i] == selected_gain)
+            /* `--gain N` is parsed as tenths-of-a-dB, the RTL tuner's unit. A
+               device whose gain is a plain index (or whole dB) means N itself,
+               so the tenths scaling is undone -- `--gain 40` is index 40 on the
+               B210, 40.0 dB on an RTL. */
+            selected_gain = app->device.gain_unit == GAIN_UNIT_TENTHS_DB
+                                ? app->options.gain_tenths
+                                : app->options.gain_tenths / 10;
+            for (int i = 0; i < option_count; i++)
+                if (device_gain_option_value(&app->device, i) == selected_gain)
                     supported = 1;
             if (!supported) {
-                fprintf(stderr, "Requested gain %.1f dB is not supported.\n",
-                        selected_gain / 10.0);
+                char text[32];
+                device_gain_format(&app->device, selected_gain, text,
+                                   sizeof(text));
+                fprintf(stderr, "Requested gain %s is not supported.\n", text);
                 print_supported_gains(&app->device);
                 goto done;
             }
@@ -178,38 +246,42 @@ int configure_receiver(struct app *app) {
     app->applied_manual_gain = app->options.gain_kind != GAIN_REQUEST_AUTO;
     if (device_set_gain(&app->source, app->applied_manual_gain,
                         selected_gain) < 0) {
-        fprintf(stderr, "Failed to set RTL-SDR tuner gain to %.1f dB.\n",
-                selected_gain / 10.0);
+        char text[32];
+        device_gain_format(&app->device, selected_gain, text, sizeof(text));
+        fprintf(stderr, "Failed to set %s gain to %s.\n", driver_name, text);
         goto done;
     }
     if (set_frequency_correction(&app->source, app->options.ppm) < 0) {
-        fprintf(stderr, "Failed to set RTL-SDR frequency correction to %d PPM.\n",
-                app->options.ppm);
+        fprintf(stderr, "Failed to set %s frequency correction to %d PPM.\n",
+                driver_name, app->options.ppm);
         goto done;
     }
     if (device_set_frequency_hz(&app->source, app->options.frequency) < 0) {
-        fprintf(stderr, "Failed to set RTL-SDR center frequency to %u Hz.\n",
-                app->options.frequency);
+        fprintf(stderr, "Failed to set %s center frequency to %u Hz.\n",
+                driver_name, app->options.frequency);
         goto done;
     }
     if (device_set_sample_rate_hz(&app->source, app->options.sample_rate) < 0) {
-        fprintf(stderr, "Failed to set RTL-SDR sample rate to %u S/s.\n",
-                app->options.sample_rate);
+        fprintf(stderr, "Failed to set %s sample rate to %u S/s.\n",
+                driver_name, app->options.sample_rate);
         goto done;
     }
     if (device_flush(&app->source) < 0) {
-        fprintf(stderr, "Failed to reset the RTL-SDR receiver buffer.\n");
+        fprintf(stderr, "Failed to reset the %s receiver buffer.\n",
+                driver_name);
         goto done;
     }
 
     reported_frequency = source_frequency(app);
     if (reported_frequency == 0) {
-        fprintf(stderr, "Failed to read back the RTL-SDR center frequency.\n");
+        fprintf(stderr, "Failed to read back the %s center frequency.\n",
+                driver_name);
         goto done;
     }
     reported_rate = source_sample_rate(app);
     if (reported_rate == 0) {
-        fprintf(stderr, "Failed to read back the RTL-SDR sample rate.\n");
+        fprintf(stderr, "Failed to read back the %s sample rate.\n",
+                driver_name);
         goto done;
     }
     if (reported_rate != app->options.sample_rate) {
@@ -229,9 +301,11 @@ int configure_receiver(struct app *app) {
     if (app->applied_manual_gain) {
         int reported_gain = source_gain(app);
         if (selected_gain != 0 && reported_gain != selected_gain) {
-            fprintf(stderr,
-                    "Gain mismatch: requested %.1f dB, reported %.1f dB.\n",
-                    selected_gain / 10.0, reported_gain / 10.0);
+            char want[32], got[32];
+            device_gain_format(&app->device, selected_gain, want, sizeof(want));
+            device_gain_format(&app->device, reported_gain, got, sizeof(got));
+            fprintf(stderr, "Gain mismatch: requested %s, reported %s.\n",
+                    want, got);
             goto done;
         }
         app->applied_gain_tenths = selected_gain == 0 ? 0 : reported_gain;
@@ -240,20 +314,26 @@ int configure_receiver(struct app *app) {
     app->applied.frequency_hz = reported_frequency;
     app->applied.sample_rate_hz = reported_rate;
     app->applied.ppm = source_ppm(app);
-    const char *device_name =
-        device_backend_rtlsdr_name(app->options.device_index);
-    snprintf(app->source_label, sizeof(app->source_label), "RTL-SDR: %s",
-             device_name ? device_name : "receiver 0");
-    snprintf(app->tuner_label, sizeof(app->tuner_label), "%s",
-             device_backend_rtlsdr_tuner(&app->source));
-    /* What this receiver is, in the terms the numbers need: an 8-bit
-       container at 127.5 full scale, the tuner's reach, and the gain list it
-       just reported (device_profile.h). Everything that would otherwise
-       assume eight bits reads it from here. */
+    /*
+     * Labels. The RTL backend names its device and tuner by index; a SoapySDR
+     * device carries both in the profile it filled in at open (the hardware key
+     * and the EEPROM serial), so there is nothing to look up by index.
+     */
+    if (app->options.driver == DEVICE_DRIVER_SOAPY) {
+        snprintf(app->source_label, sizeof(app->source_label), "SoapySDR: %s",
+                 app->device.name);
+        snprintf(app->tuner_label, sizeof(app->tuner_label), "%s",
+                 app->device.serial[0] ? app->device.serial : app->device.name);
+    } else {
+        const char *device_name =
+            device_backend_rtlsdr_name(app->options.device_index);
+        snprintf(app->source_label, sizeof(app->source_label), "RTL-SDR: %s",
+                 device_name ? device_name : "receiver 0");
+        snprintf(app->tuner_label, sizeof(app->tuner_label), "%s",
+                 device_backend_rtlsdr_tuner(&app->source));
+    }
     /* The profile is already filled in -- the backend did it at open, which
-       is the only place that knows the container and the gain list. It used to
-       be rebuilt here from a copy of that list, which after ticket 06 would
-       have meant reading the struct being overwritten. */
+       is the only place that knows the container and the gain model. */
     result = 0;
 
 done:
@@ -622,8 +702,8 @@ int start_acquisition(struct app *app) {
     iq_ring_configure(&app->acq.ring, app->applied.sample_rate_hz,
                       app->device.format, app->device.full_scale,
                       app->applied.frequency_hz, app->applied_gain_tenths,
-                      app->applied_manual_gain, app->applied.ppm,
-                      app->source_label, app->tuner_label);
+                      app->device.gain_unit, app->applied_manual_gain,
+                      app->applied.ppm, app->source_label, app->tuner_label);
     int thread_result = pthread_create(
         &app->acq.worker, NULL,
         app->receiver_mode ? receiver_worker : file_worker, &app->acq);
@@ -730,8 +810,8 @@ int retune_receiver_at_rate(struct app *app, uint32_t frequency,
         iq_ring_configure(&app->acq.ring, app->applied.sample_rate_hz,
                           app->device.format, app->device.full_scale,
                           app->applied.frequency_hz, app->applied_gain_tenths,
-                          app->applied_manual_gain, app->applied.ppm,
-                          app->source_label, app->tuner_label);
+                          app->device.gain_unit, app->applied_manual_gain,
+                          app->applied.ppm, app->source_label, app->tuner_label);
     }
     if (app->receiver_mode)
         signal_frame_invalidate(&app->frame);
@@ -970,7 +1050,8 @@ int start_capture_record(struct app *app, const char *basename,
 
     struct acquisition_record_request req = {
         app->applied.frequency_hz, app->applied.sample_rate_hz,
-        app->applied_gain_tenths, app->applied_manual_gain, app->applied.ppm,
+        app->applied_gain_tenths, app->device.gain_unit,
+        app->applied_manual_gain, app->applied.ppm,
         arfcn, carrier_offset_hz, technology,
         app->source_label, app->tuner_label, seconds,
         app->device.format, app->device.full_scale

@@ -196,4 +196,17 @@ uint64_t device_backend_capture_bytes(const struct device_session *s);
  */
 const struct device_backend *device_backend_uhd(void);
 
+/*
+ * SoapySDR, when the build found it (`HAVE_SOAPY`). NULL otherwise, the same
+ * contract as UHD above: a caller asks rather than testing a macro, and a
+ * binary built without SoapySDR refuses a `--device soapy` with a sentence
+ * instead of failing to link. This is the hedge ticket 07 names -- one C API
+ * (`SoapySDR/Device.h`) over UHD and every other device library -- and it is
+ * what the attached B210 clone is driven through. `_count` reports how many
+ * SoapySDR devices are present, for `--list-devices` and for refusing cleanly.
+ */
+const struct device_backend *device_backend_soapy(void);
+int device_backend_soapy_count(void);
+int device_backend_soapy_list(void);
+
 #endif /* DEVICE_BACKEND_H */

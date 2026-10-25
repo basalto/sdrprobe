@@ -20,7 +20,8 @@ static void test_init_and_configure(void) {
 
     check_int("configure with 2 MS/s u8",
               iq_ring_configure(&ring, 2000000, SAMPLE_FORMAT_U8, 127.5f,
-                                433800000, 496, 1, 44, "RTL2832U", "R820T"),
+                                433800000, 496, GAIN_UNIT_TENTHS_DB, 1, 44,
+                                "RTL2832U", "R820T"),
               0);
 
     /* 10.0s at 2 MS/s * 2 bytes/pair = 40,000,000 bytes */
@@ -36,7 +37,8 @@ static void test_push_and_extract(void) {
     iq_ring_init(&ring, 1.0); /* 1.0 second buffer */
     /* 1000 S/s, 2 bytes/pair = 2000 bytes capacity */
     iq_ring_configure(&ring, 1000, SAMPLE_FORMAT_U8, 127.5f,
-                      100000000, 300, 1, 0, "TestDev", "TestTuner");
+                      100000000, 300, GAIN_UNIT_TENTHS_DB, 1, 0,
+                      "TestDev", "TestTuner");
 
     check_size("capacity is 2000 bytes", ring.capacity_bytes, 2000);
 
@@ -83,7 +85,8 @@ static void test_save_slice(void) {
     struct iq_ring ring;
     iq_ring_init(&ring, 2.0);
     iq_ring_configure(&ring, 10000, SAMPLE_FORMAT_U8, 127.5f,
-                      433800000, 496, 1, 44, "RTL2832U", "R820T");
+                      433800000, 496, GAIN_UNIT_TENTHS_DB, 1, 44,
+                      "RTL2832U", "R820T");
 
     /* Push 20,000 bytes (1.0s) of test samples */
     unsigned char buf[4000];
@@ -138,7 +141,8 @@ static void test_snapshot_extraction_and_reconfiguration(void) {
     iq_ring_init(&ring, 2.0);
     /* 2.4 MS/s 16-bit container: 4 bytes per pair */
     iq_ring_configure(&ring, 2400000, SAMPLE_FORMAT_S16, 32767.0f,
-                      800000000, 350, 1, 10, "Airspy", "R820T");
+                      800000000, 350, GAIN_UNIT_TENTHS_DB, 1, 10,
+                      "Airspy", "R820T");
 
     check_size("capacity accommodates 2.4 MS/s S16", ring.capacity_bytes,
                (size_t)(2.0 * 2400000.0 * 4.0));
@@ -168,7 +172,8 @@ static void test_snapshot_extraction_and_reconfiguration(void) {
 
     /* Reconfiguration resets history */
     iq_ring_configure(&ring, 2000000, SAMPLE_FORMAT_U8, 127.5f,
-                      900000000, 400, 1, 0, "RTL2832U", "R820T");
+                      900000000, 400, GAIN_UNIT_TENTHS_DB, 1, 0,
+                      "RTL2832U", "R820T");
     check_size("history cleared on reconfiguration", ring.filled_bytes, 0);
     struct iq_snapshot *empty_snap = iq_ring_extract_snapshot(&ring, 0.0, 1.0);
     check_true("old bytes cannot pair with new metadata", empty_snap == NULL);

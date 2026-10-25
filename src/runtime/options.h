@@ -119,6 +119,19 @@ enum serve_bind_kind {
     SERVE_BIND_ADDRESS
 };
 
+/* Which backend a live receiver is opened through. AUTO is 0, so a plain
+   `struct options` memset to zero means it -- the default, same reasoning as
+   COMMAND_WINDOW and SERVE_BIND_LOOPBACK above. AUTO prefers an RTL-SDR and
+   falls back to SoapySDR when none is plugged in, so a bare launch finds
+   whatever is connected (a B210 with no RTL present, say). RTLSDR and SOAPY
+   name a backend outright; `--driver soapy` on a build without HAVE_SOAPY is
+   refused at open with a sentence rather than silently. */
+enum device_driver {
+    DEVICE_DRIVER_AUTO = 0,
+    DEVICE_DRIVER_RTLSDR,
+    DEVICE_DRIVER_SOAPY
+};
+
 struct options {
     uint32_t frequency;
     uint32_t sample_rate;
@@ -146,6 +159,7 @@ struct options {
     const char *unknown_command;
 
     /* Scripted runs: acquire, record and quit without anyone at the window. */
+    enum device_driver driver; /* which backend opens the receiver */
     int device_index;         /* receiver to open */
     int list_devices;         /* print the receivers and exit */
     int show_version;         /* print the version and exit */

@@ -534,17 +534,25 @@ static void test_the_setup_comes_from_the_installation(void) {
     memset(&inst, 0, sizeof(inst));
     installation_set_id(inst.antenna, "telescopic");
     installation_set_id(inst.site, "site-a");
-    survey_record_setup_from(&setup, &inst, 297);
+    survey_record_setup_from(&setup, &inst, 297, GAIN_UNIT_TENTHS_DB);
     check_str("a receiver that cannot name itself is left unnamed",
               setup.receiver, "");
     check_str("the antenna is still recorded", setup.antenna, "telescopic");
     check_str("and the site", setup.site, "site-a");
     check_int("with the gain it was heard at", setup.gain_tenths, 297);
+    check_int("in the unit it was heard in", setup.gain_unit,
+              GAIN_UNIT_TENTHS_DB);
 
     installation_identify(&inst, "receiver-a", NULL);
-    survey_record_setup_from(&setup, &inst, 0);
+    survey_record_setup_from(&setup, &inst, 0, GAIN_UNIT_TENTHS_DB);
     check_str("and one that can, does", setup.receiver, "receiver-a");
     check_int("an unknown gain stays unknown", setup.gain_tenths, 0);
+
+    /* A device whose gain is an index carries that, so nothing downstream
+       writes it as decibels. */
+    survey_record_setup_from(&setup, &inst, 40, GAIN_UNIT_INDEX);
+    check_int("an index gain keeps its unit", setup.gain_unit,
+              GAIN_UNIT_INDEX);
 }
 
 /* The whole thing in one call, which is what both adapters make. */

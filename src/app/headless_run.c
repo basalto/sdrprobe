@@ -50,7 +50,11 @@
 /* Enumeration is the backend's: UHD enumerates by device args, not by index
    (device_backend.h). */
 int list_devices(void) {
-    return device_backend_rtlsdr_list();
+    device_backend_rtlsdr_list();
+    /* And whatever SoapySDR sees -- a USRP/B210 and the like. Silent in a
+       build without SoapySDR, so this line changes nothing there. */
+    device_backend_soapy_list();
+    return 0;
 }
 
 

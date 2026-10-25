@@ -18,8 +18,8 @@
 # and 32, RDS 0x8343, six ADS-B frames with a position. `make bench-dsp` is
 # how to re-measure, and CFLAGS is overridable for anyone who would rather not.
 CFLAGS?=-O3 -g -Wall -W $(shell pkg-config --cflags librtlsdr)
-CFLAGS+=$(UHD_CFLAGS)
-LDLIBS+=$(shell pkg-config --libs librtlsdr) $(UHD_LIBS) -lm
+CFLAGS+=$(UHD_CFLAGS) $(SOAPY_CFLAGS)
+LDLIBS+=$(shell pkg-config --libs librtlsdr) $(UHD_LIBS) $(SOAPY_LIBS) -lm
 CC?=gcc
 
 # UHD is optional, and the build works either way.
@@ -52,6 +52,24 @@ else
 UHD_CFLAGS=
 UHD_LIBS=
 UHD_SRC=
+endif
+
+# SoapySDR is optional on the same terms as UHD, and is how the attached B210
+# clone is driven (ticket 07's one-C-API hedge: SoapyUHD over libuhd). Unlike
+# UHD, its adapter *is* written and the app-side wiring (`--driver soapy`) has
+# landed, so this detects it rather than defaulting off: a machine with
+# SoapySDR builds it in, a machine without it builds the NULL-returning stub and
+# the gate still runs. `device_backend_soapy()` returns NULL in a stub build, so
+# a caller asks rather than testing a macro and the binary refuses
+# `--driver soapy` with a sentence instead of failing to link. `make
+# HAVE_SOAPY=0` forces it off.
+HAVE_SOAPY?=$(shell pkg-config --exists SoapySDR && echo 1 || echo 0)
+ifeq ($(HAVE_SOAPY),1)
+SOAPY_CFLAGS=$(shell pkg-config --cflags SoapySDR) -DHAVE_SOAPY=1
+SOAPY_LIBS=$(shell pkg-config --libs SoapySDR)
+else
+SOAPY_CFLAGS=
+SOAPY_LIBS=
 endif
 
 # Commands are hidden so `make check` reads as a report rather than a wall of
@@ -113,7 +131,7 @@ DSP_SRC=$(SRC)/tech/gsm_session.c $(SRC)/tech/tetra_session.c $(SRC)/tech/lte_se
 # APP_SRC is both, and is what `./sdrprobe` is built from -- so there is one
 # list, split, rather than two lists to keep in step.
 CORE_SRC=$(SRC)/runtime/installation.c $(SRC)/runtime/backend_rtlsdr.c $(SRC)/runtime/backend_capture.c \
-	$(SRC)/runtime/backend_uhd.c \
+	$(SRC)/runtime/backend_uhd.c $(SRC)/runtime/backend_soapy.c \
 	$(SRC)/runtime/acquisition.c $(SRC)/core/iq_ring.c $(SRC)/runtime/options.c $(SRC)/runtime/chart_window.c \
 	$(SRC)/runtime/config.c $(SRC)/runtime/site_history.c $(SRC)/runtime/survey_record.c \
 	$(SRC)/tech/lte_chain_analysis.c $(SRC)/core/signal_frame.c $(SRC)/runtime/receiver_runtime.c \

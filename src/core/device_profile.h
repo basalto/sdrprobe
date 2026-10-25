@@ -562,4 +562,73 @@ device_profile_capture(const char *name, enum sample_format format,
     return p;
 }
 
+/*
+ * A USRP B210 (AD9361 + FPGA) reached through SoapySDR/UHD.
+ *
+ * This is emphatically **not** the RTL's profile, and every number here is
+ * why `device_profile` is data a source fills in rather than a constant
+ * (ticket 07, `docs/absolute-power-reference.md`):
+ *
+ *   - **SAMPLE_FORMAT_S16.** The backend asks SoapySDR for `CS16`, which the
+ *     one byte-to-float seam (`sdr_dsp_convert_iq`) already decodes; `CF32`
+ *     would be fewer conversions but that seam refuses it.
+ *   - **full_scale is provisional.** UHD scales its `sc16` CPU format to the
+ *     int16 rail, so 32767.5 keeps dBFS self-consistent on this receiver --
+ *     but RSRP-in-dBm and any cross-device power claim need the absolute
+ *     reference this board does not ship (`.scratch/device-model/issues/06,08`).
+ *     It is a number dBFS is relative to, not a calibrated one.
+ *   - **GAIN_MODEL_RANGE in GAIN_UNIT_INDEX 0..76**, because an AD9361's
+ *     receive gain is a gain-table index UHD advertises as `meta_range_t(0,76,1)`
+ *     (see the GAIN_UNIT_INDEX note above), not a decibel.
+ *   - **reference_clock_hz, ppm_drifts and settle_seconds are provisional.**
+ *     A genuine B210 clocks from a 40 MHz TCXO; this clone's GPSDO slot is
+ *     removed and no TCXO figure is published, so its drift and its spur comb
+ *     are unverified and must be measured on air (ticket 07/08) rather than
+ *     trusted. `ppm_drifts` is left 1 so the calibration path stays enabled.
+ *
+ * Reach (50-6000 MHz, up to ~61.44 MS/s) is the device's own; a backend may
+ * narrow it from what SoapySDR reports. `serial` is the UHD EEPROM serial,
+ * which `.scratch/device-model/issues/07-*` warns can be shared across a batch.
+ */
+static inline struct device_profile device_profile_b210(const char *name,
+                                                        const char *serial) {
+    struct device_profile p;
+    memset(&p, 0, sizeof(p));
+
+    device_profile_set_name(&p, name ? name : "USRP B210");
+    if (serial) {
+        size_t n = strlen(serial);
+        if (n > DEVICE_SERIAL_MAX - 1)
+            n = DEVICE_SERIAL_MAX - 1;
+        if (n)
+            memcpy(p.serial, serial, n);
+        p.serial[n] = '\0';
+    }
+
+    p.format = SAMPLE_FORMAT_S16;
+    p.full_scale = 32767.5f;   /* provisional; see the header comment */
+    p.bytes_per_pair = device_format_bytes_per_pair(SAMPLE_FORMAT_S16);
+
+    p.tuner = (int)DEVICE_TUNER_UNKNOWN;  /* not an RTL tuner */
+    p.tune_lower_hz = 50000000.0;
+    p.tune_upper_hz = 6000000000.0;
+    p.rate_min_hz = 200000;
+    p.rate_max_hz = 61440000;
+    p.can_retune = 1;
+
+    p.settle_seconds = 0.10;   /* provisional; measure on air */
+
+    p.gain_model = GAIN_MODEL_RANGE;
+    p.gain_unit = GAIN_UNIT_INDEX;
+    p.gain_min = 0.0;
+    p.gain_max = 76.0;
+    p.gain_step = 1.0;
+
+    p.has_ppm_correction = 1;
+    p.ppm_drifts = 1;          /* provisional; unverified for this board */
+    p.reference_clock_hz = 40000000.0;  /* B210 TCXO; clone unverified */
+
+    return p;
+}
+
 #endif /* DEVICE_PROFILE_H */

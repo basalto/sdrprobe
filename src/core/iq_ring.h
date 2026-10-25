@@ -34,7 +34,8 @@ struct iq_ring {
     float full_scale;
     unsigned bytes_per_pair;
     uint32_t frequency_hz;
-    int gain_tenths;
+    int gain_tenths;        /* value in gain_unit, not always tenths */
+    enum gain_unit gain_unit;
     int manual_gain;
     int ppm;
     char source[128];
@@ -55,7 +56,8 @@ struct iq_snapshot {
     enum sample_format format;
     float full_scale;
     unsigned bytes_per_pair;
-    int gain_tenths;
+    int gain_tenths;        /* value in gain_unit, not always tenths */
+    enum gain_unit gain_unit;
     int manual_gain;
     int ppm;
     char source[128];
@@ -72,7 +74,7 @@ void iq_ring_free(struct iq_ring *ring);
 int iq_ring_configure(struct iq_ring *ring, uint32_t sample_rate,
                       enum sample_format format, float full_scale,
                       uint32_t frequency_hz, int gain_tenths,
-                      int manual_gain, int ppm,
+                      enum gain_unit gain_unit, int manual_gain, int ppm,
                       const char *source, const char *tuner);
 
 /* Push a new block of raw I/Q bytes into the ring buffer. */
