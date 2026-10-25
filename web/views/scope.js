@@ -20,10 +20,49 @@ const ScopeView = (function () {
       els = {
         specCanvas, specCtx: specCanvas.getContext('2d'),
         wfCanvas, wfCtx: wfCanvas.getContext('2d'),
+        centre: document.getElementById('scope-centre'),
+        tune: document.getElementById('scope-tune'),
       };
     }
     return els;
   }
+
+  // The window's Scope header colours, as the hex of their exact RGB, matching
+  // the survey view's controls so the two tabs read alike.
+  const PANEL_EDGE = '#526d7e';
+  const CAPTION = '#ebf2f6';
+  const LABEL = '#a6bcc9';
+  const VALUE = '#ebf2f6';
+
+  function send(line) {
+    // viewer.js owns the socket; a view never opens one (ADR-0007, restated for
+    // JavaScript in the web-view skill).
+    if (typeof sendCommand === 'function') sendCommand(line);
+  }
+
+  // The centre field is spelled in MHz, the way the window's Scope header field
+  // is -- "948.4" or "948.4M", both 948.4 MHz. `tune` wants a positive integer
+  // in Hz (the server refuses anything else), so the conversion is this file's:
+  // parse the MHz, round to the nearest hertz, and send that.
+  function parseMHz(text) {
+    let t = text.trim();
+    if (!t) return null;
+    if (/[Mm]$/.test(t)) t = t.slice(0, -1);
+    const mhz = parseFloat(t);
+    if (!Number.isFinite(mhz) || mhz <= 0) return null;
+    return Math.round(mhz * 1e6);
+  }
+
+  function tuneToField() {
+    const hz = parseMHz(elements().centre.value);
+    // A bad spelling is left for the operator to fix rather than sent: the
+    // server would refuse it, but refusing here keeps the field as typed.
+    if (hz !== null) send('tune ' + hz);
+  }
+
+  // The last centre the receiver reported, so the field can be kept in step
+  // without clobbering a half-typed entry (prefilled only while unfocused).
+  let lastCentreHz = null;
 
   function drawSpectrum(average, peak) {
     const { specCanvas, specCtx } = elements();
@@ -67,7 +106,28 @@ const ScopeView = (function () {
     // is exactly the viewport and never scrolls. `min-height:0` is what
     // lets each be shorter than its own backing store rather than pushing
     // the column past the bottom.
+    // The window's Scope header has a centre field that retunes the receiver;
+    // this is that field and nothing more. The window's start/end are a view
+    // zoom this page does not have (the spectrum is redrawn whole each block),
+    // and its FFT stepper is the Settings panel's resolution, reachable there.
+    mounted() {
+      const e = elements();
+      e.tune.addEventListener('click', tuneToField);
+      e.centre.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') tuneToField();
+      });
+    },
     markup:
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
+      + 'flex:0 0 auto;margin-bottom:6px">'
+      + '<label style="color:' + LABEL + '">centre <input id="scope-centre" '
+      + 'size="10" style="background:#16222e;color:' + VALUE
+      + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;padding:3px 6px">'
+      + ' MHz</label>'
+      + '<button id="scope-tune" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
+      + 'cursor:pointer">Tune</button>'
+      + '</div>' +
       '<div class="label">spectrum (average: cyan, peak hold: orange)</div>' +
       '<canvas id="spectrum" style="flex:1 1 0;min-height:110px;width:100%;'
       + 'margin-bottom:10px"></canvas>' +
@@ -77,6 +137,17 @@ const ScopeView = (function () {
     render(msg) {
       if (msg.kind === 'spectrum') drawSpectrum(msg.average, msg.peak);
       else if (msg.kind === 'waterfall_row') drawWaterfall(msg.row);
+      else if (msg.kind === 'state' && msg.state.type === 'receiver_state') {
+        // Keep the centre field showing where the receiver is, the way the
+        // window's field reads back the tuning -- but not while it is being
+        // typed into, and only when the value actually moved.
+        const e = elements();
+        const hz = msg.state.center_hz;
+        if (hz !== lastCentreHz && document.activeElement !== e.centre) {
+          e.centre.value = (hz / 1e6).toFixed(4);
+          lastCentreHz = hz;
+        }
+      }
     },
   };
 })();
