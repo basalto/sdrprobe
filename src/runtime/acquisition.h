@@ -147,7 +147,8 @@ struct acquisition {
     char record_path[256];
     uint32_t record_frequency_hz;
     uint32_t record_sample_rate;
-    int record_gain_tenths;
+    int record_gain_tenths;      /* value in record_gain_unit, not always tenths */
+    enum gain_unit record_gain_unit;
     int record_manual_gain;
     int record_ppm;
     int record_arfcn;
@@ -177,7 +178,8 @@ struct acquisition {
 struct acquisition_record_request {
     uint32_t frequency_hz;
     uint32_t sample_rate;
-    int gain_tenths;
+    int gain_tenths;        /* value in gain_unit; the field name is historical */
+    enum gain_unit gain_unit;
     int manual_gain;
     int ppm;
     int arfcn;              /* 0 when not tuned via the GSM view */

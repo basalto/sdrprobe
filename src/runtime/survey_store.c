@@ -168,11 +168,18 @@ int survey_store_write(const struct survey_record *record, char *path_out,
     else
         fprintf(file, "    \"id\": null,\n");
     put_string(file, "    ", "antenna", record->setup.antenna, ",");
-    if (record->setup.gain_tenths > 0)
+    /* In the device's own unit, as the record sidecars write it: a gain-table
+       index is "gain_index", not a "gain_db" that reads an index of 40 as
+       40 dB. survey_tool.py reads either key. */
+    if (record->setup.gain_tenths <= 0)
+        fprintf(file, "    \"gain_db\": null\n");
+    else if (record->setup.gain_unit == GAIN_UNIT_INDEX)
+        fprintf(file, "    \"gain_index\": %d\n", record->setup.gain_tenths);
+    else if (record->setup.gain_unit == GAIN_UNIT_DB)
+        fprintf(file, "    \"gain_db\": %d\n", record->setup.gain_tenths);
+    else
         fprintf(file, "    \"gain_db\": %.1f\n",
                 (double)record->setup.gain_tenths / 10.0);
-    else
-        fprintf(file, "    \"gain_db\": null\n");
     fprintf(file, "  },\n");
     /* No site is written as null rather than an empty string: a reader must be
        able to tell "nobody said" from "somebody said nothing", because two

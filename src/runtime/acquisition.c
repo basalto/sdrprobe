@@ -45,10 +45,17 @@ static void record_write_sidecar(struct acquisition *acq, double seconds) {
         fprintf(f, "  \"technology\": \"%s\",\n", acq->record_technology);
     fprintf(f, "  \"center_frequency_hz\": %u,\n", acq->record_frequency_hz);
     fprintf(f, "  \"sample_rate_hz\": %u,\n", acq->record_sample_rate);
-    if (acq->record_manual_gain)
-        fprintf(f, "  \"gain_db\": %.1f,\n", acq->record_gain_tenths / 10.0);
-    else
+    /* The gain is written in the device's own unit: an RTL tuner's tenths of a
+       dB, or an AD9361's gain-table index -- calling an index "gain_db" was a
+       lie (index 40 read as "4.0 dB"). */
+    if (!acq->record_manual_gain)
         fprintf(f, "  \"gain_db\": \"auto\",\n");
+    else if (acq->record_gain_unit == GAIN_UNIT_INDEX)
+        fprintf(f, "  \"gain_index\": %d,\n", acq->record_gain_tenths);
+    else if (acq->record_gain_unit == GAIN_UNIT_DB)
+        fprintf(f, "  \"gain_db\": %d,\n", acq->record_gain_tenths);
+    else
+        fprintf(f, "  \"gain_db\": %.1f,\n", acq->record_gain_tenths / 10.0);
     fprintf(f, "  \"ppm\": %d,\n", acq->record_ppm);
     if (acq->record_arfcn > 0) {
         fprintf(f, "  \"gsm_arfcn\": %d,\n", acq->record_arfcn);
@@ -435,6 +442,7 @@ int acquisition_start_recording(struct acquisition *acq, const char *path,
     if (acq->record_bytes_per_pair == 0)
         acq->record_bytes_per_pair = 2;
     acq->record_gain_tenths = req->gain_tenths;
+    acq->record_gain_unit = req->gain_unit;
     acq->record_manual_gain = req->manual_gain;
     acq->record_ppm = req->ppm;
     acq->record_arfcn = req->arfcn;
@@ -570,6 +578,6 @@ int acquisition_attach_source(struct acquisition *acq,
     acq->capture_path = capture_path;
     acq->capture_loop = capture_loop;
     iq_ring_configure(&acq->ring, sample_rate, SAMPLE_FORMAT_U8, 127.5f,
-                      0, 0, 0, 0, NULL, NULL);
+                      0, 0, GAIN_UNIT_TENTHS_DB, 0, 0, NULL, NULL);
     return 0;
 }

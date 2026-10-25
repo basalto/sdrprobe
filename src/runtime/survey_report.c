@@ -56,8 +56,18 @@ static void survey_print_installation(const struct app *app) {
         printf("survey antenna %s\n", app->config.antenna);
     if (app->config.site[0])
         printf("survey site %s\n", app->config.site);
-    if (app->applied_gain_tenths > 0)
-        printf("survey gain %.1f\n", (double)app->applied_gain_tenths / 10.0);
+    /* In the device's own unit, which survey_tool.py reads: a gain-table index
+       is "survey gain-index N", not a "survey gain" dB that reads index 40 as
+       40 dB. Matches the JSON survey_store.c writes. */
+    if (app->applied_gain_tenths > 0) {
+        if (app->device.gain_unit == GAIN_UNIT_INDEX)
+            printf("survey gain-index %d\n", app->applied_gain_tenths);
+        else if (app->device.gain_unit == GAIN_UNIT_DB)
+            printf("survey gain %d\n", app->applied_gain_tenths);
+        else
+            printf("survey gain %.1f\n",
+                   (double)app->applied_gain_tenths / 10.0);
+    }
 }
 
 /* One block, as the session sees it. */
@@ -210,7 +220,7 @@ static void survey_report_input(struct app *app,
     in->plan = &ss->plan;
     in->dwell_seconds = ss->dwell_seconds;
     survey_record_setup_from(&in->setup, &app->installation,
-                             app->applied_gain_tenths);
+                             app->applied_gain_tenths, app->device.gain_unit);
     in->recorded_at = survey_record_now();
     in->peaks = ss->peaks;
     in->peak_count = ss->peak_count;

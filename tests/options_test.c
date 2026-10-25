@@ -1284,11 +1284,42 @@ static void test_no_token(void) {
              SERVE_BIND_LOOPBACK);
 }
 
+static void test_driver_selects_the_backend(void) {
+    struct options options;
+
+    /* Default is AUTO: a plain line leaves it zero, the same way COMMAND_WINDOW
+       and SERVE_BIND_LOOPBACK default (options.h). AUTO prefers RTL and falls
+       back to SoapySDR, which is what makes a bare launch find a B210. */
+    parse_line("", &options);
+    expect(options.driver == DEVICE_DRIVER_AUTO,
+           "driver did not default to AUTO");
+
+    accepts("--driver auto");
+    accepts("--driver rtl");
+    accepts("--driver rtlsdr");
+    accepts("--driver soapy");
+
+    parse_line("--driver soapy", &options);
+    expect(options.driver == DEVICE_DRIVER_SOAPY,
+           "--driver soapy did not select SoapySDR");
+    parse_line("--driver rtlsdr", &options);
+    expect(options.driver == DEVICE_DRIVER_RTLSDR,
+           "--driver rtlsdr did not select RTL-SDR");
+    parse_line("--driver auto", &options);
+    expect(options.driver == DEVICE_DRIVER_AUTO,
+           "--driver auto did not select AUTO");
+
+    rejects("--driver");                     /* a value is required */
+    rejects("--driver uhd");                 /* not a known backend name */
+    rejects("--driver soapy --driver rtl");  /* once only */
+}
+
 int main(void) {
     test_receiver_identity_flags();
     test_defaults();
     test_frequency_spellings();
     test_gain_and_numbers();
+    test_driver_selects_the_backend();
     test_named_values();
     test_conflicting_flags();
     test_implications();

@@ -116,6 +116,10 @@ def parse(text):
             out["receiver"]["antenna"] = " ".join(f[2:])
         elif f[:2] == ["survey", "site"]:
             out["site"]["label"] = " ".join(f[2:])
+        elif f[:2] == ["survey", "gain-index"]:
+            # An AD9361 gain-table index, not decibels (the B210). Kept as its
+            # own field so it is never compared against a dB figure.
+            out["receiver"]["gain_index"] = int(f[2])
         elif f[:2] == ["survey", "gain"]:
             out["receiver"]["gain_db"] = float(f[2])
         elif f[:2] == ["survey", "carriers"]:
@@ -359,10 +363,15 @@ def cmd_report(args):
     rx = record.get("receiver", {})
     print("%s  %s to %s  %s" % (args.survey, mhz(lo), mhz(hi),
                                 record["recorded_at"]))
+    if rx.get("gain_db") is not None:
+        gain_text = "   gain %.1f dB" % rx["gain_db"]
+    elif rx.get("gain_index") is not None:
+        gain_text = "   gain index %d" % rx["gain_index"]
+    else:
+        gain_text = ""
     print("  site %s   antenna %s%s"
           % (site.get("label") or "UNSET",
-             rx.get("antenna") or "unrecorded",
-             "   gain %.1f dB" % rx["gain_db"] if rx.get("gain_db") else ""))
+             rx.get("antenna") or "unrecorded", gain_text))
     if not site.get("label"):
         print("  ! no site. Levels cannot be compared with another sweep;"
               " set one with --site.")
@@ -513,6 +522,11 @@ def cmd_diff(args):
     if o_gain is not None and n_gain is not None and o_gain != n_gain:
         print("  ! gain differs, %g dB then %g dB. Levels are not comparable."
               % (o_gain, n_gain))
+    o_index = old.get("receiver", {}).get("gain_index")
+    n_index = new.get("receiver", {}).get("gain_index")
+    if o_index is not None and n_index is not None and o_index != n_index:
+        print("  ! gain differs, index %d then %d. Levels are not comparable."
+              % (o_index, n_index))
     o_clean = [c for c in o_clean if lo <= c["hz"] <= hi]
     n_clean = [c for c in n_clean if lo <= c["hz"] <= hi]
 

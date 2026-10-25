@@ -6,6 +6,7 @@
 #include <time.h>
 
 #include "runtime/installation.h"
+#include "core/device_profile.h"
 #include "core/survey_carrier.h"
 #include "core/survey_confirm.h"
 #include "core/sdr_dsp.h"
@@ -119,7 +120,8 @@ struct survey_record_setup {
     char receiver[INSTALLATION_ID_MAX];
     char antenna[INSTALLATION_ID_MAX];
     char site[INSTALLATION_ID_MAX];
-    int gain_tenths;
+    int gain_tenths;            /* value in gain_unit, not always tenths */
+    enum gain_unit gain_unit;   /* how to write it: dB, whole dB, or an index */
 };
 
 struct survey_record {
@@ -221,7 +223,7 @@ struct survey_record_input {
  */
 void survey_record_setup_from(struct survey_record_setup *out,
                               const struct installation *inst,
-                              int gain_tenths);
+                              int gain_tenths, enum gain_unit gain_unit);
 
 /*
  * The local time now, for an adapter to stamp a record with.

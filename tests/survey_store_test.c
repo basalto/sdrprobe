@@ -448,6 +448,35 @@ static void test_the_file_it_writes(void) {
         check_true("and whether that was a measurement or the floor",
                    strstr(text, "\"resolved\": ") != NULL);
     }
+
+    /* The same record with a gain-table index rather than tenths of a dB -- the
+       B210's gain is an index, and writing it as "gain_db" read index 40 as
+       40 dB (the sidecars had the same bug). A zeroed carrier and target are
+       enough here: only the gain field is under test. */
+    struct survey_carrier gain_carrier;
+    struct survey_confirm_target gain_target;
+    memset(&gain_carrier, 0, sizeof(gain_carrier));
+    memset(&gain_target, 0, sizeof(gain_target));
+    setup.gain_unit = GAIN_UNIT_INDEX;
+    setup.gain_tenths = 40;
+    if (survey_record_form(&record, &plan, 0.12, &setup, &when, c, 2,
+                           &gain_carrier, 1, &gain_target, 1) == 0 &&
+        survey_store_write(&record, path, sizeof(path)) == 0) {
+        file = fopen(path, "rb");
+        if (file) {
+            got = fread(text, 1, sizeof(text) - 1, file);
+            text[got] = '\0';
+            fclose(file);
+            remove(path);
+            check_true("an index gain is written as gain_index",
+                       strstr(text, "\"gain_index\": 40") != NULL);
+            check_true("and never mislabelled as decibels",
+                       strstr(text, "\"gain_db\"") == NULL);
+            check_true("the index-gain file is still well formed",
+                       json_balanced(text));
+        }
+    }
+
     if (chdir(cwd) != 0)
         exit(2);
 }

@@ -44,7 +44,7 @@ void iq_ring_free(struct iq_ring *ring) {
 int iq_ring_configure(struct iq_ring *ring, uint32_t sample_rate,
                       enum sample_format format, float full_scale,
                       uint32_t frequency_hz, int gain_tenths,
-                      int manual_gain, int ppm,
+                      enum gain_unit gain_unit, int manual_gain, int ppm,
                       const char *source, const char *tuner) {
     if (!ring || !ring->mutex_ready || sample_rate == 0)
         return -1;
@@ -59,6 +59,7 @@ int iq_ring_configure(struct iq_ring *ring, uint32_t sample_rate,
 
     ring->frequency_hz = frequency_hz;
     ring->gain_tenths = gain_tenths;
+    ring->gain_unit = gain_unit;
     ring->manual_gain = manual_gain;
     ring->ppm = ppm;
     snprintf(ring->source, sizeof(ring->source), "%s", source ? source : "RTL-SDR");
@@ -281,6 +282,7 @@ struct iq_snapshot *iq_ring_extract_snapshot(struct iq_ring *ring,
     snap->full_scale = ring->full_scale;
     snap->bytes_per_pair = ring->bytes_per_pair;
     snap->gain_tenths = ring->gain_tenths;
+    snap->gain_unit = ring->gain_unit;
     snap->manual_gain = ring->manual_gain;
     snap->ppm = ring->ppm;
     snprintf(snap->source, sizeof(snap->source), "%s", ring->source);
@@ -334,10 +336,17 @@ int iq_snapshot_save(const struct iq_snapshot *snap, const char *path,
     fprintf(json, "  \"technology\": \"%s\",\n", technology ? technology : "raw");
     fprintf(json, "  \"center_frequency_hz\": %u,\n", snap->frequency_hz);
     fprintf(json, "  \"sample_rate_hz\": %u,\n", snap->sample_rate);
-    if (snap->manual_gain)
-        fprintf(json, "  \"gain_db\": %.1f,\n", (double)snap->gain_tenths / 10.0);
-    else
+    /* In the device's own unit: an RTL tuner's tenths of a dB, or an AD9361's
+       gain-table index. Calling an index "gain_db" misreads it (index 40 as
+       "4.0 dB"); the same split acquisition.c's record sidecar makes. */
+    if (!snap->manual_gain)
         fprintf(json, "  \"gain_db\": \"auto\",\n");
+    else if (snap->gain_unit == GAIN_UNIT_INDEX)
+        fprintf(json, "  \"gain_index\": %d,\n", snap->gain_tenths);
+    else if (snap->gain_unit == GAIN_UNIT_DB)
+        fprintf(json, "  \"gain_db\": %d,\n", snap->gain_tenths);
+    else
+        fprintf(json, "  \"gain_db\": %.1f,\n", (double)snap->gain_tenths / 10.0);
     fprintf(json, "  \"ppm\": %d,\n", snap->ppm);
     fprintf(json, "  \"source\": \"%s\",\n", snap->source);
     fprintf(json, "  \"tuner\": \"%s\",\n", snap->tuner);

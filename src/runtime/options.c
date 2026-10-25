@@ -142,6 +142,10 @@ void usage(const char *program, int has_window) {
             "                    generation; not a Viewer command\n"
             "  --no-browser      web: serve the Viewer, open no browser at\n"
             "                    it -- which is what `server` spells\n"
+            "  --driver KIND     auto (default), rtl or soapy -- the backend\n"
+            "                    the receiver is opened through; auto prefers an\n"
+            "                    RTL-SDR and falls back to soapy (USRP/B210 and\n"
+            "                    anything else SoapySDR covers) when none is found\n"
             "  --list-devices    print the receivers found, and exit\n"
             "  --version         print the version, and exit\n",
             program);
@@ -361,6 +365,7 @@ int parse_options(int argc, char **argv, struct options *options) {
     int sample_rate_seen = 0;
     int file_seen = 0;
     int device_seen = 0;
+    int driver_seen = 0;
     int view_seen = 0;
     int record_seen = 0;
     int duration_seen = 0;
@@ -443,6 +448,20 @@ int parse_options(int argc, char **argv, struct options *options) {
                 options->device_index < 0 || options->device_index > 31)
                 return -1;
             device_seen = 1;
+        } else if (strcmp(option, "--driver") == 0) {
+            if (driver_seen || i + 1 >= argc)
+                return -1;
+            argument = argv[++i];
+            if (strcmp(argument, "auto") == 0)
+                options->driver = DEVICE_DRIVER_AUTO;
+            else if (strcmp(argument, "rtl") == 0 ||
+                     strcmp(argument, "rtlsdr") == 0)
+                options->driver = DEVICE_DRIVER_RTLSDR;
+            else if (strcmp(argument, "soapy") == 0)
+                options->driver = DEVICE_DRIVER_SOAPY;
+            else
+                return -1;
+            driver_seen = 1;
         } else if (strcmp(option, "--view") == 0) {
             if (view_seen || i + 1 >= argc ||
                 parse_view(argv[++i], &options->view) < 0)

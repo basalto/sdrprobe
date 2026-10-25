@@ -215,7 +215,7 @@ static void survey_save_sweep(struct app *app) {
     in.plan = &ss->plan;
     in.dwell_seconds = ss->dwell_seconds;
     survey_record_setup_from(&in.setup, &app->installation,
-                             app->applied_gain_tenths);
+                             app->applied_gain_tenths, app->device.gain_unit);
     in.recorded_at = survey_record_now();
     in.peaks = ss->peaks;
     in.peak_count = ss->peak_count;

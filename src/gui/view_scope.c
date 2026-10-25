@@ -402,8 +402,10 @@ void draw_base_hud(const struct app *app,
     } else if (!app->applied_manual_gain) {
         snprintf(gain, sizeof(gain), "auto");
     } else {
-        snprintf(gain, sizeof(gain), "%.1f dB",
-                 app->applied_gain_tenths / 10.0);
+        /* In the device's own unit, so an AD9361 reads "index 40" rather than
+           the "4.0 dB" a tenths-of-a-dB assumption printed for it. */
+        device_gain_format(&app->device, app->applied_gain_tenths, gain,
+                           sizeof(gain));
     }
 
     snprintf(text, sizeof(text), "source: %s   state: %s", app->source_label,
