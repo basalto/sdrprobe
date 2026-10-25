@@ -273,6 +273,46 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
         set_error(error, error_cap, "unrecognized scan target");
         return -1;
     }
+    if (strcmp(word, "sweep") == 0) {
+        char a[24], b[24], c[12];
+        int consumed = 0;
+
+        value_start = buf + word_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        /* `sweep stop` first, since it is one word where the range form is
+           three. */
+        if (sscanf(value_start, "%23s%n", a, &consumed) == 1 &&
+            strcmp(a, "stop") == 0) {
+            for (i = (size_t)consumed; value_start[i] != '\0'; i++)
+                if (!isspace((unsigned char)value_start[i])) {
+                    set_error(error, error_cap, "unexpected trailing field");
+                    return -1;
+                }
+            out->type = VIEWER_COMMAND_SWEEP;
+            out->sweep_stop = 1;
+            return 0;
+        }
+        consumed = 0;
+        if (sscanf(value_start, "%23s %23s %11s%n", a, b, c, &consumed) != 3) {
+            set_error(error, error_cap,
+                      "sweep requires 'from to dwell' or 'stop'");
+            return -1;
+        }
+        for (i = (size_t)consumed; value_start[i] != '\0'; i++)
+            if (!isspace((unsigned char)value_start[i])) {
+                set_error(error, error_cap, "unexpected trailing field");
+                return -1;
+            }
+        /* The three stay as text; survey_start() validates them with the same
+           parse_frequency/parse_seconds the window's fields use, and reports a
+           bad value in the survey's own status line. */
+        out->type = VIEWER_COMMAND_SWEEP;
+        snprintf(out->sweep_from, sizeof(out->sweep_from), "%s", a);
+        snprintf(out->sweep_to, sizeof(out->sweep_to), "%s", b);
+        snprintf(out->sweep_dwell, sizeof(out->sweep_dwell), "%s", c);
+        return 0;
+    }
     if (strcmp(word, "select") == 0) {
         static const struct {
             const char *name;

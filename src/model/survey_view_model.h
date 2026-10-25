@@ -82,6 +82,60 @@ struct survey_candidate_view {
  */
 #define SURVEY_VIEW_MODEL_MAX_BINS SURVEY_BINS
 
+/*
+ * The Selected-candidate detail panel, as a list of ready-to-draw lines rather
+ * than a struct of fields each reader re-decides how to lay out.
+ *
+ * `draw_detail()` was ~150 lines of decisions -- which sentences, in what order,
+ * at what emphasis -- and a browser reproducing them field by field would be the
+ * eleventh place this repository's two readers quietly came apart (the web-view
+ * skill lists the other ten). So the decision is the *list*: the builder decides
+ * every line and its tone once, the window draws it and the browser renders it,
+ * and neither chooses what to show. The interactive buttons (Scan this
+ * frequency, Open waterfall, inspect) stay window-only -- the web defers them.
+ */
+enum survey_detail_tone {
+    SURVEY_DETAIL_BRIGHT = 0,  /* the headline: the selected frequency */
+    SURVEY_DETAIL_VALUE,       /* a measured number */
+    SURVEY_DETAIL_MUTED,       /* a qualifier under a claim */
+    SURVEY_DETAIL_ACTIVE,      /* measuring, or "nothing measurable" */
+    SURVEY_DETAIL_INFO,        /* the band-plan allocation */
+    SURVEY_DETAIL_WARN         /* a suspicion the measurement raises */
+};
+
+#define SURVEY_DETAIL_MAX_LINES 24
+#define SURVEY_DETAIL_TEXT 128
+
+struct survey_detail_line {
+    char text[SURVEY_DETAIL_TEXT];
+    int indent;                 /* 0 a claim, 1 a qualifier beneath it */
+    enum survey_detail_tone tone;
+};
+
+struct survey_detail_view {
+    /* 0 means nothing is selected -- the panel shows "click a candidate" and no
+       lines. Otherwise `line[0..count)` are the detail, already decided. */
+    int selected;
+    int line_count;
+    struct survey_detail_line line[SURVEY_DETAIL_MAX_LINES];
+};
+
+/* The tone's name, keyed on the wire and in the browser by name and never by
+   this enum's integer (the web-view skill's rule: an ordinal re-declared wrong
+   is how the survey marks shipped swapped for months). Inline, so the wire
+   writer needs only this header and not the builder's translation unit. */
+static inline const char *survey_detail_tone_name(enum survey_detail_tone tone) {
+    switch (tone) {
+    case SURVEY_DETAIL_BRIGHT: return "bright";
+    case SURVEY_DETAIL_VALUE:  return "value";
+    case SURVEY_DETAIL_MUTED:  return "muted";
+    case SURVEY_DETAIL_ACTIVE: return "active";
+    case SURVEY_DETAIL_INFO:   return "info";
+    case SURVEY_DETAIL_WARN:   return "warn";
+    }
+    return "value";
+}
+
 struct survey_view_model {
     struct survey_candidate_view candidates[SURVEY_MAX_PEAKS];
     int candidate_count;
@@ -112,5 +166,19 @@ struct survey_view_model {
 void survey_view_model_build(const struct survey_session *ss,
                              const struct survey_record_tuning *tuning,
                              struct survey_view_model *out);
+
+/*
+ * The detail for the candidate `draw_detail()` would show -- `selected` is the
+ * survey view's selected index (negative for none), `selected_hz` the frequency
+ * that index sits at (the window's `survey_bin_hz`), used only when no
+ * measurement has refined it. Reads the session's measurement and the same
+ * shared decision functions the window does (`signal_findings_from`,
+ * `survey_suspect_*`, the band plan), so the window and the browser draw one
+ * decided list rather than two that agree today.
+ */
+void survey_detail_view_build(const struct survey_session *ss,
+                              const struct survey_record_tuning *tuning,
+                              int selected, double selected_hz,
+                              struct survey_detail_view *out);
 
 #endif

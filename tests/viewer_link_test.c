@@ -427,7 +427,8 @@ static void test_survey_state_wire_format(void) {
     client_send_text(&tc, "subscribe survey_state");
     client_pump(&tc, 10);
 
-    viewer_link_publish_survey_state(&vlink, &svm, 500);
+    viewer_link_publish_survey_state(&vlink, &svm,
+                                     &(struct survey_detail_view){0}, 500);
     client_pump(&tc, 10);
 
     check_true("a survey_state message arrived",
@@ -495,7 +496,8 @@ static void test_survey_marks_travel_by_name(void) {
     client_send_text(&tc, "subscribe survey_state");
     client_pump(&tc, 10);
 
-    viewer_link_publish_survey_state(&vlink, &svm, 0);
+    viewer_link_publish_survey_state(&vlink, &svm,
+                                     &(struct survey_detail_view){0}, 0);
     client_pump(&tc, 10);
 
     check_true("a survey_state message arrived",
@@ -537,7 +539,8 @@ static void test_survey_streams_are_not_sent_when_unsubscribed(void) {
     client_pump(&tc, 10);
 
     viewer_link_publish_survey_spectrum(&vlink, &svm, 1, 0);
-    viewer_link_publish_survey_state(&vlink, &svm, 0);
+    viewer_link_publish_survey_state(&vlink, &svm,
+                                     &(struct survey_detail_view){0}, 0);
     client_pump(&tc, 10);
 
     check_true("neither new stream reaches a client that did not ask",
@@ -1245,7 +1248,8 @@ static void test_every_stream_name_can_be_subscribed_to(void) {
         client_send_text(&tc, line);
         client_pump(&tc, 10);
         viewer_link_publish_fm_state(&vlink, &fvm, 0);
-        viewer_link_publish_survey_state(&vlink, &svm, 0);
+        viewer_link_publish_survey_state(&vlink, &svm,
+                                     &(struct survey_detail_view){0}, 0);
         client_pump(&tc, 10);
         arrived = client_next_frame(&tc, &opcode, &payload, &len);
         /* Only the two names published above should deliver anything; the

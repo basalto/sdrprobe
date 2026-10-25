@@ -294,6 +294,40 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
         }
         return 0;
     }
+    case VIEWER_COMMAND_SWEEP: {
+        /*
+         * The window's Sweep button, reached from the browser. The command
+         * carries the range and dwell as text; this drops them into the survey
+         * view's own fields and calls `survey_start()`, exactly what the button
+         * does -- one path, which parses the spellings and borrows the receiver.
+         * A refusal (no receiver, a bad range) lands in the survey's status
+         * line, which is what a reader at the window would see too.
+         *
+         * `now` is the serve loop's relative clock, for the reason the SCAN and
+         * VIEW cases give: the sweep stamps each step from it.
+         */
+        double now = monotonic_seconds() - viewer_session_started_at;
+        struct survey_session_event event;
+
+        if (cmd->sweep_stop) {
+            survey_session_stop(&app->survey.session, &event);
+            survey_obey(app, &event, now);
+            return 0;
+        }
+        snprintf(app->survey.from, sizeof(app->survey.from), "%s",
+                 cmd->sweep_from);
+        app->survey.from_length = (int)strlen(app->survey.from);
+        snprintf(app->survey.to, sizeof(app->survey.to), "%s", cmd->sweep_to);
+        app->survey.to_length = (int)strlen(app->survey.to);
+        snprintf(app->survey.dwell, sizeof(app->survey.dwell), "%s",
+                 cmd->sweep_dwell);
+        app->survey.dwell_length = (int)strlen(app->survey.dwell);
+        if (survey_start(app, now) < 0) {
+            snprintf(error, error_cap, "%s", app->survey.session.status);
+            return -1;
+        }
+        return 0;
+    }
     case VIEWER_COMMAND_APPLY: {
         int clear_waterfall = 0;
 
@@ -546,6 +580,7 @@ int viewer_session_run(struct app *app) {
         int spectrum_updated;
         struct scope_view_model svm;
         struct survey_view_model survey_svm;
+        struct survey_detail_view survey_detail;
         const struct receiver_view_model *rvm;
         uint64_t now_ms;
 
@@ -628,14 +663,25 @@ int viewer_session_run(struct app *app) {
              */
             {
         struct survey_record_tuning tuning;
+        int selected = app->survey.selected;
+        double selected_hz = 0.0;
 
         survey_tuning_from(&tuning, app);
         survey_view_model_build(&app->survey.session, &tuning, &survey_svm);
+        /* The detail panel's selected candidate is the survey view's, not the
+           session's -- the session holds the measurement, the view the choice. */
+        if (selected >= 0 && selected < app->survey.session.peak_count)
+            selected_hz = survey_session_bin_hz(
+                &app->survey.session,
+                app->survey.session.peaks[selected].index);
+        survey_detail_view_build(&app->survey.session, &tuning, selected,
+                                 selected_hz, &survey_detail);
     }
             viewer_link_publish_survey_spectrum(&link, &survey_svm,
                                                 rvm->tuning_generation,
                                                 now_ms);
-            viewer_link_publish_survey_state(&link, &survey_svm, now_ms);
+            viewer_link_publish_survey_state(&link, &survey_svm, &survey_detail,
+                                             now_ms);
             /* The FM view, on the same gate and for the same reason. */
             fm_view_model_build(&app->fm, &fm_svm);
             viewer_link_publish_fm_spectrum(&link, &fm_svm,

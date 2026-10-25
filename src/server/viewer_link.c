@@ -1401,6 +1401,7 @@ void viewer_link_publish_lte_scatter(struct viewer_link *link,
  */
 void viewer_link_publish_survey_state(struct viewer_link *link,
                                       const struct survey_view_model *svm,
+                                      const struct survey_detail_view *detail,
                                       uint64_t now_ms) {
     /* One candidate's JSON is at most about 110 bytes with a 200-byte
        margin for the escaped status string and the wrapper; SURVEY_MAX_PEAKS
@@ -1446,9 +1447,33 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
                                 site_seen_name(cnd->seen),
                                 survey_mark_name(cnd->mark));
     }
-    if (len < sizeof(json) - 2) {
-        json[len++] = ']';
-        json[len++] = '}';
+    if (len < sizeof(json) - 2)
+        json[len++] = ']';      /* close candidates */
+
+    /*
+     * The Selected-candidate detail panel, as the decided list the window draws
+     * (survey_detail_view): the browser renders it the same, keying the tone by
+     * name rather than by this enum's ordinal. A wider margin than the
+     * candidates' because one escaped line can reach ~300 bytes.
+     */
+    len += (size_t)snprintf(json + len, sizeof(json) - len,
+                            ",\"detail\":{\"selected\":%s,\"lines\":[",
+                            detail->selected ? "true" : "false");
+    for (i = 0; i < detail->line_count && len < sizeof(json) - 400; i++) {
+        const struct survey_detail_line *dl = &detail->line[i];
+        char escaped[SURVEY_DETAIL_TEXT * 2];
+
+        json_escape_into(escaped, sizeof(escaped), dl->text, strlen(dl->text));
+        len += (size_t)snprintf(json + len, sizeof(json) - len,
+                                "%s{\"text\":\"%s\",\"indent\":%d,"
+                                "\"tone\":\"%s\"}",
+                                i == 0 ? "" : ",", escaped, dl->indent,
+                                survey_detail_tone_name(dl->tone));
+    }
+    if (len < sizeof(json) - 3) {
+        json[len++] = ']';      /* close lines */
+        json[len++] = '}';      /* close detail */
+        json[len++] = '}';      /* close message */
     }
 
     for (i = 0; i < VIEWER_LINK_MAX_CLIENTS; i++) {
