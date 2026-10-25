@@ -1423,12 +1423,13 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
     len += (size_t)snprintf(json + len, sizeof(json) - len,
                             "{\"type\":\"survey_state\","
                             "\"timestamp_ms\":%llu,"
-                            "\"sweeping\":%s,"
+                            "\"sweeping\":%s,\"watching\":%s,"
                             "\"status\":\"%s\","
                             "\"lower_hz\":%.0f,\"upper_hz\":%.0f,"
                             "\"candidate_count\":%d,\"candidates\":[",
                             (unsigned long long)now_ms,
                             svm->sweeping ? "true" : "false",
+                            svm->watching ? "true" : "false",
                             status_escaped, svm->lower_hz, svm->upper_hz, n);
     for (i = 0; i < n && len < sizeof(json) - 200; i++) {
         const struct survey_candidate_view *cnd = &svm->candidates[i];

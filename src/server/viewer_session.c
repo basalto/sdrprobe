@@ -328,6 +328,45 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
         }
         return 0;
     }
+    case VIEWER_COMMAND_SURVEY: {
+        /*
+         * The survey's "Ask again" and "Watch" buttons, reached from the
+         * browser -- each the window's own handler, refusing with the session's
+         * own words where the window would. `now` is the serve loop's relative
+         * clock, as the SWEEP/SCAN/VIEW cases use.
+         */
+        double now = monotonic_seconds() - viewer_session_started_at;
+        struct survey_session *ss = &app->survey.session;
+        struct survey_session_event event;
+
+        switch (cmd->survey_action) {
+        case VIEWER_SURVEY_ASK:
+            if (survey_session_confirming(ss) || survey_session_sweeping(ss))
+                return 0;
+            if (survey_session_change_count(ss) == 0)
+                snprintf(ss->status, sizeof(ss->status),
+                         "Nothing to ask about: this sweep matches what the "
+                         "site has heard before.");
+            else if (!app->receiver_mode)
+                snprintf(ss->status, sizeof(ss->status),
+                         "Asking again needs a live receiver.");
+            else if (survey_session_confirm_changes(ss, now, &event) > 0)
+                survey_obey(app, &event, now);
+            return 0;
+        case VIEWER_SURVEY_WATCH:
+            if (survey_session_watch(ss, app->config.site[0] != '\0', 0, now,
+                                     &event) < 0) {
+                snprintf(error, error_cap, "%s", ss->status);
+                return -1;
+            }
+            survey_obey(app, &event, now);
+            return 0;
+        case VIEWER_SURVEY_WATCH_STOP:
+            survey_session_watch_stop(ss);
+            return 0;
+        }
+        return 0;
+    }
     case VIEWER_COMMAND_APPLY: {
         int clear_waterfall = 0;
 

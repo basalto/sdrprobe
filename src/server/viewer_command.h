@@ -75,7 +75,23 @@ enum viewer_command_type {
      * Like `scan`, a sweep applies nothing and takes no standing decision, so
      * it needs no second deliberate act.
      */
-    VIEWER_COMMAND_SWEEP
+    VIEWER_COMMAND_SWEEP,
+    /*
+     * `survey ask` runs the confirmation pass over what changed, `survey watch`
+     * starts a watch and `survey watch stop` ends it -- the window's "Ask
+     * again" and "Watch" buttons, which the browser needs because in `web` mode
+     * there is no window to press them. Each is the window's own handler reached
+     * from the browser; the session refuses with its own words (no receiver,
+     * nothing to ask about, no site) where the window would.
+     */
+    VIEWER_COMMAND_SURVEY
+};
+
+/* Which survey action a `survey` command names. */
+enum viewer_survey_action {
+    VIEWER_SURVEY_ASK = 0,
+    VIEWER_SURVEY_WATCH,
+    VIEWER_SURVEY_WATCH_STOP
 };
 
 /* What a `select` names: a GSM channel by ARFCN, an LTE scan row by index, or
@@ -174,6 +190,8 @@ struct viewer_command {
     char sweep_to[24];
     char sweep_dwell[12];
     int sweep_stop;
+
+    enum viewer_survey_action survey_action; /* VIEWER_COMMAND_SURVEY */
 };
 
 /* Longest command line this parser will read at all -- past this, a line

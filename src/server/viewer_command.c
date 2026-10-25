@@ -313,6 +313,58 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
         snprintf(out->sweep_dwell, sizeof(out->sweep_dwell), "%s", c);
         return 0;
     }
+    if (strcmp(word, "survey") == 0) {
+        char action[16];
+        int ac = 0;
+
+        value_start = buf + word_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%15s%n", action, &ac) != 1) {
+            set_error(error, error_cap,
+                      "survey requires 'ask', 'watch' or 'watch stop'");
+            return -1;
+        }
+        if (strcmp(action, "ask") == 0) {
+            for (i = (size_t)ac; value_start[i] != '\0'; i++)
+                if (!isspace((unsigned char)value_start[i])) {
+                    set_error(error, error_cap, "unexpected trailing field");
+                    return -1;
+                }
+            out->type = VIEWER_COMMAND_SURVEY;
+            out->survey_action = VIEWER_SURVEY_ASK;
+            return 0;
+        }
+        if (strcmp(action, "watch") == 0) {
+            char *after = value_start + ac;
+            char sub[16];
+            int sc = 0;
+
+            while (*after == ' ' || *after == '\t')
+                after++;
+            if (*after == '\0') {
+                out->type = VIEWER_COMMAND_SURVEY;
+                out->survey_action = VIEWER_SURVEY_WATCH;
+                return 0;
+            }
+            if (sscanf(after, "%15s%n", sub, &sc) == 1 &&
+                strcmp(sub, "stop") == 0) {
+                for (i = (size_t)sc; after[i] != '\0'; i++)
+                    if (!isspace((unsigned char)after[i])) {
+                        set_error(error, error_cap, "unexpected trailing field");
+                        return -1;
+                    }
+                out->type = VIEWER_COMMAND_SURVEY;
+                out->survey_action = VIEWER_SURVEY_WATCH_STOP;
+                return 0;
+            }
+            set_error(error, error_cap, "survey watch takes nothing or 'stop'");
+            return -1;
+        }
+        set_error(error, error_cap,
+                  "survey takes 'ask', 'watch' or 'watch stop'");
+        return -1;
+    }
     if (strcmp(word, "select") == 0) {
         static const struct {
             const char *name;

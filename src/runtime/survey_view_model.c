@@ -28,6 +28,7 @@ void survey_view_model_build(const struct survey_session *ss,
     memset(out, 0, sizeof(*out));
 
     out->sweeping = survey_session_sweeping(ss);
+    out->watching = ss->watching;
     snprintf(out->status, sizeof(out->status), "%s", ss->status);
     out->lower_hz = ss->lower_hz;
     out->upper_hz = ss->upper_hz;
