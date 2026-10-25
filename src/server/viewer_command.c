@@ -243,6 +243,39 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
         set_error(error, error_cap, "unrecognized setting");
         return -1;
     }
+    if (strcmp(word, "fft") == 0) {
+        /* The Scope header's this-run-only transform size (view_scope.c), a
+           command of its own because it persists nothing where `set fft` +
+           `apply` does. An integer here; which sizes the program actually
+           offers is the session's to judge (sdr_dsp_fft_choice_of), the same
+           split `set fft` uses -- parser checks the shape, applier the value. */
+        char text[32];
+        int consumed = 0;
+        long v;
+        char *end;
+
+        value_start = buf + word_consumed;
+        while (*value_start == ' ' || *value_start == '\t')
+            value_start++;
+        if (sscanf(value_start, "%31s%n", text, &consumed) != 1) {
+            set_error(error, error_cap, "fft requires a transform size");
+            return -1;
+        }
+        for (i = (size_t)consumed; value_start[i] != '\0'; i++)
+            if (!isspace((unsigned char)value_start[i])) {
+                set_error(error, error_cap, "unexpected trailing field");
+                return -1;
+            }
+        errno = 0;
+        v = strtol(text, &end, 10);
+        if (end == text || *end != '\0' || errno == ERANGE) {
+            set_error(error, error_cap, "transform size must be an integer");
+            return -1;
+        }
+        out->type = VIEWER_COMMAND_FFT;
+        out->value = (int)v;
+        return 0;
+    }
     if (strcmp(word, "scan") == 0) {
         static const struct {
             const char *name;

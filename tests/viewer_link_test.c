@@ -306,6 +306,7 @@ static struct scope_view_model a_view_model(void) {
     svm.receiver.ppm = 3;
     svm.receiver.tuning_generation = 1;
     svm.receiver.full_scale = 127.5f;
+    svm.receiver.fft_size = 2048;
     snprintf(svm.receiver.screen, sizeof(svm.receiver.screen), "scope");
     snprintf(svm.receiver.version, sizeof(svm.receiver.version), "v9.9.9");
     return svm;
@@ -1322,6 +1323,8 @@ static void test_upgrade_and_receiver_state(void) {
               contains(payload, len, "\"tuning_generation\":1"));
     check_true("it carries the build's version for the footer",
               contains(payload, len, "\"version\":\"v9.9.9\""));
+    check_true("it names the transform size in use",
+              contains(payload, len, "\"fft_size\":2048"));
 
     client_close_conn(&tc);
     viewer_link_close(&vlink);

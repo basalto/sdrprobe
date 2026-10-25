@@ -2338,13 +2338,13 @@ void viewer_link_publish_receiver_state(struct viewer_link *link,
                         "\"center_hz\":%u,"
                         "\"sample_rate_hz\":%u,\"ppm\":%d,"
                         "\"tuning_generation\":%u,\"full_scale\":%g,"
-                        "\"version\":\"%s\","
+                        "\"fft_size\":%d,\"version\":\"%s\","
                         "\"timestamp_ms\":%llu}",
                         rvm->screen, rvm->center_hz,
                         rvm->sample_rate_hz,
                         rvm->ppm, rvm->tuning_generation,
                         (double)rvm->full_scale,
-                        rvm->version,
+                        rvm->fft_size, rvm->version,
                         (unsigned long long)now_ms);
     if (json_len <= 0)
         return;

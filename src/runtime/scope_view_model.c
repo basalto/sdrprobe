@@ -15,7 +15,7 @@ void scope_view_model_build(const struct scope_view_model_input *in,
        receiver's, built by its own model -- see scope_view_model.h. */
     receiver_view_model_build(in->applied, in->device, in->tab, in->decode,
                               in->settings_open, in->calibration_open,
-                              &out->receiver);
+                              in->sv->fft_size, &out->receiver);
     out->have_samples = in->frame->have_samples;
 
     out->physical_magnitude_max = device_magnitude_max(in->device);

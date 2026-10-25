@@ -77,6 +77,26 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
             return -1;
         }
         return 0;
+    case VIEWER_COMMAND_FFT: {
+        /*
+         * This run only, mirroring the Scope header's stepper (view_scope.c):
+         * set the size in use and let the Settings panel's working copy follow,
+         * but persist nothing -- persisting is `set fft` + `apply`. It is
+         * honoured while the Scope owns the spectrum
+         * (input_scope_owns_spectrum), exactly as in the window, so it needs no
+         * retune and restarts nothing.
+         */
+        int choice = sdr_dsp_fft_choice_of(cmd->value);
+
+        if (choice < 0) {
+            snprintf(error, error_cap,
+                     "not a transform size this program offers");
+            return -1;
+        }
+        app->sv.fft_size = sdr_dsp_fft_choice(choice);
+        app->set.fft_choice = choice;
+        return 0;
+    }
     case VIEWER_COMMAND_VIEW:
         /*
          * `set_tab()` and `set_decode()` are the same two functions every
