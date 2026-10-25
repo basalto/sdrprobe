@@ -157,12 +157,19 @@ int configure_receiver(struct app *app) {
             driver_name = "SoapySDR";
             device_count = device_backend_soapy_count();
         } else {
-            fprintf(stderr, "No RTL-SDR or SoapySDR devices found.\n");
+            /* A receiver held by another process does not enumerate at all --
+               a B210 opens for one process only, and even SoapySDR's find then
+               returns nothing -- so say so rather than imply the board is
+               unplugged. */
+            fprintf(stderr, "No RTL-SDR or SoapySDR devices found "
+                            "(one already in use by another process will not "
+                            "appear).\n");
             return -1;
         }
     }
     if (device_count == 0) {
-        fprintf(stderr, "No %s devices found.\n", driver_name);
+        fprintf(stderr, "No %s devices found (one already in use by another "
+                        "process will not appear).\n", driver_name);
         return -1;
     }
     /*
