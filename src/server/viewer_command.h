@@ -63,7 +63,19 @@ enum viewer_command_type {
      * (`gsm_tune_selected`, `scan_select`, `survey_select`), which refuses an
      * out-of-range index rather than this parser.
      */
-    VIEWER_COMMAND_SELECT
+    VIEWER_COMMAND_SELECT,
+    /*
+     * `sweep <from> <to> <dwell>` starts a survey sweep over that range, and
+     * `sweep stop` ends one. The window's own Sweep button, which the browser
+     * needs because in `web` mode there is no window to press it -- the survey
+     * is otherwise read-only, able to watch a sweep but never start one. The
+     * three fields travel as *text*, not parsed Hz, so the server runs them
+     * through the same `parse_frequency`/`parse_seconds` the window's fields do
+     * ("24M", "948.4M", "0.10") rather than a second parser that could drift.
+     * Like `scan`, a sweep applies nothing and takes no standing decision, so
+     * it needs no second deliberate act.
+     */
+    VIEWER_COMMAND_SWEEP
 };
 
 /* What a `select` names: a GSM channel by ARFCN, an LTE scan row by index, or
@@ -150,6 +162,18 @@ struct viewer_command {
      * `staged_ppm` has to carry and this does not.
      */
     int value;
+
+    /*
+     * VIEWER_COMMAND_SWEEP. The range and dwell as the operator typed them,
+     * left as text so the server parses them exactly as the window's fields do
+     * -- `parse_frequency` takes "24M"/"948.4M"/plain Hz, `parse_seconds` the
+     * dwell. `sweep_stop` is the `sweep stop` form, where the three are unused.
+     * Sized like the survey view's own fields (survey_view in app.h).
+     */
+    char sweep_from[24];
+    char sweep_to[24];
+    char sweep_dwell[12];
+    int sweep_stop;
 };
 
 /* Longest command line this parser will read at all -- past this, a line

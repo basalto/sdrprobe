@@ -93,7 +93,7 @@ static void test_unrecognized_command_is_refused(void) {
     char error[64];
 
     check_int("an unrecognized command word is refused",
-             viewer_command_parse("sweep 100 200", 13, &cmd, error,
+             viewer_command_parse("wobble 100 200", 14, &cmd, error,
                                   sizeof(error)),
              -1);
     check_true("it says why", strstr(error, "unrecognized") != NULL);
@@ -481,9 +481,40 @@ static void test_scan_names_its_target(void) {
     check_int("nor a trailing field", parse("scan fm now", &cmd, error), -1);
 }
 
+static void test_sweep_carries_the_range(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("a range and dwell", parse("sweep 24M 1766M 0.10", &cmd, error),
+              0);
+    check_int("is a sweep", cmd.type, VIEWER_COMMAND_SWEEP);
+    check_str("carrying the from text", cmd.sweep_from, "24M");
+    check_str("the to text", cmd.sweep_to, "1766M");
+    check_str("and the dwell text", cmd.sweep_dwell, "0.10");
+    check_int("not a stop", cmd.sweep_stop, 0);
+
+    /* The three stay text: the server runs them through parse_frequency, so a
+       plain-Hz spelling passes through just as the window's field would take. */
+    check_int("plain Hz too", parse("sweep 948400000 950000000 0.2", &cmd,
+                                     error), 0);
+    check_str("as text", cmd.sweep_from, "948400000");
+
+    check_int("stopping", parse("sweep stop", &cmd, error), 0);
+    check_int("is the same command", cmd.type, VIEWER_COMMAND_SWEEP);
+    check_int("asking for a stop", cmd.sweep_stop, 1);
+
+    check_int("a missing dwell", parse("sweep 24M 1766M", &cmd, error), -1);
+    check_int("nothing at all", parse("sweep", &cmd, error), -1);
+    check_int("a trailing field", parse("sweep 24M 1766M 0.10 now", &cmd,
+                                        error), -1);
+    check_int("a trailing field after stop",
+              parse("sweep stop now", &cmd, error), -1);
+}
+
 int main(void) {
     test_calibrate_names_its_reference();
     test_scan_names_its_target();
+    test_sweep_carries_the_range();
     test_select_names_a_kind_and_an_index();
     test_set_stages_one_field();
     test_a_toggle_takes_words_as_well_as_numbers();

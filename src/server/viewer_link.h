@@ -561,6 +561,7 @@ void viewer_link_publish_survey_spectrum(struct viewer_link *link,
                                          uint64_t now_ms);
 void viewer_link_publish_survey_state(struct viewer_link *link,
                                       const struct survey_view_model *svm,
+                                      const struct survey_detail_view *detail,
                                       uint64_t now_ms);
 
 /*

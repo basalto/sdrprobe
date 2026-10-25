@@ -377,7 +377,48 @@ static void test_bins_past_the_cap_are_clamped(void) {
     check_int("clamped to the cap", svm.bins, SURVEY_VIEW_MODEL_MAX_BINS);
 }
 
+static void test_detail_is_empty_when_nothing_is_selected(void) {
+    static struct survey_session ss;
+    struct survey_record_tuning tuning;
+    struct survey_detail_view detail;
+
+    zero_sweep(&ss, &tuning);
+    set_minimal_sweep(&ss, &tuning);
+    ss.peak_count = 1;
+    ss.peaks[0].index = 50;
+
+    survey_detail_view_build(&ss, &tuning, -1, 0.0, &detail);
+    check_int("nothing selected means an empty panel", detail.selected, 0);
+    check_int("and no lines to draw", detail.line_count, 0);
+}
+
+static void test_detail_of_a_selected_candidate(void) {
+    static struct survey_session ss;
+    struct survey_record_tuning tuning;
+    struct survey_detail_view detail;
+
+    zero_sweep(&ss, &tuning);
+    set_minimal_sweep(&ss, &tuning);
+    ss.peak_count = 1;
+    ss.peaks[0].index = 50;       /* 100.505 MHz */
+
+    /* No measurement yet (report_valid 0): the panel still leads with the
+       frequency and ends with the band-plan lookup. */
+    survey_detail_view_build(&ss, &tuning, 0, 100505000.0, &detail);
+    check_int("a selection fills the panel", detail.selected, 1);
+    check_true("with at least a headline and a band-plan line",
+               detail.line_count >= 2);
+    check_true("the headline names the selected frequency",
+               strstr(detail.line[0].text, "100.5050") != NULL);
+    check_int("the headline wears the bright tone", (int)detail.line[0].tone,
+              (int)SURVEY_DETAIL_BRIGHT);
+    check_true("a line fits the detail buffer",
+               detail.line_count <= SURVEY_DETAIL_MAX_LINES);
+}
+
 int main(void) {
+    test_detail_is_empty_when_nothing_is_selected();
+    test_detail_of_a_selected_candidate();
     test_candidate_count_mirrors_peak_count();
     test_hz_is_the_bin_centre();
     test_power_dbfs_passes_through();

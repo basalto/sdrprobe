@@ -14,6 +14,11 @@ const SurveyView = (function () {
         surveyStatus: document.getElementById('survey-status'),
         surveyCount: document.getElementById('survey-count'),
         surveyRows: document.getElementById('survey-rows'),
+        surveyDetail: document.getElementById('survey-detail'),
+        from: document.getElementById('survey-from'),
+        to: document.getElementById('survey-to'),
+        dwell: document.getElementById('survey-dwell'),
+        sweep: document.getElementById('survey-sweep'),
       };
       els.surveyCtx = els.surveyChart.getContext('2d');
       // Click a candidate to inspect it -- the window's own candidate click
@@ -54,10 +59,81 @@ const SurveyView = (function () {
   };
   let lastCandidates = [];
 
+  // view_survey.c's own button colours, as the hex of their exact RGB, plus the
+  // orange a running sweep's button takes.
+  const PANEL_EDGE = '#526d7e';    /* 82, 109, 126 */
+  const CAPTION = '#ebf2f6';       /* 235, 242, 246 */
+  const LABEL = '#a6bcc9';
+  const VALUE = '#ebf2f6';
+  const ACTIVE = '#fabe4a';        /* 250, 190, 74 -- the window's active button */
+
+  function send(line) {
+    // viewer.js owns the socket; a view never opens one (ADR-0007, restated for
+    // JavaScript in the web-view skill).
+    if (typeof sendCommand === 'function') sendCommand(line);
+  }
+
+  // Whether the last state said a sweep is running, so the one button reads
+  // "Sweep" when idle and "Stop" when sweeping -- and sends the matching
+  // command. The server owns the truth; this only mirrors it.
+  let lastSweeping = false;
+
+  function startOrStopSweep() {
+    const e = elements();
+    if (lastSweeping) { send('sweep stop'); return; }
+    const from = e.from.value.trim();
+    const to = e.to.value.trim();
+    const dwell = e.dwell.value.trim();
+    // The three travel as text; the server parses the spellings ("24M", "0.10")
+    // with the same parser the window's fields use, and reports a bad range or
+    // a missing receiver in the status line.
+    if (from && to && dwell) send('sweep ' + from + ' ' + to + ' ' + dwell);
+  }
+
+  // The detail panel's tones, keyed by name (survey_detail_tone_name) -- the
+  // same RGB view_survey.c's detail_tone_color() draws, so the panel reads the
+  // same in both. Never keyed by the enum's ordinal (the swapped-marks lesson).
+  const DETAIL_TONE = {
+    bright: '#ebf2f6', value: '#d5e2ea', muted: '#7e97a6',
+    active: '#fabe4a', info: '#95cde8', warn: '#c8a56e',
+  };
+
+  function esc(s) {
+    return String(s).replace(/[&<>]/g,
+      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  }
+
+  // The Selected-candidate panel, rendered from the decided list the server
+  // built (survey_detail_view): the browser chooses no sentence, only the
+  // colour for a tone it is handed.
+  function renderDetail(detail) {
+    const el = elements().surveyDetail;
+    if (!el) return;
+    if (!detail || !detail.selected) {
+      el.innerHTML = '<div style="color:' + CAPTION + '">Selected candidate</div>'
+        + '<div style="color:' + LABEL + ';margin-top:10px">click a candidate '
+        + 'in the chart or the list</div>';
+      return;
+    }
+    el.innerHTML = (detail.lines || []).map((ln) => {
+      const color = DETAIL_TONE[ln.tone] || DETAIL_TONE.value;
+      const pad = ln.indent ? 'padding-left:16px;' : '';
+      return '<div style="color:' + color + ';' + pad + 'margin:2px 0">'
+        + esc(ln.text) + '</div>';
+    }).join('');
+  }
+
   function renderSurveyState(state) {
-    const { surveyStatus, surveyCount, surveyRows } = elements();
+    const { surveyStatus, surveyCount, surveyRows, sweep } = elements();
     surveyStatus.textContent = state.status;
     surveyCount.textContent = state.candidate_count;
+    renderDetail(state.detail);
+    lastSweeping = !!state.sweeping;
+    if (sweep) {
+      sweep.textContent = lastSweeping ? 'Stop' : 'Sweep';
+      sweep.style.background = lastSweeping ? ACTIVE : '#1b2836';
+      sweep.style.color = lastSweeping ? '#0a0f16' : CAPTION;
+    }
     lastCandidates = state.candidates || [];
     // Rebuilt only when the candidates change, so a click lands on a row that
     // is still there (the FM Band II lesson).
@@ -127,16 +203,56 @@ const SurveyView = (function () {
     // It was an even split, which spent half the panel on a table that is
     // *empty* on a capture (a sweep needs a live receiver) and has a
     // scrollbar when it is not. The chart is the thing being watched.
+    // The window's Sweep controls: a range, a dwell, and the button that starts
+    // the walk. The survey was otherwise read-only here -- able to watch a
+    // sweep but never start one, which is why `./sdrprobe web` could only ever
+    // show "press Sweep to survey the range" with no Sweep to press.
+    mounted() {
+      const e = elements();
+      e.sweep.addEventListener('click', startOrStopSweep);
+      // Enter in any field starts the sweep, the way the window commits a field.
+      for (const f of [e.from, e.to, e.dwell])
+        f.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') startOrStopSweep();
+        });
+    },
     markup:
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
+      + 'flex:0 0 auto;margin-bottom:6px">'
+      + '<label style="color:' + LABEL + '">Range <input id="survey-from" '
+      + 'size="7" value="24M" style="background:#16222e;color:' + VALUE
+      + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;padding:3px 6px">'
+      + '</label>'
+      + '<label style="color:' + LABEL + '">to <input id="survey-to" size="7" '
+      + 'value="1766M" style="background:#16222e;color:' + VALUE
+      + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;padding:3px 6px">'
+      + '</label>'
+      + '<label style="color:' + LABEL + '">dwell (s) <input id="survey-dwell" '
+      + 'size="4" value="0.10" style="background:#16222e;color:' + VALUE
+      + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;padding:3px 6px">'
+      + '</label>'
+      + '<button id="survey-sweep" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
+      + 'cursor:pointer">Sweep</button>'
+      + '</div>' +
       '<div class="label" id="survey-status">no sweep yet</div>' +
       '<canvas id="survey-chart" style="flex:2 1 0;min-height:120px;width:100%">'
       + '</canvas>' +
       '<div class="label">candidates (<span id="survey-count">0</span>)</div>' +
+      // Candidates on the left, the Selected-candidate detail on the right --
+      // the window's own two-panel arrangement. Each scrolls inside itself.
+      '<div style="flex:1 1 0;min-height:0;display:flex;gap:10px">' +
       '<div style="flex:1 1 0;min-height:0;overflow:auto">' +
       '<table>' +
       '<thead><tr><th></th><th>frequency</th><th>level</th><th>width</th><th>shape</th></tr></thead>' +
       '<tbody id="survey-rows"></tbody>' +
-      '</table></div>',
+      '</table></div>' +
+      '<div id="survey-detail" style="flex:1 1 0;min-height:0;overflow:auto;'
+      + 'border:1px solid ' + PANEL_EDGE + ';padding:8px 10px;font-size:12px">'
+      + '<div style="color:' + CAPTION + '">Selected candidate</div>'
+      + '<div style="color:' + LABEL + ';margin-top:10px">click a candidate in '
+      + 'the chart or the list</div></div>' +
+      '</div>',
     render(msg) {
       if (msg.kind === 'survey_spectrum') drawSurveyChart(msg.lowerHz, msg.upperHz, msg.power);
       else if (msg.kind === 'state' && msg.state.type === 'survey_state') renderSurveyState(msg.state);

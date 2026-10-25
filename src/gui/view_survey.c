@@ -92,16 +92,6 @@ static int survey_hour_of_day(void) {
  * the same functions cannot go on being defined here. Their declarations
  * stay in view.h, which both this file and survey_report.c already include.
  */
-static unsigned survey_suspect_at(const struct app *app, double hz,
-                                  double bandwidth_hz) {
-    struct survey_record_tuning t;
-
-    survey_tuning_from(&t, app);
-    return survey_suspect(&app->survey.session.plan, t.reference_clock_hz, hz,
-                          bandwidth_hz, t.sample_rate_hz, SDR_DSP_FFT_SIZE,
-                          t.remove_dc);
-}
-
 /* How many of this sweep's candidates resemble the receiver. Recomputed each
    frame rather than stored: it is a few hundred multiplications, and a stored
    count is one more thing that can disagree with the list beside it. */
@@ -1180,21 +1170,6 @@ void handle_survey_input(struct app *app) {
  * a measurement and only exists where somebody looked. They live in the same
  * field and are read together, because a row wants to show both.
  */
-/*
- * The session decides this, not the view.
- *
- * This was a line-for-line second copy of `survey_session_confirmed_flags_at()`
- * -- same tolerance fallback, same lookup -- left behind when the machine came
- * out of this file. Two copies of one decision is the fault that extraction
- * existed to end, and the four the two copies had already disagreed about are
- * in `CLAUDE.md`. It is also the difference between a decision a check can
- * reach and one it cannot (ADR-0012): the session's is covered by
- * `check-survey-session` and this one never was.
- */
-static unsigned survey_confirmed_flags_at(const struct app *app, double hz) {
-    return survey_session_confirmed_flags_at(&app->survey.session, hz);
-}
-
 static void draw_peak_list(const struct app *app, Rectangle rect,
                            const struct survey_view_model *svm) {
     const struct survey_session *ss = &app->survey.session;
@@ -1363,13 +1338,29 @@ static int detail_line(const struct survey_layout *l, int *y, int indent,
     return 1;
 }
 
+static Color detail_tone_color(enum survey_detail_tone tone) {
+    switch (tone) {
+    case SURVEY_DETAIL_BRIGHT: return (Color){ 235, 242, 246, 255 };
+    case SURVEY_DETAIL_VALUE:  return (Color){ 213, 226, 234, 255 };
+    case SURVEY_DETAIL_MUTED:  return (Color){ 126, 151, 166, 255 };
+    case SURVEY_DETAIL_ACTIVE: return (Color){ 250, 190, 74, 255 };
+    case SURVEY_DETAIL_INFO:   return (Color){ 149, 205, 232, 255 };
+    case SURVEY_DETAIL_WARN:   return (Color){ 200, 165, 110, 255 };
+    }
+    return (Color){ 213, 226, 234, 255 };
+}
+
 static void draw_detail(const struct app *app, const struct survey_layout *l) {
     const struct survey_session *ss = &app->survey.session;
     const struct survey_view *s = &app->survey;
     Rectangle rect = l->detail;
-    char text[220];
+    struct survey_detail_view detail;
+    struct survey_record_tuning tuning;
+    double selected_hz;
+    const struct band_plan_entry *entry;
     int y = (int)rect.y + 10;
     const int line = 22;
+    int k;
 
     DrawRectangleRec(rect, (Color){ 6, 10, 17, 255 });
     DrawRectangleLinesEx(rect, 1.0f, (Color){ 82, 109, 126, 255 });
@@ -1384,160 +1375,36 @@ static void draw_detail(const struct app *app, const struct survey_layout *l) {
     draw_button(l->scan_button, "Scan this frequency", 1);
     draw_button(l->waterfall_button, "Open waterfall", 1);
 
-    double shown_hz = ss->report_valid ? ss->report.centre_hz
-                                      : survey_bin_hz(s, ss->peaks[s->selected].index);
-    snprintf(text, sizeof(text), "Selected  %.4f MHz%s", shown_hz / 1e6,
-             ss->report_valid ? "  (measured)" : "");
-    DrawText(text, (int)rect.x + 12, y, 18, (Color){ 235, 242, 246, 255 });
-    y += 28;
-
-    if (survey_session_measuring(ss)) {
-        DrawText("measuring...", (int)rect.x + 12, y, 17,
-                 (Color){ 250, 190, 74, 255 });
-        y += line;
-    }
-    if (ss->report_valid) {
-        snprintf(text, sizeof(text), "peak power         %.1f dBFS",
-                 (double)ss->report.peak_dbfs);
-        DrawText(text, (int)rect.x + 12, y, 17, (Color){ 213, 226, 234, 255 });
-        y += line;
-        snprintf(text, sizeof(text), "above local floor  %.1f dB",
-                 (double)ss->report.prominence_db);
-        DrawText(text, (int)rect.x + 12, y, 17, (Color){ 213, 226, 234, 255 });
-        y += line;
-        snprintf(text, sizeof(text), "occupied bandwidth %.1f kHz  (-%.0f dB)",
-                 ss->report.bandwidth_hz / 1e3,
-                 (double)ss->report.bandwidth_ref_db);
-        DrawText(text, (int)rect.x + 12, y, 17, (Color){ 213, 226, 234, 255 });
-        y += line;
-
-        if (ss->measure.blocks > 0) {
-            double duty = survey_measure_duty(&ss->measure);
-
-            snprintf(text, sizeof(text), "duty               %s  (%d/%d blocks)",
-                     survey_measure_duty_label(duty), ss->measure.hits,
-                     ss->measure.blocks);
-            DrawText(text, (int)rect.x + 12, y, 17,
-                     (Color){ 213, 226, 234, 255 });
-            y += line;
-        }
-        if (ss->measure.hits > 1) {
-            snprintf(text, sizeof(text), "stability          +/- %.1f kHz",
-                     survey_measure_spread_hz(&ss->measure) / 1e3);
-            DrawText(text, (int)rect.x + 12, y, 17,
-                     (Color){ 213, 226, 234, 255 });
-            y += line;
-        }
-    } else if (!survey_session_measuring(ss)) {
-        DrawText("nothing measurable at that frequency now",
-                 (int)rect.x + 12, y, 17, (Color){ 250, 190, 74, 255 });
-        y += line;
-    }
-
     /*
-     * What kind of thing it is, before what the frequency is allocated to and
-     * before the receiver-spur warning -- the same ordering argument as the
-     * one below, one step further back. A reader who has already read
-     * "Aeronautical radionavigation -- ILS markers" is reading everything
-     * after it as detail about a beacon; the measurement of the signal itself
-     * has to come first to have a chance of being believed over the label.
+     * The panel is one decided list now (survey_detail_view_build, in
+     * survey_view_model.c): this draws it and the browser renders it from the
+     * same build, so neither chooses which sentences to show -- only how to
+     * colour a tone it is handed. Keep the two in step: a line added to the
+     * builder appears here with no change, and nowhere else.
      */
-    if (ss->report_valid || ss->carrier_valid) {
-        struct signal_findings findings;
-        int k;
+    selected_hz = survey_bin_hz(s, ss->peaks[s->selected].index);
+    survey_tuning_from(&tuning, app);
+    survey_detail_view_build(ss, &tuning, s->selected, selected_hz, &detail);
+    for (k = 0; k < detail.line_count; k++) {
+        const struct survey_detail_line *dl = &detail.line[k];
 
-        signal_findings_from(ss->carrier_valid ? &ss->carrier : NULL,
-                             &ss->bursts, &ss->envelope,
-                             survey_measure_duty(&ss->measure),
-                             ss->measure.hits, ss->measure.blocks,
-                             survey_measure_spread_hz(&ss->measure),
-                             &findings);
-        y += 6;
-        for (k = 0; k < findings.count; k++) {
-            /* The first line is the claim and the rest qualify it, so they
-               are indented and quieter -- the arrangement the band plan and
-               the spur warning below already use. */
-            if (!detail_line(l, &y, k ? 24 : 12, k ? 16 : 17,
-                             k ? line - 2 : line, findings.line[k],
-                             k ? (Color){ 126, 151, 166, 255 }
-                               : (Color){ 213, 226, 234, 255 }))
-                break;
-        }
+        /* The headline is a touch larger, the way it always was; everything
+           else is a claim (17) or an indented qualifier (16). */
+        if (!detail_line(l, &y, dl->indent ? 24 : 12,
+                         k == 0 ? 18 : (dl->indent ? 16 : 17),
+                         dl->indent ? line - 2 : line, dl->text,
+                         detail_tone_color(dl->tone)))
+            break;
     }
 
-    /*
-     * What the measurement suggests about the candidate itself, before the
-     * band plan says what the frequency is allocated to. The order matters:
-     * the allocation is what a reader believes by default, and a warning
-     * printed after it reads as a footnote to it rather than a reason to
-     * doubt it.
-     */
-    unsigned suspect = survey_suspect_at(app, shown_hz,
-                                         ss->report_valid
-                                             ? ss->report.bandwidth_hz
-                                             : 0.0) |
-                       survey_confirmed_flags_at(app, shown_hz);
-    if (survey_suspect_empty(suspect)) {
-        y += 6;
-        detail_line(l, &y, 12, 17, line,
-                    "the closer look found nothing here",
-                    (Color){ 250, 190, 74, 255 });
-        detail_line(l, &y, 24, 16, line - 2,
-                    "no carrier, and the envelope varies like noise",
-                    (Color){ 200, 165, 110, 255 });
-        detail_line(l, &y, 24, 15, line - 2,
-                    "however many looks saw it: a bar is cleared by noise",
-                    (Color){ 126, 151, 166, 255 });
-    }
-    if (survey_suspect_warns(suspect)) {
-        y += 6;
-        detail_line(l, &y, 12, 17, line,
-                    "this looks like the receiver, not the band",
-                    (Color){ 250, 190, 74, 255 });
-        detail_line(l, &y, 24, 16, line - 2, survey_suspect_reason(suspect),
-                    (Color){ 200, 165, 110, 255 });
-        if (suspect & SURVEY_SUSPECT_UNRESOLVED)
-            detail_line(l, &y, 24, 16, line - 2,
-                        "and too narrow for this FFT to resolve: a bare "
-                        "carrier", (Color){ 200, 165, 110, 255 });
-        /* Sufficient, not necessary: a spur the dongle radiates and hears
-           back through its own antenna goes when the antenna does, and most
-           of this comb behaves that way. What survives unplugging is
-           certainly the receiver; what does not is not thereby a signal. */
-        detail_line(l, &y, 24, 15, line - 2,
-                    "unplug the antenna and sweep again: what stays is "
-                    "the receiver", (Color){ 126, 151, 166, 255 });
-    } else if (suspect & SURVEY_SUSPECT_UNRESOLVED) {
-        /* Not a warning on its own -- plenty of real services are this narrow
-           -- but worth saying that the width reported is the instrument's
-           floor and not the signal's. */
-        y += 6;
-        detail_line(l, &y, 12, 16, line - 2,
-                    "too narrow for this FFT to resolve: the width above "
-                    "is its floor", (Color){ 126, 151, 166, 255 });
-    }
-
-    /* The band plan, and what it is not. */
-    const struct band_plan_entry *entry = band_plan_lookup(shown_hz);
-    y += 6;
-    if (entry) {
-        snprintf(text, sizeof(text), "band plan: %s", entry->name);
-        detail_line(l, &y, 12, 17, line, text,
-                    (Color){ 149, 205, 232, 255 });
-        if (entry->note)
-            detail_line(l, &y, 24, 16, line - 2, entry->note,
-                        (Color){ 126, 151, 166, 255 });
-        detail_line(l, &y, 12, 15, line - 2,
-                    "a frequency lookup, not a detection",
-                    (Color){ 126, 151, 166, 255 });
-        if (band_plan_can_inspect(entry->decoder) && ss->report_valid)
-            draw_button(l->inspect_button,
-                        band_plan_inspect_label(entry->decoder), 1);
-    } else {
-        detail_line(l, &y, 12, 16, line - 2,
-                    "band plan: nothing allocated here that this table knows",
-                    (Color){ 126, 151, 166, 255 });
-    }
+    /* The inspect button stays window-only -- it is interactive, and the web
+       defers it. It needs the allocation the frequency falls in and a
+       measurement to inspect. */
+    entry = band_plan_lookup(ss->report_valid ? ss->report.centre_hz
+                                              : selected_hz);
+    if (entry && band_plan_can_inspect(entry->decoder) && ss->report_valid)
+        draw_button(l->inspect_button,
+                    band_plan_inspect_label(entry->decoder), 1);
 }
 
 /*
