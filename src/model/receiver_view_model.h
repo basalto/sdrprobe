@@ -65,6 +65,14 @@ struct receiver_view_model {
        because a reader deriving levels needs it alongside the tuning. */
     float full_scale;
 
+    /* The Scope's transform size in use (app->sv.fft_size), so a view can say
+       the resolution and a web Scope stepper can step from it -- the same
+       number the window's Scope header reads back. Carried here rather than on
+       a technology stream because it is a fact about the spectrum this message
+       already describes the tuning of, and `fft` (this run) / `set fft` + apply
+       (persisted) both change it. */
+    int fft_size;
+
     /* The build's version, "v<major>.<minor>.<patch>" -- what the window
        draws in its own corner (SDRPROBE_SIGNATURE), so a Viewer's footer can
        say which program it is a view of. A constant rather than a measurement,
@@ -92,7 +100,7 @@ void receiver_screen_name(char *out, size_t size, int tab, int decode,
 void receiver_view_model_build(const struct receiver_applied *applied,
                                const struct device_profile *device,
                                int tab, int decode, int settings_open,
-                               int calibration_open,
+                               int calibration_open, int fft_size,
                                struct receiver_view_model *out);
 
 #endif

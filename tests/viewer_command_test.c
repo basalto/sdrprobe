@@ -323,6 +323,37 @@ static void test_set_stages_one_field(void) {
 }
 
 /*
+ * `fft <size>` is the Scope header's this-run-only transform size -- a command
+ * of its own because it persists nothing where `set fft` + `apply` does. The
+ * parser only reads an integer; which sizes the program offers is the session's
+ * to judge, the same split `set fft` uses, so a non-offered-but-integer size
+ * (1000) parses here and is refused later.
+ */
+static void test_fft_sets_the_transform_size_this_run(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("a transform size", parse("fft 4096", &cmd, error), 0);
+    check_int("is an FFT command", cmd.type, VIEWER_COMMAND_FFT);
+    check_int("carrying the size in value", cmd.value, 4096);
+
+    /* An integer the applier will reject still parses: shape here, value there. */
+    check_int("an integer that is not an offered size still parses",
+              parse("fft 1000", &cmd, error), 0);
+    check_int("and carries it for the applier to refuse", cmd.value, 1000);
+
+    check_int("no size at all is refused", parse("fft", &cmd, error), -1);
+    check_true("and it says what is missing",
+               strstr(error, "transform size") != NULL);
+    check_int("a non-integer size is refused",
+              parse("fft wide", &cmd, error), -1);
+    check_true("as an integer problem",
+               strstr(error, "integer") != NULL);
+    check_int("a trailing field is refused",
+              parse("fft 4096 now", &cmd, error), -1);
+}
+
+/*
  * A toggle takes `on` and `off` as well as 1 and 0, because typing
  * `set dc on` is what a person does and refusing it to save a line of
  * parsing would be a rule nobody wants.
@@ -562,6 +593,7 @@ int main(void) {
     test_survey_actions();
     test_select_names_a_kind_and_an_index();
     test_set_stages_one_field();
+    test_fft_sets_the_transform_size_this_run();
     test_a_toggle_takes_words_as_well_as_numbers();
     test_a_value_out_of_range_is_refused_here();
     test_set_and_apply_are_refused_when_malformed();

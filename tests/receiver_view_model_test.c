@@ -29,7 +29,7 @@ static void test_the_applied_state_passes_through(void) {
     device.full_scale = 127.5f;
 
     receiver_view_model_build(&applied, &device, TAB_SCOPE, DECODE_FM, 0, 0,
-                              &rvm);
+                              2048, &rvm);
 
     check_int("center_hz is the applied frequency", (long)rvm.center_hz,
               948400000);
@@ -39,6 +39,7 @@ static void test_the_applied_state_passes_through(void) {
     check_int("tuning generation passes through",
               (long)rvm.tuning_generation, 3);
     check_close("full_scale passes through", rvm.full_scale, 127.5, 1e-6);
+    check_int("the transform size passes through", rvm.fft_size, 2048);
     check_str("the screen is the tab's name", rvm.screen, "scope");
     /* The build's version, what the window draws in its corner, so a Viewer's
        footer can say which program it is a view of. */
@@ -59,7 +60,7 @@ static void test_nothing_applied_yet(void) {
     memset(&device, 0, sizeof(device));
     memset(&rvm, 0xff, sizeof(rvm));
 
-    receiver_view_model_build(&applied, &device, TAB_SURVEY, 0, 0, 0, &rvm);
+    receiver_view_model_build(&applied, &device, TAB_SURVEY, 0, 0, 0, 0, &rvm);
 
     check_int("center_hz is zero", (long)rvm.center_hz, 0);
     check_int("sample_rate_hz is zero", (long)rvm.sample_rate_hz, 0);

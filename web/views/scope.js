@@ -22,9 +22,23 @@ const ScopeView = (function () {
         wfCanvas, wfCtx: wfCanvas.getContext('2d'),
         centre: document.getElementById('scope-centre'),
         tune: document.getElementById('scope-tune'),
+        fftDown: document.getElementById('scope-fft-down'),
+        fftValue: document.getElementById('scope-fft'),
+        fftUp: document.getElementById('scope-fft-up'),
       };
     }
     return els;
+  }
+
+  // The transform sizes the Scope header steps through -- sdr_dsp_fft_choice()'s
+  // own, the same axis settings.js lists. Listed only as the stepper's steps;
+  // the server refuses a size it does not offer and says so.
+  const FFT_SIZES = [256, 512, 1024, 2048, 4096, 8192, 16384];
+
+  function stepFromList(list, current, by) {
+    const i = list.indexOf(current);
+    const next = i < 0 ? 0 : Math.min(list.length - 1, Math.max(0, i + by));
+    return list[next];
   }
 
   // The window's Scope header colours, as the hex of their exact RGB, matching
@@ -63,6 +77,21 @@ const ScopeView = (function () {
   // The last centre the receiver reported, so the field can be kept in step
   // without clobbering a half-typed entry (prefilled only while unfocused).
   let lastCentreHz = null;
+
+  // The transform size the receiver reports in use, so the stepper steps from
+  // the server's truth rather than guessing -- the window reads it back the same
+  // way (sdr_dsp_fft_choice_of(sv->fft_size)).
+  let lastFftSize = null;
+
+  function stepFft(by) {
+    // Step from whatever the server last said, falling to 2048 before the
+    // first receiver_state arrives.
+    const from = lastFftSize || 2048;
+    const next = stepFromList(FFT_SIZES, from, by);
+    // `fft` is the this-run-only size (view_scope.c's stepper), not `set fft` +
+    // `apply`, which persists. The server refuses a size it does not offer.
+    if (next !== from) send('fft ' + next);
+  }
 
   function drawSpectrum(average, peak) {
     const { specCanvas, specCtx } = elements();
@@ -116,6 +145,8 @@ const ScopeView = (function () {
       e.centre.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter') tuneToField();
       });
+      e.fftDown.addEventListener('click', () => stepFft(-1));
+      e.fftUp.addEventListener('click', () => stepFft(1));
     },
     markup:
       '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
@@ -127,6 +158,19 @@ const ScopeView = (function () {
       + '<button id="scope-tune" style="background:#1b2836;color:' + CAPTION
       + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
       + 'cursor:pointer">Tune</button>'
+      // The Scope header's FFT stepper: this-run-only resolution (the Settings
+      // tab is where it persists). A span between two step buttons, the window's
+      // own < value > arrangement.
+      + '<span style="color:' + LABEL + ';margin-left:8px">FFT</span>'
+      + '<button id="scope-fft-down" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 10px;font:inherit;'
+      + 'cursor:pointer">‹</button>'
+      + '<span id="scope-fft" style="color:' + VALUE + ';min-width:48px;'
+      + 'display:inline-block;text-align:center">—</span>'
+      + '<button id="scope-fft-up" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 10px;font:inherit;'
+      + 'cursor:pointer">›</button>'
+      + '<span style="color:' + LABEL + '">points</span>'
       + '</div>' +
       '<div class="label">spectrum (average: cyan, peak hold: orange)</div>' +
       '<canvas id="spectrum" style="flex:1 1 0;min-height:110px;width:100%;'
@@ -146,6 +190,12 @@ const ScopeView = (function () {
         if (hz !== lastCentreHz && document.activeElement !== e.centre) {
           e.centre.value = (hz / 1e6).toFixed(4);
           lastCentreHz = hz;
+        }
+        // The transform size in use, so the stepper reads the server's truth.
+        const fft = msg.state.fft_size;
+        if (fft && fft !== lastFftSize) {
+          e.fftValue.textContent = fft;
+          lastFftSize = fft;
         }
       }
     },

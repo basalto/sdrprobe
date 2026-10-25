@@ -84,7 +84,19 @@ enum viewer_command_type {
      * from the browser; the session refuses with its own words (no receiver,
      * nothing to ask about, no site) where the window would.
      */
-    VIEWER_COMMAND_SURVEY
+    VIEWER_COMMAND_SURVEY,
+    /*
+     * `fft <size>` sets the Scope's transform size for this run only -- the
+     * window's Scope-header stepper (view_scope.c), which is deliberately
+     * *not* `set fft` + `apply`. The Settings panel persists a resolution to
+     * the config because reaching it takes an overlay and an Apply; one step
+     * against the chart in front of you, easily an accidental click, must not
+     * decide what the program opens with tomorrow. So this changes
+     * `app->sv.fft_size` (and the panel's working copy, which follows) and
+     * writes nothing. The size rides in `value`; the session refuses one the
+     * program does not offer, the same way `set fft` does.
+     */
+    VIEWER_COMMAND_FFT
 };
 
 /* Which survey action a `survey` command names. SITE and ANTENNA carry their
@@ -179,7 +191,8 @@ struct viewer_command {
      * 1 or 0. `ppm` is parsed here rather than passed as text because a
      * command is not a text field -- there is no half-typed state to
      * represent, which is the one thing `settings_view_model`'s
-     * `staged_ppm` has to carry and this does not.
+     * `staged_ppm` has to carry and this does not. `VIEWER_COMMAND_FFT` also
+     * reads its transform size from here.
      */
     int value;
 

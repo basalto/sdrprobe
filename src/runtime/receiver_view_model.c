@@ -63,7 +63,7 @@ void receiver_screen_name(char *out, size_t size, int tab, int decode,
 void receiver_view_model_build(const struct receiver_applied *applied,
                                const struct device_profile *device,
                                int tab, int decode, int settings_open,
-                               int calibration_open,
+                               int calibration_open, int fft_size,
                                struct receiver_view_model *out) {
     memset(out, 0, sizeof(*out));
 
@@ -76,6 +76,7 @@ void receiver_view_model_build(const struct receiver_applied *applied,
     out->tuning_generation = applied->generation;
 
     out->full_scale = device->full_scale;
+    out->fft_size = fft_size;
 
     snprintf(out->version, sizeof(out->version), "%s", SDRPROBE_VERSION);
 }
