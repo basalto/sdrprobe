@@ -511,10 +511,35 @@ static void test_sweep_carries_the_range(void) {
               parse("sweep stop now", &cmd, error), -1);
 }
 
+static void test_survey_actions(void) {
+    struct viewer_command cmd;
+    char error[64];
+
+    check_int("ask", parse("survey ask", &cmd, error), 0);
+    check_int("is a survey command", cmd.type, VIEWER_COMMAND_SURVEY);
+    check_int("asking again", cmd.survey_action, VIEWER_SURVEY_ASK);
+
+    check_int("watch", parse("survey watch", &cmd, error), 0);
+    check_int("starts a watch", cmd.survey_action, VIEWER_SURVEY_WATCH);
+
+    check_int("watch stop", parse("survey watch stop", &cmd, error), 0);
+    check_int("stops a watch", cmd.survey_action, VIEWER_SURVEY_WATCH_STOP);
+
+    check_int("an action nobody has", parse("survey confirm", &cmd, error), -1);
+    check_int("none at all", parse("survey", &cmd, error), -1);
+    check_int("a trailing field after ask",
+              parse("survey ask now", &cmd, error), -1);
+    check_int("a trailing field after watch stop",
+              parse("survey watch stop now", &cmd, error), -1);
+    check_int("watch with a sub nobody has",
+              parse("survey watch forever", &cmd, error), -1);
+}
+
 int main(void) {
     test_calibrate_names_its_reference();
     test_scan_names_its_target();
     test_sweep_carries_the_range();
+    test_survey_actions();
     test_select_names_a_kind_and_an_index();
     test_set_stages_one_field();
     test_a_toggle_takes_words_as_well_as_numbers();

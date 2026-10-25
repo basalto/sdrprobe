@@ -146,6 +146,10 @@ struct survey_view_model {
        booleans a reader would otherwise have to recombine into the same
        sentence the window already wrote. */
     int sweeping;
+    /* Whether a watch is folding each sweep into the site's history and going
+       round again -- so the browser's Watch button can read "Stop", the way the
+       window's does. */
+    int watching;
     char status[200];
 
     /* The range actually swept, and its own spectrum -- power against

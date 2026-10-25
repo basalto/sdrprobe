@@ -19,6 +19,8 @@ const SurveyView = (function () {
         to: document.getElementById('survey-to'),
         dwell: document.getElementById('survey-dwell'),
         sweep: document.getElementById('survey-sweep'),
+        ask: document.getElementById('survey-ask'),
+        watch: document.getElementById('survey-watch'),
       };
       els.surveyCtx = els.surveyChart.getContext('2d');
       // Click a candidate to inspect it -- the window's own candidate click
@@ -77,6 +79,7 @@ const SurveyView = (function () {
   // "Sweep" when idle and "Stop" when sweeping -- and sends the matching
   // command. The server owns the truth; this only mirrors it.
   let lastSweeping = false;
+  let lastWatching = false;
 
   function startOrStopSweep() {
     const e = elements();
@@ -124,15 +127,23 @@ const SurveyView = (function () {
   }
 
   function renderSurveyState(state) {
-    const { surveyStatus, surveyCount, surveyRows, sweep } = elements();
+    const { surveyStatus, surveyCount, surveyRows, sweep, watch } = elements();
     surveyStatus.textContent = state.status;
     surveyCount.textContent = state.candidate_count;
     renderDetail(state.detail);
     lastSweeping = !!state.sweeping;
+    lastWatching = !!state.watching;
     if (sweep) {
       sweep.textContent = lastSweeping ? 'Stop' : 'Sweep';
       sweep.style.background = lastSweeping ? ACTIVE : '#1b2836';
       sweep.style.color = lastSweeping ? '#0a0f16' : CAPTION;
+    }
+    // Watch reads "Stop watching" while a watch is folding each sweep into the
+    // site's history, the way the window's button does.
+    if (watch) {
+      watch.textContent = lastWatching ? 'Stop watching' : 'Watch';
+      watch.style.background = lastWatching ? ACTIVE : '#1b2836';
+      watch.style.color = lastWatching ? '#0a0f16' : CAPTION;
     }
     lastCandidates = state.candidates || [];
     // Rebuilt only when the candidates change, so a click lands on a row that
@@ -215,6 +226,12 @@ const SurveyView = (function () {
         f.addEventListener('keydown', (ev) => {
           if (ev.key === 'Enter') startOrStopSweep();
         });
+      // Ask again (the confirmation pass over what changed) and Watch (keep
+      // sweeping, folding each into the site's history). The server refuses
+      // with the session's own words -- no receiver, nothing to ask, no site.
+      e.ask.addEventListener('click', () => send('survey ask'));
+      e.watch.addEventListener('click',
+        () => send(lastWatching ? 'survey watch stop' : 'survey watch'));
     },
     markup:
       '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
@@ -234,6 +251,12 @@ const SurveyView = (function () {
       + '<button id="survey-sweep" style="background:#1b2836;color:' + CAPTION
       + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
       + 'cursor:pointer">Sweep</button>'
+      + '<button id="survey-ask" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
+      + 'cursor:pointer">Ask again</button>'
+      + '<button id="survey-watch" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
+      + 'cursor:pointer">Watch</button>'
       + '</div>' +
       '<div class="label" id="survey-status">no sweep yet</div>' +
       '<canvas id="survey-chart" style="flex:2 1 0;min-height:120px;width:100%">'
