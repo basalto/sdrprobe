@@ -79,6 +79,11 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
     char *value_end;
     unsigned long value;
 
+    /* Zero every field first, so a command carries only the fields it names and
+       a reader never sees another command's leftovers (or stack garbage) in one
+       it did not set -- `sweep`'s range form, say, leaving `sweep_stop` unset. */
+    memset(out, 0, sizeof(*out));
+
     /* Trailing whitespace or control bytes only -- a Viewer typing into a
        text box can leave a trailing \r or \n even though the WebSocket
        frame boundary already ended the message; leading whitespace is
@@ -361,8 +366,38 @@ int viewer_command_parse(const char *line, size_t len, struct viewer_command *ou
             set_error(error, error_cap, "survey watch takes nothing or 'stop'");
             return -1;
         }
+        if (strcmp(action, "save") == 0) {
+            for (i = (size_t)ac; value_start[i] != '\0'; i++)
+                if (!isspace((unsigned char)value_start[i])) {
+                    set_error(error, error_cap, "unexpected trailing field");
+                    return -1;
+                }
+            out->type = VIEWER_COMMAND_SURVEY;
+            out->survey_action = VIEWER_SURVEY_SAVE;
+            return 0;
+        }
+        if (strcmp(action, "site") == 0 || strcmp(action, "antenna") == 0) {
+            char *rest = value_start + ac;
+
+            while (*rest == ' ' || *rest == '\t')
+                rest++;
+            /* The rest of the line is the value, spaces and all -- a site name
+               is "home sala estar" as readily as one word. The whole line's
+               trailing whitespace was already trimmed, so `rest` ends clean. */
+            if (*rest == '\0') {
+                set_error(error, error_cap,
+                          "survey site/antenna needs a name");
+                return -1;
+            }
+            out->type = VIEWER_COMMAND_SURVEY;
+            out->survey_action = strcmp(action, "site") == 0
+                                     ? VIEWER_SURVEY_SITE
+                                     : VIEWER_SURVEY_ANTENNA;
+            snprintf(out->survey_text, sizeof(out->survey_text), "%s", rest);
+            return 0;
+        }
         set_error(error, error_cap,
-                  "survey takes 'ask', 'watch' or 'watch stop'");
+                  "survey takes ask, watch[ stop], save, site or antenna");
         return -1;
     }
     if (strcmp(word, "select") == 0) {

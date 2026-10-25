@@ -525,6 +525,23 @@ static void test_survey_actions(void) {
     check_int("watch stop", parse("survey watch stop", &cmd, error), 0);
     check_int("stops a watch", cmd.survey_action, VIEWER_SURVEY_WATCH_STOP);
 
+    check_int("save", parse("survey save", &cmd, error), 0);
+    check_int("saves the sweep", cmd.survey_action, VIEWER_SURVEY_SAVE);
+
+    check_int("a site", parse("survey site home-desk", &cmd, error), 0);
+    check_int("sets the site", cmd.survey_action, VIEWER_SURVEY_SITE);
+    check_str("carrying the name", cmd.survey_text, "home-desk");
+
+    /* A site name is free text and keeps its spaces -- "home sala estar" is one
+       place, not three trailing fields. */
+    check_int("a site with spaces",
+              parse("survey site home sala estar", &cmd, error), 0);
+    check_str("kept whole", cmd.survey_text, "home sala estar");
+
+    check_int("an antenna", parse("survey antenna telescopic", &cmd, error), 0);
+    check_int("sets the antenna", cmd.survey_action, VIEWER_SURVEY_ANTENNA);
+    check_str("carrying it", cmd.survey_text, "telescopic");
+
     check_int("an action nobody has", parse("survey confirm", &cmd, error), -1);
     check_int("none at all", parse("survey", &cmd, error), -1);
     check_int("a trailing field after ask",
@@ -533,6 +550,9 @@ static void test_survey_actions(void) {
               parse("survey watch stop now", &cmd, error), -1);
     check_int("watch with a sub nobody has",
               parse("survey watch forever", &cmd, error), -1);
+    check_int("site with no name", parse("survey site", &cmd, error), -1);
+    check_int("save takes nothing after it",
+              parse("survey save now", &cmd, error), -1);
 }
 
 int main(void) {

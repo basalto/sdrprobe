@@ -29,6 +29,10 @@
 #include "runtime/survey_session.h"
 #include "runtime/survey_window.h"
 #include "runtime/options.h"
+#include "runtime/survey_record.h"
+#include "runtime/survey_store.h"
+#include "runtime/site_history.h"
+#include "runtime/config.h"
 
 /*
  * What one block looks like to the session: samples, a spectrum, and the
@@ -597,4 +601,163 @@ void view_survey_defaults(struct app *app) {
     snprintf(s->session.status, sizeof(s->session.status),
              "Set a range and press Sweep. The whole tuner takes a few minutes;"
              " a band takes seconds.");
+}
+
+/* The hour of the day, for the clock the history keeps. */
+static int survey_hour_of_day(void) {
+    time_t now = time(NULL);
+    struct tm local;
+
+    localtime_r(&now, &local);
+    return local.tm_hour;
+}
+
+/*
+ * Write the sweep down, so the next one has something to be compared with.
+ *
+ * Moved here from view_survey.c: writing a file and folding the history are
+ * actions, not drawing, so both the window's Save button and the browser's
+ * `survey save` reach the one copy (ADR-0012).
+ *
+ * The spectrum is only handed over when the whole survey came from one tuning;
+ * across a swept range it belongs to whichever step happened to be last, and a
+ * bandwidth measured out of it would be a number about the wrong signal --
+ * which is survey_session_spectrum()'s own refusal, and the reason both
+ * adapters go through survey_candidates_from().
+ */
+void survey_save_sweep(struct app *app) {
+    struct survey_view *s = &app->survey;
+    struct survey_session *ss = &s->session;
+    static struct survey_record record;   /* ~38 KB; not a stack object */
+    struct survey_record_input in;
+    char path[256];
+
+    if (ss->peak_count <= 0) {
+        snprintf(ss->status, sizeof(ss->status),
+                 "Nothing to save yet: sweep first.");
+        return;
+    }
+    if (!s->site[0]) {
+        /* Refused rather than saved as unknown. Two sweeps with no site
+           compare as the same place, which is the one way this archive can
+           mislead instead of merely disappoint. */
+        snprintf(ss->status, sizeof(ss->status),
+                 "Name the site first -- a sweep without one cannot be "
+                 "compared with another.");
+        s->focus = 3;
+        return;
+    }
+    /*
+     * The record first, then the file. Everything the writer needs is decided
+     * here, from facts this view already has, and the headless save builds the
+     * same record from its own -- which is what stops the two describing one
+     * sweep differently.
+     */
+    memset(&in, 0, sizeof(in));
+    survey_tuning_from(&in.tuning, app);
+    in.plan = &ss->plan;
+    in.dwell_seconds = ss->dwell_seconds;
+    survey_record_setup_from(&in.setup, &app->installation,
+                             app->applied_gain_tenths, app->device.gain_unit);
+    in.recorded_at = survey_record_now();
+    in.peaks = ss->peaks;
+    in.peak_count = ss->peak_count;
+    in.spectrum = survey_session_spectrum(ss);
+    in.scratch = app->frame.magnitude_sorted;
+    in.carriers = ss->carriers;
+    in.carrier_count = ss->carrier_count;
+    in.targets = ss->confirm.target;
+    in.target_count = ss->confirm.count;
+    if (survey_record_build(&record, &in) < 0) {
+        snprintf(ss->status, sizeof(ss->status),
+                 "Could not form the survey to save.");
+        return;
+    }
+    /*
+     * The archive and the memory are written together. If they drift apart --
+     * a sweep in surveys/ that the history never saw -- the window starts
+     * calling known signals new, which is worse than having no memory at all.
+     */
+    {
+        double hz[SURVEY_CARRIER_MAX];
+        float level[SURVEY_CARRIER_MAX], prom[SURVEY_CARRIER_MAX];
+        struct site_history history;
+        int i;
+        /* Carriers, not candidates. The site remembers signals; a candidate
+           is one maximum of one, and a station with four would arrive as four
+           things to be surprised by next time. */
+        for (i = 0; i < ss->carrier_count; i++) {
+            hz[i] = ss->carriers[i].centre_hz;
+            level[i] = ss->carriers[i].peak_dbfs;
+            prom[i] = ss->carriers[i].prominence_db;
+        }
+        site_history_init(&history, app->config.site);
+        installation_history_load(&app->installation, &history);
+        site_history_merge(&history, hz, level, prom, ss->carrier_count,
+                           ss->plan.bin_hz, survey_hour_of_day());
+        installation_history_save(&app->installation, &history);
+    }
+    /* Whatever "Ask again" has already settled about this sweep. Cleared when
+       a sweep starts, so a save can never carry the previous sweep's
+       verdicts under this one's frequencies. */
+    if (survey_store_write(&record, path, sizeof(path)) < 0) {
+        snprintf(ss->status, sizeof(ss->status),
+                 "Could not write the survey; see the terminal.");
+        return;
+    }
+    {
+        /* The name, not the path: the status line is one line and the
+           directory is always the same one. */
+        const char *slash = strrchr(path, '/');
+        snprintf(ss->status, sizeof(ss->status),
+                 "Saved %d candidates to surveys/%.64s -- compare sweeps "
+                 "with scripts/survey_tool.py diff", record.candidate_count,
+                 slash ? slash + 1 : path);
+    }
+    survey_history_refresh(app);
+}
+
+/*
+ * And an edit goes straight back to the file.
+ *
+ * Saved when the field loses focus rather than on every keystroke: a
+ * half-typed site is a wrong site, and writing it would leave the wrong one
+ * behind if the operator then walked away.
+ */
+void survey_commit_installation(struct app *app) {
+    struct survey_view *s = &app->survey;
+    int changed = 0;
+
+    if (strcmp(app->config.site, s->site)) {
+        snprintf(app->config.site, sizeof(app->config.site), "%s", s->site);
+        changed = 1;
+    }
+    if (s->antenna[0] && strcmp(app->config.antenna, s->antenna)) {
+        snprintf(app->config.antenna, sizeof(app->config.antenna), "%s",
+                 s->antenna);
+        changed = 1;
+    }
+    if (changed) {
+        config_remember_site(&app->config, app->config.site);
+        config_remember_antenna(&app->config, app->config.antenna);
+        config_save(&app->config);
+        survey_history_refresh(app);
+        /*
+         * Moving to a site the receiver has been calibrated at restores that
+         * calibration. Levels and frequencies from two sites are only
+         * comparable if the receiver was corrected the same way at both, and
+         * the operator should not have to remember which number went with
+         * which room.
+         */
+        if (app->receiver_mode && app->config.site[0]) {
+            int ppm = config_site_ppm(&app->config, app->config.site);
+            if (ppm != app->applied.ppm &&
+                retune_receiver(app, app->applied.frequency_hz, ppm) == 0) {
+                app->options.ppm = ppm;
+                snprintf(s->session.status, sizeof(s->session.status),
+                         "Site %s: applied its %+d PPM correction.",
+                         app->config.site, ppm);
+            }
+        }
+    }
 }

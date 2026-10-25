@@ -87,11 +87,15 @@ enum viewer_command_type {
     VIEWER_COMMAND_SURVEY
 };
 
-/* Which survey action a `survey` command names. */
+/* Which survey action a `survey` command names. SITE and ANTENNA carry their
+   value in `survey_text`; the rest carry nothing. */
 enum viewer_survey_action {
     VIEWER_SURVEY_ASK = 0,
     VIEWER_SURVEY_WATCH,
-    VIEWER_SURVEY_WATCH_STOP
+    VIEWER_SURVEY_WATCH_STOP,
+    VIEWER_SURVEY_SAVE,
+    VIEWER_SURVEY_SITE,
+    VIEWER_SURVEY_ANTENNA
 };
 
 /* What a `select` names: a GSM channel by ARFCN, an LTE scan row by index, or
@@ -192,6 +196,9 @@ struct viewer_command {
     int sweep_stop;
 
     enum viewer_survey_action survey_action; /* VIEWER_COMMAND_SURVEY */
+    /* The site or antenna name for `survey site`/`survey antenna` -- free text
+       (a site may contain spaces), sized like the survey view's own fields. */
+    char survey_text[64];
 };
 
 /* Longest command line this parser will read at all -- past this, a line

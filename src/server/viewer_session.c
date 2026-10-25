@@ -364,6 +364,25 @@ static int viewer_session_handle_command(void *ctx, const struct viewer_command 
         case VIEWER_SURVEY_WATCH_STOP:
             survey_session_watch_stop(ss);
             return 0;
+        case VIEWER_SURVEY_SAVE:
+            /* The window's Save button: commit the fields first (a site typed
+               but not yet committed would otherwise be lost), then write. The
+               refusal (no site, nothing swept) lands in the status line. */
+            survey_commit_installation(app);
+            survey_save_sweep(app);
+            return 0;
+        case VIEWER_SURVEY_SITE:
+            snprintf(app->survey.site, sizeof(app->survey.site), "%s",
+                     cmd->survey_text);
+            app->survey.site_length = (int)strlen(app->survey.site);
+            survey_commit_installation(app);
+            return 0;
+        case VIEWER_SURVEY_ANTENNA:
+            snprintf(app->survey.antenna, sizeof(app->survey.antenna), "%s",
+                     cmd->survey_text);
+            app->survey.antenna_length = (int)strlen(app->survey.antenna);
+            survey_commit_installation(app);
+            return 0;
         }
         return 0;
     }
