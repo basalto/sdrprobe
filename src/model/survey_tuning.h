@@ -28,6 +28,12 @@ struct survey_record_tuning {
     double centre_hz;
     double sample_rate_hz;
     double reference_clock_hz;
+    /* What the tuner can reach, for the band picker to list the allocations
+       worth offering (survey_bands.h). A device fact like reference_clock_hz,
+       carried here so the view model can build the list without reaching for
+       the whole device profile. Zero for a capture, which reaches nowhere. */
+    double tuner_lower_hz;
+    double tuner_upper_hz;
     int remove_dc;
     /*
      * This receiver's own reference error, and the correction in force.

@@ -1403,10 +1403,11 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
                                       const struct survey_view_model *svm,
                                       const struct survey_detail_view *detail,
                                       uint64_t now_ms) {
-    /* One candidate's JSON is at most about 110 bytes with a 200-byte
-       margin for the escaped status string and the wrapper; SURVEY_MAX_PEAKS
-       (512) of them comfortably inside 64 KiB. */
-    static char json[65536];
+    /* One candidate's JSON is at most about 110 bytes; SURVEY_MAX_PEAKS (512)
+       of them, plus the detail panel's ~24 lines and the band list's ~30
+       entries, fit inside 128 KiB with margin, and every loop below guards the
+       remaining room so a full candidate list cannot crowd the rest out. */
+    static char json[131072];
     size_t len = 0;
     char status_escaped[400];
     int i;
@@ -1450,6 +1451,26 @@ void viewer_link_publish_survey_state(struct viewer_link *link,
     }
     if (len < sizeof(json) - 2)
         json[len++] = ']';      /* close candidates */
+
+    /*
+     * The allocations this receiver can reach, for the Band picker -- the
+     * browser fills its range and dwell fields from a chosen one. Constant for
+     * a session; small enough to ride here rather than earn a stream.
+     */
+    len += (size_t)snprintf(json + len, sizeof(json) - len, ",\"bands\":[");
+    for (i = 0; i < svm->band_count && len < sizeof(json) - 400; i++) {
+        const struct survey_band_view *b = &svm->bands[i];
+        char escaped[sizeof(b->name) * 2];
+
+        json_escape_into(escaped, sizeof(escaped), b->name, strlen(b->name));
+        len += (size_t)snprintf(json + len, sizeof(json) - len,
+                                "%s{\"name\":\"%s\",\"from_hz\":%.0f,"
+                                "\"to_hz\":%.0f,\"dwell_s\":%.2f}",
+                                i == 0 ? "" : ",", escaped, b->from_hz,
+                                b->to_hz, b->dwell_s);
+    }
+    if (len < sizeof(json) - 2)
+        json[len++] = ']';      /* close bands */
 
     /*
      * The Selected-candidate detail panel, as the decided list the window draws

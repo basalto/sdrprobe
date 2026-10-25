@@ -8,6 +8,7 @@
 #include "core/survey_suspect.h"
 #include "core/signal_findings.h"
 #include "core/band_plan.h"
+#include "core/survey_bands.h"
 
 
 /* The sweep's own suspicion at a frequency -- the frequency-only half of a
@@ -75,6 +76,30 @@ void survey_view_model_build(const struct survey_session *ss,
                                                   : 1e5),
                             1)
                       : SITE_SEEN_UNKNOWN;
+    }
+
+    /* The allocations this receiver can reach, for the Band picker -- the
+       filter is the tuner's reach (survey_bands.h), so an R820T and a B210 get
+       different lists. The browser fills its range fields from a chosen one. */
+    out->band_count = survey_band_count(tuning->tuner_lower_hz,
+                                        tuning->tuner_upper_hz);
+    if (out->band_count > SURVEY_VIEW_MODEL_MAX_BANDS)
+        out->band_count = SURVEY_VIEW_MODEL_MAX_BANDS;
+    for (i = 0; i < out->band_count; i++) {
+        const struct band_plan_entry *entry =
+            survey_band_at(i, tuning->tuner_lower_hz, tuning->tuner_upper_hz);
+        struct survey_band_view *b = &out->bands[i];
+        double from = 0.0, to = 0.0;
+
+        if (!entry)
+            continue;
+        snprintf(b->name, sizeof(b->name), "%s", entry->name);
+        if (survey_band_range(entry, tuning->tuner_lower_hz,
+                              tuning->tuner_upper_hz, &from, &to) == 0) {
+            b->from_hz = from;
+            b->to_hz = to;
+            b->dwell_s = survey_band_dwell(from, to, tuning->sample_rate_hz);
+        }
     }
 }
 

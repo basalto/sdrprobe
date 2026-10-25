@@ -68,6 +68,8 @@ void survey_tuning_from(struct survey_record_tuning *out,
     out->centre_hz = (double)app->applied.frequency_hz;
     out->sample_rate_hz = (double)app->applied.sample_rate_hz;
     out->reference_clock_hz = app->device.reference_clock_hz;
+    out->tuner_lower_hz = app->device.tune_lower_hz;
+    out->tuner_upper_hz = app->device.tune_upper_hz;
     out->remove_dc = app->remove_dc;
     out->clock = survey_reading_clock(app);
 }
