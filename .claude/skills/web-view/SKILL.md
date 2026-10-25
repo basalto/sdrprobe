@@ -152,6 +152,17 @@ The pattern, as FM did it:
   `enum fm_reading_tone`; the drawing only picks a colour for a verdict it
   was handed. `survey_mark_of()` (`src/model/survey_mark.h`) is the same idea for the
   survey, and `gsm_sch_reading_name()` the same again.
+  **A whole panel of sentences is one decision too, carried as a list.** The
+  survey's Selected-candidate panel was ~150 lines of `DrawText` deciding which
+  sentences to show, in what order, at what emphasis -- too much to carry as
+  named fields. `survey_detail_view_build()` builds it as a
+  `struct survey_detail_line[]` (text, indent, a tone keyed by name), the window
+  renders the list and the browser renders the same list, and `draw_detail()`
+  decides nothing. When a panel's *structure* is the decision, model the list,
+  not the fields. (Keep the builder's name-mapping, e.g.
+  `survey_detail_tone_name`, a `static inline` in the model header so the wire
+  writer needs the header, not the builder's whole translation unit and its
+  deps.)
 - The window's own drawing then reads the model too, so there is one
   decision rather than two that agree today. **This is not optional and it
   is not cosmetic.** All eight views do it as of `web-visualization/16`, and
