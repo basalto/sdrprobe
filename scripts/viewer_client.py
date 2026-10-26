@@ -345,6 +345,9 @@ def run_print(client, count):
                      f"{'locked' if state['pilot_locked'] else 'no lock'} "
                      f"pi={state['pi']:#06x} ps={state['ps']!r} "
                      f"reading={state['reading']!r} "
+                     f"scanning={state.get('scanning')} "
+                     f"stations={len(state.get('stations', []))} "
+                     f"scan_status={state.get('scan_status')!r} "
                      f"age={now_ms - state['timestamp_ms']:.1f} ms")
             elif state.get("type") == "gsm_state":
                 # Both readouts arrive already decided (gsm_view_model.h) and
