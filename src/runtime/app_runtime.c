@@ -771,6 +771,15 @@ struct receiver_runtime runtime_over(struct app *app) {
     rt.error = app->receiver_error;
     rt.error_size = sizeof(app->receiver_error);
     rt.live = app->receiver_mode;
+    /*
+     * The SoapySDR/UHD backend retunes its stream live, so a frequency-only
+     * retune skips the worker stop/start (see receiver_runtime.h). It is the
+     * one backend here that must not be stop/start-cycled -- doing so wedges
+     * the B210 clone. The guard on a non-NULL backend keeps a build with no
+     * SoapySDR (device_backend_soapy() is NULL then) from matching NULL.
+     */
+    rt.live_retune = app->source.backend != NULL &&
+                     app->source.backend == device_backend_soapy();
     rt.life.stop = runtime_stop;
     rt.life.start = runtime_start;
     rt.life.ctx = app;

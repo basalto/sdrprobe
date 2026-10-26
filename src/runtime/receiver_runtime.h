@@ -87,6 +87,23 @@ struct receiver_runtime {
      * happened" is the answer a reader cannot act on.
      */
     int live;
+
+    /*
+     * Whether a frequency/correction-only retune can be done *without* stopping
+     * and restarting the sample worker -- true for a backend whose stream takes
+     * a live `setFrequency` (SoapySDR/UHD), false for one that must be stopped
+     * to retune (the RTL path keeps its tested stop/apply/restart).
+     *
+     * It is not an optimisation. On the B210 clone, cycling the UHD stream
+     * (deactivate/activate) is what intermittently wedges `readStream` so it
+     * never returns, and `stop_acquisition()`'s join then freezes the whole
+     * program -- a scan's rapid retunes reliably trigger it. Retuning live
+     * never stops the stream, so the cycling never happens. The flush that the
+     * stop/restart exists to do is already a no-op on that backend, so nothing
+     * is lost. A gain change still takes the full transaction (want != NULL),
+     * which is why this is the plain-tune path only.
+     */
+    int live_retune;
 };
 
 /*

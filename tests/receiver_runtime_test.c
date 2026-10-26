@@ -434,6 +434,60 @@ static void test_a_capture_refuses_and_says_why(void) {
     check_int("nor was the worker touched", worker.stops, 0);
 }
 
+/*
+ * Live retune: a backend whose stream takes a setFrequency without being
+ * stopped skips the worker stop/start entirely. This is not a tidy-up -- the
+ * stop/start cycling is what wedges the B210 clone's readStream and freezes the
+ * program -- so the check is that the worker is *never touched* while the tune
+ * still takes, reads back and advances the generation.
+ */
+static void test_a_live_retune_keeps_the_worker_running(void) {
+    struct receiver_runtime rt = a_runtime();
+
+    rt.live_retune = 1;
+    check_int("it tunes", receiver_runtime_tune(&rt, 948400000, -31), 0);
+    check_int("to what came back", (int)applied.frequency_hz, 948400000);
+    check_int("with the correction", applied.ppm, -31);
+    check_int("the worker was never stopped", worker.stops, 0);
+    check_int("nor started", worker.starts, 0);
+    check_int("and keeps running", worker.running, 1);
+    check_int("and the generation advanced once", (int)applied.generation, 1);
+    check_str("with nothing to report", error, "");
+}
+
+/* A live retune still rolls back, and still without touching the worker: a
+   device that cannot say where it is tuned has not been tuned. */
+static void test_a_live_retune_that_cannot_be_read_back(void) {
+    struct receiver_runtime rt = a_runtime();
+    struct fake_device *f = fake_backend_state();
+
+    rt.live_retune = 1;
+    f->fail_frequency_read_in = 1;
+    check_int("it refuses", receiver_runtime_tune(&rt, 948400000, 0), -1);
+    check_int("and puts the tuning back", (int)applied.frequency_hz, 100000000);
+    check_int("on the device too", (int)f->frequency_hz, 100000000);
+    check_int("the worker was never touched", worker.stops, 0);
+    check_int("and is still running", worker.running, 1);
+    check_int("and the generation did not move", (int)applied.generation, 0);
+    check_true("saying it could not read it back",
+               strstr(error, "read the tuning back") != NULL);
+}
+
+/* A gain change still takes the full stop/apply/restart even on a live-retune
+   backend: the live path is the plain-tune (want == NULL) one only. */
+static void test_a_gain_change_still_takes_the_full_transaction(void) {
+    struct receiver_runtime rt = a_runtime();
+    struct receiver_gain want = { 1, 300 };
+    struct receiver_gain had = { 1, 100 };
+
+    rt.live_retune = 1;
+    check_int("it applies", receiver_runtime_apply(&rt, 948400000, 0, want, had),
+              0);
+    check_int("the worker was stopped once", worker.stops, 1);
+    check_int("and started once", worker.starts, 1);
+    check_int("and is running", worker.running, 1);
+}
+
 /* And what it refuses to be asked. */
 static void test_refusals(void) {
     struct receiver_runtime rt = a_runtime();
@@ -466,6 +520,9 @@ int main(void) {
     test_a_restart_that_fails();
     test_a_stop_that_fails();
     test_an_unchanged_rate_is_a_plain_retune();
+    test_a_live_retune_keeps_the_worker_running();
+    test_a_live_retune_that_cannot_be_read_back();
+    test_a_gain_change_still_takes_the_full_transaction();
     test_a_capture_refuses_and_says_why();
     test_the_generation_advances_once_per_success();
     test_no_refusal_advances_the_generation();

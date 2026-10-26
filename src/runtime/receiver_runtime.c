@@ -95,6 +95,41 @@ static int apply_locked(struct receiver_runtime *rt, uint32_t frequency_hz,
     old_frequency = rt->applied->frequency_hz;
     old_ppm = rt->applied->ppm;
 
+    /*
+     * Live retune: a backend whose stream takes a `setFrequency` without being
+     * stopped (SoapySDR/UHD) skips the worker stop/start. That cycling is what
+     * wedges the B210 clone's readStream and freezes the program (see the
+     * `live_retune` note in the header); the flush it exists to do is a no-op
+     * there anyway. A gain change still needs the full transaction, so this is
+     * the want == NULL path only. The read-back is the same refusal as below:
+     * a device that cannot say where it is tuned has not been tuned.
+     */
+    if (!want && rt->live_retune) {
+        if (receiver_runtime_set_correction(rt->source, ppm) < 0 ||
+            device_set_frequency_hz(rt->source, frequency_hz) < 0) {
+            say(rt, "Receiver rejected %.6f MHz or %+d ppm",
+                frequency_hz / 1e6, ppm);
+            receiver_runtime_set_correction(rt->source, old_ppm);
+            device_set_frequency_hz(rt->source, old_frequency);
+            rt->applied->frequency_hz = old_frequency;
+            rt->applied->ppm = old_ppm;
+            return -1;
+        }
+        reported = read_frequency(rt->source);
+        if (reported == 0) {
+            say(rt, "Could not read the tuning back from the receiver");
+            receiver_runtime_set_correction(rt->source, old_ppm);
+            device_set_frequency_hz(rt->source, old_frequency);
+            rt->applied->frequency_hz = old_frequency;
+            rt->applied->ppm = old_ppm;
+            return -1;
+        }
+        rt->applied->frequency_hz = reported;
+        rt->applied->ppm = read_ppm(rt->source);
+        rt->applied->generation++;
+        return 0;
+    }
+
     if (life_stop(rt) < 0)
         return -1;
     if (want && device_set_gain(rt->source, want->manual, want->tenths) < 0) {
