@@ -84,8 +84,8 @@ const GsmView = (function () {
   function resizeCanvases() {
     const e = elements();
     const wfBox = measure(e.wf);
-    if (fitCanvas(e.wf, wfBox.width, wfBox.height))
-      waterfallRedraw(e.wfCtx, e.wf, wf);
+    fitCanvas(e.wf, wfBox.width, wfBox.height);
+    chart.resize();
     const scanBox = measure(e.scan);
     if (fitCanvas(e.scan, scanBox.width, scanBox.height)) drawScan(lastState);
     for (const key in e.cc) {
@@ -188,17 +188,16 @@ const GsmView = (function () {
   // The received span from the last receiver_state, and the inspected channel
   // from the last gsm_state -- the ARFCN mark is placed against the span.
   let lastLowerHz = 0, lastUpperHz = 0, markerHz = 0, markerLabel = '';
-  const wf = createWaterfall();   // lib/waterfall.js -- rows survive a resize
+  // The waterfall, its axes and the zoom/pan/scale gestures (lib/freqchart.js),
+  // the Scope's controller -- the GSM screen draws the same rows over the same
+  // span, so it gets the same gestures. Retune on (the server refuses it over
+  // a capture).
+  const chart = createFreqChart({ retune: true });
 
-  function drawWaterfall(row) {
-    const { wf: canvas, wfCtx } = elements();
-    waterfallPush(wf, row);
-    waterfallDrawNewest(wfCtx, canvas, row);
-  }
-
-  // The axis under the waterfall, labelled in ARFCN rather than hertz --
+  // The axis caption under the waterfall, labelled in ARFCN rather than hertz --
   // which is what makes this the GSM screen's waterfall and not the Scope's,
-  // though the rows are byte-for-byte the same stream.
+  // though the rows are byte-for-byte the same stream. The in-canvas axis
+  // carries the hertz; this line carries the service name and the span.
   function renderAxis(state) {
     const { axis } = elements();
     lastLowerHz = state.center_hz - state.sample_rate_hz / 2;
@@ -206,22 +205,22 @@ const GsmView = (function () {
     axis.textContent = 'GSM 900 ARFCN (200 kHz spacing)   '
       + (lastLowerHz / 1e6).toFixed(3) + ' - '
       + (lastUpperHz / 1e6).toFixed(3) + ' MHz';
+    chart.onTuning(state.center_hz, state.sample_rate_hz);
     renderMarkers();
   }
 
   // One mark over the inspected ARFCN, the window's own: at the selected
   // channel's frequency (`carrier_hz`), labelled by its BSIC once the
-  // synchronisation burst has decoded and by its ARFCN until then. Empty when
-  // no channel is inspected, and cleared while the burst charts are up.
+  // synchronisation burst has decoded and by its ARFCN until then. Placed
+  // through the chart so it follows a zoom; empty when no channel is inspected,
+  // off the current window, or while the burst charts are up.
   function renderMarkers() {
     const e = elements();
-    const span = lastUpperHz - lastLowerHz;
-    if (span <= 0 || charting || !markerLabel
-        || markerHz < lastLowerHz || markerHz > lastUpperHz) {
+    const pct = chart.markerPercent(markerHz);
+    if (charting || !markerLabel || pct === null) {
       e.markers.innerHTML = '';
       return;
     }
-    const pct = (100 * (markerHz - lastLowerHz) / span).toFixed(2);
     e.markers.innerHTML = '<div style="position:absolute;top:0;left:' + pct
       + '%;transform:translateX(-50%);white-space:nowrap;font:11px monospace;'
       + 'padding:1px 4px;border:1px solid ' + MARKER_COLOR + ';border-radius:2px;'
@@ -401,6 +400,19 @@ const GsmView = (function () {
     // from, and the shell always subscribes to it.
     streams: streams,
     resize: resizeCanvases,
+    mounted() {
+      const e = elements();
+      chart.mount({
+        wfCanvas: e.wf,
+        isActive: () => {
+          const p = document.getElementById('panel-gsm');
+          if (!p || p.hidden || charting) return false;
+          const a = document.activeElement;
+          return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+        },
+        onRedraw: renderMarkers,
+      });
+    },
     markup:
       '<div style="margin-bottom:8px;flex:0 0 auto">'
       + '<button id="gsm-charts" style="background:#16202c;color:#8291a0;'
@@ -443,7 +455,7 @@ const GsmView = (function () {
       + '</div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') {
-        if (!charting) drawWaterfall(msg.row);
+        if (!charting) chart.renderRow(msg.row);
       } else if (msg.kind === 'gsm_corr') {
         if (charting) drawCorr('corr', msg.data);
       } else if (msg.kind === 'gsm_soft') {

@@ -51,7 +51,9 @@ NAME = "VIEWER_PAGE_HTML"
 JS_ORDER = [
     "lib/format.js",
     "lib/chart.js",
+    "lib/freqwindow.js",
     "lib/waterfall.js",
+    "lib/freqchart.js",
     "lib/table.js",
     "wire.js",
     "views/scope.js",

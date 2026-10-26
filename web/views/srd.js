@@ -118,8 +118,8 @@ const SrdView = (function () {
   function resizeCanvases() {
     const e = elements();
     const box = measure(e.wf);
-    if (fitCanvas(e.wf, box.width, box.height))
-      waterfallRedraw(e.wfCtx, e.wf, wf);
+    fitCanvas(e.wf, box.width, box.height);
+    chart.resize();
     for (const key in e.cc) {
       const g = e.cc[key];
       const b = measure(g.c);
@@ -182,13 +182,11 @@ const SrdView = (function () {
     WAKEUP: '#8fb8d8', UNDECODED: '#7e97a6', unknown: '#7e97a6',
   };
 
-  const wf = createWaterfall();
-
-  function drawWaterfall(row) {
-    const { wf: canvas, wfCtx } = elements();
-    waterfallPush(wf, row);
-    waterfallDrawNewest(wfCtx, canvas, row);
-  }
+  // The waterfall, its axes and the zoom/pan/scale gestures (lib/freqchart.js),
+  // the Scope's controller -- retune on, which matters here: the SRD allocation
+  // is 10 MHz and the receiver hears two, so a pan off the edge is how the band
+  // is walked (the server refuses it over a capture).
+  const chart = createFreqChart({ retune: true });
 
   function renderAxis(state) {
     const { axis } = elements();
@@ -196,6 +194,7 @@ const SrdView = (function () {
     lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
     axis.textContent = (lastLowerHz / 1e6).toFixed(3) + ' - '
       + (lastUpperHz / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    chart.onTuning(state.center_hz, state.sample_rate_hz);
     // The span moved, so the transmission marks move with it without waiting
     // for the next srd_state.
     renderMarkers();
@@ -308,57 +307,59 @@ const SrdView = (function () {
   // at build time; only the y (age) changes between builds.
   function renderMarkers() {
     const e = elements();
-    const span = lastUpperHz - lastLowerHz;
-    if (span <= 0 || charting) { e.markers.innerHTML = ''; markerSig = null; return; }
-    const sig = selectedLog + '|' + Math.round(lastLowerHz) + '|'
-      + Math.round(lastUpperHz) + '|' + lastLog.map((f) =>
-        Math.round(f.hz) + ':' + f.kind).join('|');
+    if (charting) { e.markers.innerHTML = ''; markerSig = null; return; }
+    // Rebuilt only when the transmissions or the selection change -- the
+    // frequency (x) is placed through the chart in positionMarkers now, so a
+    // zoom moves the pills without a rebuild and the span no longer enters the
+    // signature.
+    const sig = selectedLog + '|' + lastLog.map((f) =>
+      Math.round(f.hz) + ':' + f.kind).join('|');
     if (sig !== markerSig) {
       markerSig = sig;
-      let html = '';
-      lastLog.forEach((f, i) => {
-        if (f.hz < lastLowerHz || f.hz > lastUpperHz) return;
-        const pct = (100 * (f.hz - lastLowerHz) / span).toFixed(2);
+      e.markers.innerHTML = lastLog.map((f, i) => {
         const sel = i === selectedLog;
         const col = markerColor(f);
-        // Just the mark, no label: a small square at the transmission's
-        // frequency and age, coloured by kind, filled solid when selected and
-        // a translucent outline otherwise. The frame's text is the hover title
-        // rather than a drawn pill, so a busy band is a column of dots rather
-        // than a stack of overlapping words.
+        // Just the mark, no label: a small square coloured by kind, filled
+        // when selected and a translucent outline otherwise, the frame's text
+        // its hover title -- so a busy band is a column of dots, not a stack of
+        // overlapping words. x and y are set in positionMarkers.
         const label = f.marker || f.kind || 'SRD';
-        html += '<div data-i="' + i + '" id="srd-mark-' + i
-          + '" title="' + escapeHtml(label) + '" style="position:absolute;left:'
-          + pct + '%;transform:translate(-50%,-50%);width:9px;height:9px;'
+        return '<div data-i="' + i + '" id="srd-mark-' + i
+          + '" title="' + escapeHtml(label) + '" style="position:absolute;left:0;'
+          + 'transform:translate(-50%,-50%);width:9px;height:9px;'
           + 'border:1px solid ' + col + ';border-radius:2px;background:'
           + (sel ? col : 'rgba(10,15,22,0.55)')
           + ';cursor:pointer;pointer-events:auto"></div>';
-      });
-      e.markers.innerHTML = html;
+      }).join('');
     }
     positionMarkers();
   }
 
-  // Move each pill to its age's row, in CSS pixels down the canvas. The
-  // waterfall shows `e.wf.height` rows (one per backing pixel), each
-  // SRD_BLOCK_PAIRS/sample_rate seconds long, so the whole canvas covers
-  // `rows * row_seconds` and a mark of age A sits that fraction down. A mark
-  // older than the canvas holds, or from the future, is hidden rather than
-  // clamped to an edge where it would lie about where the signal was.
+  // Move each pill to its frequency (x, through the chart so a zoom shifts it
+  // and a transmission panned out of view is hidden) and its age (y, down the
+  // plot). The waterfall now reserves a frequency strip, so the age maps across
+  // the plot's share of the canvas height. Older than the plot holds, or from
+  // the future, is hidden rather than clamped where it would lie.
   function positionMarkers() {
     const e = elements();
     if (charting) return;
     const sampleRate = lastUpperHz - lastLowerHz;
     const cssH = measure(e.wf).height;
     if (sampleRate <= 0 || cssH <= 0 || e.wf.height <= 0) return;
-    const visibleSeconds = e.wf.height * (SRD_BLOCK_PAIRS / sampleRate);
+    const pf = chart.plotHeightFraction();
+    const visibleSeconds = e.wf.height * pf * (SRD_BLOCK_PAIRS / sampleRate);
     const t = now();
     for (const pill of e.markers.children) {
       const f = lastLog[+pill.dataset.i];
+      const left = f ? chart.markerPercent(f.hz) : null;
       const frac = f ? (t - f.at) / visibleSeconds : -1;
-      if (frac < 0 || frac > 1) { pill.style.display = 'none'; continue; }
+      if (left === null || frac < 0 || frac > 1) {
+        pill.style.display = 'none';
+        continue;
+      }
       pill.style.display = '';
-      pill.style.top = (frac * cssH).toFixed(1) + 'px';
+      pill.style.left = left + '%';
+      pill.style.top = (frac * cssH * pf).toFixed(1) + 'px';
     }
   }
 
@@ -401,6 +402,19 @@ const SrdView = (function () {
     label: 'SRD',
     streams: streams,
     resize: resizeCanvases,
+    mounted() {
+      const e = elements();
+      chart.mount({
+        wfCanvas: e.wf,
+        isActive: () => {
+          const p = document.getElementById('panel-srd');
+          if (!p || p.hidden || charting) return false;
+          const a = document.activeElement;
+          return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+        },
+        onRedraw: positionMarkers,
+      });
+    },
     // An even split: a press produces a handful of frames rather than the
     // stream ADS-B carries, and the waterfall is where a reader sees the
     // transmission arrive at all.
@@ -457,7 +471,7 @@ const SrdView = (function () {
         // A new row is one row's worth of time passing, so the marks step
         // down with it -- positioning only, never a rebuild, so a click in
         // flight survives.
-        if (!charting) { drawWaterfall(msg.row); positionMarkers(); }
+        if (!charting) chart.renderRow(msg.row);
       } else if (msg.kind === 'srd_envelope') {
         if (charting) drawEnvelope(msg.envelope);
       } else if (msg.kind === 'srd_chips') {

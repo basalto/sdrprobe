@@ -204,31 +204,29 @@ const SurveyView = (function () {
     }
   }
 
-  // The same dBFS-to-y mapping the Scope's spectrum uses (lib/chart.js),
-  // over the swept range instead of one block's -- and a mark above the
-  // trace at each candidate's own frequency.
-  function drawSurveyChart(lowerHz, upperHz, power) {
-    const { surveyChart, surveyCtx } = elements();
-    const w = surveyChart.width, h = surveyChart.height;
-    const span = upperHz - lowerHz;
-    surveyCtx.fillStyle = '#0a0f16';
-    surveyCtx.fillRect(0, 0, w, h);
-    plot(surveyCtx, w, h, power, '#5adcc8', dbfsToY);
-    if (span > 0) {
-      for (const c of lastCandidates) {
-        const x = Math.round(w * (c.hz - lowerHz) / span);
-        if (x < 0 || x > w) continue;
-        surveyCtx.fillStyle = MARK_COLOR[c.mark] || '#5adcc8';
-        surveyCtx.beginPath();
-        surveyCtx.arc(x, dbfsToY(c.power_dbfs, h) - 6, 3, 0, 2 * Math.PI);
-        surveyCtx.fill();
-      }
-      surveyCtx.fillStyle = '#8291a0';
-      surveyCtx.font = '12px monospace';
-      surveyCtx.fillText((lowerHz / 1e6).toFixed(3) + ' MHz', 4, h - 4);
-      const upperLabel = (upperHz / 1e6).toFixed(3) + ' MHz';
-      surveyCtx.fillText(upperLabel, w - 8 * upperLabel.length, h - 4);
+  // The sweep chart as a freqchart (lib/freqchart.js): the same rich axes,
+  // zoom, pan and vertical scale as every other spectrum -- view-only, since a
+  // sweep is a range of its own, not a receiver tuning, so a pan does not
+  // retune. The candidate marks are drawn over the fresh trace through the
+  // chart's own x/y mapping (its onRedraw hook), so they follow a zoom and drop
+  // off when a candidate is panned out of view.
+  const sweepChart = createFreqChart({ hasSpectrum: true, retune: false });
+
+  function drawCandidateMarks() {
+    const { surveyCtx } = elements();
+    for (const c of lastCandidates) {
+      const x = sweepChart.specX(c.hz);
+      if (x === null) continue;
+      surveyCtx.fillStyle = MARK_COLOR[c.mark] || '#5adcc8';
+      surveyCtx.beginPath();
+      surveyCtx.arc(x, sweepChart.specY(c.power_dbfs) - 6, 3, 0, 2 * Math.PI);
+      surveyCtx.fill();
     }
+  }
+
+  function drawSurveyChart(lowerHz, upperHz, power) {
+    sweepChart.onDataSpan(lowerHz, upperHz);
+    sweepChart.renderSpectrum(power);   // onRedraw draws the candidate marks
   }
 
   return {
@@ -240,10 +238,11 @@ const SurveyView = (function () {
     // redrawn whole from the next `survey_spectrum`, which carries the
     // entire swept range every time.
     resize() {
-      const chart = elements().surveyChart;
-      const box = measure(chart);
+      const c = elements().surveyChart;
+      const box = measure(c);
 
-      fitCanvas(chart, box.width, box.height);
+      fitCanvas(c, box.width, box.height);
+      sweepChart.resize();
     },
     // The chart takes two thirds of the room and the candidate list the
     // rest, scrolling inside itself -- a sweep can find three signals or
@@ -258,6 +257,16 @@ const SurveyView = (function () {
     // show "press Sweep to survey the range" with no Sweep to press.
     mounted() {
       const e = elements();
+      sweepChart.mount({
+        specCanvas: e.surveyChart,
+        isActive: () => {
+          const p = document.getElementById('panel-survey');
+          if (!p || p.hidden) return false;
+          const a = document.activeElement;
+          return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+        },
+        onRedraw: drawCandidateMarks,
+      });
       e.sweep.addEventListener('click', startOrStopSweep);
       // Band... fills the range and dwell from a reachable allocation.
       e.band.addEventListener('change', chooseBand);
