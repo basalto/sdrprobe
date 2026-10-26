@@ -73,9 +73,9 @@ const AdsbView = (function () {
   /* The window's ADS-B marker colour, {80, 220, 240}. */
   const MARKER_COLOR = '#50dcf0';
   let charting = false;
-  // The received span from the last receiver_state -- the aircraft dots all sit
-  // at the 1090 MHz centre (x), separated only by age (y).
-  let lastLowerHz = 0, lastUpperHz = 0;
+  // The received span and the centre from the last receiver_state -- the
+  // aircraft dots all sit at the tuned centre (x), separated only by age (y).
+  let lastLowerHz = 0, lastUpperHz = 0, centerHz = 0;
   // The stream set, swapped on the toggle. adsb_state is in both, so the
   // funnel and log are always fed; the four chart streams and not the
   // waterfall are the charts view's. Mutated in place.
@@ -104,8 +104,8 @@ const AdsbView = (function () {
   function resizeCanvases() {
     const e = elements();
     const box = measure(e.wf);
-    if (fitCanvas(e.wf, box.width, box.height))
-      waterfallRedraw(e.wfCtx, e.wf, wf);
+    fitCanvas(e.wf, box.width, box.height);
+    chart.resize();
     for (const key in e.cc) {
       const g = e.cc[key];
       const b = measure(g.c);
@@ -179,20 +179,18 @@ const AdsbView = (function () {
   const WARN_COLOR = '#fabe4a';
   const TYPE_COLOR = { POS: '#5adcc8', VEL: '#8fb8d8', MSG: '#97aebc' };
 
-  const wf = createWaterfall();   // lib/waterfall.js -- rows survive a resize
-
-  function drawWaterfall(row) {
-    const { wf: canvas, wfCtx } = elements();
-    waterfallPush(wf, row);
-    waterfallDrawNewest(wfCtx, canvas, row);
-  }
+  // The waterfall, its axes and the zoom/pan/scale gestures (lib/freqchart.js),
+  // the Scope's controller. Retune on (the server refuses it over a capture).
+  const chart = createFreqChart({ retune: true });
 
   function renderAxis(state) {
     const { axis } = elements();
     lastLowerHz = state.center_hz - state.sample_rate_hz / 2;
     lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
+    centerHz = state.center_hz;
     axis.textContent = (lastLowerHz / 1e6).toFixed(3) + ' - '
       + (lastUpperHz / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    chart.onTuning(state.center_hz, state.sample_rate_hz);
     positionMarkers();
   }
 
@@ -221,24 +219,31 @@ const AdsbView = (function () {
     positionMarkers();
   }
 
-  // Move each dot to its age's row, in CSS pixels down the canvas -- the
-  // waterfall shows canvas.height rows, each ADSB_BLOCK_PAIRS/sample_rate
-  // seconds, so a message of age A sits that fraction down. Older than the
-  // canvas holds, or from the future, is hidden.
+  // Move each dot to its frequency (x, through the chart so a zoom shifts it)
+  // and its age (y, down the plot). The waterfall now reserves a frequency
+  // strip, so the age maps across the plot's share of the canvas height, not
+  // the whole of it. Older than the plot holds, from the future, or with the
+  // centre panned out of view is hidden.
   function positionMarkers() {
     const e = elements();
     if (charting) return;
     const sampleRate = lastUpperHz - lastLowerHz;
     const cssH = measure(e.wf).height;
     if (sampleRate <= 0 || cssH <= 0 || e.wf.height <= 0) return;
-    const visibleSeconds = e.wf.height * (ADSB_BLOCK_PAIRS / sampleRate);
+    const pf = chart.plotHeightFraction();
+    const left = chart.markerPercent(centerHz);
+    const visibleSeconds = e.wf.height * pf * (ADSB_BLOCK_PAIRS / sampleRate);
     const t = now();
     for (const dot of e.markers.children) {
       const m = lastLog[+dot.dataset.i];
       const frac = m ? (t - m.time) / visibleSeconds : -1;
-      if (frac < 0 || frac > 1) { dot.style.display = 'none'; continue; }
+      if (left === null || frac < 0 || frac > 1) {
+        dot.style.display = 'none';
+        continue;
+      }
       dot.style.display = '';
-      dot.style.top = (frac * cssH).toFixed(1) + 'px';
+      dot.style.left = left + '%';
+      dot.style.top = (frac * cssH * pf).toFixed(1) + 'px';
     }
   }
 
@@ -321,6 +326,19 @@ const AdsbView = (function () {
     label: 'ADS-B',
     streams: streams,
     resize: resizeCanvases,
+    mounted() {
+      const e = elements();
+      chart.mount({
+        wfCanvas: e.wf,
+        isActive: () => {
+          const p = document.getElementById('panel-adsb');
+          if (!p || p.hidden || charting) return false;
+          const a = document.activeElement;
+          return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+        },
+        onRedraw: positionMarkers,
+      });
+    },
     // The log is the substance here and gets the larger share; the
     // waterfall is context. `flex:1 1 0` on both, so neither's content can
     // push the page past the viewport, and the table scrolls inside itself.
@@ -362,7 +380,7 @@ const AdsbView = (function () {
       if (msg.kind === 'waterfall_row') {
         // A new row is one row's worth of time; the dots step down with it,
         // positioning only (no rebuild), so a click in flight survives.
-        if (!charting) { drawWaterfall(msg.row); positionMarkers(); }
+        if (!charting) chart.renderRow(msg.row);
       } else if (msg.kind === 'adsb_landscape') {
         if (charting) drawLine('land', msg.data, 0);
       } else if (msg.kind === 'adsb_confidence') {

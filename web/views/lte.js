@@ -111,8 +111,8 @@ const LteView = (function () {
   function resizeCanvases() {
     const e = elements();
     const box = measure(e.wf);
-    if (fitCanvas(e.wf, box.width, box.height))
-      waterfallRedraw(e.wfCtx, e.wf, wf);
+    fitCanvas(e.wf, box.width, box.height);
+    chart.resize();
     for (const key in e.cc) {
       const g = e.cc[key];
       const b = measure(g.c);
@@ -188,13 +188,10 @@ const LteView = (function () {
   const WARNING = '#fabe4a';       /* 250, 190, 74 */
   const HEAD_COLOR = '#97aebc';    /* 151, 174, 188 */
 
-  const wf = createWaterfall();
-
-  function drawWaterfall(row) {
-    const { wf: canvas, wfCtx } = elements();
-    waterfallPush(wf, row);
-    waterfallDrawNewest(wfCtx, canvas, row);
-  }
+  // The waterfall, its axes and the zoom/pan/scale gestures (lib/freqchart.js),
+  // the Scope's controller -- retune on (the server refuses it over a capture,
+  // and only ever moves the centre, never LTE's 1.92 MS/s rate).
+  const chart = createFreqChart({ retune: true });
 
   function renderAxis(state) {
     const { axis } = elements();
@@ -202,6 +199,7 @@ const LteView = (function () {
     lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
     axis.textContent = (lastLowerHz / 1e6).toFixed(3) + ' - '
       + (lastUpperHz / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    chart.onTuning(state.center_hz, state.sample_rate_hz);
     // The span moved, so the cell mark moves with it without waiting for the
     // next lte_state.
     renderMarkers();
@@ -219,13 +217,11 @@ const LteView = (function () {
   // waterfall). The window draws exactly one, highlighted; so does this.
   function renderMarkers() {
     const e = elements();
-    const span = lastUpperHz - lastLowerHz;
-    if (span <= 0 || charting || !markerLabel
-        || markerHz < lastLowerHz || markerHz > lastUpperHz) {
+    const pct = chart.markerPercent(markerHz);
+    if (charting || !markerLabel || pct === null) {
       e.markers.innerHTML = '';
       return;
     }
-    const pct = (100 * (markerHz - lastLowerHz) / span).toFixed(2);
     e.markers.innerHTML = '<div style="position:absolute;top:0;left:' + pct
       + '%;transform:translateX(-50%);white-space:nowrap;font:11px monospace;'
       + 'padding:1px 4px;border:1px solid ' + MARKER_COLOR + ';border-radius:2px;'
@@ -433,6 +429,19 @@ const LteView = (function () {
     label: 'LTE',
     streams: streams,
     resize: resizeCanvases,
+    mounted() {
+      const e = elements();
+      chart.mount({
+        wfCanvas: e.wf,
+        isActive: () => {
+          const p = document.getElementById('panel-lte');
+          if (!p || p.hidden || charting) return false;
+          const a = document.activeElement;
+          return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+        },
+        onRedraw: renderMarkers,
+      });
+    },
     // Three panels across the bottom in the window's own order -- what a
     // scan found, what the synchronisation signals found, what the cell says
     // -- with the middle one widest because it carries the statistics table.
@@ -494,7 +503,7 @@ const LteView = (function () {
       + '</div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') {
-        if (!charting) drawWaterfall(msg.row);
+        if (!charting) chart.renderRow(msg.row);
       } else if (msg.kind === 'lte_pss') {
         if (charting) drawLine('pss', msg.data);
       } else if (msg.kind === 'lte_sss') {

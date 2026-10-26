@@ -172,8 +172,8 @@ const FmView = (function () {
     const e = elements();
     const wfBox = measure(e.wf);
 
-    if (fitCanvas(e.wf, wfBox.width, wfBox.height))
-      waterfallRedraw(e.wfCtx, e.wf, history);
+    fitCanvas(e.wf, wfBox.width, wfBox.height);
+    chart.resize();
     // Each grid canvas to its own laid-out box. These carry no history of
     // their own -- the next frame of each stream redraws it whole -- so a
     // resize clearing them loses nothing.
@@ -182,6 +182,10 @@ const FmView = (function () {
       const box = measure(g.c);
       fitCanvas(g.c, box.width, box.height);
     }
+    // The two baseband spectra are freqcharts; redraw them from their last
+    // trace after their canvases were refit (the others redraw on next frame).
+    mpxChart.resize();
+    aspecChart.resize();
   }
 
   // The window's own panel palette, taken from `src/gui/view_fm.c`'s file-scope
@@ -398,12 +402,11 @@ const FmView = (function () {
   // current span is dropped, and the tuned one is brightened.
   function renderMarkers() {
     const e = elements();
-    const span = lastUpperHz - lastLowerHz;
-    if (span <= 0 || charting) { e.markers.innerHTML = ''; return; }
+    if (charting) { e.markers.innerHTML = ''; return; }
     let html = '';
     for (const st of lastStations) {
-      if (st.hz < lastLowerHz || st.hz > lastUpperHz) continue;
-      const pct = (100 * (st.hz - lastLowerHz) / span).toFixed(2);
+      const pct = chart.markerPercent(st.hz);
+      if (pct === null) continue;        // off the current window
       const tuned = Math.abs(lastTunedHz - st.hz) < TUNED_NEAR_HZ;
       const label = st.name || 'FM';
       html += '<div style="position:absolute;top:0;left:' + pct + '%;'
@@ -416,17 +419,11 @@ const FmView = (function () {
     e.markers.innerHTML = html;
   }
 
-  // The same waterfall the window draws over the received span, through
-  // the same lib/waterfall.js the Scope's goes through -- one scroll and
-  // one row of pixels as each arrives, and the rows kept beside it so a
-  // resize redraws rather than blanks.
-  const history = createWaterfall();
-
-  function drawWaterfall(row) {
-    const e = elements();
-    waterfallPush(history, row);
-    waterfallDrawNewest(e.wfCtx, e.wf, row);
-  }
+  // The waterfall, its axes and the zoom/pan/scale gestures (lib/freqchart.js),
+  // the Scope's controller -- the FM screen draws the same rows over the same
+  // span. Retune on, which is how the band is walked (the server refuses it
+  // over a capture).
+  const chart = createFreqChart({ retune: true });
 
   // The span under the waterfall, from whatever `receiver_state` last
   // said. A waterfall with no frequencies on it is a picture; the window
@@ -442,6 +439,7 @@ const FmView = (function () {
       + ' MHz (newest at top)';
     // The span moved, so the marks move with it, and the row highlight
     // follows the new tuning without waiting for the next fm_state.
+    chart.onTuning(state.center_hz, state.sample_rate_hz);
     renderMarkers();
   }
 
@@ -455,39 +453,40 @@ const FmView = (function () {
     x.fillRect(0, 0, w, h);
   }
 
-  // A dBFS line spectrum, optionally with the multiplex's three landmarks and
-  // a top-of-band label -- the shared body of the multiplex and audio-spectrum
-  // charts, which differ only in their landmarks and their top frequency.
-  function spectrumChart(g, lowerHz, upperHz, power, landmarks) {
-    const w = g.c.width, h = g.c.height, span = upperHz - lowerHz;
-    clearChart(g.x, w, h);
-    if (span > 0 && landmarks) {
-      g.x.font = '12px monospace';
-      for (const m of landmarks) {
-        const bx = Math.round(w * (m.hz - lowerHz) / span);
-        if (bx < 0 || bx > w) continue;
-        g.x.strokeStyle = '#232f3b';
-        g.x.beginPath();
-        g.x.moveTo(bx + 0.5, 0);
-        g.x.lineTo(bx + 0.5, h);
-        g.x.stroke();
-        g.x.fillStyle = '#8291a0';
-        g.x.fillText(m.label, bx + 3, 12);
-      }
-    }
-    plot(g.x, w, h, power, TRACE, dbfsToY);
-    if (span > 0) {
+  // FM's two baseband spectra as freqcharts (lib/freqchart.js): rich kHz axes,
+  // wheel/drag zoom, +/- vertical scale and the arrows -- view-only, since
+  // these are baseband and not the receiver's RF span, so a pan does not
+  // retune. keysNeedHover, because the two share the panel and the keys act on
+  // the one under the pointer. The multiplex draws the pilot/stereo/RDS
+  // landmarks over its trace through the chart's own x-mapping.
+  const mpxChart = createFreqChart({ hasSpectrum: true, retune: false, keysNeedHover: true });
+  const aspecChart = createFreqChart({ hasSpectrum: true, retune: false, keysNeedHover: true });
+
+  function drawMpxLandmarks() {
+    const g = elements().cc.mpx, plot = mpxChart.specPlot();
+    if (!plot) return;
+    g.x.font = '12px monospace';
+    for (const m of LANDMARKS) {
+      const x = mpxChart.specX(m.hz);
+      if (x === null) continue;
+      g.x.strokeStyle = '#3a4a5a';
+      g.x.beginPath();
+      g.x.moveTo(Math.round(x) + 0.5, plot.y);
+      g.x.lineTo(Math.round(x) + 0.5, plot.y + plot.height);
+      g.x.stroke();
       g.x.fillStyle = '#8291a0';
-      g.x.fillText((upperHz / 1e3).toFixed(0) + ' kHz', w - 60, h - 4);
+      g.x.fillText(m.label, x + 3, plot.y + 12);
     }
   }
 
   function drawMultiplex(lowerHz, upperHz, power) {
-    spectrumChart(elements().cc.mpx, lowerHz, upperHz, power, LANDMARKS);
+    mpxChart.onDataSpan(lowerHz, upperHz);
+    mpxChart.renderSpectrum(power);
   }
 
   function drawAudioSpectrum(lowerHz, upperHz, power) {
-    spectrumChart(elements().cc.aspec, lowerHz, upperHz, power, null);
+    aspecChart.onDataSpan(lowerHz, upperHz);
+    aspecChart.renderSpectrum(power);
   }
 
   // The audio waveform, a line on a linear [-1, 1] axis (not dBFS): a flat
@@ -615,6 +614,30 @@ const FmView = (function () {
     // shows a band of it rather than a line.
     //
     resize: resizeCanvases,
+    mounted() {
+      const e = elements();
+      chart.mount({
+        wfCanvas: e.wf,
+        isActive: () => {
+          const p = document.getElementById('panel-fm');
+          if (!p || p.hidden || charting) return false;
+          const a = document.activeElement;
+          return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+        },
+        onRedraw: renderMarkers,
+      });
+      // The baseband spectra live in the charts grid, so they are live only
+      // while the charts are shown.
+      const chartsActive = () => {
+        const p = document.getElementById('panel-fm');
+        if (!p || p.hidden || !charting) return false;
+        const a = document.activeElement;
+        return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+      };
+      mpxChart.mount({ specCanvas: e.cc.mpx.c, isActive: chartsActive,
+                       onRedraw: drawMpxLandmarks });
+      aspecChart.mount({ specCanvas: e.cc.aspec.c, isActive: chartsActive });
+    },
     // The window's own arrangement, mirrored: a toolbar, then a row with the
     // Band II table on the left and the waterfall on the right, then the
     // three panels across the bottom. `min-height:0`/`min-width:0` on the
@@ -703,7 +726,7 @@ const FmView = (function () {
       '</div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') {
-        if (!charting) drawWaterfall(msg.row);
+        if (!charting) chart.renderRow(msg.row);
       } else if (msg.kind === 'fm_spectrum') {
         if (charting) drawMultiplex(msg.lowerHz, msg.upperHz, msg.power);
       } else if (msg.kind === 'fm_audio') {

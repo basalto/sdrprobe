@@ -3,28 +3,31 @@
 // own `receiver_state`/`link_health`, `render(msg)` draws from whatever
 // wire.js decoded. Wrapped in an IIFE so `ScopeView` is the only name
 // this file adds to the shared global scope every concatenated file
-// runs in -- its own canvas refs and draw functions stay private, the
-// same "exports three things and nothing else" ticket 14 asks of every
-// view, enforced rather than merely intended.
+// runs in.
+//
+// The spectrum, the waterfall, their axes and all the zoom/pan/scale
+// gestures are lib/freqchart.js now -- the same controller every decode
+// view's waterfall uses, so the gestures mean the same everywhere. This
+// file is the Scope's own chrome: the centre field, the FFT stepper, and
+// the vertical-scale and reset buttons.
 const ScopeView = (function () {
   // The canvases are resolved lazily rather than at load time, because
   // `markup` is not in the document yet when this IIFE runs -- viewer.js
-  // inserts it into `#panels` later, at `mountViews()` time. `elements()`
-  // memoises the lookup so it costs one `getElementById()` per canvas,
-  // not one per message.
+  // inserts it into `#panels` later, at `mountViews()` time.
   let els = null;
   function elements() {
     if (!els) {
-      const specCanvas = document.getElementById('spectrum');
-      const wfCanvas = document.getElementById('waterfall');
       els = {
-        specCanvas, specCtx: specCanvas.getContext('2d'),
-        wfCanvas, wfCtx: wfCanvas.getContext('2d'),
+        specCanvas: document.getElementById('spectrum'),
+        wfCanvas: document.getElementById('waterfall'),
         centre: document.getElementById('scope-centre'),
         tune: document.getElementById('scope-tune'),
         fftDown: document.getElementById('scope-fft-down'),
         fftValue: document.getElementById('scope-fft'),
         fftUp: document.getElementById('scope-fft-up'),
+        scaleDown: document.getElementById('scope-scale-down'),
+        scaleUp: document.getElementById('scope-scale-up'),
+        reset: document.getElementById('scope-reset'),
       };
     }
     return els;
@@ -49,8 +52,6 @@ const ScopeView = (function () {
   const VALUE = '#ebf2f6';
 
   function send(line) {
-    // viewer.js owns the socket; a view never opens one (ADR-0007, restated for
-    // JavaScript in the web-view skill).
     if (typeof sendCommand === 'function') sendCommand(line);
   }
 
@@ -69,23 +70,18 @@ const ScopeView = (function () {
 
   function tuneToField() {
     const hz = parseMHz(elements().centre.value);
-    // A bad spelling is left for the operator to fix rather than sent: the
-    // server would refuse it, but refusing here keeps the field as typed.
+    // A bad spelling is left for the operator to fix rather than sent.
     if (hz !== null) send('tune ' + hz);
   }
 
   // The last centre the receiver reported, so the field can be kept in step
   // without clobbering a half-typed entry (prefilled only while unfocused).
   let lastCentreHz = null;
-
   // The transform size the receiver reports in use, so the stepper steps from
-  // the server's truth rather than guessing -- the window reads it back the same
-  // way (sdr_dsp_fft_choice_of(sv->fft_size)).
+  // the server's truth rather than guessing.
   let lastFftSize = null;
 
   function stepFft(by) {
-    // Step from whatever the server last said, falling to 2048 before the
-    // first receiver_state arrives.
     const from = lastFftSize || 2048;
     const next = stepFromList(FFT_SIZES, from, by);
     // `fft` is the this-run-only size (view_scope.c's stepper), not `set fft` +
@@ -93,52 +89,35 @@ const ScopeView = (function () {
     if (next !== from) send('fft ' + next);
   }
 
-  function drawSpectrum(average, peak) {
-    const { specCanvas, specCtx } = elements();
-    const w = specCanvas.width, h = specCanvas.height;
-    specCtx.fillStyle = '#0a0f16';
-    specCtx.fillRect(0, 0, w, h);
-    plot(specCtx, w, h, peak, '#e8a355', dbfsToY);
-    plot(specCtx, w, h, average, '#5adcc8', dbfsToY);
-  }
+  // The spectrum, the waterfall and every gesture. retune on: a pan past the
+  // received edge retunes the receiver, which on the Scope is always allowed.
+  const chart = createFreqChart({ hasSpectrum: true, retune: true });
 
-  // The rows this view has been sent, so the picture survives a resize --
-  // see lib/waterfall.js for what that costs and why keeping them does not
-  // put the old whole-redraw cost back on the per-row path.
-  const wf = createWaterfall();
-
-  function drawWaterfall(row) {
-    const { wfCanvas, wfCtx } = elements();
-    waterfallPush(wf, row);
-    waterfallDrawNewest(wfCtx, wfCanvas, row);
+  // The keys act only on the Scope, and only when no field is taking typed
+  // input -- input_view_keys_live / input_scale_keys, in the browser.
+  function active() {
+    const p = document.getElementById('panel-scope');
+    if (!p || p.hidden) return false;
+    const a = document.activeElement;
+    return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' ||
+                   a.isContentEditable));
   }
 
   return {
     id: 'scope',
     label: 'Scope',
     streams: ['spectrum', 'waterfall'],
-    // Each canvas is matched to what CSS laid it out at; the markup gives
-    // the two of them equal shares of the room left below the labels.
-    // Resizing clears a canvas, so the waterfall is redrawn from the rows
-    // it kept -- only when the geometry actually changed, which is what
-    // `fitCanvas()` reports. The spectrum needs no such thing: the next
-    // message carries the whole trace.
+    // Each canvas is matched to what CSS laid it out at, then everything is
+    // redrawn -- a fit clears the canvas, so the traces and both axes have to
+    // be drawn again whether or not the geometry changed.
     resize() {
-      const { specCanvas, wfCanvas, wfCtx } = elements();
+      const { specCanvas, wfCanvas } = elements();
       const spec = measure(specCanvas), wfBox = measure(wfCanvas);
 
       fitCanvas(specCanvas, spec.width, spec.height);
-      if (fitCanvas(wfCanvas, wfBox.width, wfBox.height))
-        waterfallRedraw(wfCtx, wfCanvas, wf);
+      fitCanvas(wfCanvas, wfBox.width, wfBox.height);
+      chart.resize();
     },
-    // The two charts share the room left below their labels, so the page
-    // is exactly the viewport and never scrolls. `min-height:0` is what
-    // lets each be shorter than its own backing store rather than pushing
-    // the column past the bottom.
-    // The window's Scope header has a centre field that retunes the receiver;
-    // this is that field and nothing more. The window's start/end are a view
-    // zoom this page does not have (the spectrum is redrawn whole each block),
-    // and its FFT stepper is the Settings panel's resolution, reachable there.
     mounted() {
       const e = elements();
       e.tune.addEventListener('click', tuneToField);
@@ -147,6 +126,10 @@ const ScopeView = (function () {
       });
       e.fftDown.addEventListener('click', () => stepFft(-1));
       e.fftUp.addEventListener('click', () => stepFft(1));
+      e.scaleDown.addEventListener('click', () => chart.scaleDown());
+      e.scaleUp.addEventListener('click', () => chart.scaleUp());
+      e.reset.addEventListener('click', () => chart.resetZoom());
+      chart.mount({ specCanvas: e.specCanvas, wfCanvas: e.wfCanvas, isActive: active });
     },
     markup:
       '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
@@ -158,9 +141,6 @@ const ScopeView = (function () {
       + '<button id="scope-tune" style="background:#1b2836;color:' + CAPTION
       + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
       + 'cursor:pointer">Tune</button>'
-      // The Scope header's FFT stepper: this-run-only resolution (the Settings
-      // tab is where it persists). A span between two step buttons, the window's
-      // own < value > arrangement.
       + '<span style="color:' + LABEL + ';margin-left:8px">FFT</span>'
       + '<button id="scope-fft-down" style="background:#1b2836;color:' + CAPTION
       + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 10px;font:inherit;'
@@ -171,32 +151,39 @@ const ScopeView = (function () {
       + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 10px;font:inherit;'
       + 'cursor:pointer">›</button>'
       + '<span style="color:' + LABEL + '">points</span>'
+      + '<span style="color:' + LABEL + ';margin-left:8px">scale</span>'
+      + '<button id="scope-scale-down" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 10px;font:inherit;'
+      + 'cursor:pointer">−</button>'
+      + '<button id="scope-scale-up" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 10px;font:inherit;'
+      + 'cursor:pointer">+</button>'
+      + '<button id="scope-reset" style="background:#1b2836;color:' + CAPTION
+      + ';border:1px solid ' + PANEL_EDGE + ';padding:4px 12px;font:inherit;'
+      + 'cursor:pointer;margin-left:8px">Reset zoom</button>'
       + '</div>' +
-      '<div class="label">spectrum (average: cyan, peak hold: orange)</div>' +
+      '<div class="label">spectrum (average: cyan, peak hold: orange) — scroll '
+      + 'to zoom, drag to pan; arrows zoom/pan, +/− scale, 0 reset</div>' +
       '<canvas id="spectrum" style="flex:1 1 0;min-height:110px;width:100%;'
       + 'margin-bottom:10px"></canvas>' +
       '<div class="label">waterfall (built from rows in this browser; never re-sent)</div>' +
       '<canvas id="waterfall" style="flex:1 1 0;min-height:110px;width:100%">'
       + '</canvas>',
     render(msg) {
-      if (msg.kind === 'spectrum') drawSpectrum(msg.average, msg.peak);
-      else if (msg.kind === 'waterfall_row') drawWaterfall(msg.row);
+      if (msg.kind === 'spectrum') chart.renderSpectrum(msg.average, msg.peak);
+      else if (msg.kind === 'waterfall_row') chart.renderRow(msg.row);
       else if (msg.kind === 'state' && msg.state.type === 'receiver_state') {
-        // Keep the centre field showing where the receiver is, the way the
-        // window's field reads back the tuning -- but not while it is being
-        // typed into, and only when the value actually moved.
         const e = elements();
         const hz = msg.state.center_hz;
-        if (hz !== lastCentreHz && document.activeElement !== e.centre) {
+        if (hz !== lastCentreHz && document.activeElement !== e.centre)
           e.centre.value = (hz / 1e6).toFixed(4);
-          lastCentreHz = hz;
-        }
-        // The transform size in use, so the stepper reads the server's truth.
+        lastCentreHz = hz;
         const fft = msg.state.fft_size;
         if (fft && fft !== lastFftSize) {
           e.fftValue.textContent = fft;
           lastFftSize = fft;
         }
+        chart.onTuning(hz, msg.state.sample_rate_hz);
       }
     },
   };

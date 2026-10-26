@@ -69,9 +69,10 @@ const TetraView = (function () {
   let charting = false;
   /* The window's TETRA marker colour, {80, 220, 240}. */
   const MARKER_COLOR = '#50dcf0';
-  // The received span from the last receiver_state, and the identity label from
-  // the last tetra_state -- the single carrier mark is placed against the span.
-  let lastLowerHz = 0, lastUpperHz = 0, markerLabel = '';
+  // The carrier frequency the single mark sits on, and the identity label from
+  // the last tetra_state. The mark is placed through the chart so it follows a
+  // zoom; lastLowerHz/Upper feed only the text caption.
+  let lastLowerHz = 0, lastUpperHz = 0, markerHz = 0, markerLabel = '';
   // The stream set, swapped on the toggle: the signal view wants the
   // waterfall, the charts view the two analysis streams -- and not the
   // waterfall, hidden then and the page's largest stream. tetra_state is in
@@ -81,7 +82,10 @@ const TetraView = (function () {
   const CHART_STREAMS = ['tetra_state', 'tetra_scatter', 'tetra_profile'];
   const streams = SIGNAL_STREAMS.slice();
 
-  const wf = createWaterfall();
+  // The waterfall, its axes and the zoom/pan/scale gestures (lib/freqchart.js),
+  // the same controller the Scope uses -- retune on, so a pan past the edge
+  // moves the receiver (the server refuses it over a capture).
+  const chart = createFreqChart({ retune: true });
 
   function showCharts(on) {
     const e = elements();
@@ -103,8 +107,8 @@ const TetraView = (function () {
   function resizeCanvases() {
     const e = elements();
     const box = measure(e.wf);
-    if (fitCanvas(e.wf, box.width, box.height))
-      waterfallRedraw(e.wfCtx, e.wf, wf);
+    fitCanvas(e.wf, box.width, box.height);
+    chart.resize();
     for (const key in e.cc) {
       const g = e.cc[key];
       const b = measure(g.c);
@@ -151,34 +155,31 @@ const TetraView = (function () {
     }
   }
 
-  function drawWaterfall(row) {
-    const { wf: canvas, wfCtx } = elements();
-    waterfallPush(wf, row);
-    waterfallDrawNewest(wfCtx, canvas, row);
-  }
-
   function renderAxis(state) {
     const { axis } = elements();
     lastLowerHz = state.center_hz - state.sample_rate_hz / 2;
     lastUpperHz = state.center_hz + state.sample_rate_hz / 2;
+    markerHz = state.center_hz;
     axis.textContent = (lastLowerHz / 1e6).toFixed(3) + ' - '
       + (lastUpperHz / 1e6).toFixed(3) + ' MHz   (newest at top)';
+    chart.onTuning(state.center_hz, state.sample_rate_hz);
     renderMarkers();
   }
 
   // One mark over the carrier, the window's own: at the tuned centre (a TETRA
   // view holds one 25 kHz carrier), labelled by the identity the broadcast
-  // gave up. Empty until there is an identity -- a marker is a claim that
-  // something is there -- and cleared while the charts are up.
+  // gave up. Placed through the chart so it follows a zoom and drops off when
+  // the carrier is panned out of view. Empty until there is an identity -- a
+  // marker is a claim that something is there -- and cleared while charts are up.
   function renderMarkers() {
     const e = elements();
-    const span = lastUpperHz - lastLowerHz;
-    if (span <= 0 || charting || !markerLabel) {
+    const pct = chart.markerPercent(markerHz);
+    if (charting || !markerLabel || pct === null) {
       e.markers.innerHTML = '';
       return;
     }
-    e.markers.innerHTML = '<div style="position:absolute;top:0;left:50%;'
-      + 'transform:translateX(-50%);white-space:nowrap;font:11px monospace;'
+    e.markers.innerHTML = '<div style="position:absolute;top:0;left:' + pct
+      + '%;transform:translateX(-50%);white-space:nowrap;font:11px monospace;'
       + 'padding:1px 4px;border:1px solid ' + MARKER_COLOR + ';border-radius:2px;'
       + 'background:#133;font-weight:bold;color:' + MARKER_COLOR + '">'
       + markerLabel + '</div>';
@@ -265,6 +266,19 @@ const TetraView = (function () {
     label: 'TETRA',
     streams: streams,
     resize: resizeCanvases,
+    mounted() {
+      const e = elements();
+      chart.mount({
+        wfCanvas: e.wf,
+        isActive: () => {
+          const p = document.getElementById('panel-tetra');
+          if (!p || p.hidden || charting) return false;
+          const a = document.activeElement;
+          return !(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+        },
+        onRedraw: renderMarkers,
+      });
+    },
     // The identity table is short -- one row per identity, not per burst,
     // and a base station has one -- so the waterfall takes the larger
     // share here, unlike ADS-B where the log is the substance.
@@ -307,7 +321,7 @@ const TetraView = (function () {
       + '<tbody id="tetra-rows"></tbody></table></div>',
     render(msg) {
       if (msg.kind === 'waterfall_row') {
-        if (!charting) drawWaterfall(msg.row);
+        if (!charting) chart.renderRow(msg.row);
       } else if (msg.kind === 'tetra_scatter') {
         if (charting) drawPhase(msg.x, msg.y);
       } else if (msg.kind === 'tetra_profile') {
