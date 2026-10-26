@@ -108,6 +108,28 @@ void settings_view_model_build(const struct settings_panel *set,
     out->applied_remove_dc = applied_remove_dc;
     out->applied_auto_drift = applied_auto_drift;
 
+    /* --- the limits, so a reader is told them before an Apply refuses ----- */
+    out->ppm_min = SETTINGS_PPM_MIN;
+    out->ppm_max = SETTINGS_PPM_MAX;
+    out->fft_min = sdr_dsp_fft_choice(0);
+    out->fft_max = sdr_dsp_fft_choice(SDR_DSP_FFT_CHOICES - 1);
+    /* The gain range in the device's own unit (empty for a capture, whose gain
+       is baked in). Spelled with device_gain_format for the same reason the
+       value is -- an index must not be printed as decibels. */
+    if (receiver_mode && out->gain_option_count > 0) {
+        char lo[24], hi[24];
+
+        device_gain_format(device, device_gain_option_value(device, 0),
+                           lo, sizeof(lo));
+        device_gain_format(device,
+                           device_gain_option_value(device,
+                                                    out->gain_option_count - 1),
+                           hi, sizeof(hi));
+        snprintf(out->gain_range, sizeof(out->gain_range), "%s to %s", lo, hi);
+    } else {
+        out->gain_range[0] = '\0';
+    }
+
     snprintf(out->error, sizeof(out->error), "%s", set->error);
 
     /*

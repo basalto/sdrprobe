@@ -41,6 +41,17 @@
    discover it as a trace that suddenly looks worse. */
 #define SETTINGS_FFT_TEXT 96
 
+/*
+ * The PPM field's accepted range, here rather than as a literal in
+ * `settings_apply()` so the check that refuses out-of-range and the hint the
+ * panel shows cannot drift apart -- the same reason input_route.h mirrors its
+ * constants. `settings_apply()` refuses anything outside it and says so, and
+ * the view model carries it so a reader is told the range before they type
+ * rather than only after an Apply refuses.
+ */
+#define SETTINGS_PPM_MIN (-1000)
+#define SETTINGS_PPM_MAX 1000
+
 struct settings_view_model {
     /* Whether the panel is up. A Viewer follows the window into it the same
        way it follows it into a decode view (ADR-0027). */
@@ -79,6 +90,20 @@ struct settings_view_model {
        panel says so rather than offering a stepper that does nothing. */
     int gain_adjustable;
     int gain_option_count;
+
+    /*
+     * The accepted range of each parameter, so a reader is told the limits
+     * rather than discovering them by having an Apply refused. PPM is the one
+     * that needs it most -- a free-text field whose bounds are otherwise
+     * invisible -- but the gain and resolution steppers carry theirs too, from
+     * the authoritative places: SETTINGS_PPM_MIN/MAX, the device's gain options
+     * (spelled in its own unit, empty for a capture), and the FFT sizes.
+     */
+    int ppm_min;
+    int ppm_max;
+    char gain_range[SETTINGS_GAIN_TEXT];   /* "<min> to <max>", or empty */
+    int fft_min;
+    int fft_max;
 
     /* The panel's own line, verbatim -- `apply_settings()` writes it and
        this carries it, so a command's refusal and the window's notice are

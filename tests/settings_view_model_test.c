@@ -198,12 +198,40 @@ static void test_the_error_travels_verbatim(void) {
               "PPM must be a signed integer from -1000 to 1000");
 }
 
+/*
+ * The accepted ranges travel, so a reader is told the limits before an Apply
+ * refuses -- the PPM bounds from the shared constants (the same ones
+ * settings_apply refuses on), the gain range in the device's own unit, and the
+ * transform sizes. A capture has no gain range, which is a different answer
+ * from "0 to 0".
+ */
+static void test_the_limits_travel(void) {
+    struct settings_view_model m;
+
+    blank();
+    m = build();
+    check_int("the PPM floor", m.ppm_min, SETTINGS_PPM_MIN);
+    check_int("and ceiling", m.ppm_max, SETTINGS_PPM_MAX);
+    check_int("the smallest transform", m.fft_min, sdr_dsp_fft_choice(0));
+    check_int("and the largest",
+              m.fft_max, sdr_dsp_fft_choice(SDR_DSP_FFT_CHOICES - 1));
+    check_true("a receiver has a gain range", m.gain_range[0] != '\0');
+    check_true("spelled as a range", strstr(m.gain_range, " to ") != NULL);
+
+    /* A capture's gain is baked in, so there is no range to offer. */
+    receiver_mode = 0;
+    m = build();
+    check_str("a capture offers no gain range", m.gain_range, "");
+    receiver_mode = 1;
+}
+
 int main(void) {
     test_a_fresh_panel_is_not_dirty();
     test_staged_and_applied_are_both_carried();
     test_a_field_that_cannot_parse_is_not_settled();
     test_gain_reads_in_the_profiles_own_unit();
     test_the_transform_says_what_it_costs();
+    test_the_limits_travel();
     test_the_error_travels_verbatim();
     return check_report("what the Settings panel says, decided without a "
                         "screen");
