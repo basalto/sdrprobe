@@ -2109,17 +2109,23 @@ void viewer_link_publish_settings_state(struct viewer_link *link,
                                         uint64_t now_ms) {
     char json[2048];
     char ppm[64];
+    char gain_range[sizeof(svm->gain_range) * 2];
     char error[384];
     int json_len, i;
 
     json_escape_into(ppm, sizeof(ppm), svm->staged_ppm,
                      strlen(svm->staged_ppm));
+    json_escape_into(gain_range, sizeof(gain_range), svm->gain_range,
+                     strlen(svm->gain_range));
     json_escape_into(error, sizeof(error), svm->error, strlen(svm->error));
 
     json_len = snprintf(json, sizeof(json),
                         "{\"type\":\"settings_state\",\"timestamp_ms\":%llu,"
                         "\"open\":%s,\"dirty\":%s,"
                         "\"gain_adjustable\":%s,\"gain_options\":%d,"
+                        "\"ppm_min\":%d,\"ppm_max\":%d,"
+                        "\"gain_range\":\"%s\","
+                        "\"fft_min\":%d,\"fft_max\":%d,"
                         "\"staged\":{\"ppm\":\"%s\",\"gain_choice\":%d,"
                         "\"gain\":\"%s\",\"fft_size\":%d,"
                         "\"fft\":\"%s\",\"remove_dc\":%s,"
@@ -2133,6 +2139,8 @@ void viewer_link_publish_settings_state(struct viewer_link *link,
                         svm->dirty ? "true" : "false",
                         svm->gain_adjustable ? "true" : "false",
                         svm->gain_option_count,
+                        svm->ppm_min, svm->ppm_max, gain_range,
+                        svm->fft_min, svm->fft_max,
                         ppm, svm->staged_gain_choice, svm->staged_gain,
                         svm->staged_fft_size, svm->staged_fft,
                         svm->staged_remove_dc ? "true" : "false",

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "core/sdr_dsp.h"
+#include "model/settings_view_model.h"
 #include "runtime/app.h"
 #include "runtime/config.h"
 #include "runtime/receiver_runtime.h"
@@ -70,9 +71,11 @@ int settings_apply(struct app *app, int *clear_waterfall_out) {
      */
     uint32_t frequency = app->applied.frequency_hz;
     int ppm;
-    if (parse_int(app->set.ppm, &ppm) < 0 || ppm < -1000 || ppm > 1000) {
+    if (parse_int(app->set.ppm, &ppm) < 0 ||
+        ppm < SETTINGS_PPM_MIN || ppm > SETTINGS_PPM_MAX) {
         snprintf(app->set.error, sizeof(app->set.error),
-                 "PPM must be a signed integer from -1000 to 1000");
+                 "PPM must be a signed integer from %d to %d",
+                 SETTINGS_PPM_MIN, SETTINGS_PPM_MAX);
         return -1;
     }
 

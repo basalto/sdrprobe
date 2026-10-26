@@ -22,6 +22,9 @@ const SettingsView = (function () {
         rows: document.getElementById('set-rows'),
         error: document.getElementById('set-error'),
         apply: document.getElementById('set-apply'),
+        ppmHint: document.getElementById('set-ppm-hint'),
+        gainHint: document.getElementById('set-gain-hint'),
+        fftHint: document.getElementById('set-fft-hint'),
       };
     }
     return els;
@@ -90,6 +93,18 @@ const SettingsView = (function () {
           ap.auto_drift ? 'on' : 'off', st.auto_drift !== ap.auto_drift),
     ]);
 
+    // The accepted ranges, so a reader is told the limits before an Apply
+    // refuses -- all from the state (the server's own facts), never guessed.
+    // PPM is the one that needs it most: a free-text field whose bounds are
+    // otherwise invisible. The gain range is empty for a capture.
+    if (e.ppmHint)
+      e.ppmHint.textContent = '(' + s.ppm_min + ' to ' + s.ppm_max + ')';
+    if (e.gainHint)
+      e.gainHint.textContent = (s.gain_adjustable && s.gain_range)
+        ? '(' + s.gain_range + ')' : '';
+    if (e.fftHint)
+      e.fftHint.textContent = '(' + s.fft_min + ' to ' + s.fft_max + ' points)';
+
     e.ppm.value = st.ppm;
     e.dc.checked = !!st.remove_dc;
     e.drift.checked = !!st.auto_drift;
@@ -157,12 +172,18 @@ const SettingsView = (function () {
       + '<input id="set-ppm" size="6" style="background:#16222e;color:'
       + VALUE + ';border:1px solid ' + PANEL_EDGE + ';font:inherit;'
       + 'padding:3px 6px"></label>'
+      + '<span id="set-ppm-hint" style="color:' + MUTED + ';font-size:12px">'
+      + '</span>'
       + '<span style="color:' + LABEL + '">Gain</span>'
       + button('set-gain-down', '&lt;') + button('set-gain-up', '&gt;')
       + '<span id="set-gain"></span>'
+      + '<span id="set-gain-hint" style="color:' + MUTED + ';font-size:12px">'
+      + '</span>'
       + '<span style="color:' + LABEL + '">Resolution</span>'
       + button('set-fft-down', '&lt;') + button('set-fft-up', '&gt;')
       + '<span id="set-fft"></span>'
+      + '<span id="set-fft-hint" style="color:' + MUTED + ';font-size:12px">'
+      + '</span>'
       + '</div>'
       + '<div style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap">'
       + '<label style="color:' + LABEL + '"><input type="checkbox" '
